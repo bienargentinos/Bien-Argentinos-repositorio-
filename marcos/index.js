@@ -23,7 +23,6 @@ const { reportarAlAdmin }    = require('./agentes/marcos-admin');
 
 const app = express();
 
-// Parsear JSON pero silenciar errores de formato inválido (pings de Meta/Vapi)
 app.use((req, res, next) => {
     bodyParser.json()(req, res, (err) => {
         if (err) {
@@ -77,7 +76,7 @@ app.post('/webhook', async (req, res) => {
         else if (msgType === 'audio') { mediaId = message.audio.id; msgBody = '(Nota de voz)'; }
         else if (msgType === 'document') { mediaId = message.document.id; msgBody = message.document.caption || '(Documento adjunto)'; }
         else if (msgType === 'unsupported' || msgType === 'system') {
-            await enviarWhatsApp(from, "Disculpe, la atención es únicamente mediante *mensajes de texto* o *notas de voz* 🎤.", WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+            await enviarWhatsApp(from, "Disculpe, la atención es únicamente mediante *mensajes de texto* o *notas de voz* 🎤.\n\nPor favor, escríbame o envíem e un audio con su consulta y lo atenderé de inmediato.", WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
             return;
         } else { return; }
         let recipient = from;
@@ -149,6 +148,11 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType }) {
     const historial = session.historial;
     historial.push(`Vecino: ${textoFinal}`);
     if (historial.length > 30) historial.shift();
+
+    // Primeros 2 audios -> responde con voz. Del 3ro en adelante -> texto para ahorrar TTS
+    if (msgType === 'audio') session.contadorAudios = (session.contadorAudios || 0) + 1;
+    const msgTypeRespuesta = (msgType === 'audio' && session.contadorAudios <= 2) ? 'audio' : msgType;
+
     const edificiosConocidos = await listarEdificiosConocidos();
     if (!session.edificioId) {
         if (session.edificioPendiente && (msgClean.includes('si') || msgClean.includes('correcto') || msgClean.includes('es esa'))) {
@@ -174,7 +178,7 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType }) {
     if (!session.edificioId) {
         const respuestaCara = await responderVecino({ historial, vecino: null, opcionesEdificio: session.opcionesEdificio, edificioPendiente: session.edificioPendiente });
         delete session.opcionesEdificio;
-        await despacharRespuesta(recipient, respuestaCara, msgType);
+        await despacharRespuesta(recipient, respuestaCara, msgTypeRespuesta);
         return;
     }
     const [memoriaVecino, perfilEdificio, personalDeTurno] = await Promise.all([
@@ -187,7 +191,7 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType }) {
     ]);
     let respuesta = await responderVecino({ historial, vecino, memoriaVecino, personalDeTurno, decisionCaso, media, opcionesEdificio: null, edificioPendiente: null });
     respuesta = respuesta.replace(/Opción \d:?/gi, '').replace(/Aquí tienes algunas opciones:?/gi, '').replace(/Podemos hacer lo siguiente:?/gi, '').replace(/\n+/g, ' ').trim();
-    await despacharRespuesta(recipient, respuesta, msgType);
+    await despacharRespuesta(recipient, respuesta, msgTypeRespuesta);
     historial.push(`Marcos: ${respuesta}`);
     let tecnicoAsignado = null;
     if (decisionCaso.contactar_tecnico && vecino?.edificio && decisionCaso.tipo_problema) {
@@ -251,14 +255,12 @@ app.post('/vapi', async (req, res) => {
 app.post('/vapi/llamada-finalizada', async (req, res) => {
     res.sendStatus(200);
     try {
-        const body = req.body;
-        const tipo = body?.message?.type || body?.type || '';
+        const body = req.body; const tipo = body?.message?.type || body?.type || '';
         if (tipo !== 'end-of-call-report') return;
         const call = body?.message?.call || body?.call || {};
         const artifact = body?.message?.artifact || body?.artifact || {};
         const analysis = body?.message?.analysis || body?.analysis || {};
-        const callId = call?.id || 'unknown';
-        const from = call?.customer?.number || '';
+        const callId = call?.id || 'unknown'; const from = call?.customer?.number || '';
         const duracionSeg = Math.round((call?.endedAt ? (new Date(call.endedAt) - new Date(call.startedAt)) / 1000 : 0));
         const duracion = duracionSeg > 0 ? `${Math.floor(duracionSeg / 60)}m ${duracionSeg % 60}s` : 'N/D';
         const mensajes = artifact?.messages || [];
@@ -274,7 +276,7 @@ app.post('/vapi/llamada-finalizada', async (req, res) => {
         if (!resumen && transcripcion) {
             const { GoogleGenAI } = require('@google/genai');
             const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-            try { const r = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: [{ text: `Resumí en 2 oraciones esta llamada:\n\n${transcripcion}` }], config: { temperature: 0.2 } }); resumen = r.text.trim(); }
+            try { const r = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: [{ text: `Resumí en 2 oraciones esta llamada de atención de consorcio:\n\n${transcripcion}` }], config: { temperature: 0.2 } }); resumen = r.text.trim(); }
             catch (e) { resumen = 'Llamada finalizada — ver transcripción completa.'; }
         }
         let mensajeWhatsApp = '';
