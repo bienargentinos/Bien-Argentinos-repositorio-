@@ -44,6 +44,23 @@ const router = express.Router();
 
 const ADMIN_USER = process.env.DASHBOARD_USER || 'admin';
 const ADMIN_PASS = process.env.DASHBOARD_PASS || 'marcos2024';
+
+// Usuarios de administradores de consorcio (clientes del servicio).
+// Formato en .env: CONSORCIO_USERS={"usuario1":"pass1:Edificio A,Edificio B","usuario2":"pass2:Edificio C"}
+// El valor es "contraseña:edificio1,edificio2" — los edificios que puede ver ese usuario.
+let CONSORCIO_USERS = {};
+try {
+  if (process.env.CONSORCIO_USERS) {
+    const raw = JSON.parse(process.env.CONSORCIO_USERS);
+    Object.entries(raw).forEach(([u, v]) => {
+      const sepIdx = v.indexOf(':');
+      if (sepIdx < 0) return;
+      const pass = v.slice(0, sepIdx);
+      const edificios = v.slice(sepIdx + 1).split(',').map((s) => s.trim()).filter(Boolean);
+      CONSORCIO_USERS[u] = { pass, edificios };
+    });
+  }
+} catch (_) {}
 const SESSION_SECRET =
   process.env.DASHBOARD_SECRET || 'marcos-secret-cambiar-en-produccion-2024';
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
@@ -301,6 +318,26 @@ function requireAuth(req, res, next) {
   return res.redirect('/admin/login');
 }
 
+// Devuelve true si la sesión es del dueño del sistema (Daniel).
+function esDueno(req) {
+  return req.session && req.session.role === 'dueno';
+}
+
+// Devuelve los edificios que puede ver el usuario actual.
+// null = todos (dueño); array = filtrado (admin consorcio).
+function edificiosPermitidos(req) {
+  if (esDueno(req)) return null;
+  return req.session.edificios || [];
+}
+
+function filtrarPorEdificio(lista, req, campo = 'edificio') {
+  const permitidos = edificiosPermitidos(req);
+  if (!permitidos) return lista;
+  return lista.filter((item) =>
+    permitidos.some((e) => String(item[campo] || '').toLowerCase().includes(e.toLowerCase()))
+  );
+}
+
 /* ===================================================================
  * HTML HELPERS (escape)
  * =================================================================== */
@@ -459,12 +496,18 @@ td input{width:100%}
  * LAYOUT
  * =================================================================== */
 
-function page(active, title, bodyHtml) {
+function page(active, title, bodyHtml, req) {
+  const isDueno = !req || (req.session && req.session.role === 'dueno');
+  const userName = (req && req.session && req.session.user) || '';
+  const roleBadge = isDueno
+    ? `<span style="font-size:12px;background:#1f2430;color:#8b93a3;padding:3px 9px;border-radius:8px;border:1px solid #2a2f3a">Dueño del sistema</span>`
+    : `<span style="font-size:12px;background:#1f2430;color:#6ea8ff;padding:3px 9px;border-radius:8px;border:1px solid #2a2f3a">Admin: ${esc(userName)}</span>`;
+
   const nav = [
-    ['/admin', 'Resumen', 'resumen'],
-    ['/admin/eventos', 'Eventos', 'eventos'],
-    ['/admin/archivos', 'Facturas/Fotos', 'archivos'],
-    ['/admin/edificios', 'Edificios', 'edificios'],
+    ['/admin', 'Resumen', 'resumen', true],
+    ['/admin/eventos', 'Eventos', 'eventos', true],
+    ['/admin/archivos', 'Facturas/Fotos', 'archivos', true],
+    ['/admin/edificios', 'Edificios', 'edificios', isDueno],
   ];
   return `<!DOCTYPE html>
 <html lang="es-AR">
@@ -480,6 +523,7 @@ function page(active, title, bodyHtml) {
     <div class="brand"><span class="dot"></span> Marcos IA</div>
     <nav class="nav">
       ${nav
+        .filter(([, , , visible]) => visible)
         .map(
           ([href, label, id]) =>
             `<a href="${href}" class="${active === id ? 'active' : ''}">${label}</a>`
@@ -487,6 +531,7 @@ function page(active, title, bodyHtml) {
         .join('')}
     </nav>
     <div class="spacer"></div>
+    ${roleBadge}
     <a href="/admin/logout" class="btn ghost sm">Salir</a>
   </div>
 </header>
@@ -618,9 +663,20 @@ router.get('/login', (req, res) => {
 
 router.post('/login', (req, res) => {
   const { user, pass } = req.body || {};
+  // Dueño del sistema
   if (user === ADMIN_USER && pass === ADMIN_PASS) {
     req.session.authed = true;
+    req.session.role = 'dueno';
     req.session.user = user;
+    return req.session.save(() => res.redirect('/admin'));
+  }
+  // Administrador de consorcio (cliente del servicio)
+  const consorcioCfg = CONSORCIO_USERS[user];
+  if (consorcioCfg && consorcioCfg.pass === pass) {
+    req.session.authed = true;
+    req.session.role = 'consorcio';
+    req.session.user = user;
+    req.session.edificios = consorcioCfg.edificios;
     return req.session.save(() => res.redirect('/admin'));
   }
   return res.redirect('/admin/login?error=1');
@@ -641,20 +697,25 @@ router.use(requireAuth);
 router.get('/', async (req, res) => {
   try {
     const { rows } = await readTab(TAB_EVENTOS);
-    const eventos = rows.map(mapEvento);
+    const todos = rows.map(mapEvento);
+    const eventos = filtrarPorEdificio(todos, req);
 
     const hoy = eventos.filter((e) => esHoy(parseFecha(e.fecha)));
     const urgentesHoy = hoy.filter((e) => e.urgencia === 'alta');
     const mediaHoy = hoy.filter((e) => e.urgencia === 'media');
     const edificiosHoy = new Set(hoy.map((e) => e.edificio).filter(Boolean));
 
-    // ultimos 5 eventos
     const ult = [...eventos]
-      .sort(
-        (a, b) =>
-          (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0)
-      )
+      .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0))
       .slice(0, 6);
+
+    const saludo = esDueno(req)
+      ? `${horaSaludo()}, tomate unos mates 🧉`
+      : `${horaSaludo()}, ${esc(req.session.user)}`;
+
+    const subtitulo = esDueno(req)
+      ? 'Esto es lo que paso mientras dormias.'
+      : `Panel de ${esc((edificiosPermitidos(req) || []).join(', '))}`;
 
     const cards = `
       <div class="cards">
@@ -665,8 +726,6 @@ router.get('/', async (req, res) => {
         <div class="card"><div class="k">Eventos totales</div><div class="v">${eventos.length}</div></div>
       </div>`;
 
-    const saludo = horaSaludo();
-
     const ultHtml = ult.length
       ? `<div class="feed">${ult.map(renderEventoMini).join('')}</div>`
       : `<div class="empty">Todavia no hay eventos registrados.</div>`;
@@ -675,16 +734,17 @@ router.get('/', async (req, res) => {
       page(
         'resumen',
         'Resumen',
-        `<h1>${saludo}, tomate unos mates 🧉</h1>
-         <p style="color:var(--muted);margin-top:-8px">Esto es lo que paso mientras dormias.</p>
+        `<h1>${saludo}</h1>
+         <p style="color:var(--muted);margin-top:-8px">${subtitulo}</p>
          ${cards}
          <h2>Ultimos movimientos</h2>
          ${ultHtml}
-         <p style="margin-top:18px"><a class="btn ghost sm" href="/admin/eventos">Ver todos los eventos →</a></p>`
+         <p style="margin-top:18px"><a class="btn ghost sm" href="/admin/eventos">Ver todos los eventos →</a></p>`,
+        req
       )
     );
   } catch (e) {
-    res.status(500).send(page('resumen', 'Resumen', errorBox(e)));
+    res.status(500).send(page('resumen', 'Resumen', errorBox(e), req));
   }
 });
 
@@ -730,19 +790,15 @@ function tipoLabel(t) {
 router.get('/eventos', async (req, res) => {
   try {
     const { rows } = await readTab(TAB_EVENTOS);
-    let eventos = rows.map(mapEvento);
-    eventos.sort(
-      (a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0)
-    );
+    let eventos = filtrarPorEdificio(rows.map(mapEvento), req);
+    eventos.sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
 
     const edificios = [...new Set(eventos.map((e) => e.edificio).filter(Boolean))].sort();
+    const opcionesEdi = edificios.map((e) => `<option value="${esc(e)}">${esc(e)}</option>`).join('');
 
-    const opcionesEdi = edificios
-      .map((e) => `<option value="${esc(e)}">${esc(e)}</option>`)
-      .join('');
-
+    // Admins de consorcio no pueden dejar feedback (eso es para Daniel)
     const feed = eventos.length
-      ? `<div class="feed">${eventos.map(renderEventoFull).join('')}</div>
+      ? `<div class="feed">${eventos.map((e) => renderEventoFull(e, req)).join('')}</div>
          <div id="no-results" class="empty" style="display:none">No hay eventos que coincidan con el filtro.</div>`
       : `<div class="empty">Todavia no hay eventos registrados.</div>`;
 
@@ -769,24 +825,33 @@ router.get('/eventos', async (req, res) => {
              <input id="f-texto" placeholder="vecino, texto..." oninput="aplicarFiltros()">
            </label>
          </div>
-         ${feed}`
+         ${feed}`,
+        req
       )
     );
   } catch (e) {
-    res.status(500).send(page('eventos', 'Eventos', errorBox(e)));
+    res.status(500).send(page('eventos', 'Eventos', errorBox(e), req));
   }
 });
 
-function renderEventoFull(e) {
+function renderEventoFull(e, req) {
   const transcript = e.transcripcion
-    ? `<div class="transcript"><span class="lbl">Transcripcion del audio</span>${esc(e.transcripcion)}</div>`
+    ? `<div class="transcript"><span class="lbl">Notas de Marcos</span>${esc(e.transcripcion)}</div>`
     : '';
 
-  const resumen = e.resumen
+  const resumen = (e.resumen && e.resumen !== e.transcripcion)
     ? `<div class="meta" style="margin-top:8px"><b>Marcos:</b> ${esc(e.resumen)}</div>`
     : '';
 
-  const existing = `<div class="existing" data-existing style="${e.feedback ? '' : 'display:none'}"><b>Tu nota:</b> ${esc(e.feedback)}</div>`;
+  const feedbackHtml = esDueno({ session: req && req.session })
+    ? `<div class="fb">
+        <div class="existing" data-existing style="${e.feedback ? '' : 'display:none'}"><b>Tu nota:</b> ${esc(e.feedback)}</div>
+        <div class="row">
+          <textarea data-fb placeholder="Dejale una nota a Marcos para que aprenda de este caso...">${esc(e.feedback || '')}</textarea>
+          <button class="btn sm" onclick="guardarFeedback(this, ${e._row})">Guardar nota</button>
+        </div>
+      </div>`
+    : (e.feedback ? `<div class="fb"><div class="existing"><b>Nota:</b> ${esc(e.feedback)}</div></div>` : '');
 
   return `<div class="event" data-edificio="${esc(e.edificio)}" data-urgencia="${esc(e.urgencia)}">
     <div class="head">
@@ -804,13 +869,7 @@ function renderEventoFull(e) {
     ${e.mensaje ? `<div class="body">${esc(e.mensaje)}</div>` : ''}
     ${transcript}
     ${resumen}
-    <div class="fb">
-      ${existing}
-      <div class="row">
-        <textarea data-fb placeholder="Dejale una nota a Marcos para que aprenda de este caso...">${esc(e.feedback || '')}</textarea>
-        <button class="btn sm" onclick="guardarFeedback(this, ${e._row})">Guardar nota</button>
-      </div>
-    </div>
+    ${feedbackHtml}
   </div>`;
 }
 
@@ -819,10 +878,9 @@ function renderEventoFull(e) {
 router.get('/archivos', async (req, res) => {
   try {
     const { rows } = await readTab(TAB_ARCHIVOS);
-    let archivos = rows.map(mapArchivo).filter((a) => a.url || a.descripcion);
-    archivos.sort(
-      (a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0)
-    );
+    let archivos = filtrarPorEdificio(rows.map(mapArchivo), req);
+    archivos = archivos.filter((a) => a.url || a.descripcion || a.monto);
+    archivos.sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
 
     const body = archivos.length
       ? `<div class="grid-files">${archivos.map(renderArchivo).join('')}</div>`
@@ -834,11 +892,12 @@ router.get('/archivos', async (req, res) => {
         'Facturas/Fotos',
         `<h1>Facturas y fotos</h1>
          <p style="color:var(--muted);margin-top:-8px">Archivos que enviaron vecinos o proveedores.</p>
-         ${body}`
+         ${body}`,
+        req
       )
     );
   } catch (e) {
-    res.status(500).send(page('archivos', 'Facturas/Fotos', errorBox(e)));
+    res.status(500).send(page('archivos', 'Facturas/Fotos', errorBox(e), req));
   }
 });
 
@@ -857,14 +916,17 @@ function renderArchivo(a) {
       <div class="t">${esc(a.descripcion || a.tipo || 'Archivo')}</div>
       <div class="m">${esc(a.edificio)} · ${esc(a.enviado_por)}</div>
       <div class="m">${esc(fechaCorta(parseFecha(a.fecha)) || a.fecha)}</div>
+      ${a.monto ? `<div class="m" style="color:var(--warn);font-weight:700">${esc(a.monto)}</div>` : ''}
       ${a.url ? `<div style="margin-top:8px"><a class="btn ghost sm" href="${esc(a.url)}" target="_blank" rel="noopener">Abrir →</a></div>` : ''}
     </div>
   </div>`;
 }
 
-/* ----------------- EDIFICIOS (ver/editar) ----------------- */
+/* ----------------- EDIFICIOS (ver/editar) — solo dueño ----------------- */
 
 router.get('/edificios', async (req, res) => {
+  if (!esDueno(req)) return res.redirect('/admin');
+
   try {
     const { rows } = await readTab(TAB_EDIFICIOS);
     const edificios = rows.map(mapEdificio);
@@ -872,12 +934,12 @@ router.get('/edificios', async (req, res) => {
     const filas = edificios
       .map(
         (e) => `<tr>
-          <td><b>${esc(e.nombre)}</b></td>
-          <td><input data-field="encargado" value="${esc(e.encargado)}" placeholder="Encargado"></td>
-          <td><input data-field="tel_encargado" value="${esc(e.tel_encargado)}" placeholder="Tel."></td>
-          <td><input data-field="administrador" value="${esc(e.administrador)}" placeholder="Administrador"></td>
-          <td><input data-field="propietarios" value="${esc(e.propietarios)}" placeholder="Propietarios"></td>
-          <td><input data-field="telefonos" value="${esc(e.telefonos)}" placeholder="Telefonos"></td>
+          <td><b>${esc(e.nombre)}</b>${e.aliases ? `<br><span style="font-size:12px;color:var(--muted)">${esc(e.aliases)}</span>` : ''}</td>
+          <td>${esc(e.tipo || '—')}</td>
+          <td><input data-field="administrador" value="${esc(e.administrador)}" placeholder="Nombre admin"></td>
+          <td><input data-field="telefonos" value="${esc(e.telefonos)}" placeholder="Telefono admin"></td>
+          <td><input data-field="notas" value="${esc(e.notas)}" placeholder="Notas especiales"></td>
+          <td><input data-field="aliases" value="${esc(e.aliases)}" placeholder="Aliases separados por coma"></td>
           <td><button class="btn sm" onclick="guardarEdificio(this, ${e._row})">Guardar</button></td>
         </tr>`
       )
@@ -886,8 +948,8 @@ router.get('/edificios', async (req, res) => {
     const body = edificios.length
       ? `<div class="tablewrap"><table>
           <thead><tr>
-            <th>Edificio</th><th>Encargado</th><th>Tel. enc.</th>
-            <th>Administrador</th><th>Propietarios</th><th>Telefonos</th><th></th>
+            <th>Edificio</th><th>Tipo</th><th>Administrador</th><th>Tel. admin</th>
+            <th>Notas especiales</th><th>Aliases</th><th></th>
           </tr></thead>
           <tbody>${filas}</tbody>
         </table></div>`
@@ -898,12 +960,13 @@ router.get('/edificios', async (req, res) => {
         'edificios',
         'Edificios',
         `<h1>Datos de edificios</h1>
-         <p style="color:var(--muted);margin-top:-8px">Edita encargados, propietarios y telefonos. Los cambios se guardan en Google Sheets.</p>
-         ${body}`
+         <p style="color:var(--muted);margin-top:-8px">Edita datos que usa Marcos para atender cada consorcio. Los cambios se guardan en Google Sheets.</p>
+         ${body}`,
+        req
       )
     );
   } catch (e) {
-    res.status(500).send(page('edificios', 'Edificios', errorBox(e)));
+    res.status(500).send(page('edificios', 'Edificios', errorBox(e), req));
   }
 });
 
@@ -992,12 +1055,10 @@ router.post('/api/feedback', async (req, res) => {
 
 // POST /admin/api/edificio  { row, encargado, tel_encargado, ... }
 const EDIFICIO_FIELDS = {
-  encargado: ['encargado', 'portero', 'sereno'],
-  tel_encargado: ['telefono_encargado', 'tel_encargado', 'celular_encargado'],
-  administrador: ['administrador', 'admin'],
-  propietarios: ['propietarios', 'duenos', 'duenios'],
-  telefonos: ['telefonos', 'contactos', 'numeros'],
-  notas: ['notas', 'observaciones', 'comentarios'],
+  administrador: ['admin_nombre', 'administrador', 'admin'],
+  telefonos: ['admin_telefono', 'telefonos', 'contactos', 'numeros'],
+  notas: ['notas_especiales', 'notas', 'observaciones', 'comentarios'],
+  aliases: ['aliases', 'alias', 'otros_nombres'],
 };
 
 router.post('/api/edificio', async (req, res) => {
