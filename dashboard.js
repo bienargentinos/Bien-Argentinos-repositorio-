@@ -204,10 +204,10 @@ function mapEvento(r) {
     telefono: pick(r, ['telefono', 'numero', 'phone', 'celular', 'whatsapp']),
     tipo,
     tipoRaw,
-    mensaje: pick(r, ['mensaje', 'texto', 'consulta', 'detalle', 'descripcion', 'contenido']),
-    transcripcion: pick(r, ['transcripcion', 'transcripcion_audio', 'transcript', 'audio_texto']),
+    mensaje: pick(r, ['problema', 'mensaje', 'texto', 'consulta', 'detalle', 'descripcion', 'contenido']),
+    transcripcion: pick(r, ['notas_ia', 'transcripcion', 'transcripcion_audio', 'transcript', 'audio_texto']),
     urgencia,
-    resumen: pick(r, ['resumen', 'sintesis', 'respuesta_marcos', 'respuesta']),
+    resumen: pick(r, ['notas_ia', 'resumen', 'sintesis', 'respuesta_marcos', 'respuesta']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
   };
 }
@@ -221,7 +221,8 @@ function mapArchivo(r) {
     enviado_por: pick(r, ['vecino', 'enviado_por', 'remitente', 'proveedor', 'nombre'], 'Desconocido'),
     tipo: pick(r, ['tipo', 'categoria', 'clase'], 'archivo'),
     descripcion: pick(r, ['descripcion', 'detalle', 'concepto', 'nota']),
-    url: pick(r, ['url', 'link', 'enlace', 'drive_url', 'archivo', 'imagen', 'foto', 'factura']),
+    monto: pick(r, ['monto', 'importe', 'total', 'valor']),
+    url: pick(r, ['url_archivo', 'url', 'link', 'enlace', 'drive_url', 'archivo', 'imagen', 'foto', 'factura']),
   };
 }
 
@@ -233,11 +234,12 @@ function mapEdificio(r) {
     direccion: pick(r, ['direccion', 'domicilio', 'address']),
     encargado: pick(r, ['encargado', 'portero', 'sereno']),
     tel_encargado: pick(r, ['telefono_encargado', 'tel_encargado', 'celular_encargado']),
-    administrador: pick(r, ['administrador', 'admin']),
-    tel_admin: pick(r, ['telefono_admin', 'tel_admin', 'telefono_administrador']),
+    administrador: pick(r, ['admin_nombre', 'administrador', 'admin']),
+    tel_admin: pick(r, ['admin_telefono', 'telefono_admin', 'tel_admin', 'telefono_administrador']),
     propietarios: pick(r, ['propietarios', 'duenos', 'duenios']),
-    telefonos: pick(r, ['telefonos', 'contactos', 'telefono', 'numeros']),
-    notas: pick(r, ['notas', 'observaciones', 'comentarios']),
+    telefonos: pick(r, ['admin_telefono', 'telefonos', 'contactos', 'telefono', 'numeros']),
+    notas: pick(r, ['notas_especiales', 'notas', 'observaciones', 'comentarios']),
+    aliases: pick(r, ['aliases', 'alias', 'otros_nombres']),
   };
 }
 
