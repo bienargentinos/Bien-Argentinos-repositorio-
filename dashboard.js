@@ -74,6 +74,8 @@ const TAB_EVENTOS = process.env.SHEET_TAB_EVENTOS || 'Eventos';
 const TAB_EDIFICIOS = process.env.SHEET_TAB_EDIFICIOS || 'Edificios';
 const TAB_ARCHIVOS = process.env.SHEET_TAB_ARCHIVOS || 'Archivos';
 const TAB_FEEDBACK = process.env.SHEET_TAB_FEEDBACK || 'Feedback';
+const TAB_SUGERENCIAS = process.env.SHEET_TAB_SUGERENCIAS || 'Sugerencias';
+const TAB_SOLICITUDES = process.env.SHEET_TAB_SOLICITUDES || 'Solicitudes';
 
 /* ===================================================================
  * SESSION
@@ -472,6 +474,35 @@ td input{width:100%}
 .toast.ok{border-color:var(--ok);color:var(--ok)}
 .toast.err{border-color:var(--bad);color:var(--bad)}
 
+/* FICHA EDIFICIO */
+.ficha{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow);margin-bottom:24px}
+.ficha .ficha-head{display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap}
+.ficha .ficha-icon{width:64px;height:64px;border-radius:14px;background:var(--bg3);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0}
+.ficha .ficha-data h2{margin:0 0 4px;font-size:20px}
+.ficha .ficha-data .dir{color:var(--muted);font-size:14px;margin-bottom:10px}
+.ficha .ficha-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.ficha .chip{background:var(--bg3);border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-size:13px}
+.ficha .chip b{color:var(--accent2)}
+.ficha-divider{border:none;border-top:1px solid var(--line);margin:18px 0}
+
+/* SUGERENCIAS / SOLICITUDES */
+.sug-form{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:20px}
+.sug-form h3{margin:0 0 12px;font-size:16px}
+.sug-list{display:flex;flex-direction:column;gap:10px}
+.sug-item{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.sug-item .sug-meta{color:var(--muted);font-size:12px;margin-bottom:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.sug-item .sug-texto{white-space:pre-wrap}
+.sug-item .sug-resp{margin-top:10px;background:var(--bg3);border-left:3px solid var(--ok);padding:8px 12px;border-radius:6px;font-size:14px}
+.badge.pendiente{background:rgba(251,191,36,.15);color:var(--warn);border:1px solid rgba(251,191,36,.4)}
+.badge.aprobada{background:rgba(52,211,153,.15);color:var(--ok);border:1px solid rgba(52,211,153,.35)}
+.badge.rechazada{background:rgba(248,113,113,.15);color:var(--bad);border:1px solid rgba(248,113,113,.4)}
+.badge.aplicada{background:rgba(79,140,255,.15);color:var(--accent2);border:1px solid rgba(79,140,255,.4)}
+.sol-campo{font-family:monospace;background:var(--bg3);padding:3px 8px;border-radius:6px;font-size:13px}
+.sol-diff{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center}
+.sol-diff .old{color:var(--bad);text-decoration:line-through;font-size:13px}
+.sol-diff .arr{color:var(--muted)}
+.sol-diff .new{color:var(--ok);font-weight:600;font-size:13px}
+
 /* LOGIN */
 .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .login-card{background:var(--bg2);border:1px solid var(--line);border-radius:18px;
@@ -505,9 +536,12 @@ function page(active, title, bodyHtml, req) {
 
   const nav = [
     ['/admin', 'Resumen', 'resumen', true],
+    ['/admin/mi-edificio', 'Mi Edificio', 'mi-edificio', !isDueno],
     ['/admin/eventos', 'Eventos', 'eventos', true],
     ['/admin/archivos', 'Facturas/Fotos', 'archivos', true],
+    ['/admin/sugerencias', 'Sugerencias', 'sugerencias', !isDueno],
     ['/admin/edificios', 'Edificios', 'edificios', isDueno],
+    ['/admin/solicitudes', 'Solicitudes', 'solicitudes', isDueno],
   ];
   return `<!DOCTYPE html>
 <html lang="es-AR">
@@ -625,6 +659,97 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g,function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
   });
+}
+
+// Enviar sugerencia
+async function enviarSugerencia(btn){
+  var ta=document.getElementById('sug-input');
+  var texto=(ta?ta.value:'').trim();
+  if(!texto){toast('Escribi tu sugerencia antes de enviar','err');return;}
+  btn.disabled=true;btn.textContent='Enviando...';
+  try{
+    var r=await fetch('/admin/api/sugerencia',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({texto:texto})
+    });
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Sugerencia enviada. La revisaremos pronto.','ok');
+    ta.value='';
+    setTimeout(function(){location.reload();},1200);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent='Enviar sugerencia';}
+}
+
+// Solicitar cambio de dato del edificio
+async function solicitarCambio(btn, campo, valorActual){
+  var nuevoVal=prompt('Valor actual: "'+valorActual+'"\n\nNuevo valor para '+campo+':');
+  if(nuevoVal===null||nuevoVal.trim()===''||nuevoVal===valorActual)return;
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Enviando...';
+  try{
+    var r=await fetch('/admin/api/solicitar-cambio',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({campo:campo,valorActual:valorActual,valorNuevo:nuevoVal.trim()})
+    });
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Solicitud enviada. El administrador la revisará.','ok');
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+
+// Aprobar solicitud (dueño)
+async function aprobarSolicitud(btn, row){
+  if(!confirm('Aprobar y aplicar este cambio en la planilla?'))return;
+  btn.disabled=true;btn.textContent='Aplicando...';
+  try{
+    var r=await fetch('/admin/api/aprobar-solicitud',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row})
+    });
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Cambio aplicado y registrado.','ok');
+    btn.closest('.sug-item').style.opacity='0.5';
+    setTimeout(function(){location.reload();},1200);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;}
+}
+
+// Rechazar solicitud (dueño)
+async function rechazarSolicitud(btn, row){
+  var motivo=prompt('Motivo del rechazo (opcional):');
+  if(motivo===null)return;
+  btn.disabled=true;btn.textContent='Rechazando...';
+  try{
+    var r=await fetch('/admin/api/rechazar-solicitud',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row,motivo:motivo.trim()})
+    });
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Solicitud rechazada.','ok');
+    setTimeout(function(){location.reload();},1200);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;}
+}
+
+// Responder sugerencia (dueño)
+async function responderSugerencia(btn, row){
+  var resp=prompt('Tu respuesta para el administrador del consorcio:');
+  if(resp===null||resp.trim()==='')return;
+  btn.disabled=true;btn.textContent='Enviando...';
+  try{
+    var r=await fetch('/admin/api/responder-sugerencia',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row,respuesta:resp.trim()})
+    });
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Respuesta enviada.','ok');
+    setTimeout(function(){location.reload();},1200);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;}
 }
 `;
 
@@ -1088,6 +1213,415 @@ router.post('/api/edificio', async (req, res) => {
       }
       await writeCell(TAB_EDIFICIOS, col, row, body[field]);
     }
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+/* ===================================================================
+ * HELPER: append row to a sheet tab, creating headers if tab is empty
+ * =================================================================== */
+
+async function appendRow(tabName, rowData) {
+  const sheets = await getSheetsClient();
+  // Read existing headers first
+  let res;
+  try {
+    res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${tabName}!1:1`,
+    });
+  } catch (_) { res = null; }
+
+  const existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
+
+  if (existingHeaders.length === 0) {
+    // Create header row first
+    const headers = Object.keys(rowData);
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: `${tabName}!A1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [headers, headers.map((k) => rowData[k] || '')] },
+    });
+    return;
+  }
+
+  // Append values in header order
+  const values = existingHeaders.map((h) => {
+    const key = normalizeKey(h);
+    // try to find matching key in rowData
+    const match = Object.keys(rowData).find((k) => normalizeKey(k) === key || k === h);
+    return match !== undefined ? rowData[match] : '';
+  });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: `${tabName}!A1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [values] },
+  });
+}
+
+/* ===================================================================
+ * RUTA: MI EDIFICIO (solo admin de consorcio)
+ * =================================================================== */
+
+router.get('/mi-edificio', async (req, res) => {
+  if (esDueno(req)) return res.redirect('/admin/edificios');
+
+  const permitidos = edificiosPermitidos(req) || [];
+
+  try {
+    const { rows } = await readTab(TAB_EDIFICIOS);
+    const todos = rows.map(mapEdificio);
+
+    // Filtramos los edificios de este usuario
+    const misEdificios = filtrarPorEdificio(todos, req, 'nombre');
+
+    if (misEdificios.length === 0) {
+      return res.send(page('mi-edificio', 'Mi Edificio',
+        `<h1>Mi Edificio</h1><div class="empty">No se encontraron datos para: ${esc(permitidos.join(', '))}</div>`, req));
+    }
+
+    const fichas = misEdificios.map((e) => {
+      const campos = [
+        { label: 'Tipo', field: 'tipo', val: e.tipo, editable: false },
+        { label: 'Administrador', field: 'administrador', val: e.administrador, editable: true },
+        { label: 'Teléfono admin', field: 'telefonos', val: e.telefonos, editable: true },
+        { label: 'Notas especiales', field: 'notas', val: e.notas, editable: true },
+        { label: 'Aliases', field: 'aliases', val: e.aliases, editable: false },
+      ];
+
+      const chipsHtml = campos
+        .filter((c) => c.val)
+        .map((c) => `<div class="chip"><b>${esc(c.label)}:</b> ${esc(c.val)}</div>`)
+        .join('');
+
+      const editablesHtml = campos
+        .filter((c) => c.editable)
+        .map((c) => `
+          <tr>
+            <td style="width:160px;color:var(--muted);font-size:13px">${esc(c.label)}</td>
+            <td>${esc(c.val || '—')}</td>
+            <td style="width:120px">
+              <button class="btn ghost sm" onclick="solicitarCambio(this,'${esc(c.field)}','${esc(c.val || '')}')">
+                ✏️ Solicitar cambio
+              </button>
+            </td>
+          </tr>`)
+        .join('');
+
+      return `
+        <div class="ficha">
+          <div class="ficha-head">
+            <div class="ficha-icon">🏢</div>
+            <div class="ficha-data">
+              <h2>${esc(e.nombre)}</h2>
+              <div class="dir">${esc(e.nombre)}${e.tipo ? ' · ' + esc(e.tipo) : ''}</div>
+              <div class="ficha-chips">${chipsHtml || '<span style="color:var(--muted);font-size:13px">Sin datos cargados</span>'}</div>
+            </div>
+          </div>
+          <hr class="ficha-divider">
+          <h3 style="font-size:15px;margin:0 0 10px">Solicitar cambio de datos</h3>
+          <p style="color:var(--muted);font-size:13px;margin:0 0 12px">
+            Los cambios pasan por revisión del administrador del sistema antes de aplicarse.
+          </p>
+          <div class="tablewrap">
+            <table><tbody>${editablesHtml}</tbody></table>
+          </div>
+        </div>`;
+    }).join('');
+
+    res.send(page('mi-edificio', 'Mi Edificio',
+      `<h1>Mi Edificio</h1>
+       <p style="color:var(--muted);margin-top:-8px">Datos del consorcio que administra Marcos IA.</p>
+       ${fichas}`, req));
+  } catch (e) {
+    res.status(500).send(page('mi-edificio', 'Mi Edificio', errorBox(e), req));
+  }
+});
+
+/* ===================================================================
+ * RUTA: SUGERENCIAS (admin de consorcio envía; dueño ve y responde)
+ * =================================================================== */
+
+router.get('/sugerencias', async (req, res) => {
+  if (esDueno(req)) return res.redirect('/admin/solicitudes');
+
+  const usuario = req.session.user;
+  const permitidos = edificiosPermitidos(req) || [];
+
+  try {
+    const { rows } = await readTab(TAB_SUGERENCIAS);
+    const misSugs = rows.filter((r) => {
+      const u = String(r.usuario || r.user || '').trim();
+      return u === usuario;
+    });
+
+    const listHtml = misSugs.length
+      ? misSugs.slice().reverse().map((r) => {
+          const estado = String(r.estado || 'pendiente').toLowerCase();
+          const respuesta = r.respuesta || r.respuesta_admin || '';
+          return `
+            <div class="sug-item">
+              <div class="sug-meta">
+                <span class="badge ${estado}">${esc(estado)}</span>
+                <span>${esc(r.fecha || '')}</span>
+              </div>
+              <div class="sug-texto">${esc(r.texto || r.sugerencia || r.contenido || '')}</div>
+              ${respuesta ? `<div class="sug-resp"><b>Respuesta:</b> ${esc(respuesta)}</div>` : ''}
+            </div>`;
+        }).join('')
+      : `<div class="empty">Todavía no enviaste ninguna sugerencia.</div>`;
+
+    res.send(page('sugerencias', 'Sugerencias',
+      `<h1>Sugerencias</h1>
+       <p style="color:var(--muted);margin-top:-8px">Mandanos tus ideas para mejorar el servicio o algo que quieras que Marcos aprenda.</p>
+       <div class="sug-form">
+         <h3>Nueva sugerencia</h3>
+         <textarea id="sug-input" rows="4" placeholder="Escribí tu sugerencia, consulta o cosa que quieras que Marcos haga diferente..."></textarea>
+         <div style="margin-top:10px">
+           <button class="btn" onclick="enviarSugerencia(this)">Enviar sugerencia</button>
+         </div>
+       </div>
+       <h2>Mis sugerencias anteriores</h2>
+       <div class="sug-list">${listHtml}</div>`, req));
+  } catch (e) {
+    res.status(500).send(page('sugerencias', 'Sugerencias', errorBox(e), req));
+  }
+});
+
+/* ===================================================================
+ * RUTA: SOLICITUDES (solo dueño — ve sugerencias + solicitudes de cambio)
+ * =================================================================== */
+
+router.get('/solicitudes', async (req, res) => {
+  if (!esDueno(req)) return res.redirect('/admin');
+
+  try {
+    const [resSugs, resSols] = await Promise.all([
+      readTab(TAB_SUGERENCIAS),
+      readTab(TAB_SOLICITUDES),
+    ]);
+
+    const sugs = [...resSugs.rows].reverse();
+    const sols = [...resSols.rows].reverse();
+
+    const pendientesSugs = sugs.filter((r) => !r.estado || r.estado === 'pendiente').length;
+    const pendientesSols = sols.filter((r) => !r.estado || r.estado === 'pendiente').length;
+
+    const sugsHtml = sugs.length
+      ? sugs.map((r, i) => {
+          const row = resSugs.rows.length - i; // aproximado
+          const realRow = r._row;
+          const estado = String(r.estado || 'pendiente').toLowerCase();
+          const respuesta = r.respuesta || r.respuesta_admin || '';
+          const isPendiente = estado === 'pendiente';
+          return `
+            <div class="sug-item">
+              <div class="sug-meta">
+                <span class="badge ${estado}">${esc(estado)}</span>
+                <b>${esc(r.usuario || r.user || '?')}</b>
+                <span>${esc(r.edificio || '')}</span>
+                <span>${esc(r.fecha || '')}</span>
+              </div>
+              <div class="sug-texto">${esc(r.texto || r.sugerencia || r.contenido || '')}</div>
+              ${respuesta ? `<div class="sug-resp"><b>Tu respuesta:</b> ${esc(respuesta)}</div>` : ''}
+              ${isPendiente ? `
+                <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn sm" onclick="responderSugerencia(this,${realRow})">Responder</button>
+                </div>` : ''}
+            </div>`;
+        }).join('')
+      : `<div class="empty">No hay sugerencias todavía.</div>`;
+
+    const solsHtml = sols.length
+      ? sols.map((r) => {
+          const realRow = r._row;
+          const estado = String(r.estado || 'pendiente').toLowerCase();
+          const isPendiente = estado === 'pendiente';
+          return `
+            <div class="sug-item">
+              <div class="sug-meta">
+                <span class="badge ${estado}">${esc(estado)}</span>
+                <b>${esc(r.usuario || '?')}</b>
+                <span>${esc(r.edificio || '')}</span>
+                <span class="sol-campo">${esc(r.campo || '')}</span>
+                <span>${esc(r.fecha || '')}</span>
+              </div>
+              <div class="sol-diff">
+                <span class="old">${esc(r.valor_actual || '—')}</span>
+                <span class="arr">→</span>
+                <span class="new">${esc(r.valor_nuevo || '')}</span>
+              </div>
+              ${r.motivo_rechazo ? `<div class="sug-resp" style="border-color:var(--bad)"><b>Rechazo:</b> ${esc(r.motivo_rechazo)}</div>` : ''}
+              ${isPendiente ? `
+                <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn sm" onclick="aprobarSolicitud(this,${realRow})">✅ Aprobar y aplicar</button>
+                  <button class="btn ghost sm" onclick="rechazarSolicitud(this,${realRow})">❌ Rechazar</button>
+                </div>` : ''}
+            </div>`;
+        }).join('')
+      : `<div class="empty">No hay solicitudes de cambio todavía.</div>`;
+
+    const badgePend = (n) => n > 0 ? `<span class="badge pendiente" style="margin-left:8px">${n} pendiente${n > 1 ? 's' : ''}</span>` : '';
+
+    res.send(page('solicitudes', 'Solicitudes',
+      `<h1>Solicitudes y sugerencias</h1>
+       <p style="color:var(--muted);margin-top:-8px">Lo que enviaron los administradores de consorcio para tu revisión.</p>
+       <h2>Solicitudes de cambio de datos ${badgePend(pendientesSols)}</h2>
+       <p style="color:var(--muted);font-size:13px">Cambios que el admin quiere hacer en la ficha de su edificio. Aprobá para que se apliquen.</p>
+       <div class="sug-list" style="margin-bottom:32px">${solsHtml}</div>
+       <h2>Sugerencias ${badgePend(pendientesSugs)}</h2>
+       <p style="color:var(--muted);font-size:13px">Ideas o pedidos que enviaron los administradores. Podés responderles directamente.</p>
+       <div class="sug-list">${sugsHtml}</div>`, req));
+  } catch (e) {
+    res.status(500).send(page('solicitudes', 'Solicitudes', errorBox(e), req));
+  }
+});
+
+/* ===================================================================
+ * API: SUGERENCIA (POST)
+ * =================================================================== */
+
+router.post('/api/sugerencia', async (req, res) => {
+  try {
+    const { texto } = req.body || {};
+    if (!texto || !texto.trim()) return res.status(400).json({ error: 'Texto vacío' });
+    const usuario = req.session.user;
+    const edificios = (edificiosPermitidos(req) || []).join(', ');
+    await appendRow(TAB_SUGERENCIAS, {
+      fecha: new Date().toLocaleString('es-AR'),
+      usuario,
+      edificio: edificios,
+      texto: texto.trim(),
+      sugerencia: texto.trim(),
+      estado: 'pendiente',
+      respuesta: '',
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+/* ===================================================================
+ * API: SOLICITAR CAMBIO (POST — admin de consorcio)
+ * =================================================================== */
+
+router.post('/api/solicitar-cambio', async (req, res) => {
+  try {
+    const { campo, valorActual, valorNuevo } = req.body || {};
+    if (!campo || !valorNuevo) return res.status(400).json({ error: 'Datos incompletos' });
+    const usuario = req.session.user;
+    const edificios = (edificiosPermitidos(req) || []).join(', ');
+    await appendRow(TAB_SOLICITUDES, {
+      fecha: new Date().toLocaleString('es-AR'),
+      usuario,
+      edificio: edificios,
+      campo,
+      valor_actual: valorActual || '',
+      valor_nuevo: valorNuevo,
+      estado: 'pendiente',
+      motivo_rechazo: '',
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+/* ===================================================================
+ * API: APROBAR SOLICITUD (POST — dueño)
+ * Aplica el cambio en la tab Edificios y marca la solicitud como 'aplicada'
+ * =================================================================== */
+
+router.post('/api/aprobar-solicitud', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { row } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+
+    // Leer la solicitud
+    const { rows, headers } = await readTab(TAB_SOLICITUDES);
+    const solicitud = rows.find((r) => r._row === Number(row));
+    if (!solicitud) return res.status(404).json({ error: 'Solicitud no encontrada' });
+
+    const { edificio, campo, valor_nuevo } = solicitud;
+
+    // Buscar el edificio en la tab Edificios
+    const { rows: edRows, headers: edHeaders } = await readTab(TAB_EDIFICIOS);
+    const edRow = edRows.find((r) =>
+      String(r.edificio || r.nombre || '').toLowerCase().includes(
+        String(edificio || '').toLowerCase().split(',')[0].trim().toLowerCase()
+      )
+    );
+
+    if (edRow && campo) {
+      const candidates = EDIFICIO_FIELDS[campo] || [campo];
+      let colIdx = edHeaders.findIndex((h) => candidates.includes(h));
+      if (colIdx >= 0) {
+        await writeCell(TAB_EDIFICIOS, columnLetter(colIdx + 1), edRow._row, valor_nuevo);
+      }
+    }
+
+    // Marcar solicitud como aplicada
+    const planEstado = await findOrPlanColumn(TAB_SOLICITUDES, ['estado']);
+    if (planEstado.create) await ensureHeader(TAB_SOLICITUDES, planEstado.col, 'estado', false);
+    await writeCell(TAB_SOLICITUDES, planEstado.col, Number(row), 'aplicada');
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+/* ===================================================================
+ * API: RECHAZAR SOLICITUD (POST — dueño)
+ * =================================================================== */
+
+router.post('/api/rechazar-solicitud', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { row, motivo } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+
+    const planEstado = await findOrPlanColumn(TAB_SOLICITUDES, ['estado']);
+    if (planEstado.create) await ensureHeader(TAB_SOLICITUDES, planEstado.col, 'estado', false);
+    await writeCell(TAB_SOLICITUDES, planEstado.col, Number(row), 'rechazada');
+
+    if (motivo) {
+      const planMotivo = await findOrPlanColumn(TAB_SOLICITUDES, ['motivo_rechazo']);
+      if (planMotivo.create) await ensureHeader(TAB_SOLICITUDES, planMotivo.col, 'motivo_rechazo', false);
+      await writeCell(TAB_SOLICITUDES, planMotivo.col, Number(row), motivo);
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+/* ===================================================================
+ * API: RESPONDER SUGERENCIA (POST — dueño)
+ * =================================================================== */
+
+router.post('/api/responder-sugerencia', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { row, respuesta } = req.body || {};
+    if (!row || !respuesta) return res.status(400).json({ error: 'Datos incompletos' });
+
+    const planResp = await findOrPlanColumn(TAB_SUGERENCIAS, ['respuesta', 'respuesta_admin']);
+    if (planResp.create) await ensureHeader(TAB_SUGERENCIAS, planResp.col, 'respuesta', false);
+    await writeCell(TAB_SUGERENCIAS, planResp.col, Number(row), respuesta);
+
+    const planEstado = await findOrPlanColumn(TAB_SUGERENCIAS, ['estado']);
+    if (planEstado.create) await ensureHeader(TAB_SUGERENCIAS, planEstado.col, 'estado', false);
+    await writeCell(TAB_SUGERENCIAS, planEstado.col, Number(row), 'respondida');
 
     res.json({ ok: true });
   } catch (e) {
