@@ -38,12 +38,16 @@ ssh -p5436 root@200.58.102.182
 
 - Sheet ID: `1jG6-CuNnk5HH2PmdvKdHwOExmxE6RQ-Cb_BdpLQy0vI`
 - Credenciales: `gen-lang-client-0735429936-bba6999e5e60.json`
-- Tabs usadas:
-  - `Eventos`: fecha, vecino, edificio, problema, urgencia, notas_ia
-  - `Edificios`: edificio, tipo, notas_especiales, admin_nombre, admin_telefono, aliases
-  - `Archivos`: fecha, proveedor, monto, concepto, edificio, url_archivo
-  - `Sugerencias`: (se crea sola) fecha, usuario, edificio, texto, estado, respuesta
-  - `Solicitudes`: (se crea sola) fecha, usuario, edificio, campo, valor_actual, valor_nuevo, estado, motivo_rechazo
+- Tabs reales (definidas en `sheets.js`, en minúscula):
+  - `reportes` (= eventos): fecha, vecino, edificio, problema, urgencia, tecnico, acceso, estado, notas_ia
+  - `edificios`: edificio, tipo, notas_especiales, admin_nombre, admin_telefono, aliases
+  - `facturas`: fecha, proveedor, monto, concepto, edificio, url_archivo
+  - `memoria`: telefono, nombre, fecha_ultimo_contacto, resumen_historial, notas_trato
+  - `llamadas`: fecha, duracion, telefono, vecino, edificio, resumen, transcripcion, urgencia, estado, mensaje_enviado
+  - `vecinos`: telefono, nombre, edificio, departamento, encargado, ...
+  - `sugerencias`: (la crea el dashboard) fecha, usuario, edificio, texto, estado, respuesta
+  - `solicitudes`: (la crea el dashboard) fecha, usuario, edificio, campo, valor_actual, valor_nuevo, estado, motivo_rechazo
+- IMPORTANTE: el dashboard apunta a estas tabs por defecto. Si cambian, override con `SHEET_TAB_EVENTOS`, `SHEET_TAB_EDIFICIOS`, `SHEET_TAB_ARCHIVOS` en `.env`.
 
 ## Roles del dashboard
 

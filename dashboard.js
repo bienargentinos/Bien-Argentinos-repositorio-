@@ -70,12 +70,14 @@ const CREDENTIALS_FILE =
 
 // Nombres de pestanias (tabs) esperados en el Google Sheet.
 // Se pueden sobreescribir por .env si los nombres reales difieren.
-const TAB_EVENTOS = process.env.SHEET_TAB_EVENTOS || 'Eventos';
-const TAB_EDIFICIOS = process.env.SHEET_TAB_EDIFICIOS || 'Edificios';
-const TAB_ARCHIVOS = process.env.SHEET_TAB_ARCHIVOS || 'Archivos';
+// Nombres de pestanias (tabs) reales que usa Marcos (sheets.js).
+// Se pueden sobreescribir por .env si los nombres difieren.
+const TAB_EVENTOS = process.env.SHEET_TAB_EVENTOS || 'reportes';
+const TAB_EDIFICIOS = process.env.SHEET_TAB_EDIFICIOS || 'edificios';
+const TAB_ARCHIVOS = process.env.SHEET_TAB_ARCHIVOS || 'facturas';
 const TAB_FEEDBACK = process.env.SHEET_TAB_FEEDBACK || 'Feedback';
-const TAB_SUGERENCIAS = process.env.SHEET_TAB_SUGERENCIAS || 'Sugerencias';
-const TAB_SOLICITUDES = process.env.SHEET_TAB_SOLICITUDES || 'Solicitudes';
+const TAB_SUGERENCIAS = process.env.SHEET_TAB_SUGERENCIAS || 'sugerencias';
+const TAB_SOLICITUDES = process.env.SHEET_TAB_SOLICITUDES || 'solicitudes';
 
 /* ===================================================================
  * SESSION
@@ -227,6 +229,8 @@ function mapEvento(r) {
     transcripcion: pick(r, ['notas_ia', 'transcripcion', 'transcripcion_audio', 'transcript', 'audio_texto']),
     urgencia,
     resumen: pick(r, ['notas_ia', 'resumen', 'sintesis', 'respuesta_marcos', 'respuesta']),
+    estado: pick(r, ['estado', 'status']),
+    tecnico: pick(r, ['tecnico', 'proveedor', 'rubro']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
   };
 }
@@ -989,9 +993,11 @@ function renderEventoFull(e, req) {
       <div class="badges">
         <span class="badge tipo">${tipoLabel(e.tipo)}</span>
         <span class="badge ${e.urgencia}">${e.urgencia}</span>
+        ${e.estado ? `<span class="badge tipo">${esc(e.estado)}</span>` : ''}
       </div>
     </div>
     ${e.mensaje ? `<div class="body">${esc(e.mensaje)}</div>` : ''}
+    ${e.tecnico ? `<div class="meta" style="margin-top:6px">🔧 ${esc(e.tecnico)}</div>` : ''}
     ${transcript}
     ${resumen}
     ${feedbackHtml}
