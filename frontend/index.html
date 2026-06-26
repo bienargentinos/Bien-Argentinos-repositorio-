@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bien Argentinos — Facturador ARCA</title>
+  <style>
+    /* ── Reset y variables ───────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --azul:       #1A3A5C;
+      --celeste:    #2980B9;
+      --celeste-lt: #EBF5FB;
+      --gris:       #F5F7FA;
+      --borde:      #D0D7E0;
+      --texto:      #1A1A2E;
+      --error:      #E74C3C;
+      --ok:         #27AE60;
+      --radio:      8px;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--gris);
+      color: var(--texto);
+      min-height: 100vh;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────── */
+    header {
+      background: var(--azul);
+      color: #fff;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    }
+    header img { height: 44px; }
+    header h1  { font-size: 1.35rem; font-weight: 700; letter-spacing: .5px; }
+    header span{ font-size: .85rem; opacity: .75; margin-left: auto; }
+
+    /* ── Layout ──────────────────────────────────────────────────────── */
+    main {
+      max-width: 860px;
+      margin: 32px auto;
+      padding: 0 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* ── Card ────────────────────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border: 1px solid var(--borde);
+      border-radius: var(--radio);
+      padding: 24px;
+    }
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--azul);
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--celeste-lt);
+    }
+
+    /* ── Grid de campos ──────────────────────────────────────────────── */
+    .grid { display: grid; gap: 14px; }
+    .grid-2 { grid-template-columns: 1fr 1fr; }
+    .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+    @media(max-width:600px){ .grid-2,.grid-3 { grid-template-columns: 1fr; } }
+
+    label { font-size: .82rem; font-weight: 600; color: var(--azul); display: block; margin-bottom: 4px; }
+    input, select, textarea {
+      width: 100%; padding: 9px 12px;
+      border: 1px solid var(--borde); border-radius: 6px;
+      font-size: .9rem; font-family: inherit; color: var(--texto);
+      transition: border-color .2s;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none; border-color: var(--celeste);
+      box-shadow: 0 0 0 3px rgba(41,128,185,.12);
+    }
+    textarea { resize: vertical; min-height: 56px; }
+
+    /* ── Tabla de ítems ──────────────────────────────────────────────── */
+    #tabla-items {
+      width: 100%; border-collapse: collapse; font-size: .88rem; margin-bottom: 12px;
+    }
+    #tabla-items th {
+      background: var(--azul); color: #fff;
+      padding: 8px 10px; text-align: left; font-weight: 600;
+    }
+    #tabla-items td { padding: 7px 8px; border-bottom: 1px solid var(--borde); }
+    #tabla-items tr:nth-child(even) td { background: var(--gris); }
+    #tabla-items input { padding: 6px 8px; font-size: .86rem; }
+    #tabla-items .col-desc { width: 45%; }
+    #tabla-items .col-qty  { width: 12%; }
+    #tabla-items .col-price{ width: 18%; }
+    #tabla-items .col-sub  { width: 16%; text-align: right; font-weight: 600; color: var(--azul); }
+    #tabla-items .col-del  { width: 9%; text-align: center; }
+
+    .btn-del {
+      background: none; border: none; color: var(--error);
+      cursor: pointer; font-size: 1.2rem; line-height: 1;
+      padding: 2px 6px; border-radius: 4px;
+    }
+    .btn-del:hover { background: #fdecea; }
+
+    /* ── Botones principales ─────────────────────────────────────────── */
+    .acciones { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn {
+      padding: 10px 22px; border: none; border-radius: 6px;
+      font-size: .9rem; font-weight: 600; cursor: pointer;
+      transition: transform .1s, box-shadow .1s;
+      display: inline-flex; align-items: center; gap: 7px;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary   { background: var(--celeste); color: #fff; }
+    .btn-primary:hover { background: #2471a3; box-shadow: 0 3px 10px rgba(41,128,185,.35); }
+    .btn-secondary { background: var(--gris); color: var(--azul); border: 1px solid var(--borde); }
+    .btn-secondary:hover { background: #e8edf3; }
+    .btn-success   { background: var(--ok); color: #fff; }
+    .btn-success:hover { background: #229954; }
+
+    /* ── Totales ─────────────────────────────────────────────────────── */
+    .totales {
+      background: var(--celeste-lt); border: 1px solid var(--borde);
+      border-radius: var(--radio); padding: 16px 20px;
+      display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+    }
+    .totales .fila { display: flex; gap: 24px; font-size: .9rem; }
+    .totales .fila span:first-child { color: #555; }
+    .totales .fila span:last-child  { font-weight: 600; min-width: 100px; text-align: right; }
+    .totales .total-final .fila {
+      font-size: 1.15rem; font-weight: 700; color: var(--azul);
+      border-top: 2px solid var(--celeste); padding-top: 8px; margin-top: 4px;
+    }
+
+    /* ── Estado / resultado ──────────────────────────────────────────── */
+    #resultado {
+      display: none; padding: 18px 22px; border-radius: var(--radio);
+      font-size: .95rem; line-height: 1.6;
+    }
+    #resultado.ok    { background:#eafaf1; border:1px solid #a9dfbf; color:#1e8449; }
+    #resultado.error { background:#fdecea; border:1px solid #f5b7b1; color:#922b21; }
+    #resultado strong { font-size: 1.05rem; }
+
+    /* ── Loading spinner ─────────────────────────────────────────────── */
+    .spinner {
+      display: inline-block; width: 18px; height: 18px;
+      border: 3px solid rgba(255,255,255,.35);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Ambiente badge ──────────────────────────────────────────────── */
+    #badge-ambiente {
+      display: inline-block; padding: 4px 12px; border-radius: 20px;
+      font-size: .78rem; font-weight: 700; letter-spacing: .5px;
+    }
+    #badge-ambiente.homo { background:#FFF3CD; color:#856404; }
+    #badge-ambiente.prod { background:#D1FAE5; color:#065F46; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Bien Argentinos — Facturador ARCA</h1>
+  <span id="badge-ambiente" class="homo">HOMOLOGACIÓN</span>
+</header>
+
+<main>
+
+  <!-- DATOS DEL CLIENTE -->
+  <div class="card">
+    <h2>Datos del Cliente</h2>
+    <div class="grid grid-2">
+      <div>
+        <label for="cli-nombre">Razón Social / Nombre</label>
+        <input id="cli-nombre" type="text" placeholder="Ej: Juan Pérez" />
+      </div>
+      <div>
+        <label for="cli-cuit">CUIT / CUIL / DNI</label>
+        <input id="cli-cuit" type="text" placeholder="20-12345678-9" />
+      </div>
+    </div>
+    <div class="grid grid-2" style="margin-top:14px">
+      <div>
+        <label for="cli-domicilio">Domicilio</label>
+        <input id="cli-domicilio" type="text" placeholder="Calle 123, Ciudad" />
+      </div>
+      <div>
+        <label for="cli-iva">Condición IVA</label>
+        <select id="cli-iva">
+          <option value="CF">Consumidor Final</option>
+          <option value="RI">Responsable Inscripto</option>
+          <option value="MO">Monotributista</option>
+          <option value="EX">Exento</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIPO DE COMPROBANTE -->
+  <div class="card">
+    <h2>Comprobante</h2>
+    <div class="grid grid-3">
+      <div>
+        <label for="tipo-factura">Tipo de Factura</label>
+        <select id="tipo-factura">
+          <option value="B">Factura B (Consumidor Final)</option>
+          <option value="A">Factura A (RI / Empresa)</option>
+          <option value="C">Factura C (Monotributista)</option>
+        </select>
+      </div>
+      <div>
+        <label for="alicuota">Alícuota IVA</label>
+        <select id="alicuota">
+          <option value="21">21 %</option>
+          <option value="10.5">10,5 %</option>
+          <option value="0">Exento (0 %)</option>
+        </select>
+      </div>
+      <div>
+        <label for="concepto">Concepto</label>
+        <select id="concepto">
+          <option value="2">Servicios</option>
+          <option value="1">Productos</option>
+          <option value="3">Productos y Servicios</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ITEMS -->
+  <div class="card">
+    <h2>Ítems</h2>
+    <table id="tabla-items">
+      <thead>
+        <tr>
+          <th class="col-desc">Descripción</th>
+          <th class="col-qty">Cant.</th>
+          <th class="col-price">Precio unit. (c/IVA)</th>
+          <th class="col-sub">Subtotal</th>
+          <th class="col-del"></th>
+        </tr>
+      </thead>
+      <tbody id="items-body"></tbody>
+    </table>
+
+    <div class="acciones" style="margin-bottom:20px">
+      <button class="btn btn-secondary" onclick="agregarItem()">+ Agregar ítem</button>
+    </div>
+
+    <!-- Totales -->
+    <div class="totales">
+      <div class="fila"><span>Subtotal neto:</span><span id="tot-neto">$ 0,00</span></div>
+      <div class="fila"><span id="lbl-iva">IVA (21%):</span><span id="tot-iva">$ 0,00</span></div>
+      <div class="total-final">
+        <div class="fila"><span>TOTAL:</span><span id="tot-total">$ 0,00</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OBSERVACIONES -->
+  <div class="card">
+    <h2>Observaciones (opcional)</h2>
+    <textarea id="observaciones" placeholder="Notas para el cliente..."></textarea>
+  </div>
+
+  <!-- ACCIONES -->
+  <div class="acciones">
+    <button class="btn btn-primary" id="btn-emitir" onclick="emitirFactura()">
+      &#x2713; Emitir Factura
+    </button>
+    <button class="btn btn-secondary" onclick="limpiarForm()">&#x21BA; Limpiar</button>
+  </div>
+
+  <!-- RESULTADO -->
+  <div id="resultado"></div>
+
+</main>
+
+<script>
+// ── Config ───────────────────────────────────────────────────────────────────
+const API = "http://localhost:5000";   // ajustar a la URL del VPS en producción
+
+// ── Ítem helpers ─────────────────────────────────────────────────────────────
+let itemId = 0;
+
+function agregarItem(desc = "", qty = 1, price = "") {
+  const id = ++itemId;
+  const tbody = document.getElementById("items-body");
+  const tr = document.createElement("tr");
+  tr.id = `item-${id}`;
+  tr.innerHTML = `
+    <td class="col-desc"><input type="text"   id="desc-${id}"  value="${desc}"  placeholder="Descripción del servicio/producto" onchange="recalcular()" /></td>
+    <td class="col-qty"> <input type="number" id="qty-${id}"   value="${qty}"   min="0.01" step="0.01" oninput="recalcular()" /></td>
+    <td class="col-price"><input type="number" id="price-${id}" value="${price}" min="0"    step="0.01" placeholder="0,00" oninput="recalcular()" /></td>
+    <td class="col-sub"  id="sub-${id}">$ 0,00</td>
+    <td class="col-del"> <button class="btn-del" onclick="eliminarItem(${id})" title="Eliminar">✕</button></td>
+  `;
+  tbody.appendChild(tr);
+  recalcular();
+}
+
+function eliminarItem(id) {
+  document.getElementById(`item-${id}`)?.remove();
+  recalcular();
+}
+
+function getItems() {
+  return [...document.querySelectorAll("#items-body tr")].map(tr => {
+    const id = tr.id.replace("item-", "");
+    return {
+      descripcion: document.getElementById(`desc-${id}`).value.trim(),
+      cantidad:    parseFloat(document.getElementById(`qty-${id}`).value)  || 0,
+      precio:      parseFloat(document.getElementById(`price-${id}`).value) || 0,
+    };
+  }).filter(i => i.descripcion);
+}
+
+function recalcular() {
+  const alicuota = parseFloat(document.getElementById("alicuota").value);
+  const items = getItems();
+  let totalConIva = 0;
+
+  [...document.querySelectorAll("#items-body tr")].forEach(tr => {
+    const id    = tr.id.replace("item-", "");
+    const qty   = parseFloat(document.getElementById(`qty-${id}`)?.value)   || 0;
+    const price = parseFloat(document.getElementById(`price-${id}`)?.value) || 0;
+    const sub   = qty * price;
+    totalConIva += sub;
+    const cell = document.getElementById(`sub-${id}`);
+    if (cell) cell.textContent = fmt(sub);
+  });
+
+  const divisor = alicuota === 0 ? 1 : 1 + alicuota / 100;
+  const neto    = totalConIva / divisor;
+  const iva     = totalConIva - neto;
+
+  document.getElementById("tot-neto").textContent  = fmt(neto);
+  document.getElementById("tot-iva").textContent   = fmt(iva);
+  document.getElementById("tot-total").textContent = fmt(totalConIva);
+  document.getElementById("lbl-iva").textContent   = `IVA (${alicuota}%):`;
+}
+
+function fmt(n) {
+  return "$ " + n.toFixed(2)
+    .replace(".", ",")
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+// ── Emitir ───────────────────────────────────────────────────────────────────
+async function emitirFactura() {
+  const res   = document.getElementById("resultado");
+  const btn   = document.getElementById("btn-emitir");
+  const items = getItems();
+
+  if (!document.getElementById("cli-nombre").value.trim()) return alerta("Ingresá el nombre del cliente.");
+  if (!document.getElementById("cli-cuit").value.trim())   return alerta("Ingresá el CUIT/CUIL del cliente.");
+  if (items.length === 0) return alerta("Agregá al menos un ítem.");
+
+  const payload = {
+    cliente_nombre:    document.getElementById("cli-nombre").value.trim(),
+    cliente_cuit:      document.getElementById("cli-cuit").value.trim(),
+    cliente_domicilio: document.getElementById("cli-domicilio").value.trim(),
+    condicion_iva:     document.getElementById("cli-iva").value,
+    tipo_factura:      document.getElementById("tipo-factura").value,
+    alicuota_iva:      parseFloat(document.getElementById("alicuota").value),
+    concepto:          parseInt(document.getElementById("concepto").value),
+    observaciones:     document.getElementById("observaciones").value.trim(),
+    items,
+  };
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span> Emitiendo…`;
+  res.style.display = "none";
+
+  try {
+    const r = await fetch(`${API}/factura`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+
+    if (!r.ok || data.error) throw new Error(data.error || "Error desconocido");
+
+    res.className = "ok";
+    res.style.display = "block";
+    res.innerHTML = `
+      <strong>✅ Factura emitida correctamente</strong><br/>
+      Tipo: <b>Factura ${payload.tipo_factura}</b> &nbsp;|&nbsp;
+      N°: <b>${data.numero}</b><br/>
+      CAE: <b>${data.cae}</b> &nbsp;|&nbsp; Vto. CAE: <b>${data.vencimiento_cae}</b><br/>
+      Total: <b>${fmt(data.total)}</b><br/><br/>
+      <a href="${API}${data.pdf_url}" target="_blank" class="btn btn-success" style="display:inline-flex;text-decoration:none">
+        ⬇ Descargar PDF
+      </a>
+    `;
+  } catch (err) {
+    res.className = "error";
+    res.style.display = "block";
+    res.innerHTML = `<strong>❌ Error al emitir</strong><br/>${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "&#x2713; Emitir Factura";
+    res.scrollIntoView({ behavior: "smooth" });
+  }
+}
+
+function alerta(msg) {
+  const res = document.getElementById("resultado");
+  res.className = "error";
+  res.style.display = "block";
+  res.innerHTML = `⚠️ ${msg}`;
+  res.scrollIntoView({ behavior: "smooth" });
+}
+
+function limpiarForm() {
+  ["cli-nombre","cli-cuit","cli-domicilio","observaciones"].forEach(id => {
+    document.getElementById(id).value = "";
+  });
+  document.getElementById("items-body").innerHTML = "";
+  itemId = 0;
+  recalcular();
+  document.getElementById("resultado").style.display = "none";
+  agregarItem();
+}
+
+// ── Detección de ambiente ─────────────────────────────────────────────────────
+async function detectarAmbiente() {
+  try {
+    const r = await fetch(`${API}/ping`);
+    if (r.ok) {
+      // Preguntar al backend (futuro endpoint /config)
+    }
+  } catch { /* sin conexión al backend */ }
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+document.getElementById("alicuota").addEventListener("change", recalcular);
+document.getElementById("tipo-factura").addEventListener("change", () => {
+  const tipo = document.getElementById("tipo-factura").value;
+  const iva  = document.getElementById("cli-iva");
+  if (tipo === "A") iva.value = "RI";
+  else if (tipo === "B") iva.value = "CF";
+  else if (tipo === "C") iva.value = "MO";
+});
+
+detectarAmbiente();
+agregarItem(); // una fila inicial vacía
+</script>
+</body>
+</html>
