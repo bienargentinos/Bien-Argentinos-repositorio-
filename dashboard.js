@@ -600,11 +600,21 @@ td input{width:100%}
 .login-form h2{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
 .login-form .sub{color:var(--muted);font-size:15px;margin:0 0 26px}
 .login-form label{display:block;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:7px}
-.login-form .field{margin-bottom:16px}
-.login-form input{width:100%;height:46px;padding:0 14px}
+.login-form .field{margin-bottom:16px;position:relative}
+.login-form .field .ico-in{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none}
+.login-form input{width:100%;height:46px;padding:0 14px 0 42px}
+.login-form .field .toggle-pass{
+  position:absolute;right:10px;top:50%;transform:translateY(-50%);border:none;background:none;
+  color:var(--muted);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;padding:6px 8px}
+.login-form .row-between{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;font-size:13.5px}
+.login-form .remember{display:flex;align-items:center;gap:7px;color:var(--ink);font-weight:600}
+.login-form .remember input{width:16px;height:16px;padding:0;accent-color:var(--brand2)}
+.login-form .forgot{color:var(--brand2);font-weight:600}
 .login-form .btn{width:100%;justify-content:center;margin-top:6px;padding:12px;font-size:15px}
 .login-form .err{background:var(--bad-bg);color:var(--bad-deep);
   border:1px solid rgba(229,72,77,.35);padding:10px 12px;border-radius:10px;margin-bottom:16px;font-size:14px}
+.login-form .activate{text-align:center;margin-top:18px;font-size:14px;color:var(--muted)}
+.login-form .activate a{color:var(--brand2);font-weight:700}
 .login-form .demo{margin-top:20px;font-size:12.5px;color:var(--muted2);text-align:center}
 
 @media(max-width:900px){
@@ -940,16 +950,42 @@ router.get('/login', (req, res) => {
       ${err}
       <div class="field">
         <label>Usuario</label>
+        <span class="ico-in">👤</span>
         <input name="user" autocomplete="username" autofocus required placeholder="tu_usuario">
       </div>
       <div class="field">
         <label>Contraseña</label>
-        <input name="pass" type="password" autocomplete="current-password" required placeholder="••••••••">
+        <span class="ico-in">🔒</span>
+        <input id="login-pass" name="pass" type="password" autocomplete="current-password" required placeholder="••••••••">
+        <button type="button" class="toggle-pass" onclick="togglePassVisibility()">Ver</button>
+      </div>
+      <div class="row-between">
+        <label class="remember"><input type="checkbox" name="recordar" checked> Recordar sesión</label>
+        <a href="#" class="forgot" onclick="event.preventDefault();toast('Próximamente vas a poder recuperarla acá.','ok')">¿Olvidaste tu contraseña?</a>
       </div>
       <button class="btn" type="submit">Ingresar al panel</button>
+      <p class="activate">¿Primera vez? <a href="#" onclick="event.preventDefault();toast('Próximamente vas a poder activar tu cuenta acá.','ok')">Activá tu cuenta</a></p>
     </form>
   </div>
 </div>
+<div id="toast" class="toast"></div>
+<script>
+function togglePassVisibility(){
+  var i=document.getElementById('login-pass');
+  var btn=document.querySelector('.toggle-pass');
+  if(!i)return;
+  var show=i.type==='password';
+  i.type=show?'text':'password';
+  if(btn)btn.textContent=show?'Ocultar':'Ver';
+}
+function toast(msg, kind){
+  var t=document.getElementById('toast');
+  if(!t)return;
+  t.textContent=msg;
+  t.className='toast show '+(kind||'ok');
+  setTimeout(function(){t.className='toast';},2600);
+}
+</script>
 </body></html>`);
 });
 
