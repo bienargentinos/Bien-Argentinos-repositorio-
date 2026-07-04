@@ -381,6 +381,15 @@ function esc(str) {
     .replace(/'/g, '&#39;');
 }
 
+// Como esc(), pero ademas neutraliza saltos de linea reales. Usar SIEMPRE que
+// se inserte texto de Sheets dentro de un atributo onclick="fn('...')" --
+// un salto de linea crudo (Alt+Enter en una celda) rompe el JS con
+// "string literal contains an unescaped line break" aunque las comillas
+// ya esten escapadas por esc().
+function escJs(str) {
+  return esc(str).replace(/\r\n|\r|\n/g, ' ');
+}
+
 /* ===================================================================
  * CSS (dark theme, responsive) -- inline
  * =================================================================== */
@@ -1699,7 +1708,7 @@ router.get('/mi-edificio', async (req, res) => {
             <td style="width:160px;color:var(--muted);font-size:13px">${esc(c.label)}</td>
             <td>${esc(c.val || '—')}</td>
             <td style="width:120px">
-              <button class="btn ghost sm" onclick="solicitarCambio(this,'${esc(c.field)}','${esc(c.val || '')}')">
+              <button class="btn ghost sm" onclick="solicitarCambio(this,'${escJs(c.field)}','${escJs(c.val || '')}')">
                 ✏️ Solicitar cambio
               </button>
             </td>
