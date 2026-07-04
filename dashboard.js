@@ -851,6 +851,27 @@ async function agregarCliente(btn){
   finally{ btn.disabled=false;btn.textContent=old; }
 }
 
+// Guardar edificios/plan/estado de un cliente existente
+async function guardarCliente(btn, row){
+  var tr=btn.closest('tr');
+  var edSel=tr.querySelector('select[data-field="edificios"]');
+  var planSel=tr.querySelector('select[data-field="plan"]');
+  var activoSel=tr.querySelector('select[data-field="activo"]');
+  var edificios=edSel?Array.from(edSel.selectedOptions).map(function(o){return o.value;}):[];
+  var data={row:row,edificios:edificios,plan:planSel?planSel.value:'Base',activo:activoSel?activoSel.value:'si'};
+  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
+  try{
+    var r=await fetch('/admin/api/cliente-editar',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(data)
+    });
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Cliente actualizado','ok');
+  }catch(e){ toast('Error: '+e.message,'err'); }
+  finally{ btn.disabled=false;btn.textContent=old; }
+}
+
 // Filtros del feed de eventos (client-side)
 function aplicarFiltros(){
   var fe=document.getElementById('f-edificio');
@@ -1389,26 +1410,47 @@ router.get('/clientes', async (req, res) => {
     const clientes = clienteRows.map(mapCliente);
     const edificiosDisponibles = edRows.map(mapEdificio).map((e) => e.nombre).filter(Boolean);
 
+    const opcionesEdificios = edificiosDisponibles
+      .map((e) => `<option value="${esc(e)}">${esc(e)}</option>`)
+      .join('');
+
     const filas = clientes.length
-      ? clientes.map((c) => `<tr>
+      ? clientes.map((c) => {
+          const opcionesConSel = edificiosDisponibles
+            .map((e) => `<option value="${esc(e)}"${c.edificios.includes(e) ? ' selected' : ''}>${esc(e)}</option>`)
+            .join('');
+          return `<tr>
           <td><b>${esc(c.nombre)}</b><br><span style="font-size:12px;color:var(--muted)">${esc(c.email)}</span></td>
           <td><code>${esc(c.usuario)}</code></td>
-          <td>${c.edificios.map((e) => `<span class="badge tipo">${esc(e)}</span>`).join(' ') || '—'}</td>
-          <td>${esc(c.plan)}</td>
-          <td>${c.activo ? '<span class="badge baja">activo</span>' : '<span class="badge alta">inactivo</span>'}</td>
-        </tr>`).join('')
+          <td>
+            <select data-field="edificios" multiple size="3" style="width:100%;min-width:160px">${opcionesConSel}</select>
+          </td>
+          <td>
+            <select data-field="plan">
+              <option value="Base"${c.plan === 'Base' ? ' selected' : ''}>Base</option>
+              <option value="Plus"${c.plan === 'Plus' ? ' selected' : ''}>Plus</option>
+            </select>
+          </td>
+          <td>
+            <select data-field="activo">
+              <option value="si"${c.activo ? ' selected' : ''}>Activo</option>
+              <option value="no"${!c.activo ? ' selected' : ''}>Inactivo</option>
+            </select>
+          </td>
+          <td><button class="btn sm" onclick="guardarCliente(this, ${c._row})">Guardar</button></td>
+        </tr>`;
+        }).join('')
       : '';
 
     const tabla = clientes.length
       ? `<div class="tablewrap" style="margin-bottom:28px"><table>
-          <thead><tr><th>Cliente</th><th>Usuario</th><th>Edificios</th><th>Plan</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Cliente</th><th>Usuario</th><th>Edificios</th><th>Plan</th><th>Estado</th><th></th></tr></thead>
           <tbody>${filas}</tbody>
-        </table></div>`
+        </table></div>
+        <p style="font-size:12.5px;color:var(--muted);margin:-18px 0 24px">
+          Editá los edificios de un cliente acá mismo — no hace falta recrearlo cuando gana o deja un consorcio.
+        </p>`
       : `<div class="empty" style="margin-bottom:28px">Todavía no hay clientes cargados en Sheets. El primero puede seguir viniendo del .env (CONSORCIO_USERS).</div>`;
-
-    const opcionesEdificios = edificiosDisponibles
-      .map((e) => `<option value="${esc(e)}">${esc(e)}</option>`)
-      .join('');
 
     res.send(
       page(
@@ -1439,10 +1481,12 @@ router.get('/clientes', async (req, res) => {
                    <td><input id="cli-email" type="email" placeholder="contacto@ejemplo.com"></td>
                  </tr>
                  <tr>
-                   <td style="color:var(--muted);font-size:13px">Edificios</td>
+                   <td style="color:var(--muted);font-size:13px">Edificios <span style="color:var(--muted2);font-weight:400">(opcional)</span></td>
                    <td>
                      <select id="cli-edificios" multiple size="4" style="width:100%">${opcionesEdificios}</select>
-                     <div style="font-size:12px;color:var(--muted);margin-top:4px">Mantené Ctrl/Cmd para elegir varios.</div>
+                     <div style="font-size:12px;color:var(--muted);margin-top:4px">
+                       Mantené Ctrl/Cmd para elegir varios. Podés dejarlo vacío y asignarle edificios más adelante desde la tabla de arriba.
+                     </div>
                    </td>
                  </tr>
                  <tr>
@@ -1490,6 +1534,52 @@ router.post('/api/clientes', async (req, res) => {
       plan: plan || 'Base',
       activo: 'si',
     });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// POST /admin/api/cliente-editar { row, edificios, plan, activo }
+// Solo actualiza estos 3 campos -- no toca nombre/usuario/contrasena/email.
+const CLIENTE_FIELDS = {
+  edificios: ['edificios', 'edificio'],
+  plan: ['plan'],
+  activo: ['activo'],
+};
+
+router.post('/api/cliente-editar', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const body = req.body || {};
+    const row = Number(body.row);
+    if (!row || isNaN(row)) {
+      return res.status(400).json({ error: 'Fila invalida' });
+    }
+
+    const valores = {
+      edificios: Array.isArray(body.edificios) ? body.edificios.join(', ') : (body.edificios || ''),
+      plan: body.plan || 'Base',
+      activo: body.activo || 'si',
+    };
+
+    const { headers } = await readTab(TAB_CLIENTES);
+    let workingHeaders = headers.slice();
+
+    for (const field of Object.keys(CLIENTE_FIELDS)) {
+      const candidates = CLIENTE_FIELDS[field];
+      let idx = workingHeaders.findIndex((h) => candidates.includes(h));
+      let col;
+      if (idx >= 0) {
+        col = columnLetter(idx + 1);
+      } else {
+        col = columnLetter(workingHeaders.length + 1);
+        await ensureHeader(TAB_CLIENTES, col, candidates[0], false);
+        workingHeaders.push(candidates[0]);
+      }
+      await writeCell(TAB_CLIENTES, col, row, valores[field]);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
