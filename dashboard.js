@@ -1625,16 +1625,35 @@ router.post('/api/edificio', async (req, res) => {
  * HELPER: append row to a sheet tab, creating headers if tab is empty
  * =================================================================== */
 
+/** Crea la pestania si todavia no existe en el spreadsheet. */
+async function ensureSheetExists(tabName) {
+  const sheets = await getSheetsClient();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+  const existe = (meta.data.sheets || []).some(
+    (s) => s.properties && s.properties.title === tabName
+  );
+  if (existe) return;
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: SHEET_ID,
+    requestBody: { requests: [{ addSheet: { properties: { title: tabName } } }] },
+  });
+}
+
 async function appendRow(tabName, rowData) {
   const sheets = await getSheetsClient();
-  // Read existing headers first
+
+  // Leer headers existentes. Si la pestania no existe, values.get tira error
+  // -> la creamos primero (values.append NO crea pestanias solas).
   let res;
   try {
     res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: `${tabName}!1:1`,
     });
-  } catch (_) { res = null; }
+  } catch (_) {
+    await ensureSheetExists(tabName);
+    res = null;
+  }
 
   const existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
 
