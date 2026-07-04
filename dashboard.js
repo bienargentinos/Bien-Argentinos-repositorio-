@@ -900,7 +900,7 @@ async function enviarSugerencia(btn){
 
 // Solicitar cambio de dato del edificio
 async function solicitarCambio(btn, campo, valorActual){
-  var nuevoVal=prompt('Valor actual: "'+valorActual+'"\n\nNuevo valor para '+campo+':');
+  var nuevoVal=prompt('Valor actual: "'+valorActual+'"\\n\\nNuevo valor para '+campo+':');
   if(nuevoVal===null||nuevoVal.trim()===''||nuevoVal===valorActual)return;
   btn.disabled=true;var old=btn.textContent;btn.textContent='Enviando...';
   try{
