@@ -112,11 +112,19 @@ Siguiendo el boceto de diseño (no la primera versión que armé, que era plana)
   grid "Estado por edificio" (una tarjeta por edificio con su cliente, unidades, novedades/urgencias de
   hoy; click filtra el Resumen a ese edificio). El banner rojo de "excede el plan" del boceto **no** se
   implementó todavía — necesita datos reales de consumo que no existen.
+- **Drawer de detalle de evento** (`/admin/eventos`, click en un evento): panel lateral con canal, edificio,
+  cuándo, teléfono, técnico, "El pedido" y "Qué hizo Marcos". **Importante**: hoy NO muestra la conversación
+  real de WhatsApp/llamada mensaje por mensaje (como en el boceto) porque **esa transcripción no se guarda
+  en ningún lado todavía** — la tab `reportes` solo tiene el resumen final que escribe la IA (`notas_ia`), no
+  el historial de mensajes. Para tener eso hay que tocar el **motor de Marcos** (`index.js`/`sheets.js`, que
+  viven en el VPS, no en este repo) para que loguee la conversación completa a medida que atiende, y agregar
+  una tab/columna nueva donde guardarla. Es un cambio de arquitectura del bot, no del dashboard — Daniel
+  decidió más control/transparencia sobre lo que hace Marcos (no todo queda "en manos de Marcos" a ciegas),
+  así que este es un candidato fuerte para la próxima etapa grande.
 - **Pendiente** (visto en el boceto de diseño, todavía no implementado):
   - Modales de verdad (ventana superpuesta) para "Agregar cliente" y "Agregar edificio" — hoy son formularios
     inline dentro de la página, no un overlay flotante como el boceto.
   - "Ver como cliente" (impersonación) desde el menú del dueño.
-  - Resumen del dueño con tarjetas de estado por edificio + banner de "excede el plan" (depende de Consumos).
   - Resumen del cliente con desglose "Estado del edificio" (Reclamo/Reserva/Seguridad/Aviso) y "Costos en
     divisa" (USD/EUR).
 
