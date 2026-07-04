@@ -369,7 +369,13 @@ function edificiosPermitidos(req) {
 
 function filtrarPorEdificio(lista, req, campo = 'edificio') {
   const permitidos = edificiosPermitidos(req);
-  if (!permitidos) return lista;
+  if (!permitidos) {
+    // Dueño sin restriccion de cliente, pero puede haber elegido un
+    // edificio puntual en el selector del header.
+    const filtro = req && req.session && req.session.filtroEdificioDueno;
+    if (!filtro) return lista;
+    return lista.filter((item) => String(item[campo] || '').toLowerCase().includes(filtro.toLowerCase()));
+  }
   return lista.filter((item) =>
     permitidos.some((e) => String(item[campo] || '').toLowerCase().includes(e.toLowerCase()))
   );
@@ -466,11 +472,30 @@ a:hover{text-decoration:underline}
   position:sticky;top:0;z-index:30;background:rgba(238,241,246,.92);backdrop-filter:blur(8px);
   border-bottom:1px solid var(--line);padding:14px 28px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 }
+.topbar-wrap{position:relative}
 .topbar-pill{
   display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
   border-radius:var(--radius-sm);padding:7px 12px;font-size:13.5px;font-weight:600;color:var(--ink);
+  cursor:pointer;font-family:inherit;
 }
 .topbar-pill .sub{color:var(--muted2);font-weight:500;font-size:12px}
+.topbar-menu{
+  display:none;position:absolute;left:0;top:calc(100% + 8px);background:var(--card);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow-pop);min-width:280px;max-width:340px;max-height:400px;
+  overflow-y:auto;z-index:40;
+}
+.topbar-menu.open{display:block}
+.topbar-menu-label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted2);
+  padding:12px 14px 8px}
+.topbar-menu-list a{display:flex;align-items:center;gap:10px;padding:9px 14px;color:var(--ink)}
+.topbar-menu-list a:hover{background:var(--bg);text-decoration:none}
+.topbar-menu-list a.active{background:rgba(46,111,192,.08)}
+.topbar-menu-list .ico{width:30px;height:30px;border-radius:8px;background:var(--bg);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.topbar-menu-list .nom{font-weight:700;font-size:13.5px}
+.topbar-menu-list .sub{color:var(--muted);font-size:11.5px;margin-top:1px}
+.topbar-menu-list .grow{flex:1;min-width:0}
+.topbar-menu-list .check{color:var(--brand2);font-weight:800}
 .spacer{flex:1}
 .bell{position:relative;width:38px;height:38px;border-radius:10px;background:var(--card);border:1px solid var(--line);
   display:flex;align-items:center;justify-content:center;font-size:16px;cursor:default}
@@ -730,9 +755,19 @@ function page(active, title, bodyHtml, req) {
   ];
 
   const initials = (userName || 'M').slice(0, 2).toUpperCase();
+  const filtroActivo = req && req.session && req.session.filtroEdificioDueno;
+  const pillLabel = isDueno ? (filtroActivo || 'Todos los edificios') : (edificios.join(', ') || 'Sin edificio asignado');
   const topbarPill = isDueno
-    ? `<div class="topbar-pill">🏢 Todos los edificios</div>`
-    : `<div class="topbar-pill">🏢 ${esc(edificios.join(', ') || 'Sin edificio asignado')}</div>`;
+    ? `<div class="topbar-wrap">
+        <button class="topbar-pill" onclick="toggleEdificioMenu()">🏢 ${esc(pillLabel)} <span style="color:var(--muted2);margin-left:2px">▾</span></button>
+        <div class="topbar-menu" id="topbar-menu">
+          <div class="topbar-menu-label">Filtrar por edificio</div>
+          <div id="topbar-menu-list" class="topbar-menu-list">
+            <div style="padding:14px;color:var(--muted);font-size:13px">Cargando...</div>
+          </div>
+        </div>
+      </div>`
+    : `<div class="topbar-pill" style="cursor:default">🏢 ${esc(pillLabel)}</div>`;
 
   return `<!DOCTYPE html>
 <html lang="es-AR">
@@ -814,6 +849,46 @@ function toggleAvatarMenu(){
         if(!m.contains(e.target)){m.classList.remove('open');document.removeEventListener('click',closeIt);}
       });
     },0);
+  }
+}
+
+var _edificiosMenuCargado=false;
+function toggleEdificioMenu(){
+  var m=document.getElementById('topbar-menu');
+  if(!m)return;
+  var willOpen=!m.classList.contains('open');
+  m.classList.toggle('open',willOpen);
+  if(willOpen){
+    if(!_edificiosMenuCargado)cargarMenuEdificios();
+    setTimeout(function(){
+      document.addEventListener('click',function closeIt(e){
+        if(!m.contains(e.target)){m.classList.remove('open');document.removeEventListener('click',closeIt);}
+      });
+    },0);
+  }
+}
+async function cargarMenuEdificios(){
+  var list=document.getElementById('topbar-menu-list');
+  if(!list)return;
+  try{
+    var r=await fetch('/admin/api/topbar-edificios');
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    _edificiosMenuCargado=true;
+    var html='<a href="/admin/set-filtro?edificio=" class="'+(j.actual?'':'active')+'">'+
+      '<div class="ico">🏢</div><div class="grow"><div class="nom">Todos los edificios</div>'+
+      '<div class="sub">'+j.edificios.length+' consorcio'+(j.edificios.length===1?'':'s')+'</div></div>'+
+      (j.actual?'':'<span class="check">✓</span>')+'</a>';
+    j.edificios.forEach(function(e){
+      var act=j.actual===e.nombre;
+      html+='<a href="/admin/set-filtro?edificio='+encodeURIComponent(e.nombre)+'" class="'+(act?'active':'')+'">'+
+        '<div class="ico">🏢</div><div class="grow"><div class="nom">'+escapeHtml(e.nombre)+'</div>'+
+        '<div class="sub">'+escapeHtml(e.cliente||'Sin asignar')+(e.unidades?' · '+escapeHtml(String(e.unidades))+' un.':'')+'</div></div>'+
+        (act?'<span class="check">✓</span>':'')+'</a>';
+    });
+    list.innerHTML=html;
+  }catch(e){
+    list.innerHTML='<div style="padding:14px;color:var(--bad-deep);font-size:13px">No se pudo cargar: '+escapeHtml(e.message)+'</div>';
   }
 }
 
@@ -1180,6 +1255,41 @@ router.get('/logout', (req, res) => {
 
 router.use(requireAuth);
 
+// GET /admin/api/topbar-edificios -- lista para el selector del header.
+// Dueño: todos los edificios + su cliente asignado. Cliente: solo los suyos.
+router.get('/api/topbar-edificios', async (req, res) => {
+  try {
+    const { rows: edRows } = await readTab(TAB_EDIFICIOS);
+    const edificios = edRows.map(mapEdificio);
+
+    if (esDueno(req)) {
+      const { rows: cliRows } = await readTab(TAB_CLIENTES);
+      const clientes = cliRows.map(mapCliente);
+      const lista = edificios.map((e) => {
+        const dueno = clientes.find((c) => c.edificios.includes(e.nombre));
+        return { nombre: e.nombre, cliente: dueno ? dueno.nombre : '', unidades: e.unidades };
+      });
+      return res.json({ edificios: lista, actual: req.session.filtroEdificioDueno || '' });
+    }
+
+    const permitidos = edificiosPermitidos(req) || [];
+    const lista = edificios
+      .filter((e) => permitidos.includes(e.nombre))
+      .map((e) => ({ nombre: e.nombre, cliente: '', unidades: e.unidades }));
+    res.json({ edificios: lista, actual: '' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// GET /admin/set-filtro?edificio=Nombre (vacio = todos) -- solo dueño.
+router.get('/set-filtro', (req, res) => {
+  if (esDueno(req)) {
+    req.session.filtroEdificioDueno = req.query.edificio || '';
+  }
+  res.redirect('/admin');
+});
+
 /* ----------------- RESUMEN DEL DIA ----------------- */
 
 router.get('/', async (req, res) => {
@@ -1202,7 +1312,9 @@ router.get('/', async (req, res) => {
       : `${horaSaludo()}, ${esc(req.session.user)}`;
 
     const subtitulo = esDueno(req)
-      ? 'Esto es lo que paso mientras dormias.'
+      ? (req.session.filtroEdificioDueno
+          ? `Filtrando por ${esc(req.session.filtroEdificioDueno)}.`
+          : 'Esto es lo que paso mientras dormias.')
       : `Panel de ${esc((edificiosPermitidos(req) || []).join(', '))}`;
 
     const cards = `

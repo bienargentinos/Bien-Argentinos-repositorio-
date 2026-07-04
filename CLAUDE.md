@@ -99,9 +99,13 @@ Siguiendo el boceto de diseño (no la primera versión que armé, que era plana)
   `encargado_suplente` (personal de limpieza u otro que cubre al encargado), `tel_seguridad`. Todos
   opcionales — la nota en la UI aclara que Marcos los va completando con el tiempo, a medida que se
   contacta con propietarios y vecinos.
+- **Selector de edificio del dueño** (header, al lado del logo): dropdown "Filtrar por edificio" con
+  "Todos los edificios" + lista de cada uno con su cliente asignado. Al elegir uno, filtra Resumen y Eventos
+  a ese edificio hasta que vuelva a "Todos". Se guarda en `req.session.filtroEdificioDueno` (ruta
+  `GET /admin/set-filtro?edificio=Nombre`), la lista se carga por AJAX desde `GET /admin/api/topbar-edificios`.
 - **Pendiente** (visto en el boceto de diseño, todavía no implementado):
-  - Selector de edificio en el header (al lado del logo) para que un cliente con varios edificios cambie
-    de cuál está viendo.
+  - Selector de edificio para el **cliente** con varios edificios (el dropdown de arriba es solo para el
+    dueño por ahora) — la screen de diseño lo muestra también en "Mi Edificio" del lado consorcio.
   - Modales de verdad (ventana superpuesta) para "Agregar cliente" y "Agregar edificio" — hoy son formularios
     inline dentro de la página, no un overlay flotante como el boceto.
   - "Ver como cliente" (impersonación) desde el menú del dueño.
