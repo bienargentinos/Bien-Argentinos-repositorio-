@@ -56,13 +56,18 @@ ssh -p5436 root@200.58.102.182
   - `vecinos`: telefono, nombre, edificio, departamento, encargado, ...
   - `sugerencias`: (la crea el dashboard) fecha, usuario, edificio, texto, estado, respuesta
   - `solicitudes`: (la crea el dashboard) fecha, usuario, edificio, campo, valor_actual, valor_nuevo, estado, motivo_rechazo
-- IMPORTANTE: el dashboard apunta a estas tabs por defecto. Si cambian, override con `SHEET_TAB_EVENTOS`, `SHEET_TAB_EDIFICIOS`, `SHEET_TAB_ARCHIVOS` en `.env`.
+  - `clientes`: (la crea el dashboard, sección Clientes) nombre, usuario, contrasena, email, edificios, plan, activo
+    — reemplaza de a poco a `CONSORCIO_USERS` del `.env`. **Contraseña en texto plano por ahora**
+    (pendiente: hashear con bcrypt cuando hagamos el auth real con activación por token).
+- IMPORTANTE: el dashboard apunta a estas tabs por defecto. Si cambian, override con `SHEET_TAB_EVENTOS`, `SHEET_TAB_EDIFICIOS`, `SHEET_TAB_ARCHIVOS`, `SHEET_TAB_CLIENTES` en `.env`.
 
 ## Roles del dashboard
 
-- **Dueño** (Daniel): ve todo — Resumen, Eventos, Facturas, Edificios, Solicitudes
+- **Dueño** (Daniel): ve todo — Resumen, Eventos, Facturas, Edificios, Clientes, Solicitudes
 - **Admin consorcio** (cliente): ve solo su edificio — Resumen, Mi Edificio, Eventos, Facturas, Sugerencias
-  - Configurar en `.env`:
+  - Alta de clientes: desde el dashboard, sección **Clientes** (dueño) → guarda en la tab `clientes` de Sheets.
+    Ya no hace falta editar el `.env` ni reiniciar el servidor para cada cliente nuevo.
+  - `CONSORCIO_USERS` en `.env` sigue funcionando como fallback/compatibilidad:
     ```
     CONSORCIO_USERS={"usuario1":"contraseña:Nombre Edificio A","usuario2":"contraseña:Edificio B,Edificio C"}
     ```
@@ -93,8 +98,14 @@ ssh -p5436 root@200.58.102.182
 
 ## Pendientes
 
-- [ ] Aplicar últimos cambios del dashboard en VPS (curl + pm2 restart)
-- [ ] Crear primer usuario cliente en `.env` con `CONSORCIO_USERS`
-- [ ] Verificar que los eventos aparecen en el dashboard (fix de columnas)
+- [x] Aplicar últimos cambios del dashboard en VPS (curl + pm2 restart)
+- [x] Verificar que los eventos aparecen en el dashboard (fix de columnas)
+- [x] Rediseño visual completo (sidebar + paleta de marca + logo real)
+- [x] Sección Clientes (alta desde el dashboard, tab `clientes` en Sheets)
+- [ ] Expensas: nueva sección para que el cliente suba PDF/imagen/link mensual
+- [ ] Auth real: contraseñas hasheadas (bcrypt), activación por token, recuperación por email
+- [ ] Consumos / facturación por excedente: derivar uso de los logs de Marcos, definir precios
+- [ ] Notificaciones con contador real (hoy la campana es solo visual)
+- [ ] Impersonación ("Ver como cliente") para el dueño
 - [ ] Twilio + chip Movistar: agregar `VAPI_API_KEY`, `TWILIO_*` al `.env`
 - [ ] Test end-to-end WhatsApp + llamadas

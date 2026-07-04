@@ -84,6 +84,7 @@ const TAB_ARCHIVOS = process.env.SHEET_TAB_ARCHIVOS || 'facturas';
 const TAB_FEEDBACK = process.env.SHEET_TAB_FEEDBACK || 'Feedback';
 const TAB_SUGERENCIAS = process.env.SHEET_TAB_SUGERENCIAS || 'sugerencias';
 const TAB_SOLICITUDES = process.env.SHEET_TAB_SOLICITUDES || 'solicitudes';
+const TAB_CLIENTES = process.env.SHEET_TAB_CLIENTES || 'clientes';
 
 /* ===================================================================
  * SESSION
@@ -269,6 +270,23 @@ function mapEdificio(r) {
     telefonos: pick(r, ['admin_telefono', 'telefonos', 'contactos', 'telefono', 'numeros']),
     notas: pick(r, ['notas_especiales', 'notas', 'observaciones', 'comentarios']),
     aliases: pick(r, ['aliases', 'alias', 'otros_nombres']),
+  };
+}
+
+/** Normaliza una fila de "clientes" (administradores de consorcio). */
+function mapCliente(r) {
+  return {
+    _row: r._row,
+    nombre: pick(r, ['nombre', 'razon_social'], 'Sin nombre'),
+    usuario: pick(r, ['usuario', 'user']),
+    pass: pick(r, ['contrasena', 'password', 'pass', 'clave']),
+    email: pick(r, ['email', 'correo', 'mail']),
+    edificios: pick(r, ['edificios', 'edificio'])
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    plan: pick(r, ['plan'], 'Base'),
+    activo: String(pick(r, ['activo'], 'si')).toLowerCase() !== 'no',
   };
 }
 
@@ -655,6 +673,7 @@ function page(active, title, bodyHtml, req) {
     ['/admin/archivos', '📄', 'Facturas/Fotos', 'archivos', true],
     ['/admin/sugerencias', '💡', 'Sugerencias', 'sugerencias', !isDueno],
     ['/admin/edificios', '🏢', 'Edificios', 'edificios', isDueno],
+    ['/admin/clientes', '👤', 'Clientes', 'clientes', isDueno],
     ['/admin/solicitudes', '📋', 'Solicitudes', 'solicitudes', isDueno],
   ];
 
@@ -793,6 +812,32 @@ async function guardarEdificio(btn, row){
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Edificio actualizado','ok');
+  }catch(e){ toast('Error: '+e.message,'err'); }
+  finally{ btn.disabled=false;btn.textContent=old; }
+}
+
+// Agregar cliente (dueño)
+async function agregarCliente(btn){
+  var nombre=(document.getElementById('cli-nombre')||{}).value||'';
+  var usuario=(document.getElementById('cli-usuario')||{}).value||'';
+  var pass=(document.getElementById('cli-pass')||{}).value||'';
+  var email=(document.getElementById('cli-email')||{}).value||'';
+  var plan=(document.getElementById('cli-plan')||{}).value||'Base';
+  var sel=document.getElementById('cli-edificios');
+  var edificios=sel?Array.from(sel.selectedOptions).map(function(o){return o.value;}):[];
+  if(!nombre.trim()||!usuario.trim()||!pass.trim()){
+    toast('Completá nombre, usuario y contraseña','err');return;
+  }
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Agregando...';
+  try{
+    var r=await fetch('/admin/api/clientes',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nombre:nombre.trim(),usuario:usuario.trim(),pass:pass.trim(),email:email.trim(),edificios:edificios,plan:plan})
+    });
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Cliente agregado','ok');
+    setTimeout(function(){location.reload();},1000);
   }catch(e){ toast('Error: '+e.message,'err'); }
   finally{ btn.disabled=false;btn.textContent=old; }
 }
@@ -996,7 +1041,7 @@ function toast(msg, kind){
 </body></html>`);
 });
 
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { user, pass } = req.body || {};
   // Dueño del sistema
   if (user === ADMIN_USER && pass === ADMIN_PASS) {
@@ -1005,7 +1050,7 @@ router.post('/login', (req, res) => {
     req.session.user = user;
     return req.session.save(() => res.redirect('/admin'));
   }
-  // Administrador de consorcio (cliente del servicio)
+  // Administrador de consorcio via .env (compatibilidad hacia atras)
   const consorcioCfg = CONSORCIO_USERS[user];
   if (consorcioCfg && consorcioCfg.pass === pass) {
     req.session.authed = true;
@@ -1013,6 +1058,21 @@ router.post('/login', (req, res) => {
     req.session.user = user;
     req.session.edificios = consorcioCfg.edificios;
     return req.session.save(() => res.redirect('/admin'));
+  }
+  // Administrador de consorcio via Sheets (tab "clientes")
+  try {
+    const { rows } = await readTab(TAB_CLIENTES);
+    const clientes = rows.map(mapCliente);
+    const match = clientes.find((c) => c.usuario === user && c.activo);
+    if (match && match.pass && match.pass === pass) {
+      req.session.authed = true;
+      req.session.role = 'consorcio';
+      req.session.user = user;
+      req.session.edificios = match.edificios;
+      return req.session.save(() => res.redirect('/admin'));
+    }
+  } catch (e) {
+    // Tab inexistente u otro error -> cae al mensaje de error de abajo
   }
   return res.redirect('/admin/login?error=1');
 });
@@ -1304,6 +1364,126 @@ router.get('/edificios', async (req, res) => {
     );
   } catch (e) {
     res.status(500).send(page('edificios', 'Edificios', errorBox(e), req));
+  }
+});
+
+/* ----------------- CLIENTES (alta de administradores) — solo dueño ----------------- */
+
+router.get('/clientes', async (req, res) => {
+  if (!esDueno(req)) return res.redirect('/admin');
+
+  try {
+    const [{ rows: clienteRows }, { rows: edRows }] = await Promise.all([
+      readTab(TAB_CLIENTES),
+      readTab(TAB_EDIFICIOS),
+    ]);
+    const clientes = clienteRows.map(mapCliente);
+    const edificiosDisponibles = edRows.map(mapEdificio).map((e) => e.nombre).filter(Boolean);
+
+    const filas = clientes.length
+      ? clientes.map((c) => `<tr>
+          <td><b>${esc(c.nombre)}</b><br><span style="font-size:12px;color:var(--muted)">${esc(c.email)}</span></td>
+          <td><code>${esc(c.usuario)}</code></td>
+          <td>${c.edificios.map((e) => `<span class="badge tipo">${esc(e)}</span>`).join(' ') || '—'}</td>
+          <td>${esc(c.plan)}</td>
+          <td>${c.activo ? '<span class="badge baja">activo</span>' : '<span class="badge alta">inactivo</span>'}</td>
+        </tr>`).join('')
+      : '';
+
+    const tabla = clientes.length
+      ? `<div class="tablewrap" style="margin-bottom:28px"><table>
+          <thead><tr><th>Cliente</th><th>Usuario</th><th>Edificios</th><th>Plan</th><th>Estado</th></tr></thead>
+          <tbody>${filas}</tbody>
+        </table></div>`
+      : `<div class="empty" style="margin-bottom:28px">Todavía no hay clientes cargados en Sheets. El primero puede seguir viniendo del .env (CONSORCIO_USERS).</div>`;
+
+    const opcionesEdificios = edificiosDisponibles
+      .map((e) => `<option value="${esc(e)}">${esc(e)}</option>`)
+      .join('');
+
+    res.send(
+      page(
+        'clientes',
+        'Clientes',
+        `<h1>Clientes</h1>
+         <p style="color:var(--muted);margin-top:-8px">Administradores de consorcio que tienen acceso al panel. Se guardan en la pestaña "clientes" de Sheets.</p>
+         ${tabla}
+         <div class="sug-form">
+           <h3>Agregar cliente</h3>
+           <div class="tablewrap" style="border:none;box-shadow:none;background:none">
+             <table style="width:100%">
+               <tbody>
+                 <tr>
+                   <td style="width:160px;color:var(--muted);font-size:13px">Nombre / razón social</td>
+                   <td><input id="cli-nombre" placeholder="Amato Propiedades"></td>
+                 </tr>
+                 <tr>
+                   <td style="color:var(--muted);font-size:13px">Usuario</td>
+                   <td><input id="cli-usuario" placeholder="amato_admin"></td>
+                 </tr>
+                 <tr>
+                   <td style="color:var(--muted);font-size:13px">Contraseña</td>
+                   <td><input id="cli-pass" type="text" placeholder="clave temporal"></td>
+                 </tr>
+                 <tr>
+                   <td style="color:var(--muted);font-size:13px">Email</td>
+                   <td><input id="cli-email" type="email" placeholder="contacto@ejemplo.com"></td>
+                 </tr>
+                 <tr>
+                   <td style="color:var(--muted);font-size:13px">Edificios</td>
+                   <td>
+                     <select id="cli-edificios" multiple size="4" style="width:100%">${opcionesEdificios}</select>
+                     <div style="font-size:12px;color:var(--muted);margin-top:4px">Mantené Ctrl/Cmd para elegir varios.</div>
+                   </td>
+                 </tr>
+                 <tr>
+                   <td style="color:var(--muted);font-size:13px">Plan</td>
+                   <td>
+                     <select id="cli-plan"><option value="Base">Base</option><option value="Plus">Plus</option></select>
+                   </td>
+                 </tr>
+               </tbody>
+             </table>
+           </div>
+           <div style="margin-top:14px">
+             <button class="btn" onclick="agregarCliente(this)">Agregar cliente</button>
+           </div>
+         </div>
+         <p style="font-size:12.5px;color:var(--muted);margin-top:16px">
+           Nota: la contraseña se guarda en texto plano en Sheets por ahora — vamos a reemplazar esto
+           por un sistema de activación con contraseña propia (hasheada) en el siguiente paso.
+         </p>`,
+        req
+      )
+    );
+  } catch (e) {
+    res.status(500).send(page('clientes', 'Clientes', errorBox(e), req));
+  }
+});
+
+router.post('/api/clientes', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { nombre, usuario, pass, email, edificios, plan } = req.body || {};
+    if (!nombre || !usuario || !pass) {
+      return res.status(400).json({ error: 'Nombre, usuario y contraseña son obligatorios' });
+    }
+    const { rows } = await readTab(TAB_CLIENTES);
+    const existe = rows.map(mapCliente).some((c) => c.usuario === usuario);
+    if (existe) return res.status(400).json({ error: 'Ese usuario ya existe' });
+
+    await appendRow(TAB_CLIENTES, {
+      nombre,
+      usuario,
+      contrasena: pass,
+      email: email || '',
+      edificios: Array.isArray(edificios) ? edificios.join(', ') : (edificios || ''),
+      plan: plan || 'Base',
+      activo: 'si',
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
   }
 });
 
