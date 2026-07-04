@@ -411,8 +411,6 @@ function escJs(str) {
  * =================================================================== */
 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap');
-
 :root{
   --bg:#EEF1F6; --card:#FFFFFF; --line:#E7ECF3; --line2:#E4E9F1;
   --ink:#16233B; --muted:#64748B; --muted2:#8595AD;
@@ -645,22 +643,41 @@ td input{width:100%}
 .drawer-overlay{display:none;position:fixed;inset:0;background:rgba(15,20,30,.35);z-index:60}
 .drawer-overlay.open{display:block}
 .drawer-panel{
-  display:none;position:fixed;top:0;right:0;bottom:0;width:420px;max-width:92vw;background:var(--card);
-  box-shadow:var(--shadow-pop);z-index:61;overflow-y:auto;padding:24px;
+  display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:var(--card);
+  box-shadow:var(--shadow-pop);z-index:61;overflow-y:auto;
 }
 .drawer-panel.open{display:block;animation:drawerIn .22s ease}
 @keyframes drawerIn{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
 .drawer-panel .dclose{position:absolute;top:18px;right:18px;background:none;border:none;font-size:20px;
-  color:var(--muted);cursor:pointer;line-height:1}
-.drawer-panel h3{font-size:19px;margin:0 0 4px;padding-right:30px}
-.drawer-panel .dgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0}
-.drawer-panel .dgrid .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted2);font-weight:700}
-.drawer-panel .dgrid .v{font-size:14px;font-weight:600;margin-top:3px}
-.drawer-panel .dsection{margin-top:18px}
-.drawer-panel .dsection h4{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 8px}
-.drawer-panel .dbox{background:var(--bg);border-radius:10px;padding:12px 14px;font-size:14px;line-height:1.5;white-space:pre-wrap}
-.drawer-panel .dnote{margin-top:18px;font-size:12.5px;color:var(--muted);background:var(--warn-bg);
-  border:1px solid rgba(217,155,31,.3);border-radius:10px;padding:10px 12px}
+  color:inherit;opacity:.6;cursor:pointer;line-height:1}
+.drawer-panel .dclose:hover{opacity:1}
+.drawer-panel .dhead{padding:22px 24px;position:relative}
+.drawer-panel .dhead .dbadges{display:flex;gap:6px;margin-bottom:14px}
+.drawer-panel .dhead .dtop{display:flex;gap:12px;align-items:flex-start}
+.drawer-panel .dhead .dicon{width:42px;height:42px;border-radius:11px;background:var(--card);
+  box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.drawer-panel .dhead .deyebrow{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.7}
+.drawer-panel .dhead h3{font-size:18px;margin:2px 0 0;padding-right:0}
+.drawer-body{padding:20px 24px 24px}
+.drawer-panel .dgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.drawer-panel .dgrid .dcell{background:var(--bg);border-radius:10px;padding:10px 12px}
+.drawer-panel .dgrid .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted2);font-weight:700}
+.drawer-panel .dgrid .v{font-size:14px;font-weight:700;margin-top:3px;color:var(--ink)}
+.drawer-panel .datendio{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:10px 12px;margin-bottom:20px;box-shadow:var(--shadow)}
+.drawer-panel .datendio .av{width:30px;height:30px;border-radius:8px;background:var(--brand);color:#fff;
+  font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.drawer-panel .datendio .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted2);font-weight:700}
+.drawer-panel .datendio .v{font-size:13.5px;font-weight:700}
+.drawer-panel .dsection{margin-bottom:18px}
+.drawer-panel .dsection h4{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 8px;
+  display:flex;align-items:center;justify-content:space-between}
+.drawer-panel .dbox{background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);
+  border-radius:10px;padding:13px 14px;font-size:14px;line-height:1.55;white-space:pre-wrap;color:var(--ink)}
+.drawer-panel .dnote{margin-top:4px;font-size:12.5px;color:var(--warn-deep);background:var(--warn-bg);
+  border:1px solid rgba(217,155,31,.35);border-radius:10px;padding:10px 12px;line-height:1.5}
+.drawer-panel .dfoot{display:flex;gap:8px;margin-top:22px}
+.drawer-panel .dfoot .btn{flex:1;justify-content:center}
 
 /* CLIENTES Y EDIFICIOS */
 .cli-head-row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:22px}
@@ -800,6 +817,9 @@ function page(active, title, bodyHtml, req) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>${esc(title)} · Marcos IA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
 <style>${CSS}</style>
 </head>
 <body>
@@ -1036,33 +1056,98 @@ async function confirmarAgregarEdificio(clienteUsuario){
 }
 
 // Drawer de detalle de un evento (usa window.__EVENTOS__ inyectado por la pagina)
+var _drawerActual=null;
+var _ICONO_POR_TIPO={'💬 WhatsApp':'💬','🎙️ Audio':'🎙️','📞 Llamada':'📞','🖼️ Imagen':'🖼️'};
+var _BG_POR_URGENCIA={alta:'var(--bad-bg)',media:'var(--warn-bg)',baja:'var(--ok-bg)'};
+var _INK_POR_URGENCIA={alta:'var(--bad-deep)',media:'var(--warn-deep)',baja:'var(--ok-deep)'};
+
 function abrirDrawerEvento(idx){
   var datos=(window.__EVENTOS__||[])[idx];
   if(!datos)return;
+  _drawerActual=datos;
   var panel=document.getElementById('drawer-panel');
   var overlay=document.getElementById('drawer-overlay');
   if(!panel||!overlay)return;
   var urgLabel={alta:'Urgente',media:'Media',baja:'Baja'}[datos.urgencia]||datos.urgencia;
+  var bg=_BG_POR_URGENCIA[datos.urgencia]||'var(--bg)';
+  var ink=_INK_POR_URGENCIA[datos.urgencia]||'var(--ink)';
+  var icono=_ICONO_POR_TIPO[datos.tipo]||'💬';
+  var tituloCorto=(datos.mensaje||datos.vecino||'Evento');
+  if(tituloCorto.length>64)tituloCorto=tituloCorto.slice(0,64)+'…';
+
   panel.innerHTML=
-    '<button class="dclose" onclick="cerrarDrawerEvento()">✕</button>'+
-    '<span class="badge '+datos.urgencia+'">'+escapeHtml(urgLabel)+'</span>'+
-    (datos.estado?' <span class="badge tipo">'+escapeHtml(datos.estado)+'</span>':'')+
-    '<h3 style="margin-top:10px">'+escapeHtml(datos.vecino||'Vecino')+'</h3>'+
-    '<div class="dgrid">'+
-      '<div><div class="k">Canal</div><div class="v">'+escapeHtml(datos.tipo||'')+'</div></div>'+
-      '<div><div class="k">Edificio</div><div class="v">'+escapeHtml(datos.edificio||'')+'</div></div>'+
-      '<div><div class="k">Cuándo</div><div class="v">'+escapeHtml(datos.fecha||'')+'</div></div>'+
-      '<div><div class="k">Teléfono</div><div class="v">'+escapeHtml(datos.telefono||'—')+'</div></div>'+
-      (datos.tecnico?'<div><div class="k">Técnico / rubro</div><div class="v">'+escapeHtml(datos.tecnico)+'</div></div>':'')+
+    '<div class="dhead" style="background:'+bg+';color:'+ink+'">'+
+      '<button class="dclose" onclick="cerrarDrawerEvento()">✕</button>'+
+      '<div class="dbadges">'+
+        '<span class="badge '+datos.urgencia+'">'+escapeHtml(urgLabel)+'</span>'+
+        (datos.estado?'<span class="badge tipo">'+escapeHtml(datos.estado)+'</span>':'')+
+      '</div>'+
+      '<div class="dtop">'+
+        '<div class="dicon">'+icono+'</div>'+
+        '<div><div class="deyebrow">'+escapeHtml(datos.vecino||'Vecino')+' · '+escapeHtml(datos.edificio||'')+'</div>'+
+        '<h3>'+escapeHtml(tituloCorto)+'</h3></div>'+
+      '</div>'+
     '</div>'+
+    '<div class="drawer-body">'+
+    '<div class="dgrid">'+
+      '<div class="dcell"><div class="k">Canal</div><div class="v">'+escapeHtml(datos.tipo||'')+'</div></div>'+
+      '<div class="dcell"><div class="k">Edificio</div><div class="v">'+escapeHtml(datos.edificio||'')+'</div></div>'+
+      '<div class="dcell"><div class="k">Cuándo</div><div class="v">'+escapeHtml(datos.fecha||'')+'</div></div>'+
+      '<div class="dcell"><div class="k">Teléfono</div><div class="v">'+escapeHtml(datos.telefono||'—')+'</div></div>'+
+      (datos.tecnico?'<div class="dcell" style="grid-column:span 2"><div class="k">Técnico / rubro</div><div class="v">'+escapeHtml(datos.tecnico)+'</div></div>':'')+
+    '</div>'+
+    '<div class="datendio"><div class="av">M</div><div><div class="k">Atendió</div><div class="v">Marcos</div></div></div>'+
     (datos.mensaje?'<div class="dsection"><h4>El pedido</h4><div class="dbox">'+escapeHtml(datos.mensaje)+'</div></div>':'')+
     (datos.notas?'<div class="dsection"><h4>Qué hizo Marcos</h4><div class="dbox">'+escapeHtml(datos.notas)+'</div></div>':'')+
-    '<div class="dnote">⚠ La conversación completa (WhatsApp/llamada) todavía no se guarda mensaje por mensaje '+
-    'en el sistema — esto que ves es el resumen que escribe Marcos, no el chat real. Guardar la transcripción '+
-    'completa es un cambio en el motor de Marcos, no en este panel.</div>';
+    '<div class="dsection"><h4>Conversación registrada'+
+      '<button class="btn ghost sm" onclick="descargarResumenEvento()">⬇ Descargar</button></h4>'+
+    '<div class="dnote">⚠ La conversación completa (WhatsApp/llamada, mensaje por mensaje) todavía no se guarda '+
+    'en el sistema — lo que bajás con "Descargar" es este resumen que escribe Marcos, no el chat real. '+
+    'Guardar la transcripción completa para respaldo legal es un cambio pendiente en el motor de Marcos.</div>'+
+    '</div>'+
+    '<div class="dfoot"><button class="btn ghost" onclick="cerrarDrawerEvento()">Cerrar</button></div>'+
+    '</div>';
   overlay.classList.add('open');
   panel.classList.add('open');
 }
+
+function descargarResumenEvento(){
+  var d=_drawerActual;
+  if(!d)return;
+  var lineas=[
+    'MARCOS IA -- Resumen de evento (no es la conversacion completa)',
+    '========================================================',
+    'Edificio: '+(d.edificio||''),
+    'Vecino: '+(d.vecino||''),
+    'Telefono: '+(d.telefono||''),
+    'Canal: '+(d.tipo||''),
+    'Fecha: '+(d.fecha||''),
+    'Urgencia: '+(d.urgencia||''),
+    'Estado: '+(d.estado||''),
+    (d.tecnico?'Tecnico/rubro: '+d.tecnico:''),
+    '',
+    'EL PEDIDO',
+    '---------',
+    (d.mensaje||'(sin datos)'),
+    '',
+    'QUE HIZO MARCOS',
+    '---------------',
+    (d.notas||'(sin datos)'),
+    '',
+    'Nota: este archivo NO contiene la conversacion completa de WhatsApp/llamada.',
+    'Es un resumen generado por la IA. Descargado el '+new Date().toLocaleString('es-AR'),
+  ].filter(Boolean).join('\\n');
+  var blob=new Blob([lineas],{type:'text/plain;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;
+  a.download='marcos-evento-'+(d.edificio||'').replace(/[^a-z0-9]+/gi,'-')+'-'+(d.fecha||'').replace(/[^a-z0-9]+/gi,'-')+'.txt';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(url);},2000);
+}
+
 function cerrarDrawerEvento(){
   var panel=document.getElementById('drawer-panel');
   var overlay=document.getElementById('drawer-overlay');
@@ -1201,7 +1286,11 @@ router.get('/login', (req, res) => {
   res.send(`<!DOCTYPE html>
 <html lang="es-AR"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Ingresar · Marcos IA</title><style>${CSS}</style></head>
+<title>Ingresar · Marcos IA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
+<style>${CSS}</style></head>
 <body>
 <div class="login-shell">
   <div class="login-brand">
@@ -1500,7 +1589,9 @@ router.get('/eventos', async (req, res) => {
     const urgentesHoy = hoy.filter((e) => e.urgencia === 'alta');
     const filtroActivo = esDueno(req) && req.session.filtroEdificioDueno;
 
-    const stats = `
+    // El contador de arriba solo le sirve al administrador de consorcio, no
+    // al dueño del sistema (que ya tiene ese resumen en Resumen).
+    const stats = esDueno(req) ? '' : `
       <div class="cards" style="margin-bottom:18px">
         <div class="card"><div class="k">Novedades hoy</div><div class="v">${hoy.length}</div></div>
         <div class="card alta"><div class="k">Urgencias hoy</div><div class="v">${urgentesHoy.length}</div></div>
