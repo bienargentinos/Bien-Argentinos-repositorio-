@@ -555,27 +555,40 @@ select:focus,input:focus,textarea:focus{border-color:var(--brand2);box-shadow:0 
 textarea{width:100%;resize:vertical;min-height:60px}
 label.flt{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
 
-.feed{display:flex;flex-direction:column;gap:12px}
+/* Feed de eventos -- calcado del boceto: un solo contenedor blanco con
+ * filas separadas por linea, icono de categoria a la izquierda. */
+.feed{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .event{
-  background:var(--card);border:1px solid var(--line);border-left:4px solid var(--brand2);border-radius:var(--radius);
-  padding:16px;box-shadow:var(--shadow);position:relative;display:flex;gap:13px
+  display:flex;align-items:flex-start;gap:14px;padding:16px 20px;
+  border-bottom:1px solid #F1F4F9;position:relative;background:none;
 }
-.event .evico{width:38px;height:38px;border-radius:10px;color:#fff;font-size:16px;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.15)}
-.evico.texto{background:var(--brand2)}
-.evico.audio{background:var(--gold)}
-.evico.llamada{background:var(--brand-deep)}
-.evico.imagen{background:var(--ok)}
-.event .eventbody{flex:1;min-width:0}
-.event .head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start}
-.event .who{font-weight:700}
-.event .meta{color:var(--muted);font-size:13px;margin-top:2px}
-.event .body{margin-top:10px;white-space:pre-wrap}
-.event .transcript{
-  margin-top:10px;background:var(--bg);border-left:3px solid var(--brand2);
-  padding:10px 12px;border-radius:8px;font-size:14px;color:var(--ink)
-}
-.event .transcript .lbl{color:var(--muted);font-size:12px;font-weight:600;display:block;margin-bottom:3px}
+.event:last-child{border-bottom:none}
+.event:hover{background:#F8FAFD}
+.event .nuevobar{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--brand2)}
+.event .evico{width:44px;height:44px;border-radius:12px;font-size:20px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center}
+.evico.reclamo{background:#FDECEC}
+.evico.reserva{background:#EAF3EC}
+.evico.seguridad{background:#EDEEFB}
+.evico.mensaje{background:#EAF1FB}
+.evico.mantenimiento{background:#FBF3DE}
+.event .evmain{flex:1;min-width:0}
+.event .evtitle-row{display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap}
+.event .evtitle{font-size:15px;font-weight:700;color:var(--ink)}
+.event .evdetalle{display:block;font-size:13.5px;color:#5A6B85;line-height:1.45;margin-bottom:6px}
+.event .evmeta{display:flex;align-items:center;gap:10px;font-size:12px;color:#9AA7BD;flex-wrap:wrap}
+.event .evmeta .mlink{color:var(--brand2);font-weight:700}
+
+/* Pills del boceto (urgencia / estado / edificio) -- pastel exactos */
+.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.urg-alta{background:#FDECEC;color:#C0392B}
+.pill.urg-media{background:#FBF1DD;color:#8A6410}
+.pill.urg-baja{background:#EAF1FB;color:#2C5C9E}
+.pill.bldg{background:#EEF2F8;color:#5A6B85}
+.pill.est{padding:3px 10px;flex-shrink:0}
+.pill.est-nuevo{background:#EAF1FB;color:#2C5C9E}
+.pill.est-curso{background:#FBF1DD;color:#8A6410}
+.pill.est-resuelto{background:#E7F4EC;color:#1B7A43}
 
 .badges{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .badge{font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.4px}
@@ -646,56 +659,53 @@ td input{width:100%}
 .sol-diff .arr{color:var(--muted)}
 .sol-diff .new{color:var(--ok-deep);font-weight:600;font-size:13px}
 
-/* DRAWER DE DETALLE DE EVENTO */
-.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(15,20,30,.35);z-index:60}
-.drawer-overlay.open{display:block}
+/* DRAWER DE DETALLE DE EVENTO -- calcado del boceto */
+.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:60}
+.drawer-overlay.open{display:block;animation:mFade .2s ease both}
+@keyframes mFade{from{opacity:0}to{opacity:1}}
 .drawer-panel{
-  display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:var(--card);
+  display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:#F6F8FB;
   box-shadow:var(--shadow-pop);z-index:61;overflow-y:auto;
 }
-.drawer-panel.open{display:block;animation:drawerIn .22s ease}
+.drawer-panel.open{display:block;animation:drawerIn .28s cubic-bezier(.2,.8,.2,1) both}
 @keyframes drawerIn{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
-.drawer-panel .dclose{position:absolute;top:18px;right:18px;background:none;border:none;font-size:20px;
-  color:inherit;opacity:.6;cursor:pointer;line-height:1}
-.drawer-panel .dclose:hover{opacity:1}
-.drawer-panel .dhead{padding:26px 24px 24px;position:relative;border-bottom:1px solid rgba(0,0,0,.06)}
-.drawer-panel .dhead.alta{background:linear-gradient(160deg,#FBDADA,#FDECEC 65%)}
-.drawer-panel .dhead.media{background:linear-gradient(160deg,#FBE7C4,#FBF3DE 65%)}
-.drawer-panel .dhead.baja{background:linear-gradient(160deg,#C9EEDA,#E7F4EC 65%)}
-.drawer-panel .dhead .dbadges{display:flex;gap:7px;margin-bottom:16px}
-.drawer-panel .dhead .dtop{display:flex;gap:14px;align-items:flex-start}
-.drawer-panel .dhead .dicon{width:48px;height:48px;border-radius:13px;background:#fff;
-  box-shadow:0 4px 14px rgba(16,35,59,.16);display:flex;align-items:center;justify-content:center;
-  font-size:21px;flex-shrink:0;border:1px solid rgba(255,255,255,.6)}
-.drawer-panel .dhead .deyebrow{font-size:11.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;opacity:.75}
-.drawer-panel .dhead h3{font-size:19px;font-weight:800;margin:3px 0 0;padding-right:0;color:var(--ink)}
-.dbadge{font-size:11px;font-weight:800;padding:5px 11px;border-radius:999px;text-transform:uppercase;
-  letter-spacing:.04em;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12)}
-.dbadge.alta{background:var(--bad)}
-.dbadge.media{background:var(--warn)}
-.dbadge.baja{background:var(--ok)}
-.dbadge.tipo{background:rgba(255,255,255,.85);color:var(--ink);border:1px solid rgba(0,0,0,.08);box-shadow:none}
-.drawer-body{padding:22px 24px 24px}
+.drawer-panel .dhead{padding:22px 24px 20px;position:relative}
+.drawer-panel .dclose{position:absolute;top:16px;right:16px;width:34px;height:34px;border:none;border-radius:9px;
+  background:rgba(255,255,255,.7);cursor:pointer;font-size:17px;font-family:inherit;line-height:1}
+.drawer-panel .dclose:hover{background:#fff}
+.drawer-panel .dhead .dbadges{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.drawer-panel .dhead .dtop{display:flex;align-items:center;gap:13px}
+.drawer-panel .dhead .dicon{width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.75);
+  display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0}
+.drawer-panel .dhead .deyebrow{font-size:12px;font-weight:700;color:#5A6B85;text-transform:uppercase;letter-spacing:.04em}
+.drawer-panel .dhead h3{font-size:20px;font-weight:800;letter-spacing:-.02em;color:#16233B;line-height:1.2;margin:0}
+.drawer-body{padding:22px 24px}
 .drawer-panel .dgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
-.drawer-panel .dgrid .dcell{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
-.drawer-panel .dgrid .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted2);font-weight:800}
-.drawer-panel .dgrid .v{font-size:14.5px;font-weight:800;margin-top:3px;color:var(--ink)}
-.drawer-panel .datendio{display:flex;align-items:center;gap:11px;background:var(--card);border:1px solid var(--line);
-  border-radius:10px;padding:11px 13px;margin-bottom:20px;box-shadow:var(--shadow)}
-.drawer-panel .datendio .av{width:34px;height:34px;border-radius:9px;background:var(--brand);color:#fff;
-  font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
-  box-shadow:0 2px 6px rgba(30,95,180,.35)}
-.drawer-panel .datendio .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted2);font-weight:800}
-.drawer-panel .datendio .v{font-size:14px;font-weight:800}
-.drawer-panel .dsection{margin-bottom:18px}
-.drawer-panel .dsection h4{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 8px;
+.drawer-panel .dgrid .dcell{background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px}
+.drawer-panel .dgrid .k{font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase}
+.drawer-panel .dgrid .v{font-size:14.5px;font-weight:700;margin-top:2px;color:#16233B}
+.drawer-panel .datendio{display:flex;align-items:center;gap:11px;background:#fff;border:1px solid #E7ECF3;
+  border-radius:12px;padding:11px 14px;margin-bottom:18px}
+.drawer-panel .datendio .av{width:36px;height:36px;border-radius:50%;background:linear-gradient(140deg,#17408B,#2E6FC0);
+  color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0}
+.drawer-panel .datendio .k{font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.03em}
+.drawer-panel .datendio .v{font-size:14.5px;font-weight:700;color:#16233B}
+.drawer-panel .dtitle{font-size:13px;font-weight:800;color:#334259;margin:0 0 8px;
   display:flex;align-items:center;justify-content:space-between}
-.drawer-panel .dbox{background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);
-  border-radius:10px;padding:13px 14px;font-size:14px;line-height:1.55;white-space:pre-wrap;color:var(--ink)}
-.drawer-panel .dnote{margin-top:4px;font-size:12.5px;color:var(--warn-deep);background:var(--warn-bg);
-  border:1px solid rgba(217,155,31,.35);border-radius:10px;padding:10px 12px;line-height:1.5}
-.drawer-panel .dfoot{display:flex;gap:8px;margin-top:22px}
-.drawer-panel .dfoot .btn{flex:1;justify-content:center}
+.drawer-panel .dbox{background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:14px 16px;
+  font-size:14.5px;color:#334259;line-height:1.55;margin-bottom:20px;white-space:pre-wrap}
+.drawer-panel .dbox.marcos{background:linear-gradient(120deg,#EAF1FB,#F3F7FD);border-color:#D8E5F6;color:#1E3A6B;line-height:1.6}
+.drawer-panel .dlock{display:flex;align-items:flex-start;gap:9px;background:#F1F5FB;border-radius:11px;
+  padding:11px 14px;margin-top:12px;font-size:12.5px;color:#5A6B85;line-height:1.5}
+.drawer-panel .ddl{height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;
+  color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit}
+.drawer-panel .ddl:hover{background:#F1F5FB}
+.drawer-panel .dfoot{display:flex;gap:10px;margin-top:22px}
+.drawer-panel .dfoot button{flex:1;height:44px;border-radius:11px;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit}
+.drawer-panel .dfoot .fcerrar{border:1px solid #DCE4F0;background:#fff;color:#334259}
+.drawer-panel .dfoot .fcerrar:hover{background:#F1F5FB}
+.drawer-panel .dfoot .faccion{border:none;background:#17408B;color:#fff}
+.drawer-panel .dfoot .faccion:hover{background:#1E5FB4}
 
 /* CLIENTES Y EDIFICIOS */
 .cli-head-row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:22px}
@@ -1075,7 +1085,6 @@ async function confirmarAgregarEdificio(clienteUsuario){
 
 // Drawer de detalle de un evento (usa window.__EVENTOS__ inyectado por la pagina)
 var _drawerActual=null;
-var _ICONO_POR_TIPO={'💬 WhatsApp':'💬','🎙️ Audio':'🎙️','📞 Llamada':'📞','🖼️ Imagen':'🖼️'};
 
 function abrirDrawerEvento(idx){
   var datos=(window.__EVENTOS__||[])[idx];
@@ -1084,46 +1093,78 @@ function abrirDrawerEvento(idx){
   var panel=document.getElementById('drawer-panel');
   var overlay=document.getElementById('drawer-overlay');
   if(!panel||!overlay)return;
-  var urgLabel={alta:'Urgente',media:'Media',baja:'Baja'}[datos.urgencia]||datos.urgencia;
-  var claseUrg=(datos.urgencia==='alta'||datos.urgencia==='media'||datos.urgencia==='baja')?datos.urgencia:'baja';
-  var icono=_ICONO_POR_TIPO[datos.tipo]||'💬';
-  var tituloCorto=(datos.mensaje||datos.vecino||'Evento');
-  if(tituloCorto.length>64)tituloCorto=tituloCorto.slice(0,64)+'…';
+  var esDueno=!!window.__ES_DUENO__;
+  var titulo=(datos.mensaje||'Evento');
+  if(titulo.length>70)titulo=titulo.slice(0,70)+'…';
+
+  var feedbackHtml='';
+  if(esDueno){
+    feedbackHtml=
+      '<div class="dtitle">📝 Tu nota para Marcos</div>'+
+      '<div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:4px">'+
+        '<textarea data-fb-drawer rows="2" placeholder="Dejale una nota a Marcos para que aprenda de este caso..." '+
+          'style="flex:1;min-height:52px">'+escapeHtml(datos.feedback||'')+'</textarea>'+
+        '<button class="btn sm" onclick="guardarFeedbackDrawer(this,'+datos.row+')">Guardar</button>'+
+      '</div>';
+  }
 
   panel.innerHTML=
-    '<div class="dhead '+claseUrg+'">'+
+    '<div class="dhead" style="background:'+escapeHtml(datos.catBg||'#EAF1FB')+'">'+
       '<button class="dclose" onclick="cerrarDrawerEvento()">✕</button>'+
       '<div class="dbadges">'+
-        '<span class="dbadge '+claseUrg+'">'+escapeHtml(urgLabel)+'</span>'+
-        (datos.estado?'<span class="dbadge tipo">'+escapeHtml(datos.estado)+'</span>':'')+
+        '<span class="pill urg-'+escapeHtml(datos.urgencia)+'">'+escapeHtml(datos.urgLabel)+'</span>'+
+        '<span class="pill est est-'+escapeHtml(datos.estClase)+'">'+escapeHtml(datos.estLabel)+'</span>'+
       '</div>'+
       '<div class="dtop">'+
-        '<div class="dicon">'+icono+'</div>'+
-        '<div><div class="deyebrow">'+escapeHtml(datos.vecino||'Vecino')+' · '+escapeHtml(datos.edificio||'')+'</div>'+
-        '<h3>'+escapeHtml(tituloCorto)+'</h3></div>'+
+        '<div class="dicon">'+escapeHtml(datos.catIcon||'💬')+'</div>'+
+        '<div><div class="deyebrow">'+escapeHtml(datos.catLabel||'Evento')+'</div>'+
+        '<h3>'+escapeHtml(titulo)+'</h3></div>'+
       '</div>'+
     '</div>'+
     '<div class="drawer-body">'+
     '<div class="dgrid">'+
-      '<div class="dcell"><div class="k">Canal</div><div class="v">'+escapeHtml(datos.tipo||'')+'</div></div>'+
-      '<div class="dcell"><div class="k">Edificio</div><div class="v">'+escapeHtml(datos.edificio||'')+'</div></div>'+
+      '<div class="dcell"><div class="k">Canal</div><div class="v">'+escapeHtml(datos.canalIcon||'')+' '+escapeHtml(datos.canalNombre||'')+'</div></div>'+
+      '<div class="dcell"><div class="k">Vecino</div><div class="v">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
       '<div class="dcell"><div class="k">Cuándo</div><div class="v">'+escapeHtml(datos.fecha||'')+'</div></div>'+
-      '<div class="dcell"><div class="k">Teléfono</div><div class="v">'+escapeHtml(datos.telefono||'—')+'</div></div>'+
-      (datos.tecnico?'<div class="dcell" style="grid-column:span 2"><div class="k">Técnico / rubro</div><div class="v">'+escapeHtml(datos.tecnico)+'</div></div>':'')+
+      '<div class="dcell"><div class="k">Edificio</div><div class="v">'+escapeHtml(datos.edificio||'')+'</div></div>'+
+      (datos.telefono?'<div class="dcell"><div class="k">Teléfono</div><div class="v">'+escapeHtml(datos.telefono)+'</div></div>':'')+
+      (datos.tecnico?'<div class="dcell"><div class="k">Técnico / rubro</div><div class="v">'+escapeHtml(datos.tecnico)+'</div></div>':'')+
     '</div>'+
-    '<div class="datendio"><div class="av">M</div><div><div class="k">Atendió</div><div class="v">Marcos</div></div></div>'+
-    (datos.mensaje?'<div class="dsection"><h4>El pedido</h4><div class="dbox">'+escapeHtml(datos.mensaje)+'</div></div>':'')+
-    (datos.notas?'<div class="dsection"><h4>Qué hizo Marcos</h4><div class="dbox">'+escapeHtml(datos.notas)+'</div></div>':'')+
-    '<div class="dsection"><h4>Conversación registrada'+
-      '<button class="btn ghost sm" onclick="descargarResumenEvento()">⬇ Descargar</button></h4>'+
-    '<div class="dnote">⚠ La conversación completa (WhatsApp/llamada, mensaje por mensaje) todavía no se guarda '+
-    'en el sistema — lo que bajás con "Descargar" es este resumen que escribe Marcos, no el chat real. '+
-    'Guardar la transcripción completa para respaldo legal es un cambio pendiente en el motor de Marcos.</div>'+
+    '<div class="datendio"><div class="av">M</div><div style="flex:1"><div class="k">Atendió</div><div class="v">Marcos</div></div></div>'+
+    (datos.mensaje?'<div class="dtitle">El pedido</div><div class="dbox">'+escapeHtml(datos.mensaje)+'</div>':'')+
+    (datos.notas?'<div class="dtitle">📝 Qué hizo Marcos</div><div class="dbox marcos">'+escapeHtml(datos.notas)+'</div>':'')+
+    '<div class="dtitle">📄 Conversación registrada'+
+      '<button class="ddl" onclick="descargarResumenEvento()">⬇ Descargar</button></div>'+
+    '<div class="dlock"><span style="font-size:15px">🔒</span>'+
+      '<span>El registro textual completo de lo conversado queda como <strong style="color:#334259">comprobante</strong> '+
+      'ante cualquier reclamo. Hoy Marcos guarda su resumen del caso — la transcripción mensaje por mensaje '+
+      'se va a sumar en la próxima etapa del motor.</span></div>'+
+    (feedbackHtml?'<div style="margin-top:20px">'+feedbackHtml+'</div>':'')+
+    '<div class="dfoot">'+
+      '<button class="fcerrar" onclick="cerrarDrawerEvento()">Cerrar</button>'+
+      (esDueno?'':'<button class="faccion" onclick="location.href=\\'/admin/sugerencias\\'">Comentar a mi admin</button>')+
     '</div>'+
-    '<div class="dfoot"><button class="btn ghost" onclick="cerrarDrawerEvento()">Cerrar</button></div>'+
     '</div>';
   overlay.classList.add('open');
   panel.classList.add('open');
+}
+
+// Guardar la nota del dueño desde el drawer (misma API que el feed viejo)
+async function guardarFeedbackDrawer(btn,row){
+  var ta=btn.parentElement.querySelector('textarea[data-fb-drawer]');
+  var nota=ta?ta.value.trim():'';
+  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
+  try{
+    var r=await fetch('/admin/api/feedback',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row,nota:nota})
+    });
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Nota guardada. Marcos va a aprender de esto.','ok');
+    if(_drawerActual)_drawerActual.feedback=nota;
+  }catch(e){ toast('Error: '+e.message,'err'); }
+  finally{ btn.disabled=false;btn.textContent=old; }
 }
 
 function descargarResumenEvento(){
@@ -1589,6 +1630,44 @@ function tipoLabel(t) {
   }[t] || '💬 Mensaje';
 }
 
+// Categorias visuales del boceto de diseño (TIPO en el prototipo). La tab
+// 'reportes' no guarda una categoria, asi que se deriva por palabras clave
+// del texto del problema.
+const CATEGORIAS_EVENTO = {
+  reclamo: { label: 'Reclamo', icon: '🔧', bg: '#FDECEC' },
+  reserva: { label: 'Reserva', icon: '📅', bg: '#EAF3EC' },
+  seguridad: { label: 'Seguridad', icon: '📹', bg: '#EDEEFB' },
+  mensaje: { label: 'Aviso', icon: '💬', bg: '#EAF1FB' },
+  mantenimiento: { label: 'Mantenimiento', icon: '🧰', bg: '#FBF3DE' },
+};
+
+function clasificarEvento(e) {
+  const txt = `${e.mensaje || ''} ${e.resumen || ''}`.toLowerCase();
+  if (/reserva|sum\b|quincho|salon|cumplea/.test(txt)) return 'reserva';
+  if (/camara|cámara|seguridad|cerradura|robo|alarma|acceso principal|magnetica|magnética/.test(txt)) return 'seguridad';
+  if (/service|mantenimiento|bomba de agua|limpieza de tanque|fumigaci/.test(txt)) return 'mantenimiento';
+  if (/aviso|informo|informó|corte programado|factura|recepcion de factura|recepción/.test(txt)) return 'mensaje';
+  if (/perdida|pérdida|corte|falla|roto|quemad|arreglo|reembolso|filtracion|filtración|no funciona|sin luz|sin señal|reclamo|humedad|gas/.test(txt)) return 'reclamo';
+  return 'reclamo';
+}
+
+// Canal como lo muestra el boceto: circulo verde para WhatsApp, telefono
+// para llamadas.
+function canalDe(e) {
+  if (e.tipo === 'llamada') return { icon: '📞', nombre: 'Llamado' };
+  if (e.tipo === 'audio') return { icon: '🟢', nombre: 'WhatsApp · audio' };
+  if (e.tipo === 'imagen') return { icon: '🟢', nombre: 'WhatsApp · imagen' };
+  return { icon: '🟢', nombre: 'WhatsApp' };
+}
+
+// Normaliza el estado libre que escribe Marcos a los 3 estados del boceto.
+function estadoNormalizado(estado) {
+  const s = String(estado || '').toLowerCase();
+  if (/resuel|cerrad|finaliz|completad/.test(s)) return { clase: 'resuelto', label: 'Resuelto' };
+  if (/proceso|curso|iniciado|coordinando|gestion|gestión|pendiente/.test(s)) return { clase: 'curso', label: 'En curso' };
+  return { clase: 'nuevo', label: 'Nuevo' };
+}
+
 /* ----------------- FEED DE EVENTOS ----------------- */
 
 router.get('/eventos', async (req, res) => {
@@ -1619,12 +1698,27 @@ router.get('/eventos', async (req, res) => {
          <div id="no-results" class="empty" style="display:none">No hay eventos que coincidan con el filtro.</div>`
       : `<div class="empty">Todavia no hay eventos registrados.</div>`;
 
-    const datosDrawer = eventos.map((e) => ({
-      edificio: e.edificio, vecino: e.vecino, telefono: e.telefono, fecha: fechaCorta(parseFecha(e.fecha)) || e.fecha,
-      tipo: tipoLabel(e.tipo), urgencia: e.urgencia, estado: e.estado, tecnico: e.tecnico,
-      mensaje: e.mensaje, notas: e.transcripcion || e.resumen,
-    }));
+    const datosDrawer = eventos.map((e) => {
+      const cat = clasificarEvento(e);
+      const catInfo = CATEGORIAS_EVENTO[cat];
+      const canal = canalDe(e);
+      const est = estadoNormalizado(e.estado);
+      return {
+        row: e._row,
+        edificio: e.edificio, vecino: e.vecino, telefono: e.telefono,
+        fecha: fechaCorta(parseFecha(e.fecha)) || e.fecha,
+        canalIcon: canal.icon, canalNombre: canal.nombre,
+        urgencia: e.urgencia,
+        urgLabel: { alta: 'Urgente', media: 'Media', baja: 'Baja' }[e.urgencia] || e.urgencia,
+        estClase: est.clase, estLabel: est.label,
+        catLabel: catInfo.label, catIcon: catInfo.icon, catBg: catInfo.bg,
+        tecnico: e.tecnico,
+        mensaje: e.mensaje, notas: e.transcripcion || e.resumen,
+        feedback: e.feedback || '',
+      };
+    });
     const jsonDrawer = JSON.stringify(datosDrawer).replace(/</g, '\\u003c');
+    const esDuenoFlag = esDueno(req) ? 'true' : 'false';
 
     res.send(
       page(
@@ -1654,7 +1748,7 @@ router.get('/eventos', async (req, res) => {
          ${feed}
          <div class="drawer-overlay" id="drawer-overlay" onclick="cerrarDrawerEvento()"></div>
          <div class="drawer-panel" id="drawer-panel"></div>
-         <script>window.__EVENTOS__=${jsonDrawer};</script>`,
+         <script>window.__EVENTOS__=${jsonDrawer};window.__ES_DUENO__=${esDuenoFlag};</script>`,
         req
       )
     );
@@ -1664,49 +1758,35 @@ router.get('/eventos', async (req, res) => {
 });
 
 function renderEventoFull(e, req, idx) {
-  const transcript = e.transcripcion
-    ? `<div class="transcript"><span class="lbl">Notas de Marcos</span>${esc(e.transcripcion)}</div>`
-    : '';
+  const cat = clasificarEvento(e);
+  const catInfo = CATEGORIAS_EVENTO[cat];
+  const canal = canalDe(e);
+  const est = estadoNormalizado(e.estado);
+  const urgLabel = { alta: 'Urgente', media: 'Media', baja: 'Baja' }[e.urgencia] || e.urgencia;
+  const esNuevo = esHoy(parseFecha(e.fecha));
 
-  const resumen = (e.resumen && e.resumen !== e.transcripcion)
-    ? `<div class="meta" style="margin-top:8px"><b>Marcos:</b> ${esc(e.resumen)}</div>`
-    : '';
-
-  const feedbackHtml = esDueno({ session: req && req.session })
-    ? `<div class="fb" onclick="event.stopPropagation()">
-        <div class="existing" data-existing style="${e.feedback ? '' : 'display:none'}"><b>Tu nota:</b> ${esc(e.feedback)}</div>
-        <div class="row">
-          <textarea data-fb placeholder="Dejale una nota a Marcos para que aprenda de este caso...">${esc(e.feedback || '')}</textarea>
-          <button class="btn sm" onclick="guardarFeedback(this, ${e._row})">Guardar nota</button>
-        </div>
-      </div>`
-    : (e.feedback ? `<div class="fb"><div class="existing"><b>Nota:</b> ${esc(e.feedback)}</div></div>` : '');
-
-  const iconoTipo = { texto: '💬', audio: '🎙️', llamada: '📞', imagen: '🖼️' }[e.tipo] || '💬';
+  const titulo = truncate(e.mensaje || e.resumen || 'Evento', 80);
+  // El detalle de la fila muestra que hizo Marcos (la nota corta), como en
+  // el boceto -- el pedido completo ya esta en el titulo y en el drawer.
+  const detalle = truncate(e.resumen || e.transcripcion || '', 150);
 
   return `<div class="event" data-edificio="${esc(e.edificio)}" data-urgencia="${esc(e.urgencia)}"
     onclick="abrirDrawerEvento(${idx})" style="cursor:pointer">
-    <div class="evico ${esc(e.tipo)}">${iconoTipo}</div>
-    <div class="eventbody">
-    <div class="head">
-      <div>
-        <div class="who">${esc(e.edificio)} · ${esc(e.vecino)}</div>
-        <div class="meta">${esc(fechaCorta(parseFecha(e.fecha)) || e.fecha)}${
-          e.telefono ? ' · ' + esc(e.telefono) : ''
-        }</div>
-      </div>
-      <div class="badges">
-        <span class="badge tipo">${tipoLabel(e.tipo)}</span>
-        <span class="badge ${e.urgencia}">${e.urgencia}</span>
-        ${e.estado ? `<span class="badge tipo">${esc(e.estado)}</span>` : ''}
-      </div>
+    ${esNuevo ? '<span class="nuevobar"></span>' : ''}
+    <div class="evico ${cat}">${catInfo.icon}</div>
+    <div class="evmain">
+      <span class="evtitle-row">
+        <span class="evtitle">${esc(titulo)}</span>
+        <span class="pill urg-${esc(e.urgencia)}">${esc(urgLabel)}</span>
+        <span class="pill bldg">🏢 ${esc(e.edificio)}</span>
+      </span>
+      ${detalle && detalle !== titulo ? `<span class="evdetalle">${esc(detalle)}</span>` : ''}
+      <span class="evmeta">
+        <span>${canal.icon} ${esc(canal.nombre)}</span><span>·</span><span>${esc(e.vecino)}</span><span>·</span><span>${esc(fechaCorta(parseFecha(e.fecha)) || e.fecha)}</span>
+        ${e.tecnico ? `<span>·</span><span class="mlink">🔧 ${esc(e.tecnico)}</span>` : ''}
+      </span>
     </div>
-    ${e.mensaje ? `<div class="body">${esc(truncate(e.mensaje, 220))}</div>` : ''}
-    ${e.tecnico ? `<div class="meta" style="margin-top:6px">🔧 ${esc(e.tecnico)}</div>` : ''}
-    ${transcript}
-    ${resumen}
-    ${feedbackHtml}
-    </div>
+    <span class="pill est est-${est.clase}">${est.label}</span>
   </div>`;
 }
 
