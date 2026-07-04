@@ -557,9 +557,16 @@ label.flt{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--
 
 .feed{display:flex;flex-direction:column;gap:12px}
 .event{
-  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-  padding:16px;box-shadow:var(--shadow);position:relative
+  background:var(--card);border:1px solid var(--line);border-left:4px solid var(--brand2);border-radius:var(--radius);
+  padding:16px;box-shadow:var(--shadow);position:relative;display:flex;gap:13px
 }
+.event .evico{width:38px;height:38px;border-radius:10px;color:#fff;font-size:16px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+.evico.texto{background:var(--brand2)}
+.evico.audio{background:var(--gold)}
+.evico.llamada{background:var(--brand-deep)}
+.evico.imagen{background:var(--ok)}
+.event .eventbody{flex:1;min-width:0}
 .event .head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start}
 .event .who{font-weight:700}
 .event .meta{color:var(--muted);font-size:13px;margin-top:2px}
@@ -1675,8 +1682,12 @@ function renderEventoFull(e, req, idx) {
       </div>`
     : (e.feedback ? `<div class="fb"><div class="existing"><b>Nota:</b> ${esc(e.feedback)}</div></div>` : '');
 
+  const iconoTipo = { texto: '💬', audio: '🎙️', llamada: '📞', imagen: '🖼️' }[e.tipo] || '💬';
+
   return `<div class="event" data-edificio="${esc(e.edificio)}" data-urgencia="${esc(e.urgencia)}"
     onclick="abrirDrawerEvento(${idx})" style="cursor:pointer">
+    <div class="evico ${esc(e.tipo)}">${iconoTipo}</div>
+    <div class="eventbody">
     <div class="head">
       <div>
         <div class="who">${esc(e.edificio)} · ${esc(e.vecino)}</div>
@@ -1695,6 +1706,7 @@ function renderEventoFull(e, req, idx) {
     ${transcript}
     ${resumen}
     ${feedbackHtml}
+    </div>
   </div>`;
 }
 
