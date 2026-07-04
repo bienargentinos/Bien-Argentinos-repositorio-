@@ -364,7 +364,10 @@ function esDueno(req) {
 // null = todos (dueño); array = filtrado (admin consorcio).
 function edificiosPermitidos(req) {
   if (esDueno(req)) return null;
-  return req.session.edificios || [];
+  const propios = req.session.edificios || [];
+  const activo = req.session.edificioActivo;
+  if (activo && propios.includes(activo)) return [activo];
+  return propios;
 }
 
 function filtrarPorEdificio(lista, req, campo = 'edificio') {
@@ -757,11 +760,12 @@ function page(active, title, bodyHtml, req) {
   const initials = (userName || 'M').slice(0, 2).toUpperCase();
   const filtroActivo = req && req.session && req.session.filtroEdificioDueno;
   const pillLabel = isDueno ? (filtroActivo || 'Todos los edificios') : (edificios.join(', ') || 'Sin edificio asignado');
-  const topbarPill = isDueno
+  const tieneVariosEdificios = isDueno || ((req && req.session && req.session.edificios) || []).length > 1;
+  const topbarPill = tieneVariosEdificios
     ? `<div class="topbar-wrap">
         <button class="topbar-pill" onclick="toggleEdificioMenu()">🏢 ${esc(pillLabel)} <span style="color:var(--muted2);margin-left:2px">▾</span></button>
         <div class="topbar-menu" id="topbar-menu">
-          <div class="topbar-menu-label">Filtrar por edificio</div>
+          <div class="topbar-menu-label">${isDueno ? 'Filtrar por edificio' : 'Tus edificios'}</div>
           <div id="topbar-menu-list" class="topbar-menu-list">
             <div style="padding:14px;color:var(--muted);font-size:13px">Cargando...</div>
           </div>
@@ -1272,11 +1276,11 @@ router.get('/api/topbar-edificios', async (req, res) => {
       return res.json({ edificios: lista, actual: req.session.filtroEdificioDueno || '' });
     }
 
-    const permitidos = edificiosPermitidos(req) || [];
+    const propios = req.session.edificios || [];
     const lista = edificios
-      .filter((e) => permitidos.includes(e.nombre))
+      .filter((e) => propios.includes(e.nombre))
       .map((e) => ({ nombre: e.nombre, cliente: '', unidades: e.unidades }));
-    res.json({ edificios: lista, actual: '' });
+    res.json({ edificios: lista, actual: req.session.edificioActivo || '' });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -1284,8 +1288,14 @@ router.get('/api/topbar-edificios', async (req, res) => {
 
 // GET /admin/set-filtro?edificio=Nombre (vacio = todos) -- solo dueño.
 router.get('/set-filtro', (req, res) => {
+  const edificio = req.query.edificio || '';
   if (esDueno(req)) {
-    req.session.filtroEdificioDueno = req.query.edificio || '';
+    req.session.filtroEdificioDueno = edificio;
+  } else {
+    const propios = req.session.edificios || [];
+    if (!edificio || propios.includes(edificio)) {
+      req.session.edificioActivo = edificio || undefined;
+    }
   }
   res.redirect('/admin');
 });
@@ -1294,6 +1304,7 @@ router.get('/set-filtro', (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
+    const dueno = esDueno(req);
     const { rows } = await readTab(TAB_EVENTOS);
     const todos = rows.map(mapEvento);
     const eventos = filtrarPorEdificio(todos, req);
@@ -1301,30 +1312,81 @@ router.get('/', async (req, res) => {
     const hoy = eventos.filter((e) => esHoy(parseFecha(e.fecha)));
     const urgentesHoy = hoy.filter((e) => e.urgencia === 'alta');
     const mediaHoy = hoy.filter((e) => e.urgencia === 'media');
-    const edificiosHoy = new Set(hoy.map((e) => e.edificio).filter(Boolean));
 
     const ult = [...eventos]
       .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0))
       .slice(0, 6);
 
-    const saludo = esDueno(req)
+    const saludo = dueno
       ? `${horaSaludo()}, tomate unos mates 🧉`
       : `${horaSaludo()}, ${esc(req.session.user)}`;
 
-    const subtitulo = esDueno(req)
+    let cards;
+    let estadoEdificiosHtml = '';
+
+    if (dueno) {
+      const [{ rows: edRows }, { rows: cliRows }, { rows: solRows }] = await Promise.all([
+        readTab(TAB_EDIFICIOS),
+        readTab(TAB_CLIENTES),
+        readTab(TAB_SOLICITUDES),
+      ]);
+      const clientes = cliRows.map(mapCliente);
+      const solicitudesPendientes = solRows.filter((r) => !r.estado || r.estado === 'pendiente').length;
+
+      const filtro = req.session.filtroEdificioDueno;
+      const edificiosTodos = edRows.map(mapEdificio);
+      const edificiosVisibles = filtro ? edificiosTodos.filter((e) => e.nombre === filtro) : edificiosTodos;
+
+      cards = `
+        <div class="cards">
+          <div class="card"><div class="k">🏢 Edificios activos</div><div class="v">${edificiosVisibles.length}</div></div>
+          <div class="card"><div class="k">🔔 Novedades hoy</div><div class="v">${hoy.length}</div></div>
+          <div class="card alta"><div class="k">🚨 Urgencias abiertas</div><div class="v">${urgentesHoy.length}</div></div>
+          <div class="card media"><div class="k">📋 Solicitudes pendientes</div><div class="v">${solicitudesPendientes}</div></div>
+          <div class="card"><div class="k">💳 Excedente facturable</div><div class="v">$0</div></div>
+        </div>
+        <p style="font-size:12px;color:var(--muted);margin:-4px 0 0">
+          Excedente facturable en $0 hasta que armemos Consumos (uso real vs. plan) — hoy es solo el hueco visual.
+        </p>`;
+
+      const tarjetasEdificio = edificiosVisibles.map((e) => {
+        const clienteDe = clientes.find((c) => c.edificios.includes(e.nombre));
+        const eventosDe = hoy.filter((ev) => ev.edificio === e.nombre);
+        const urgDe = eventosDe.filter((ev) => ev.urgencia === 'alta').length;
+        return `
+          <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}" class="card" style="text-decoration:none;color:inherit;display:block">
+            <div style="width:34px;height:34px;border-radius:9px;background:var(--bg);border:1px solid var(--line);
+              display:flex;align-items:center;justify-content:center;font-size:15px">🏢</div>
+            <div style="font-weight:700;font-size:15px;margin-top:10px">${esc(e.nombre)}</div>
+            <div style="color:var(--muted);font-size:12.5px;margin-top:2px">
+              ${esc(clienteDe ? clienteDe.nombre : 'Sin asignar')}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}
+            </div>
+            <div style="display:flex;gap:14px;margin-top:10px;font-size:13px">
+              <span><b style="color:var(--brand2)">${eventosDe.length}</b> novedades</span>
+              <span><b style="color:${urgDe ? 'var(--bad-deep)' : 'var(--muted)'}">${urgDe}</b> urgencias</span>
+            </div>
+          </a>`;
+      }).join('');
+
+      estadoEdificiosHtml = edificiosVisibles.length
+        ? `<h2>Estado por edificio</h2>
+           <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${tarjetasEdificio}</div>`
+        : '';
+    } else {
+      cards = `
+        <div class="cards">
+          <div class="card"><div class="k">Eventos hoy</div><div class="v">${hoy.length}</div></div>
+          <div class="card alta"><div class="k">Urgencias</div><div class="v">${urgentesHoy.length}</div></div>
+          <div class="card media"><div class="k">Prioridad media</div><div class="v">${mediaHoy.length}</div></div>
+          <div class="card"><div class="k">Eventos totales</div><div class="v">${eventos.length}</div></div>
+        </div>`;
+    }
+
+    const subtitulo = dueno
       ? (req.session.filtroEdificioDueno
           ? `Filtrando por ${esc(req.session.filtroEdificioDueno)}.`
-          : 'Esto es lo que paso mientras dormias.')
+          : 'Panel general · todos los edificios')
       : `Panel de ${esc((edificiosPermitidos(req) || []).join(', '))}`;
-
-    const cards = `
-      <div class="cards">
-        <div class="card"><div class="k">Eventos hoy</div><div class="v">${hoy.length}</div></div>
-        <div class="card alta"><div class="k">Urgencias</div><div class="v">${urgentesHoy.length}</div></div>
-        <div class="card media"><div class="k">Prioridad media</div><div class="v">${mediaHoy.length}</div></div>
-        <div class="card ok"><div class="k">Edificios activos</div><div class="v">${edificiosHoy.size}</div></div>
-        <div class="card"><div class="k">Eventos totales</div><div class="v">${eventos.length}</div></div>
-      </div>`;
 
     const ultHtml = ult.length
       ? `<div class="feed">${ult.map(renderEventoMini).join('')}</div>`
@@ -1337,6 +1399,7 @@ router.get('/', async (req, res) => {
         `<h1>${saludo}</h1>
          <p style="color:var(--muted);margin-top:-8px">${subtitulo}</p>
          ${cards}
+         ${estadoEdificiosHtml}
          <h2>Ultimos movimientos</h2>
          ${ultHtml}
          <p style="margin-top:18px"><a class="btn ghost sm" href="/admin/eventos">Ver todos los eventos →</a></p>`,

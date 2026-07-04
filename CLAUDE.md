@@ -103,9 +103,16 @@ Siguiendo el boceto de diseño (no la primera versión que armé, que era plana)
   "Todos los edificios" + lista de cada uno con su cliente asignado. Al elegir uno, filtra Resumen y Eventos
   a ese edificio hasta que vuelva a "Todos". Se guarda en `req.session.filtroEdificioDueno` (ruta
   `GET /admin/set-filtro?edificio=Nombre`), la lista se carga por AJAX desde `GET /admin/api/topbar-edificios`.
+- **Selector de edificio del cliente** (mismo dropdown, aparece solo si el cliente tiene más de un edificio
+  asignado): elige cuál de sus edificios está viendo, se guarda en `req.session.edificioActivo` y estrecha
+  `edificiosPermitidos()` a ese único edificio — afecta Eventos, Facturas y Mi Edificio automáticamente.
+  Misma ruta `GET /admin/set-filtro` (detecta el rol y decide qué variable de sesión tocar).
+- **Resumen del dueño** rediseñado: 5 tarjetas (edificios activos, novedades hoy, urgencias abiertas,
+  solicitudes pendientes, excedente facturable — este último en $0 fijo hasta que exista Consumos) +
+  grid "Estado por edificio" (una tarjeta por edificio con su cliente, unidades, novedades/urgencias de
+  hoy; click filtra el Resumen a ese edificio). El banner rojo de "excede el plan" del boceto **no** se
+  implementó todavía — necesita datos reales de consumo que no existen.
 - **Pendiente** (visto en el boceto de diseño, todavía no implementado):
-  - Selector de edificio para el **cliente** con varios edificios (el dropdown de arriba es solo para el
-    dueño por ahora) — la screen de diseño lo muestra también en "Mi Edificio" del lado consorcio.
   - Modales de verdad (ventana superpuesta) para "Agregar cliente" y "Agregar edificio" — hoy son formularios
     inline dentro de la página, no un overlay flotante como el boceto.
   - "Ver como cliente" (impersonación) desde el menú del dueño.
