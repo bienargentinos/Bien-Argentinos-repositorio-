@@ -49,7 +49,7 @@ ssh -p5436 root@200.58.102.182
 - Credenciales: `gen-lang-client-0735429936-bba6999e5e60.json`
 - Tabs reales (definidas en `sheets.js`, en minúscula):
   - `reportes` (= eventos): fecha, vecino, edificio, problema, urgencia, tecnico, acceso, estado, notas_ia
-  - `edificios`: edificio, tipo, notas_especiales, admin_nombre, admin_telefono, aliases
+  - `edificios`: edificio, tipo, notas_especiales, admin_nombre, admin_telefono, aliases, unidades, plan
   - `facturas`: fecha, proveedor, monto, concepto, edificio, url_archivo
   - `memoria`: telefono, nombre, fecha_ultimo_contacto, resumen_historial, notas_trato
   - `llamadas`: fecha, duracion, telefono, vecino, edificio, resumen, transcripcion, urgencia, estado, mensaje_enviado
@@ -63,14 +63,39 @@ ssh -p5436 root@200.58.102.182
 
 ## Roles del dashboard
 
-- **Dueño** (Daniel): ve todo — Resumen, Eventos, Facturas, Edificios, Clientes, Solicitudes
+- **Dueño** (Daniel): ve todo — Resumen, Eventos, Facturas, **Clientes y edificios** (unificado), Solicitudes
 - **Admin consorcio** (cliente): ve solo su edificio — Resumen, Mi Edificio, Eventos, Facturas, Sugerencias
-  - Alta de clientes: desde el dashboard, sección **Clientes** (dueño) → guarda en la tab `clientes` de Sheets.
+  - Alta de clientes: desde el dashboard, sección **Clientes y edificios** (dueño) → guarda en la tab `clientes` de Sheets.
     Ya no hace falta editar el `.env` ni reiniciar el servidor para cada cliente nuevo.
   - `CONSORCIO_USERS` en `.env` sigue funcionando como fallback/compatibilidad:
     ```
     CONSORCIO_USERS={"usuario1":"contraseña:Nombre Edificio A","usuario2":"contraseña:Edificio B,Edificio C"}
     ```
+
+## Clientes y edificios (jerarquía, según diseño aprobado)
+
+Siguiendo el boceto de diseño (no la primera versión que armé, que era plana):
+
+- **Cliente** (administrador de consorcio) es la entidad estable — nombre, usuario, contraseña, email.
+  Rara vez cambia.
+- **Edificio** es la entidad que rota — puede sumarse o sacarse de un cliente con el tiempo. El **Plan
+  (Base/Plus) y las Unidades viven en el edificio**, no en el cliente (antes estaban mal puestos en cliente).
+- La sección `/admin/clientes` tiene 3 vistas:
+  1. **Por cliente** (`/admin/clientes`) — grid de tarjetas, una por cliente, con conteo de edificios/unidades
+     y tags de plan agregados. Click → detalle.
+  2. **Detalle de un cliente** (`/admin/clientes?cliente=usuario`) — banner con el cliente + lista de sus
+     edificios + botón "+ Agregar edificio" (crea el edificio y lo asigna a ese cliente de una).
+  3. **Todos los edificios** (`/admin/clientes?vista=todos`) — tabla plana de todos los edificios con su
+     cliente asignado (o "Sin asignar").
+- `/admin/edificios` sigue viva (no está en el menú) como la pantalla de edición fila-por-fila de datos de
+  un edificio — los botones "Editar" de las vistas de arriba apuntan ahí.
+- **Pendiente** (visto en el boceto de diseño, todavía no implementado):
+  - Selector de edificio en el header (al lado del logo) para que un cliente con varios edificios cambie
+    de cuál está viendo.
+  - "Ver como cliente" (impersonación) desde el menú del dueño.
+  - Resumen del dueño con tarjetas de estado por edificio + banner de "excede el plan" (depende de Consumos).
+  - Resumen del cliente con desglose "Estado del edificio" (Reclamo/Reserva/Seguridad/Aviso) y "Costos en
+    divisa" (USD/EUR).
 
 ## Diseño hifi (handoff pendiente de implementar)
 

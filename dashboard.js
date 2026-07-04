@@ -262,6 +262,7 @@ function mapEdificio(r) {
     _row: r._row,
     nombre: pick(r, ['edificio', 'nombre', 'consorcio', 'direccion'], 'Sin nombre'),
     direccion: pick(r, ['direccion', 'domicilio', 'address']),
+    tipo: pick(r, ['tipo']),
     encargado: pick(r, ['encargado', 'portero', 'sereno']),
     tel_encargado: pick(r, ['telefono_encargado', 'tel_encargado', 'celular_encargado']),
     administrador: pick(r, ['admin_nombre', 'administrador', 'admin']),
@@ -270,6 +271,8 @@ function mapEdificio(r) {
     telefonos: pick(r, ['admin_telefono', 'telefonos', 'contactos', 'telefono', 'numeros']),
     notas: pick(r, ['notas_especiales', 'notas', 'observaciones', 'comentarios']),
     aliases: pick(r, ['aliases', 'alias', 'otros_nombres']),
+    unidades: pick(r, ['unidades', 'unidad', 'departamentos']),
+    plan: pick(r, ['plan'], 'Base'),
   };
 }
 
@@ -606,6 +609,43 @@ td input{width:100%}
 .sol-diff .arr{color:var(--muted)}
 .sol-diff .new{color:var(--ok-deep);font-weight:600;font-size:13px}
 
+/* CLIENTES Y EDIFICIOS */
+.cli-head-row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+.cli-toggle{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius-sm);padding:4px}
+.cli-toggle a{padding:8px 14px;border-radius:8px;font-size:13.5px;font-weight:700;color:var(--muted)}
+.cli-toggle a.active{background:var(--brand2);color:#fff}
+.cli-toggle a:hover{text-decoration:none}
+.cli-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.cli-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;gap:10px}
+.cli-card .top{display:flex;gap:12px;align-items:flex-start}
+.cli-avatar{width:40px;height:40px;border-radius:10px;background:var(--brand);color:#fff;font-weight:800;font-size:16px;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.cli-card .nom{font-weight:700;font-size:15px}
+.cli-card .sub{color:var(--muted);font-size:12.5px;margin-top:2px}
+.cli-card .foot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:auto}
+.cli-add-card{border:1.5px dashed var(--line);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;
+  min-height:110px;color:var(--brand2);font-weight:700;font-size:14px}
+.cli-add-card:hover{background:var(--card);text-decoration:none;border-color:var(--brand2)}
+.cli-banner{background:linear-gradient(150deg,var(--brand-deep),var(--brand2));color:#fff;border-radius:var(--radius);
+  padding:20px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.cli-banner .top{display:flex;gap:14px;align-items:center}
+.cli-banner .cli-avatar{background:rgba(255,255,255,.18);width:44px;height:44px}
+.cli-banner .nom{font-weight:800;font-size:18px}
+.cli-banner .sub{color:rgba(255,255,255,.75);font-size:13px;margin-top:2px}
+.cli-banner .btn{background:#fff;color:var(--brand)}
+.cli-banner .btn:hover{background:#f2f6fc}
+.ed-row{display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.ed-row:last-child{border-bottom:none}
+.ed-row .ico{width:38px;height:38px;border-radius:9px;background:var(--bg);border:1px solid var(--line);flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:17px}
+.ed-row .nom{font-weight:700;font-size:14.5px}
+.ed-row .sub{color:var(--muted);font-size:12.5px;margin-top:1px}
+.ed-row .col{min-width:70px}
+.ed-row .col .k{font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+.ed-row .col .v{font-size:13.5px;font-weight:600;margin-top:2px}
+.ed-row .grow{flex:1;min-width:150px}
+
 /* LOGIN */
 .login-shell{min-height:100vh;display:grid;grid-template-columns:1.05fr 1fr}
 .login-brand{
@@ -681,8 +721,7 @@ function page(active, title, bodyHtml, req) {
     ['/admin/eventos', '🔔', 'Eventos', 'eventos', true],
     ['/admin/archivos', '📄', 'Facturas/Fotos', 'archivos', true],
     ['/admin/sugerencias', '💡', 'Sugerencias', 'sugerencias', !isDueno],
-    ['/admin/edificios', '🏢', 'Edificios', 'edificios', isDueno],
-    ['/admin/clientes', '👤', 'Clientes', 'clientes', isDueno],
+    ['/admin/clientes', '👤', 'Clientes y edificios', 'clientes', isDueno],
     ['/admin/solicitudes', '📋', 'Solicitudes', 'solicitudes', isDueno],
   ];
 
@@ -831,7 +870,6 @@ async function agregarCliente(btn){
   var usuario=(document.getElementById('cli-usuario')||{}).value||'';
   var pass=(document.getElementById('cli-pass')||{}).value||'';
   var email=(document.getElementById('cli-email')||{}).value||'';
-  var plan=(document.getElementById('cli-plan')||{}).value||'Base';
   var sel=document.getElementById('cli-edificios');
   var edificios=sel?Array.from(sel.selectedOptions).map(function(o){return o.value;}):[];
   if(!nombre.trim()||!usuario.trim()||!pass.trim()){
@@ -841,7 +879,7 @@ async function agregarCliente(btn){
   try{
     var r=await fetch('/admin/api/clientes',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({nombre:nombre.trim(),usuario:usuario.trim(),pass:pass.trim(),email:email.trim(),edificios:edificios,plan:plan})
+      body:JSON.stringify({nombre:nombre.trim(),usuario:usuario.trim(),pass:pass.trim(),email:email.trim(),edificios:edificios})
     });
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
@@ -851,25 +889,22 @@ async function agregarCliente(btn){
   finally{ btn.disabled=false;btn.textContent=old; }
 }
 
-// Guardar edificios/plan/estado de un cliente existente
-async function guardarCliente(btn, row){
-  var tr=btn.closest('tr');
-  var edSel=tr.querySelector('select[data-field="edificios"]');
-  var planSel=tr.querySelector('select[data-field="plan"]');
-  var activoSel=tr.querySelector('select[data-field="activo"]');
-  var edificios=edSel?Array.from(edSel.selectedOptions).map(function(o){return o.value;}):[];
-  var data={row:row,edificios:edificios,plan:planSel?planSel.value:'Base',activo:activoSel?activoSel.value:'si'};
-  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
+// Agregar edificio nuevo dentro de la ficha de un cliente
+async function agregarEdificioCliente(clienteUsuario){
+  var nombre=prompt('Nombre del edificio (ej: Rivadavia 5420):');
+  if(!nombre||!nombre.trim())return;
+  var direccion=prompt('Dirección (opcional):')||'';
+  var unidades=prompt('Cantidad de unidades (opcional):')||'';
   try{
-    var r=await fetch('/admin/api/cliente-editar',{
+    var r=await fetch('/admin/api/edificio-nuevo',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(data)
+      body:JSON.stringify({nombre:nombre.trim(),direccion:direccion.trim(),unidades:unidades.trim(),clienteUsuario:clienteUsuario})
     });
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Cliente actualizado','ok');
+    toast('Edificio agregado','ok');
+    setTimeout(function(){location.reload();},900);
   }catch(e){ toast('Error: '+e.message,'err'); }
-  finally{ btn.disabled=false;btn.textContent=old; }
 }
 
 // Filtros del feed de eventos (client-side)
@@ -1351,6 +1386,8 @@ function renderArchivo(a) {
 
 /* ----------------- EDIFICIOS (ver/editar) — solo dueño ----------------- */
 
+// Ya no esta en el menu (queda absorbido por /admin/clientes), pero sigue
+// siendo el destino real de los botones "Editar" de cada edificio.
 router.get('/edificios', async (req, res) => {
   if (!esDueno(req)) return res.redirect('/admin');
 
@@ -1360,9 +1397,15 @@ router.get('/edificios', async (req, res) => {
 
     const filas = edificios
       .map(
-        (e) => `<tr>
+        (e) => `<tr id="row-${e._row}">
           <td><b>${esc(e.nombre)}</b>${e.aliases ? `<br><span style="font-size:12px;color:var(--muted)">${esc(e.aliases)}</span>` : ''}</td>
-          <td>${esc(e.tipo || '—')}</td>
+          <td><input data-field="unidades" value="${esc(e.unidades)}" placeholder="Unidades" style="width:80px"></td>
+          <td>
+            <select data-field="plan">
+              <option value="Base"${e.plan === 'Base' ? ' selected' : ''}>Base</option>
+              <option value="Plus"${e.plan === 'Plus' ? ' selected' : ''}>Plus</option>
+            </select>
+          </td>
           <td><input data-field="administrador" value="${esc(e.administrador)}" placeholder="Nombre admin"></td>
           <td><input data-field="telefonos" value="${esc(e.telefonos)}" placeholder="Telefono admin"></td>
           <td><input data-field="notas" value="${esc(e.notas)}" placeholder="Notas especiales"></td>
@@ -1375,7 +1418,7 @@ router.get('/edificios', async (req, res) => {
     const body = edificios.length
       ? `<div class="tablewrap"><table>
           <thead><tr>
-            <th>Edificio</th><th>Tipo</th><th>Administrador</th><th>Tel. admin</th>
+            <th>Edificio</th><th>Unidades</th><th>Plan</th><th>Administrador</th><th>Tel. admin</th>
             <th>Notas especiales</th><th>Aliases</th><th></th>
           </tr></thead>
           <tbody>${filas}</tbody>
@@ -1384,20 +1427,48 @@ router.get('/edificios', async (req, res) => {
 
     res.send(
       page(
-        'edificios',
-        'Edificios',
-        `<h1>Datos de edificios</h1>
+        'clientes',
+        'Editar edificio',
+        `<a href="/admin/clientes?vista=todos" class="btn ghost sm" style="margin-bottom:18px">← Clientes y edificios</a>
+         <h1>Datos de edificios</h1>
          <p style="color:var(--muted);margin-top:-8px">Edita datos que usa Marcos para atender cada consorcio. Los cambios se guardan en Google Sheets.</p>
          ${body}`,
         req
       )
     );
   } catch (e) {
-    res.status(500).send(page('edificios', 'Edificios', errorBox(e), req));
+    res.status(500).send(page('clientes', 'Editar edificio', errorBox(e), req));
   }
 });
 
 /* ----------------- CLIENTES (alta de administradores) — solo dueño ----------------- */
+
+function iniciales(nombre) {
+  return String(nombre || '?').trim().charAt(0).toUpperCase();
+}
+
+function planTagsDe(edificiosDelCliente) {
+  const counts = {};
+  edificiosDelCliente.forEach((e) => { counts[e.plan] = (counts[e.plan] || 0) + 1; });
+  return Object.keys(counts)
+    .map((p) => `<span class="badge tipo">${counts[p]} ${esc(p)}</span>`)
+    .join(' ');
+}
+
+function edificioIconRow(e, clienteLabel) {
+  return `<div class="ed-row">
+    <div class="ico">🏢</div>
+    <div class="grow">
+      <div class="nom">${esc(e.nombre)}</div>
+      <div class="sub">${esc(e.direccion || e.nombre)}</div>
+    </div>
+    ${clienteLabel ? `<div class="col"><div class="k">Cliente</div><div class="v">${esc(clienteLabel)}</div></div>` : ''}
+    <div class="col"><div class="k">Unidades</div><div class="v">${esc(e.unidades || '—')}</div></div>
+    <div class="col"><div class="k">Encargado</div><div class="v">${esc(e.encargado || '—')}</div></div>
+    <span class="badge tipo">Plan ${esc(e.plan || 'Base')}</span>
+    <button class="btn ghost sm" onclick="location.href='/admin/edificios#row-${e._row}'">Editar</button>
+  </div>`;
+}
 
 router.get('/clientes', async (req, res) => {
   if (!esDueno(req)) return res.redirect('/admin');
@@ -1408,58 +1479,96 @@ router.get('/clientes', async (req, res) => {
       readTab(TAB_EDIFICIOS),
     ]);
     const clientes = clienteRows.map(mapCliente);
-    const edificiosDisponibles = edRows.map(mapEdificio).map((e) => e.nombre).filter(Boolean);
+    const edificios = edRows.map(mapEdificio);
+    const edificiosDisponibles = edificios.map((e) => e.nombre).filter(Boolean);
+
+    const vista = req.query.vista === 'todos' ? 'todos' : 'cliente';
+    const clienteSel = req.query.cliente
+      ? clientes.find((c) => c.usuario === req.query.cliente)
+      : null;
+
+    const toggle = `<div class="cli-toggle">
+      <a href="/admin/clientes" class="${vista === 'cliente' ? 'active' : ''}">Por cliente</a>
+      <a href="/admin/clientes?vista=todos" class="${vista === 'todos' ? 'active' : ''}">Todos los edificios</a>
+    </div>`;
+
+    let body;
+
+    if (vista === 'todos') {
+      // ---------- TODOS LOS EDIFICIOS (tabla plana) ----------
+      const filas = edificios.length
+        ? edificios.map((e) => {
+            const dueno = clientes.find((c) => c.edificios.includes(e.nombre));
+            return edificioIconRow(e, dueno ? dueno.nombre : 'Sin asignar');
+          }).join('')
+        : `<div class="empty">No hay edificios cargados.</div>`;
+
+      body = `
+        <div class="cli-head-row"><div><h1 style="margin:0">Clientes y edificios</h1>
+        <p style="color:var(--muted);margin:4px 0 0">Entrá por administrador para ver y editar sus edificios, o mirá todos juntos.</p></div>${toggle}</div>
+        <div class="tablewrap">${filas}</div>`;
+    } else if (clienteSel) {
+      // ---------- DETALLE DE UN CLIENTE (drill-down) ----------
+      const misEdificios = edificios.filter((e) => clienteSel.edificios.includes(e.nombre));
+      const totalUnidades = misEdificios.reduce((acc, e) => acc + (Number(e.unidades) || 0), 0);
+
+      const filas = misEdificios.length
+        ? misEdificios.map((e) => edificioIconRow(e)).join('')
+        : `<div class="empty">Este cliente todavía no tiene edificios asignados.</div>`;
+
+      body = `
+        <a href="/admin/clientes" class="btn ghost sm" style="margin-bottom:18px">← Clientes</a>
+        <div class="cli-banner">
+          <div class="top">
+            <div class="cli-avatar">${esc(iniciales(clienteSel.nombre))}</div>
+            <div>
+              <div class="nom">${esc(clienteSel.nombre)}</div>
+              <div class="sub">${misEdificios.length} edificio${misEdificios.length === 1 ? '' : 's'}${totalUnidades ? ` · ${totalUnidades} unidades` : ''}</div>
+            </div>
+          </div>
+          <button class="btn" onclick="agregarEdificioCliente('${escJs(clienteSel.usuario)}')">+ Agregar edificio</button>
+        </div>
+        <div class="tablewrap">${filas}</div>`;
+    } else {
+      // ---------- GRID "POR CLIENTE" ----------
+      const cards = clientes.map((c) => {
+        const misEdificios = edificios.filter((e) => c.edificios.includes(e.nombre));
+        const totalUnidades = misEdificios.reduce((acc, e) => acc + (Number(e.unidades) || 0), 0);
+        const excede = false; // placeholder hasta que armemos Consumos/excedente
+        return `<a href="/admin/clientes?cliente=${encodeURIComponent(c.usuario)}" class="cli-card" style="text-decoration:none;color:inherit">
+          <div class="top">
+            <div class="cli-avatar">${esc(iniciales(c.nombre))}</div>
+            <div>
+              <div class="nom">${esc(c.nombre)}</div>
+              <div class="sub">${misEdificios.length} edificio${misEdificios.length === 1 ? '' : 's'}${totalUnidades ? ` · ${totalUnidades} un.` : ''}</div>
+            </div>
+          </div>
+          <div class="foot">
+            ${planTagsDe(misEdificios) || '<span class="badge tipo">Sin edificios</span>'}
+            <span class="badge ${excede ? 'alta' : 'baja'}">${excede ? 'Excede plan' : 'Al día'}</span>
+          </div>
+        </a>`;
+      }).join('');
+
+      body = `
+        <div class="cli-head-row"><div><h1 style="margin:0">Clientes y edificios</h1>
+        <p style="color:var(--muted);margin:4px 0 0">Entrá por administrador para ver y editar sus edificios, o mirá todos juntos.</p></div>${toggle}</div>
+        <div class="cli-grid">
+          ${cards}
+          <a href="#" onclick="event.preventDefault();document.getElementById('form-nuevo-cliente').scrollIntoView({behavior:'smooth'})" class="cli-add-card">+ Agregar cliente</a>
+        </div>`;
+    }
 
     const opcionesEdificios = edificiosDisponibles
       .map((e) => `<option value="${esc(e)}">${esc(e)}</option>`)
       .join('');
 
-    const filas = clientes.length
-      ? clientes.map((c) => {
-          const opcionesConSel = edificiosDisponibles
-            .map((e) => `<option value="${esc(e)}"${c.edificios.includes(e) ? ' selected' : ''}>${esc(e)}</option>`)
-            .join('');
-          return `<tr>
-          <td><b>${esc(c.nombre)}</b><br><span style="font-size:12px;color:var(--muted)">${esc(c.email)}</span></td>
-          <td><code>${esc(c.usuario)}</code></td>
-          <td>
-            <select data-field="edificios" multiple size="3" style="width:100%;min-width:160px">${opcionesConSel}</select>
-          </td>
-          <td>
-            <select data-field="plan">
-              <option value="Base"${c.plan === 'Base' ? ' selected' : ''}>Base</option>
-              <option value="Plus"${c.plan === 'Plus' ? ' selected' : ''}>Plus</option>
-            </select>
-          </td>
-          <td>
-            <select data-field="activo">
-              <option value="si"${c.activo ? ' selected' : ''}>Activo</option>
-              <option value="no"${!c.activo ? ' selected' : ''}>Inactivo</option>
-            </select>
-          </td>
-          <td><button class="btn sm" onclick="guardarCliente(this, ${c._row})">Guardar</button></td>
-        </tr>`;
-        }).join('')
-      : '';
-
-    const tabla = clientes.length
-      ? `<div class="tablewrap" style="margin-bottom:28px"><table>
-          <thead><tr><th>Cliente</th><th>Usuario</th><th>Edificios</th><th>Plan</th><th>Estado</th><th></th></tr></thead>
-          <tbody>${filas}</tbody>
-        </table></div>
-        <p style="font-size:12.5px;color:var(--muted);margin:-18px 0 24px">
-          Editá los edificios de un cliente acá mismo — no hace falta recrearlo cuando gana o deja un consorcio.
-        </p>`
-      : `<div class="empty" style="margin-bottom:28px">Todavía no hay clientes cargados en Sheets. El primero puede seguir viniendo del .env (CONSORCIO_USERS).</div>`;
-
     res.send(
       page(
         'clientes',
         'Clientes',
-        `<h1>Clientes</h1>
-         <p style="color:var(--muted);margin-top:-8px">Administradores de consorcio que tienen acceso al panel. Se guardan en la pestaña "clientes" de Sheets.</p>
-         ${tabla}
-         <div class="sug-form">
+        `${body}
+         <div class="sug-form" id="form-nuevo-cliente" style="margin-top:28px">
            <h3>Agregar cliente</h3>
            <div class="tablewrap" style="border:none;box-shadow:none;background:none">
              <table style="width:100%">
@@ -1485,14 +1594,8 @@ router.get('/clientes', async (req, res) => {
                    <td>
                      <select id="cli-edificios" multiple size="4" style="width:100%">${opcionesEdificios}</select>
                      <div style="font-size:12px;color:var(--muted);margin-top:4px">
-                       Mantené Ctrl/Cmd para elegir varios. Podés dejarlo vacío y asignarle edificios más adelante desde la tabla de arriba.
+                       Mantené Ctrl/Cmd para elegir varios. Podés dejarlo vacío y asignarle edificios más adelante desde la ficha del cliente.
                      </div>
-                   </td>
-                 </tr>
-                 <tr>
-                   <td style="color:var(--muted);font-size:13px">Plan</td>
-                   <td>
-                     <select id="cli-plan"><option value="Base">Base</option><option value="Plus">Plus</option></select>
                    </td>
                  </tr>
                </tbody>
@@ -1542,42 +1645,38 @@ router.post('/api/clientes', async (req, res) => {
 
 // POST /admin/api/cliente-editar { row, edificios, plan, activo }
 // Solo actualiza estos 3 campos -- no toca nombre/usuario/contrasena/email.
-const CLIENTE_FIELDS = {
-  edificios: ['edificios', 'edificio'],
-  plan: ['plan'],
-  activo: ['activo'],
-};
-
-router.post('/api/cliente-editar', async (req, res) => {
+// POST /admin/api/edificio-nuevo { nombre, direccion, unidades, clienteUsuario }
+// Crea un edificio nuevo y lo asigna a un cliente existente (agrega su
+// nombre a la lista de edificios de ese cliente en la tab clientes).
+router.post('/api/edificio-nuevo', async (req, res) => {
   if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
   try {
-    const body = req.body || {};
-    const row = Number(body.row);
-    if (!row || isNaN(row)) {
-      return res.status(400).json({ error: 'Fila invalida' });
-    }
+    const { nombre, direccion, unidades, clienteUsuario } = req.body || {};
+    if (!nombre) return res.status(400).json({ error: 'Falta el nombre del edificio' });
 
-    const valores = {
-      edificios: Array.isArray(body.edificios) ? body.edificios.join(', ') : (body.edificios || ''),
-      plan: body.plan || 'Base',
-      activo: body.activo || 'si',
-    };
+    const { rows: edRows } = await readTab(TAB_EDIFICIOS);
+    const yaExiste = edRows.map(mapEdificio).some(
+      (e) => e.nombre.toLowerCase() === String(nombre).toLowerCase()
+    );
+    if (yaExiste) return res.status(400).json({ error: 'Ya existe un edificio con ese nombre' });
 
-    const { headers } = await readTab(TAB_CLIENTES);
-    let workingHeaders = headers.slice();
+    await appendRow(TAB_EDIFICIOS, {
+      edificio: nombre,
+      direccion: direccion || '',
+      unidades: unidades || '',
+      plan: 'Base',
+    });
 
-    for (const field of Object.keys(CLIENTE_FIELDS)) {
-      const candidates = CLIENTE_FIELDS[field];
-      let idx = workingHeaders.findIndex((h) => candidates.includes(h));
-      let col;
-      if (idx >= 0) {
-        col = columnLetter(idx + 1);
-      } else {
-        col = columnLetter(workingHeaders.length + 1);
-        await ensureHeader(TAB_CLIENTES, col, candidates[0], false);
-        workingHeaders.push(candidates[0]);
+    if (clienteUsuario) {
+      const { rows: cliRows } = await readTab(TAB_CLIENTES);
+      const clientes = cliRows.map(mapCliente);
+      const cliente = clientes.find((c) => c.usuario === clienteUsuario);
+      if (cliente) {
+        const nuevaLista = [...cliente.edificios, nombre].join(', ');
+        const plan = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
+        if (plan.create) await ensureHeader(TAB_CLIENTES, plan.col, 'edificios', false);
+        await writeCell(TAB_CLIENTES, plan.col, cliente._row, nuevaLista);
       }
-      await writeCell(TAB_CLIENTES, col, row, valores[field]);
     }
 
     res.json({ ok: true });
@@ -1675,6 +1774,8 @@ const EDIFICIO_FIELDS = {
   telefonos: ['admin_telefono', 'telefonos', 'contactos', 'numeros'],
   notas: ['notas_especiales', 'notas', 'observaciones', 'comentarios'],
   aliases: ['aliases', 'alias', 'otros_nombres'],
+  unidades: ['unidades', 'unidad', 'departamentos'],
+  plan: ['plan'],
 };
 
 router.post('/api/edificio', async (req, res) => {
