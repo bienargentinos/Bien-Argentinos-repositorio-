@@ -89,9 +89,21 @@ Siguiendo el boceto de diseño (no la primera versión que armé, que era plana)
      cliente asignado (o "Sin asignar").
 - `/admin/edificios` sigue viva (no está en el menú) como la pantalla de edición fila-por-fila de datos de
   un edificio — los botones "Editar" de las vistas de arriba apuntan ahí.
+- **"Agregar cliente" ya NO pide edificios** — el orden siempre es cliente primero, edificio después (se
+  agrega desde la ficha del cliente, nunca al darlo de alta).
+- **"+ Agregar edificio" está disponible en dos lugares**: en la ficha de un cliente (dueño) y en "Mi
+  Edificio" (el propio administrador de consorcio) — porque es el cliente quien tiene los datos reales del
+  edificio, no Daniel. Mismo formulario compartido (`formNuevoEdificioHtml()` en dashboard.js), el backend
+  determina el dueño del edificio nuevo por sesión si es rol `consorcio`, o por el parámetro si es el dueño.
+- Campos de edificio ampliados: `zona`, `encargado_estado` (activo/vacaciones/licencia/suspendido),
+  `encargado_suplente` (personal de limpieza u otro que cubre al encargado), `tel_seguridad`. Todos
+  opcionales — la nota en la UI aclara que Marcos los va completando con el tiempo, a medida que se
+  contacta con propietarios y vecinos.
 - **Pendiente** (visto en el boceto de diseño, todavía no implementado):
   - Selector de edificio en el header (al lado del logo) para que un cliente con varios edificios cambie
     de cuál está viendo.
+  - Modales de verdad (ventana superpuesta) para "Agregar cliente" y "Agregar edificio" — hoy son formularios
+    inline dentro de la página, no un overlay flotante como el boceto.
   - "Ver como cliente" (impersonación) desde el menú del dueño.
   - Resumen del dueño con tarjetas de estado por edificio + banner de "excede el plan" (depende de Consumos).
   - Resumen del cliente con desglose "Estado del edificio" (Reclamo/Reserva/Seguridad/Aviso) y "Costos en

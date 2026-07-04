@@ -263,8 +263,12 @@ function mapEdificio(r) {
     nombre: pick(r, ['edificio', 'nombre', 'consorcio', 'direccion'], 'Sin nombre'),
     direccion: pick(r, ['direccion', 'domicilio', 'address']),
     tipo: pick(r, ['tipo']),
+    zona: pick(r, ['zona', 'barrio']),
     encargado: pick(r, ['encargado', 'portero', 'sereno']),
     tel_encargado: pick(r, ['telefono_encargado', 'tel_encargado', 'celular_encargado']),
+    encargado_estado: pick(r, ['encargado_estado', 'estado_encargado'], 'activo'),
+    encargado_suplente: pick(r, ['encargado_suplente', 'suplente', 'personal_limpieza']),
+    tel_seguridad: pick(r, ['telefono_seguridad', 'tel_seguridad', 'seguridad']),
     administrador: pick(r, ['admin_nombre', 'administrador', 'admin']),
     tel_admin: pick(r, ['admin_telefono', 'telefono_admin', 'tel_admin', 'telefono_administrador']),
     propietarios: pick(r, ['propietarios', 'duenos', 'duenios']),
@@ -870,8 +874,6 @@ async function agregarCliente(btn){
   var usuario=(document.getElementById('cli-usuario')||{}).value||'';
   var pass=(document.getElementById('cli-pass')||{}).value||'';
   var email=(document.getElementById('cli-email')||{}).value||'';
-  var sel=document.getElementById('cli-edificios');
-  var edificios=sel?Array.from(sel.selectedOptions).map(function(o){return o.value;}):[];
   if(!nombre.trim()||!usuario.trim()||!pass.trim()){
     toast('Completá nombre, usuario y contraseña','err');return;
   }
@@ -879,7 +881,7 @@ async function agregarCliente(btn){
   try{
     var r=await fetch('/admin/api/clientes',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({nombre:nombre.trim(),usuario:usuario.trim(),pass:pass.trim(),email:email.trim(),edificios:edificios})
+      body:JSON.stringify({nombre:nombre.trim(),usuario:usuario.trim(),pass:pass.trim(),email:email.trim()})
     });
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
@@ -890,15 +892,41 @@ async function agregarCliente(btn){
 }
 
 // Agregar edificio nuevo dentro de la ficha de un cliente
-async function agregarEdificioCliente(clienteUsuario){
-  var nombre=prompt('Nombre del edificio (ej: Rivadavia 5420):');
-  if(!nombre||!nombre.trim())return;
-  var direccion=prompt('Dirección (opcional):')||'';
-  var unidades=prompt('Cantidad de unidades (opcional):')||'';
+function mostrarFormEdificio(){
+  var f=document.getElementById('form-nuevo-edificio');
+  if(!f)return;
+  f.style.display='block';
+  f.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function ocultarFormEdificio(){
+  var f=document.getElementById('form-nuevo-edificio');
+  if(f)f.style.display='none';
+}
+function elegirPlanEdificio(btn){
+  var grupo=btn.parentElement;
+  Array.from(grupo.children).forEach(function(b){b.classList.remove('btn');b.classList.add('ghost');});
+  btn.classList.remove('ghost');btn.classList.add('btn');
+  var hidden=document.getElementById('ed-plan');
+  if(hidden)hidden.value=btn.getAttribute('data-plan');
+}
+async function confirmarAgregarEdificio(clienteUsuario){
+  var nombre=(document.getElementById('ed-nombre')||{}).value||'';
+  var direccion=(document.getElementById('ed-direccion')||{}).value||'';
+  var zona=(document.getElementById('ed-zona')||{}).value||'';
+  var unidades=(document.getElementById('ed-unidades')||{}).value||'';
+  var encargado=(document.getElementById('ed-encargado')||{}).value||'';
+  var telEncargado=(document.getElementById('ed-tel-encargado')||{}).value||'';
+  var telSeguridad=(document.getElementById('ed-tel-seguridad')||{}).value||'';
+  var plan=(document.getElementById('ed-plan')||{}).value||'Base';
+  if(!nombre.trim()){toast('Falta el nombre del edificio','err');return;}
   try{
     var r=await fetch('/admin/api/edificio-nuevo',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({nombre:nombre.trim(),direccion:direccion.trim(),unidades:unidades.trim(),clienteUsuario:clienteUsuario})
+      body:JSON.stringify({
+        nombre:nombre.trim(),direccion:direccion.trim(),zona:zona.trim(),unidades:unidades.trim(),
+        encargado:encargado.trim(),tel_encargado:telEncargado.trim(),tel_seguridad:telSeguridad.trim(),
+        plan:plan,clienteUsuario:clienteUsuario||undefined
+      })
     });
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
@@ -1395,21 +1423,33 @@ router.get('/edificios', async (req, res) => {
     const { rows } = await readTab(TAB_EDIFICIOS);
     const edificios = rows.map(mapEdificio);
 
+    const estadosEncargado = ['activo', 'vacaciones', 'licencia', 'suspendido'];
+
     const filas = edificios
       .map(
         (e) => `<tr id="row-${e._row}">
           <td><b>${esc(e.nombre)}</b>${e.aliases ? `<br><span style="font-size:12px;color:var(--muted)">${esc(e.aliases)}</span>` : ''}</td>
-          <td><input data-field="unidades" value="${esc(e.unidades)}" placeholder="Unidades" style="width:80px"></td>
+          <td><input data-field="zona" value="${esc(e.zona)}" placeholder="Barrio, ciudad" style="width:120px"></td>
+          <td><input data-field="unidades" value="${esc(e.unidades)}" placeholder="Unidades" style="width:70px"></td>
           <td>
             <select data-field="plan">
               <option value="Base"${e.plan === 'Base' ? ' selected' : ''}>Base</option>
               <option value="Plus"${e.plan === 'Plus' ? ' selected' : ''}>Plus</option>
             </select>
           </td>
-          <td><input data-field="administrador" value="${esc(e.administrador)}" placeholder="Nombre admin"></td>
-          <td><input data-field="telefonos" value="${esc(e.telefonos)}" placeholder="Telefono admin"></td>
-          <td><input data-field="notas" value="${esc(e.notas)}" placeholder="Notas especiales"></td>
-          <td><input data-field="aliases" value="${esc(e.aliases)}" placeholder="Aliases separados por coma"></td>
+          <td><input data-field="encargado" value="${esc(e.encargado)}" placeholder="Nombre encargado" style="width:120px"></td>
+          <td><input data-field="tel_encargado" value="${esc(e.tel_encargado)}" placeholder="Tel. encargado" style="width:110px"></td>
+          <td>
+            <select data-field="encargado_estado">
+              ${estadosEncargado.map((s) => `<option value="${s}"${e.encargado_estado === s ? ' selected' : ''}>${s}</option>`).join('')}
+            </select>
+          </td>
+          <td><input data-field="encargado_suplente" value="${esc(e.encargado_suplente)}" placeholder="Suplente / limpieza" style="width:120px"></td>
+          <td><input data-field="tel_seguridad" value="${esc(e.tel_seguridad)}" placeholder="Tel. seguridad (opcional)" style="width:130px"></td>
+          <td><input data-field="administrador" value="${esc(e.administrador)}" placeholder="Nombre admin" style="width:120px"></td>
+          <td><input data-field="telefonos" value="${esc(e.telefonos)}" placeholder="Telefono admin" style="width:110px"></td>
+          <td><input data-field="notas" value="${esc(e.notas)}" placeholder="Notas especiales" style="width:150px"></td>
+          <td><input data-field="aliases" value="${esc(e.aliases)}" placeholder="Aliases" style="width:120px"></td>
           <td><button class="btn sm" onclick="guardarEdificio(this, ${e._row})">Guardar</button></td>
         </tr>`
       )
@@ -1418,11 +1458,17 @@ router.get('/edificios', async (req, res) => {
     const body = edificios.length
       ? `<div class="tablewrap"><table>
           <thead><tr>
-            <th>Edificio</th><th>Unidades</th><th>Plan</th><th>Administrador</th><th>Tel. admin</th>
+            <th>Edificio</th><th>Zona</th><th>Unidades</th><th>Plan</th>
+            <th>Encargado</th><th>Tel. encargado</th><th>Estado enc.</th><th>Suplente</th><th>Tel. seguridad</th>
+            <th>Administrador</th><th>Tel. admin</th>
             <th>Notas especiales</th><th>Aliases</th><th></th>
           </tr></thead>
           <tbody>${filas}</tbody>
-        </table></div>`
+        </table></div>
+        <p style="font-size:12.5px;color:var(--muted);margin-top:12px">
+          Estado del encargado, suplente y teléfono de seguridad son opcionales — Marcos los va completando
+          a medida que se contacta con propietarios y vecinos.
+        </p>`
       : `<div class="empty">No hay edificios cargados.</div>`;
 
     res.send(
@@ -1445,6 +1491,50 @@ router.get('/edificios', async (req, res) => {
 
 function iniciales(nombre) {
   return String(nombre || '?').trim().charAt(0).toUpperCase();
+}
+
+/** Formulario compartido de alta de edificio -- lo usan tanto el dueño
+ * (desde la ficha de un cliente) como el propio administrador de consorcio
+ * (desde Mi Edificio), ya que es quien tiene los datos reales. */
+function formNuevoEdificioHtml(clienteUsuario) {
+  return `
+    <div class="sug-form" id="form-nuevo-edificio" style="display:none;margin-top:16px">
+      <h3>Agregar edificio</h3>
+      <div class="tablewrap" style="border:none;box-shadow:none;background:none">
+        <table style="width:100%"><tbody>
+          <tr><td style="width:170px;color:var(--muted);font-size:13px">Nombre del consorcio</td>
+            <td><input id="ed-nombre" placeholder="Ej: Av. Corrientes 3000"></td></tr>
+          <tr><td style="color:var(--muted);font-size:13px">Dirección</td>
+            <td><input id="ed-direccion" placeholder="Calle y número"></td></tr>
+          <tr><td style="color:var(--muted);font-size:13px">Zona</td>
+            <td><input id="ed-zona" placeholder="Barrio, ciudad"></td></tr>
+          <tr><td style="color:var(--muted);font-size:13px">Unidades</td>
+            <td><input id="ed-unidades" type="number" placeholder="0" style="width:110px"></td></tr>
+          <tr><td style="color:var(--muted);font-size:13px">Encargado</td>
+            <td><input id="ed-encargado" placeholder="Nombre"></td></tr>
+          <tr><td style="color:var(--muted);font-size:13px">Tel. encargado</td>
+            <td><input id="ed-tel-encargado" placeholder="Teléfono"></td></tr>
+          <tr><td style="color:var(--muted);font-size:13px">Tel. seguridad <span style="color:var(--muted2);font-weight:400">(opcional)</span></td>
+            <td><input id="ed-tel-seguridad" placeholder="Si el edificio tiene"></td></tr>
+          <tr><td style="color:var(--muted);font-size:13px">Plan contratado</td>
+            <td>
+              <div style="display:inline-flex;gap:8px">
+                <button type="button" class="btn ghost sm" data-plan="Base" onclick="elegirPlanEdificio(this)">Base</button>
+                <button type="button" class="btn ghost sm" data-plan="Plus" onclick="elegirPlanEdificio(this)">Plus</button>
+              </div>
+              <input type="hidden" id="ed-plan" value="Base">
+            </td></tr>
+        </tbody></table>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:10px 0 0">
+        El teléfono de seguridad, el estado del encargado (activo/vacaciones/licencia) y su suplente se pueden
+        cargar más adelante -- Marcos los va completando con el tiempo.
+      </p>
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button class="btn ghost sm" onclick="ocultarFormEdificio()">Cancelar</button>
+        <button class="btn sm" onclick="confirmarAgregarEdificio('${escJs(clienteUsuario || '')}')">Agregar edificio</button>
+      </div>
+    </div>`;
 }
 
 function planTagsDe(edificiosDelCliente) {
@@ -1526,9 +1616,10 @@ router.get('/clientes', async (req, res) => {
               <div class="sub">${misEdificios.length} edificio${misEdificios.length === 1 ? '' : 's'}${totalUnidades ? ` · ${totalUnidades} unidades` : ''}</div>
             </div>
           </div>
-          <button class="btn" onclick="agregarEdificioCliente('${escJs(clienteSel.usuario)}')">+ Agregar edificio</button>
+          <button class="btn" onclick="mostrarFormEdificio()">+ Agregar edificio</button>
         </div>
-        <div class="tablewrap">${filas}</div>`;
+        <div class="tablewrap">${filas}</div>
+        ${formNuevoEdificioHtml(clienteSel.usuario)}`;
     } else {
       // ---------- GRID "POR CLIENTE" ----------
       const cards = clientes.map((c) => {
@@ -1559,16 +1650,9 @@ router.get('/clientes', async (req, res) => {
         </div>`;
     }
 
-    const opcionesEdificios = edificiosDisponibles
-      .map((e) => `<option value="${esc(e)}">${esc(e)}</option>`)
-      .join('');
 
-    res.send(
-      page(
-        'clientes',
-        'Clientes',
-        `${body}
-         <div class="sug-form" id="form-nuevo-cliente" style="margin-top:28px">
+    const formAgregarCliente = (vista === 'cliente' && !clienteSel)
+      ? `<div class="sug-form" id="form-nuevo-cliente" style="margin-top:28px">
            <h3>Agregar cliente</h3>
            <div class="tablewrap" style="border:none;box-shadow:none;background:none">
              <table style="width:100%">
@@ -1589,15 +1673,6 @@ router.get('/clientes', async (req, res) => {
                    <td style="color:var(--muted);font-size:13px">Email</td>
                    <td><input id="cli-email" type="email" placeholder="contacto@ejemplo.com"></td>
                  </tr>
-                 <tr>
-                   <td style="color:var(--muted);font-size:13px">Edificios <span style="color:var(--muted2);font-weight:400">(opcional)</span></td>
-                   <td>
-                     <select id="cli-edificios" multiple size="4" style="width:100%">${opcionesEdificios}</select>
-                     <div style="font-size:12px;color:var(--muted);margin-top:4px">
-                       Mantené Ctrl/Cmd para elegir varios. Podés dejarlo vacío y asignarle edificios más adelante desde la ficha del cliente.
-                     </div>
-                   </td>
-                 </tr>
                </tbody>
              </table>
            </div>
@@ -1608,7 +1683,14 @@ router.get('/clientes', async (req, res) => {
          <p style="font-size:12.5px;color:var(--muted);margin-top:16px">
            Nota: la contraseña se guarda en texto plano en Sheets por ahora — vamos a reemplazar esto
            por un sistema de activación con contraseña propia (hasheada) en el siguiente paso.
-         </p>`,
+         </p>`
+      : '';
+
+    res.send(
+      page(
+        'clientes',
+        'Clientes',
+        `${body}${formAgregarCliente}`,
         req
       )
     );
@@ -1649,10 +1731,17 @@ router.post('/api/clientes', async (req, res) => {
 // Crea un edificio nuevo y lo asigna a un cliente existente (agrega su
 // nombre a la lista de edificios de ese cliente en la tab clientes).
 router.post('/api/edificio-nuevo', async (req, res) => {
-  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  const dueno = esDueno(req);
+  const esConsorcio = req.session && req.session.role === 'consorcio';
+  if (!dueno && !esConsorcio) return res.status(403).json({ error: 'Sin permiso' });
+
   try {
-    const { nombre, direccion, unidades, clienteUsuario } = req.body || {};
+    const { nombre, direccion, zona, unidades, encargado, tel_encargado, tel_seguridad, plan } = req.body || {};
     if (!nombre) return res.status(400).json({ error: 'Falta el nombre del edificio' });
+
+    // El cliente solo puede agregarse edificios a si mismo; el dueño puede
+    // asignarselo a cualquiera indicando clienteUsuario en el body.
+    const clienteUsuario = dueno ? req.body.clienteUsuario : req.session.user;
 
     const { rows: edRows } = await readTab(TAB_EDIFICIOS);
     const yaExiste = edRows.map(mapEdificio).some(
@@ -1663,8 +1752,12 @@ router.post('/api/edificio-nuevo', async (req, res) => {
     await appendRow(TAB_EDIFICIOS, {
       edificio: nombre,
       direccion: direccion || '',
+      zona: zona || '',
       unidades: unidades || '',
-      plan: 'Base',
+      encargado: encargado || '',
+      telefono_encargado: tel_encargado || '',
+      telefono_seguridad: tel_seguridad || '',
+      plan: plan || 'Base',
     });
 
     if (clienteUsuario) {
@@ -1673,9 +1766,9 @@ router.post('/api/edificio-nuevo', async (req, res) => {
       const cliente = clientes.find((c) => c.usuario === clienteUsuario);
       if (cliente) {
         const nuevaLista = [...cliente.edificios, nombre].join(', ');
-        const plan = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
-        if (plan.create) await ensureHeader(TAB_CLIENTES, plan.col, 'edificios', false);
-        await writeCell(TAB_CLIENTES, plan.col, cliente._row, nuevaLista);
+        const col = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
+        if (col.create) await ensureHeader(TAB_CLIENTES, col.col, 'edificios', false);
+        await writeCell(TAB_CLIENTES, col.col, cliente._row, nuevaLista);
       }
     }
 
@@ -1776,6 +1869,12 @@ const EDIFICIO_FIELDS = {
   aliases: ['aliases', 'alias', 'otros_nombres'],
   unidades: ['unidades', 'unidad', 'departamentos'],
   plan: ['plan'],
+  zona: ['zona', 'barrio'],
+  encargado: ['encargado', 'portero', 'sereno'],
+  tel_encargado: ['telefono_encargado', 'tel_encargado', 'celular_encargado'],
+  encargado_estado: ['encargado_estado', 'estado_encargado'],
+  encargado_suplente: ['encargado_suplente', 'suplente', 'personal_limpieza'],
+  tel_seguridad: ['telefono_seguridad', 'tel_seguridad', 'seguridad'],
 };
 
 router.post('/api/edificio', async (req, res) => {
@@ -1947,9 +2046,13 @@ router.get('/mi-edificio', async (req, res) => {
     }).join('');
 
     res.send(page('mi-edificio', 'Mi Edificio',
-      `<h1>Mi Edificio</h1>
-       <p style="color:var(--muted);margin-top:-8px">Datos del consorcio que administra Marcos IA.</p>
-       ${fichas}`, req));
+      `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+         <div><h1 style="margin-bottom:2px">Mi Edificio</h1>
+         <p style="color:var(--muted);margin-top:0">Datos del consorcio que administra Marcos IA.</p></div>
+         <button class="btn" onclick="mostrarFormEdificio()">+ Agregar edificio</button>
+       </div>
+       ${fichas}
+       ${formNuevoEdificioHtml(req.session.user)}`, req));
   } catch (e) {
     res.status(500).send(page('mi-edificio', 'Mi Edificio', errorBox(e), req));
   }
