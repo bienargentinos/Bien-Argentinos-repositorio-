@@ -850,12 +850,12 @@ async function guardarFeedback(btn, row){
 
 // Guardar fila de edificio
 async function guardarEdificio(btn, row){
-  var tr=btn.closest('tr');
+  var cont=btn.closest('[data-form-edificio]')||btn.closest('tr');
   var data={row:row};
-  tr.querySelectorAll('input[data-field]').forEach(function(inp){
+  cont.querySelectorAll('[data-field]').forEach(function(inp){
     data[inp.getAttribute('data-field')]=inp.value;
   });
-  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
   try{
     var r=await fetch('/admin/api/edificio',{
       method:'POST',headers:{'Content-Type':'application/json'},
@@ -1416,69 +1416,91 @@ function renderArchivo(a) {
 
 // Ya no esta en el menu (queda absorbido por /admin/clientes), pero sigue
 // siendo el destino real de los botones "Editar" de cada edificio.
+// Ficha de edicion de UN edificio a la vez -- no una tabla siempre-editable.
+// Evita el riesgo de tocar un campo sin querer al mirar la lista.
 router.get('/edificios', async (req, res) => {
   if (!esDueno(req)) return res.redirect('/admin');
 
+  const row = Number(req.query.row);
+  const volver = req.query.volver && String(req.query.volver).startsWith('/admin/')
+    ? req.query.volver
+    : '/admin/clientes?vista=todos';
+
+  if (!row || isNaN(row)) return res.redirect('/admin/clientes?vista=todos');
+
   try {
     const { rows } = await readTab(TAB_EDIFICIOS);
-    const edificios = rows.map(mapEdificio);
+    const e = rows.map(mapEdificio).find((x) => x._row === row);
+
+    if (!e) {
+      return res.status(404).send(page('clientes', 'Editar edificio',
+        `<a href="${esc(volver)}" class="btn ghost sm" style="margin-bottom:18px">← Volver</a>
+         <div class="empty">No se encontró ese edificio.</div>`, req));
+    }
 
     const estadosEncargado = ['activo', 'vacaciones', 'licencia', 'suspendido'];
-
-    const filas = edificios
-      .map(
-        (e) => `<tr id="row-${e._row}">
-          <td><b>${esc(e.nombre)}</b>${e.aliases ? `<br><span style="font-size:12px;color:var(--muted)">${esc(e.aliases)}</span>` : ''}</td>
-          <td><input data-field="zona" value="${esc(e.zona)}" placeholder="Barrio, ciudad" style="width:120px"></td>
-          <td><input data-field="unidades" value="${esc(e.unidades)}" placeholder="Unidades" style="width:70px"></td>
-          <td>
-            <select data-field="plan">
-              <option value="Base"${e.plan === 'Base' ? ' selected' : ''}>Base</option>
-              <option value="Plus"${e.plan === 'Plus' ? ' selected' : ''}>Plus</option>
-            </select>
-          </td>
-          <td><input data-field="encargado" value="${esc(e.encargado)}" placeholder="Nombre encargado" style="width:120px"></td>
-          <td><input data-field="tel_encargado" value="${esc(e.tel_encargado)}" placeholder="Tel. encargado" style="width:110px"></td>
-          <td>
-            <select data-field="encargado_estado">
-              ${estadosEncargado.map((s) => `<option value="${s}"${e.encargado_estado === s ? ' selected' : ''}>${s}</option>`).join('')}
-            </select>
-          </td>
-          <td><input data-field="encargado_suplente" value="${esc(e.encargado_suplente)}" placeholder="Suplente / limpieza" style="width:120px"></td>
-          <td><input data-field="tel_seguridad" value="${esc(e.tel_seguridad)}" placeholder="Tel. seguridad (opcional)" style="width:130px"></td>
-          <td><input data-field="administrador" value="${esc(e.administrador)}" placeholder="Nombre admin" style="width:120px"></td>
-          <td><input data-field="telefonos" value="${esc(e.telefonos)}" placeholder="Telefono admin" style="width:110px"></td>
-          <td><input data-field="notas" value="${esc(e.notas)}" placeholder="Notas especiales" style="width:150px"></td>
-          <td><input data-field="aliases" value="${esc(e.aliases)}" placeholder="Aliases" style="width:120px"></td>
-          <td><button class="btn sm" onclick="guardarEdificio(this, ${e._row})">Guardar</button></td>
-        </tr>`
-      )
-      .join('');
-
-    const body = edificios.length
-      ? `<div class="tablewrap"><table>
-          <thead><tr>
-            <th>Edificio</th><th>Zona</th><th>Unidades</th><th>Plan</th>
-            <th>Encargado</th><th>Tel. encargado</th><th>Estado enc.</th><th>Suplente</th><th>Tel. seguridad</th>
-            <th>Administrador</th><th>Tel. admin</th>
-            <th>Notas especiales</th><th>Aliases</th><th></th>
-          </tr></thead>
-          <tbody>${filas}</tbody>
-        </table></div>
-        <p style="font-size:12.5px;color:var(--muted);margin-top:12px">
-          Estado del encargado, suplente y teléfono de seguridad son opcionales — Marcos los va completando
-          a medida que se contacta con propietarios y vecinos.
-        </p>`
-      : `<div class="empty">No hay edificios cargados.</div>`;
+    const campo = (label, field, val, placeholder, ancho) =>
+      `<div><label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px">${esc(label)}</label>
+        <input data-field="${field}" value="${esc(val)}" placeholder="${esc(placeholder || '')}" style="width:${ancho || '100%'}"></div>`;
 
     res.send(
       page(
         'clientes',
         'Editar edificio',
-        `<a href="/admin/clientes?vista=todos" class="btn ghost sm" style="margin-bottom:18px">← Clientes y edificios</a>
-         <h1>Datos de edificios</h1>
-         <p style="color:var(--muted);margin-top:-8px">Edita datos que usa Marcos para atender cada consorcio. Los cambios se guardan en Google Sheets.</p>
-         ${body}`,
+        `<a href="${esc(volver)}" class="btn ghost sm" style="margin-bottom:18px">← Volver</a>
+         <div class="ficha" data-form-edificio>
+           <div class="ficha-head">
+             <div class="ficha-icon">🏢</div>
+             <div class="ficha-data">
+               <h2>${esc(e.nombre)}</h2>
+               <div class="dir">${esc(e.direccion || e.nombre)}${e.zona ? ' · ' + esc(e.zona) : ''}</div>
+             </div>
+           </div>
+           <hr class="ficha-divider">
+           <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 14px">Datos generales</h3>
+           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px">
+             ${campo('Zona', 'zona', e.zona, 'Barrio, ciudad')}
+             ${campo('Unidades', 'unidades', e.unidades, '0')}
+             <div>
+               <label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px">Plan</label>
+               <select data-field="plan" style="width:100%">
+                 <option value="Base"${e.plan === 'Base' ? ' selected' : ''}>Base</option>
+                 <option value="Plus"${e.plan === 'Plus' ? ' selected' : ''}>Plus</option>
+               </select>
+             </div>
+             ${campo('Aliases', 'aliases', e.aliases, 'Separados por coma')}
+           </div>
+
+           <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 14px">Encargado y seguridad</h3>
+           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px">
+             ${campo('Encargado', 'encargado', e.encargado, 'Nombre')}
+             ${campo('Tel. encargado', 'tel_encargado', e.tel_encargado, 'Teléfono')}
+             <div>
+               <label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px">Estado del encargado</label>
+               <select data-field="encargado_estado" style="width:100%">
+                 ${estadosEncargado.map((s) => `<option value="${s}"${e.encargado_estado === s ? ' selected' : ''}>${s}</option>`).join('')}
+               </select>
+             </div>
+             ${campo('Suplente / limpieza', 'encargado_suplente', e.encargado_suplente, 'Si cubre a alguien')}
+             ${campo('Tel. seguridad', 'tel_seguridad', e.tel_seguridad, 'Si el edificio tiene')}
+           </div>
+
+           <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 14px">Administrador</h3>
+           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px">
+             ${campo('Administrador', 'administrador', e.administrador, 'Nombre')}
+             ${campo('Tel. administrador', 'telefonos', e.telefonos, 'Teléfono')}
+           </div>
+
+           <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 14px">Notas</h3>
+           <div style="margin-bottom:8px">
+             <textarea data-field="notas" placeholder="Notas especiales" style="width:100%">${esc(e.notas)}</textarea>
+           </div>
+           <p style="font-size:12px;color:var(--muted);margin:0 0 20px">
+             Estado del encargado, suplente y teléfono de seguridad son opcionales — Marcos los va completando
+             a medida que se contacta con propietarios y vecinos.
+           </p>
+           <button class="btn" onclick="guardarEdificio(this, ${e._row})">Guardar cambios</button>
+         </div>`,
         req
       )
     );
@@ -1545,7 +1567,7 @@ function planTagsDe(edificiosDelCliente) {
     .join(' ');
 }
 
-function edificioIconRow(e, clienteLabel) {
+function edificioIconRow(e, clienteLabel, volverA) {
   return `<div class="ed-row">
     <div class="ico">🏢</div>
     <div class="grow">
@@ -1556,7 +1578,7 @@ function edificioIconRow(e, clienteLabel) {
     <div class="col"><div class="k">Unidades</div><div class="v">${esc(e.unidades || '—')}</div></div>
     <div class="col"><div class="k">Encargado</div><div class="v">${esc(e.encargado || '—')}</div></div>
     <span class="badge tipo">Plan ${esc(e.plan || 'Base')}</span>
-    <button class="btn ghost sm" onclick="location.href='/admin/edificios#row-${e._row}'">Editar</button>
+    <button class="btn ghost sm" onclick="location.href='/admin/edificios?row=${e._row}&volver=${encodeURIComponent(volverA || '/admin/clientes?vista=todos')}'">Editar</button>
   </div>`;
 }
 
@@ -1589,7 +1611,7 @@ router.get('/clientes', async (req, res) => {
       const filas = edificios.length
         ? edificios.map((e) => {
             const dueno = clientes.find((c) => c.edificios.includes(e.nombre));
-            return edificioIconRow(e, dueno ? dueno.nombre : 'Sin asignar');
+            return edificioIconRow(e, dueno ? dueno.nombre : 'Sin asignar', '/admin/clientes?vista=todos');
           }).join('')
         : `<div class="empty">No hay edificios cargados.</div>`;
 
@@ -1602,8 +1624,9 @@ router.get('/clientes', async (req, res) => {
       const misEdificios = edificios.filter((e) => clienteSel.edificios.includes(e.nombre));
       const totalUnidades = misEdificios.reduce((acc, e) => acc + (Number(e.unidades) || 0), 0);
 
+      const volverACliente = `/admin/clientes?cliente=${encodeURIComponent(clienteSel.usuario)}`;
       const filas = misEdificios.length
-        ? misEdificios.map((e) => edificioIconRow(e)).join('')
+        ? misEdificios.map((e) => edificioIconRow(e, null, volverACliente)).join('')
         : `<div class="empty">Este cliente todavía no tiene edificios asignados.</div>`;
 
       body = `
