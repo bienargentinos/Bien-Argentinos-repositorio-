@@ -58,6 +58,26 @@ ssh -p5436 root@200.58.102.182
     CONSORCIO_USERS={"usuario1":"contraseña:Nombre Edificio A","usuario2":"contraseña:Edificio B,Edificio C"}
     ```
 
+## Diseño hifi (handoff pendiente de implementar)
+
+- Carpeta: `design/` — prototipo de alta fidelidad hecho con Claude Design.
+  - `README.md` — especificación completa: roles, pantallas, tokens, mapeo a Sheets. **Leer primero.**
+  - `Panel Consorcio.dc.html` — el diseño explorable (abrir en navegador). Corre sobre `support.js`
+    (runtime del prototipo, NO va a producción). Solo sirve de referencia visual/de interacción.
+  - `image-slot.js` — componente de placeholder de logo, solo del prototipo.
+- Diferencias grandes vs. el dashboard actual (`dashboard.js`):
+  - Paleta de marca definida (azul `#1E5FB4`/`#2E6FC0`, dorado `#D99B1F`, tipografía Hanken Grotesk) —
+    el dashboard actual es un tema oscuro genérico, hay que rehacer el look.
+  - Nuevas secciones: **Expensas** (el cliente sube PDF/imagen/link), **Consumos** (uso vs plan,
+    excedente facturable), **Clientes** (alta/gestión de administradores, hoy es 1 env var),
+    **Notificaciones** (campana con contador).
+  - **Impersonación**: el dueño puede "Ver como cliente" para revisar exactamente lo que ve un admin.
+  - Auth real con activación por token + recuperación de contraseña (reemplaza `CONSORCIO_USERS` en `.env`).
+  - Drawer de detalle de evento con conversación completa (WhatsApp en burbujas / transcripción de llamada).
+  - Multi-operador: "Marcos", "Susana", "Lucía" rotan según turno — el vecino nunca debe notar que es IA;
+    el admin de edificio sí sabe que es IA.
+- Cuentas de prueba del prototipo: `daniel / sistema2025` (dueño), `amato_admin / demo1234` (cliente).
+
 ## Regla de oro
 
 **Los vecinos NO deben saber que Marcos es IA.** Marcos se comporta como humano, usa expresiones argentinas, rechaza preguntas sobre si es robot de forma natural.

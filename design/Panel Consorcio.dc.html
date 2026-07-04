@@ -1,0 +1,1996 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#CBD5E6;border-radius:20px;border:2px solid transparent;background-clip:content-box}
+  @keyframes mFade{from{opacity:0}to{opacity:1}}
+  @keyframes mSlideR{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
+  @keyframes mPop{from{transform:scale(.96);opacity:0}to{transform:scale(1);opacity:1}}
+  @keyframes mUp{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;font-family:'Hanken Grotesk',system-ui,sans-serif;background:#EEF1F6;color:#16233B;-webkit-font-smoothing:antialiased">
+
+<sc-if value="{{ isLogin }}" hint-placeholder-val="{{ true }}">
+<div style="min-height:100vh;display:grid;grid-template-columns:1.05fr 1fr">
+  <!-- Brand panel -->
+  <div style="position:relative;background:linear-gradient(150deg,#0F326A 0%,#17408B 45%,#2E6FC0 100%);color:#fff;padding:56px 60px;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;min-height:100vh">
+    <div style="position:absolute;top:-120px;right:-120px;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(217,155,31,.28),transparent 70%)"></div>
+    <div style="position:absolute;bottom:-160px;left:-80px;width:380px;height:380px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 70%)"></div>
+    <div style="position:relative;display:flex;align-items:center;gap:16px">
+      <div style="width:128px;height:82px;background:#fff;border-radius:14px;padding:8px;box-shadow:0 8px 22px -8px rgba(0,0,0,.35);flex-shrink:0">
+        <x-import component-from-global-scope="image-slot" from="./image-slot.js" id="marcos-logo" style="width:100%;height:100%;display:block" shape="rounded" radius="8" fit="contain" placeholder="Arrastrá tu logo" hint-size="100%,100%"></x-import>
+      </div>
+      <div>
+        <div style="font-weight:800;font-size:22px;letter-spacing:-.02em">Marcos IA</div>
+        <div style="font-size:12.5px;color:rgba(255,255,255,.72);font-weight:600">por Bien Argentinos</div>
+      </div>
+    </div>
+    <div style="position:relative">
+      <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);padding:7px 14px;border-radius:999px;font-size:13px;font-weight:600;margin-bottom:26px">
+        <span style="width:8px;height:8px;border-radius:50%;background:#4ADE80;box-shadow:0 0 0 4px rgba(74,222,128,.25)"></span>
+        Atención 24/7 activa
+      </div>
+      <h1 style="font-size:40px;line-height:1.08;font-weight:800;letter-spacing:-.03em;margin:0 0 18px">Todo lo que pasó<br>en tu edificio,<br>mientras no estabas.</h1>
+      <p style="font-size:17px;line-height:1.55;color:rgba(255,255,255,.82);max-width:440px;margin:0">Marcos atiende los WhatsApp y llamados de tu consorcio las 24 horas. Este panel es tu ventana: reclamos, reservas, accesos y avisos, ordenados y al día.</p>
+    </div>
+    <div style="position:relative;display:flex;gap:26px;font-size:13px;color:rgba(255,255,255,.72)">
+      <div><span style="display:block;font-size:22px;font-weight:800;color:#fff">24/7</span>sin horarios</div>
+      <div><span style="display:block;font-size:22px;font-weight:800;color:#fff">3</span>edificios activos</div>
+      <div><span style="display:block;font-size:22px;font-weight:800;color:#fff">CABA</span>y GBA</div>
+    </div>
+  </div>
+  <!-- Form panel -->
+  <div style="display:flex;align-items:center;justify-content:center;padding:40px;min-height:100vh">
+    <div style="width:100%;max-width:380px;animation:mUp .5s ease both">
+
+      <!-- LOGIN -->
+      <sc-if value="{{ authLogin }}" hint-placeholder-val="{{ true }}">
+      <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#2E6FC0;margin-bottom:10px">Panel de administración</div>
+      <h2 style="font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px">Ingresá a tu cuenta</h2>
+      <p style="color:#64748B;font-size:15px;margin:0 0 28px">Usá el usuario y la contraseña de tu cuenta de administrador.</p>
+
+      <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:7px">Usuario</label>
+      <div style="position:relative;margin-bottom:18px">
+        <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:15px">👤</span>
+        <input value="{{ user }}" onInput="{{ onUser }}" placeholder="tu_usuario" style="width:100%;height:48px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px 0 42px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.12)">
+      </div>
+
+      <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:7px">Contraseña</label>
+      <div style="position:relative;margin-bottom:16px">
+        <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:15px">🔒</span>
+        <input type="{{ passType }}" value="{{ pass }}" onInput="{{ onPass }}" placeholder="••••••••" style="width:100%;height:48px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 70px 0 42px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.12)">
+        <button onClick="{{ togglePass }}" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);border:none;background:none;color:#64748B;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;padding:6px 8px">{{ passLabel }}</button>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#334259;cursor:pointer;user-select:none">
+          <input type="checkbox" checked="{{ remember }}" onChange="{{ onRemember }}" style="width:17px;height:17px;accent-color:#2E6FC0;cursor:pointer">
+          Recordar sesión
+        </label>
+        <a href="#" onClick="{{ goForgot }}" style="font-size:14px;font-weight:600;color:#2E6FC0;text-decoration:none">¿Olvidaste tu contraseña?</a>
+      </div>
+
+      <sc-if value="{{ hasLoginErr }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:9px;background:#FDECEC;border:1px solid #F3C6C6;border-radius:10px;padding:11px 13px;margin-bottom:16px;font-size:13.5px;color:#B4232A;font-weight:600">
+          <span style="font-size:15px">⚠️</span>{{ loginErr }}
+        </div>
+      </sc-if>
+
+      <button onClick="{{ doLogin }}" style="width:100%;height:50px;border:none;border-radius:12px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:0 8px 20px -6px rgba(30,95,180,.55)" style-hover="background:linear-gradient(180deg,#3579cd,#2464bd)">Ingresar al panel</button>
+
+      <div style="text-align:center;margin-top:16px;font-size:14px;color:#64748B">¿Primera vez? <a href="#" onClick="{{ goActivate }}" style="font-weight:700;color:#2E6FC0;text-decoration:none">Activá tu cuenta</a></div>
+
+      <div style="margin-top:22px;padding:13px 14px;background:#F1F5FB;border:1px solid #E1E9F5;border-radius:11px">
+        <div style="font-size:12.5px;color:#5A6B85;line-height:1.5;margin-bottom:10px"><strong style="color:#334259">Demo · cuentas de prueba:</strong> <code style="background:#E4ECF7;padding:1px 5px;border-radius:4px">daniel / sistema2025</code> (dueño) · <code style="background:#E4ECF7;padding:1px 5px;border-radius:4px">amato_admin / demo1234</code> (cliente). O entrá directo 👇</div>
+        <div style="display:flex;gap:9px">
+          <button onClick="{{ loginCliente }}" style="flex:1;height:40px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit" style-hover="background:#EAF1FB;border-color:#B9CBE6">🏢 Admin de edificio</button>
+          <button onClick="{{ loginDueno }}" style="flex:1;height:40px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#17408B;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit" style-hover="background:#EAF1FB;border-color:#B9CBE6">🗂️ Admin de sistema</button>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- RECUPERAR -->
+      <sc-if value="{{ authForgot }}" hint-placeholder-val="{{ false }}">
+      <div style="width:52px;height:52px;border-radius:14px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:24px;margin-bottom:18px">🔑</div>
+      <h2 style="font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px">Recuperar contraseña</h2>
+      <p style="color:#64748B;font-size:15px;margin:0 0 26px">Ingresá el email de tu cuenta y te mandamos un link para crear una nueva contraseña.</p>
+      <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:7px">Email</label>
+      <div style="position:relative;margin-bottom:22px">
+        <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:15px">✉️</span>
+        <input value="{{ fEmail }}" onInput="{{ onFEmail }}" placeholder="tu@email.com" style="width:100%;height:48px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px 0 42px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.12)">
+      </div>
+      <button onClick="{{ sendForgot }}" style="width:100%;height:50px;border:none;border-radius:12px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:0 8px 20px -6px rgba(30,95,180,.55)" style-hover="background:linear-gradient(180deg,#3579cd,#2464bd)">Enviar link de recuperación</button>
+      <div style="text-align:center;margin-top:18px"><a href="#" onClick="{{ backToLogin }}" style="font-size:14px;font-weight:600;color:#64748B;text-decoration:none">← Volver a ingresar</a></div>
+      </sc-if>
+
+      <!-- ENVIADO -->
+      <sc-if value="{{ authSent }}" hint-placeholder-val="{{ false }}">
+      <div style="width:60px;height:60px;border-radius:16px;background:#E7F4EC;display:flex;align-items:center;justify-content:center;font-size:30px;margin-bottom:20px">📬</div>
+      <h2 style="font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px">Revisá tu email</h2>
+      <p style="color:#64748B;font-size:15px;line-height:1.55;margin:0 0 26px">Si <strong style="color:#334259">{{ fEmail }}</strong> corresponde a una cuenta, te enviamos un link para restablecer la contraseña. Puede tardar unos minutos.</p>
+      <button onClick="{{ backToLogin }}" style="width:100%;height:50px;border:none;border-radius:12px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:0 8px 20px -6px rgba(30,95,180,.55)" style-hover="background:linear-gradient(180deg,#3579cd,#2464bd)">Volver a ingresar</button>
+      </sc-if>
+
+      <!-- ACTIVAR -->
+      <sc-if value="{{ authActivate }}" hint-placeholder-val="{{ false }}">
+      <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#2E6FC0;margin-bottom:10px">Primer acceso</div>
+      <h2 style="font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px">Activá tu cuenta</h2>
+      <p style="color:#64748B;font-size:15px;margin:0 0 24px">Tu administrador creó tu usuario. Elegí una contraseña para empezar a usar el panel.</p>
+      <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:7px">Usuario</label>
+      <input value="{{ actUser }}" onInput="{{ onActUser }}" placeholder="tu_usuario" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD;margin-bottom:14px" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.12)">
+      <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:7px">Nueva contraseña</label>
+      <input type="password" value="{{ actPass }}" onInput="{{ onActPass }}" placeholder="Mínimo 6 caracteres" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD;margin-bottom:14px" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.12)">
+      <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:7px">Repetir contraseña</label>
+      <input type="password" value="{{ actPass2 }}" onInput="{{ onActPass2 }}" placeholder="Repetí la contraseña" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD;margin-bottom:16px" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.12)">
+      <sc-if value="{{ hasActErr }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:9px;background:#FDECEC;border:1px solid #F3C6C6;border-radius:10px;padding:11px 13px;margin-bottom:16px;font-size:13.5px;color:#B4232A;font-weight:600"><span style="font-size:15px">⚠️</span>{{ actErr }}</div>
+      </sc-if>
+      <button onClick="{{ doActivate }}" style="width:100%;height:50px;border:none;border-radius:12px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:0 8px 20px -6px rgba(30,95,180,.55)" style-hover="background:linear-gradient(180deg,#3579cd,#2464bd)">Activar cuenta</button>
+      <div style="text-align:center;margin-top:18px"><a href="#" onClick="{{ backToLogin }}" style="font-size:14px;font-weight:600;color:#64748B;text-decoration:none">← Ya tengo cuenta</a></div>
+      </sc-if>
+
+      <!-- ACTIVADA -->
+      <sc-if value="{{ authActivated }}" hint-placeholder-val="{{ false }}">
+      <div style="width:60px;height:60px;border-radius:16px;background:#E7F4EC;display:flex;align-items:center;justify-content:center;font-size:30px;margin-bottom:20px">✅</div>
+      <h2 style="font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px">¡Cuenta activada!</h2>
+      <p style="color:#64748B;font-size:15px;line-height:1.55;margin:0 0 26px">Ya podés ingresar con tu usuario y la contraseña que acabás de crear.</p>
+      <button onClick="{{ backToLogin }}" style="width:100%;height:50px;border:none;border-radius:12px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:0 8px 20px -6px rgba(30,95,180,.55)" style-hover="background:linear-gradient(180deg,#3579cd,#2464bd)">Ir a ingresar</button>
+      </sc-if>
+
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isApp }}" hint-placeholder-val="{{ false }}">
+<div style="min-height:100vh;display:flex;flex-direction:column">
+  <sc-if value="{{ isPreview }}" hint-placeholder-val="{{ false }}">
+  <div style="background:linear-gradient(90deg,#8A6410,#B4841C);color:#fff;min-height:42px;display:flex;align-items:center;justify-content:center;gap:14px;padding:6px 16px;font-size:13.5px;font-weight:600;flex-wrap:wrap">
+    <span>👁 Vista previa — así ve su panel <strong>{{ previewClientName }}</strong></span>
+    <button onClick="{{ exitPreview }}" style="height:28px;padding:0 13px;border:none;border-radius:7px;background:rgba(255,255,255,.22);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,.34)">← Volver a mi panel de dueño</button>
+  </div>
+  </sc-if>
+  <!-- TOPBAR -->
+  <header style="height:64px;background:#fff;border-bottom:1px solid #E4E9F1;display:flex;align-items:center;gap:18px;padding:0 20px;position:sticky;top:0;z-index:40">
+    <div style="display:flex;align-items:center;gap:11px">
+      <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(150deg,#17408B,#2E6FC0);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px">M</div>
+      <div style="font-weight:800;font-size:17px;letter-spacing:-.02em">Marcos IA</div>
+    </div>
+
+    <!-- Selector edificio / filtro -->
+    <div style="position:relative;margin-left:2px">
+      <button onClick="{{ toggleBuildingMenu }}" style="display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border:1px solid #E1E7F1;border-radius:11px;background:#F7F9FC;cursor:pointer;font-family:inherit" style-hover="border-color:#C9D5E8;background:#F1F5FB">
+        <span style="font-size:15px">🏢</span>
+        <span style="text-align:left;line-height:1.15">
+          <sc-if value="{{ roleClientActive }}" hint-placeholder-val="{{ true }}">
+            <span style="display:block;font-size:14px;font-weight:700;color:#16233B">{{ curBuilding.name }}</span>
+            <span style="display:block;font-size:11px;color:#8595AD">{{ curBuilding.zona }}</span>
+          </sc-if>
+          <sc-if value="{{ isDueno }}" hint-placeholder-val="{{ false }}">
+            <span style="display:block;font-size:14px;font-weight:700;color:#16233B">{{ duenoFilterLabel }}</span>
+            <span style="display:block;font-size:11px;color:#8595AD">{{ duenoFilterSub }}</span>
+          </sc-if>
+        </span>
+        <span style="color:#8595AD;font-size:11px;margin-left:2px">▾</span>
+      </button>
+      <sc-if value="{{ buildingMenu }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;top:48px;left:0;width:300px;background:#fff;border:1px solid #E4E9F1;border-radius:14px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);padding:7px;z-index:50;animation:mPop .16s ease both">
+          <sc-if value="{{ roleClientActive }}" hint-placeholder-val="{{ true }}">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8595AD;padding:8px 10px 6px">Tus edificios</div>
+            <sc-for list="{{ buildingsView }}" as="b" hint-placeholder-count="3">
+              <button onClick="{{ b.onSelect }}" style="width:100%;display:flex;align-items:center;gap:11px;padding:10px;border:none;background:{{ b.rowBg }};border-radius:10px;cursor:pointer;text-align:left;font-family:inherit" style-hover="background:#F1F5FB">
+                <span style="width:38px;height:38px;border-radius:9px;background:{{ b.iconBg }};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🏢</span>
+                <span style="flex:1;min-width:0">
+                  <span style="display:block;font-size:14px;font-weight:700;color:#16233B">{{ b.name }}</span>
+                  <span style="display:block;font-size:12px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ b.addr }} · {{ b.unidades }} un.</span>
+                </span>
+                <span style="color:#2E6FC0;font-weight:800;font-size:15px">{{ b.check }}</span>
+              </button>
+            </sc-for>
+          </sc-if>
+          <sc-if value="{{ isDueno }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8595AD;padding:8px 10px 6px">Filtrar por edificio</div>
+            <sc-for list="{{ duenoFilterRows }}" as="b" hint-placeholder-count="5">
+              <button onClick="{{ b.onSelect }}" style="width:100%;display:flex;align-items:center;gap:11px;padding:10px;border:none;background:{{ b.rowBg }};border-radius:10px;cursor:pointer;text-align:left;font-family:inherit" style-hover="background:#F1F5FB">
+                <span style="width:38px;height:38px;border-radius:9px;background:{{ b.iconBg }};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🏢</span>
+                <span style="flex:1;min-width:0">
+                  <span style="display:block;font-size:14px;font-weight:700;color:#16233B">{{ b.label }}</span>
+                  <span style="display:block;font-size:12px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ b.sub }}</span>
+                </span>
+                <span style="color:#2E6FC0;font-weight:800;font-size:15px">{{ b.check }}</span>
+              </button>
+            </sc-for>
+          </sc-if>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="flex:1"></div>
+
+    <div style="display:none;align-items:center;gap:8px;height:36px;padding:0 13px;background:#F1F5FB;border:1px solid #E4EBF5;border-radius:999px;font-size:12.5px;color:#5A6B85;font-weight:600" class="lastconn">
+      <span style="width:7px;height:7px;border-radius:50%;background:#94A3B8"></span>
+      Última conexión: {{ lastConn }}
+    </div>
+
+    <!-- Notificaciones (dueño) -->
+    <sc-if value="{{ isDueno }}" hint-placeholder-val="{{ false }}">
+    <div style="position:relative">
+      <button onClick="{{ toggleNotif }}" style="position:relative;width:42px;height:42px;border:1px solid #E1E7F1;border-radius:11px;background:#F7F9FC;cursor:pointer;font-size:18px;font-family:inherit;display:flex;align-items:center;justify-content:center" style-hover="border-color:#C9D5E8;background:#F1F5FB">
+        🔔
+        <sc-if value="{{ hasNotif }}" hint-placeholder-val="{{ false }}">
+          <span style="position:absolute;top:-5px;right:-5px;min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:#E5484D;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;border:2px solid #fff">{{ notifCount }}</span>
+        </sc-if>
+      </button>
+      <sc-if value="{{ notifOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;top:50px;right:0;width:340px;background:#fff;border:1px solid #E4E9F1;border-radius:14px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);z-index:50;animation:mPop .16s ease both;overflow:hidden">
+          <div style="padding:14px 16px;border-bottom:1px solid #EEF1F6;display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:14.5px;font-weight:800">Notificaciones</span>
+            <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#FDECEC;color:#C0392B">{{ notifCount }} nuevas</span>
+          </div>
+          <div style="max-height:400px;overflow-y:auto">
+            <sc-for list="{{ notifList }}" as="n" hint-placeholder-count="4">
+              <button onClick="{{ n.onClick }}" style="width:100%;display:flex;align-items:flex-start;gap:11px;padding:13px 16px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left;font-family:inherit" style-hover="background:#F8FAFD">
+                <span style="width:36px;height:36px;border-radius:10px;background:{{ n.iconBg }};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">{{ n.icon }}</span>
+                <span style="flex:1;min-width:0">
+                  <span style="display:block;font-size:13.5px;font-weight:700;color:#16233B">{{ n.title }}</span>
+                  <span style="display:block;font-size:12.5px;color:#64748B;line-height:1.4">{{ n.desc }}</span>
+                  <span style="display:block;font-size:11px;color:#9AA7BD;margin-top:2px">{{ n.when }}</span>
+                </span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+    </sc-if>
+
+    <!-- User -->
+    <div style="position:relative">
+      <button onClick="{{ toggleUserMenu }}" style="display:flex;align-items:center;gap:10px;height:44px;padding:0 8px 0 6px;border:1px solid transparent;border-radius:12px;background:none;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">
+        <span style="width:36px;height:36px;border-radius:50%;background:{{ userGrad }};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px">{{ userInitial }}</span>
+        <span style="text-align:left;line-height:1.15" class="username">
+          <span style="display:block;font-size:13.5px;font-weight:700;color:#16233B">{{ userName }}</span>
+          <span style="display:block;font-size:11px;color:#8595AD">{{ userSub }}</span>
+        </span>
+        <span style="color:#8595AD;font-size:11px">▾</span>
+      </button>
+      <sc-if value="{{ userMenu }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;top:52px;right:0;width:220px;background:#fff;border:1px solid #E4E9F1;border-radius:14px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);padding:7px;z-index:50;animation:mPop .16s ease both">
+          <div style="padding:10px 11px 12px;border-bottom:1px solid #EEF1F6;margin-bottom:6px">
+            <div style="font-size:14px;font-weight:700">{{ userName }}</div>
+            <div style="font-size:12px;color:#8595AD">{{ userMeta }}</div>
+          </div>
+          <sc-if value="{{ isDueno }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ verComoCliente }}" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-family:inherit;font-size:14px;color:#334259;font-weight:600" style-hover="background:#F1F5FB">👁&nbsp;&nbsp;Ver como cliente</button>
+          </sc-if>
+          <button onClick="{{ noop }}" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-family:inherit;font-size:14px;color:#334259" style-hover="background:#F1F5FB">👤&nbsp;&nbsp;Mi cuenta</button>
+          <button onClick="{{ noop }}" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-family:inherit;font-size:14px;color:#334259" style-hover="background:#F1F5FB">⚙️&nbsp;&nbsp;Preferencias</button>
+          <button onClick="{{ doLogout }}" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-family:inherit;font-size:14px;color:#E5484D;font-weight:600" style-hover="background:#FDECEC">↩&nbsp;&nbsp;Cerrar sesión</button>
+        </div>
+      </sc-if>
+    </div>
+  </header>
+
+  <div style="flex:1;display:flex;align-items:stretch">
+    <!-- SIDEBAR -->
+    <sc-if value="{{ showSidebar }}" hint-placeholder-val="{{ true }}">
+    <nav style="width:236px;flex-shrink:0;background:#fff;border-right:1px solid #E4E9F1;padding:18px 14px;position:sticky;top:64px;height:calc(100vh - 64px);display:flex;flex-direction:column;gap:4px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9AA7BD;padding:6px 12px 8px">Menú</div>
+      <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+        <button onClick="{{ n.onClick }}" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;border:none;border-radius:11px;background:{{ n.bg }};color:{{ n.fg }};font-weight:{{ n.weight }};font-size:14.5px;cursor:pointer;font-family:inherit;text-align:left;position:relative" style-hover="background:#F1F5FB">
+          <span style="font-size:17px;width:22px;text-align:center">{{ n.icon }}</span>
+          <span style="flex:1">{{ n.label }}</span>
+          <sc-if value="{{ n.showBadge }}" hint-placeholder-val="{{ false }}">
+            <span style="min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#E5484D;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">{{ n.badge }}</span>
+          </sc-if>
+        </button>
+      </sc-for>
+      <div style="flex:1"></div>
+      <div style="margin:0 6px;padding:14px;background:linear-gradient(155deg,#0F326A,#2E6FC0);border-radius:14px;color:#fff">
+        <div style="font-size:13px;font-weight:800;margin-bottom:4px">¿Necesitás algo?</div>
+        <div style="font-size:12.5px;color:rgba(255,255,255,.8);line-height:1.45;margin-bottom:10px">Tu consorcio está siendo atendido las 24 horas.</div>
+        <button onClick="{{ goSugerencias }}" style="width:100%;height:36px;border:none;border-radius:9px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,.26)">Enviar sugerencia</button>
+      </div>
+    </nav>
+    </sc-if>
+
+    <!-- MAIN -->
+    <main style="flex:1;min-width:0;padding:26px 30px 90px;max-width:1180px;margin:0 auto;width:100%">
+
+      <!-- ======= RESUMEN ======= -->
+      <sc-if value="{{ secResumen }}" hint-placeholder-val="{{ true }}">
+      <div style="animation:mFade .3s ease both">
+        <div style="margin-bottom:20px">
+          <div style="font-size:13px;font-weight:700;color:#2E6FC0;letter-spacing:.02em;margin-bottom:3px">Hola de nuevo, {{ clientGreetName }} 👋</div>
+          <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">Resumen de {{ curBuilding.name }}</h1>
+        </div>
+
+        <!-- Novedades banner -->
+        <div style="display:flex;align-items:center;gap:16px;background:linear-gradient(120deg,#0F326A,#2E6FC0);border-radius:16px;padding:18px 22px;color:#fff;margin-bottom:22px;flex-wrap:wrap">
+          <div style="width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🌙</div>
+          <div style="flex:1;min-width:200px">
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">{{ novedadesTitle }}</div>
+            <div style="font-size:14px;color:rgba(255,255,255,.82)">Desde tu última conexión · {{ lastConn }}</div>
+          </div>
+          <button onClick="{{ goEventos }}" style="height:42px;padding:0 20px;border:none;border-radius:11px;background:#fff;color:#17408B;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit" style-hover="background:#EAF1FB">Ver todo →</button>
+        </div>
+
+        <!-- Stat cards -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:26px">
+          <sc-for list="{{ statCards }}" as="s" hint-placeholder-count="4">
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(16,35,59,.04)">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <span style="width:40px;height:40px;border-radius:11px;background:{{ s.iconBg }};display:flex;align-items:center;justify-content:center;font-size:19px">{{ s.icon }}</span>
+                <span style="font-size:12px;font-weight:700;color:{{ s.deltaColor }}">{{ s.delta }}</span>
+              </div>
+              <div style="font-size:32px;font-weight:800;letter-spacing:-.03em;line-height:1">{{ s.value }}</div>
+              <div style="font-size:13.5px;color:#64748B;font-weight:600;margin-top:4px">{{ s.label }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <!-- Novedades feed + quick -->
+        <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:20px" class="resgrid">
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #EEF1F6">
+              <div style="font-size:16px;font-weight:800">Novedades desde tu ausencia</div>
+              <div style="font-size:13px;color:#8595AD;font-weight:600">{{ novCount }} nuevas</div>
+            </div>
+            <sc-for list="{{ novedades }}" as="e" hint-placeholder-count="4">
+              <button onClick="{{ e.onOpen }}" style="width:100%;display:flex;align-items:flex-start;gap:13px;padding:15px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left;font-family:inherit" style-hover="background:#F8FAFD">
+                <span style="width:40px;height:40px;border-radius:11px;background:{{ e.tipoBg }};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">{{ e.icon }}</span>
+                <span style="flex:1;min-width:0">
+                  <span style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+                    <span style="font-size:14.5px;font-weight:700;color:#16233B">{{ e.titulo }}</span>
+                    <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:{{ e.urgBg }};color:{{ e.urgFg }}">{{ e.urgLabel }}</span>
+                  </span>
+                  <span style="display:block;font-size:13px;color:#64748B;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.notaCorta }}</span>
+                  <span style="display:flex;align-items:center;gap:10px;margin-top:5px;font-size:12px;color:#9AA7BD">
+                    <span>{{ e.canalIcon }} {{ e.canal }}</span><span>·</span><span>{{ e.unidad }}</span><span>·</span><span>{{ e.when }}</span>
+                  </span>
+                </span>
+                <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:{{ e.estBg }};color:{{ e.estFg }};flex-shrink:0;margin-top:2px">{{ e.estLabel }}</span>
+              </button>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
+              <div style="font-size:15px;font-weight:800;margin-bottom:14px">Estado del edificio</div>
+              <sc-for list="{{ tipoBreak }}" as="t" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:11px;padding:8px 0">
+                  <span style="font-size:16px;width:24px;text-align:center">{{ t.icon }}</span>
+                  <span style="flex:1;font-size:14px;color:#334259;font-weight:600">{{ t.label }}</span>
+                  <span style="font-size:14px;font-weight:800;color:#16233B">{{ t.count }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
+              <div style="font-size:15px;font-weight:800;margin-bottom:6px">Costos en divisa</div>
+              <div style="font-size:12.5px;color:#8595AD;margin-bottom:14px;line-height:1.4">Servicios facturados en moneda extranjera este mes</div>
+              <div style="display:flex;gap:10px">
+                <div style="flex:1;background:#E7F4EC;border-radius:12px;padding:12px 14px">
+                  <div style="font-size:11px;font-weight:800;color:#1B7A43;letter-spacing:.04em">USD</div>
+                  <div style="font-size:20px;font-weight:800;color:#14532D;letter-spacing:-.02em">{{ usdTotal }}</div>
+                </div>
+                <div style="flex:1;background:#E9EEFB;border-radius:12px;padding:12px 14px">
+                  <div style="font-size:11px;font-weight:800;color:#2C55A8;letter-spacing:.04em">EUR</div>
+                  <div style="font-size:20px;font-weight:800;color:#1E3A6B;letter-spacing:-.02em">{{ eurTotal }}</div>
+                </div>
+              </div>
+              <button onClick="{{ goFacturas }}" style="width:100%;margin-top:12px;height:38px;border:1px solid #E1E7F1;border-radius:10px;background:#F7F9FC;color:#334259;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">Ver comprobantes</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======= EVENTOS ======= -->
+      <sc-if value="{{ secEventos }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:mFade .3s ease both">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Eventos</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Todo lo que Marcos gestionó en {{ curBuilding.name }}. Tocá un caso para ver el detalle.</p>
+        <div style="display:flex;gap:9px;margin-bottom:18px;flex-wrap:wrap">
+          <sc-for list="{{ filterChips }}" as="f" hint-placeholder-count="4">
+            <button onClick="{{ f.onClick }}" style="height:38px;padding:0 16px;border:1px solid {{ f.border }};border-radius:999px;background:{{ f.bg }};color:{{ f.fg }};font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px" style-hover="border-color:#C9D5E8">
+              {{ f.label }}<span style="font-size:12px;opacity:.75">{{ f.count }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden">
+          <sc-for list="{{ eventsView }}" as="e" hint-placeholder-count="6">
+            <button onClick="{{ e.onOpen }}" style="width:100%;display:flex;align-items:flex-start;gap:14px;padding:16px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left;font-family:inherit;position:relative" style-hover="background:#F8FAFD">
+              <sc-if value="{{ e.nuevo }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:#2E6FC0"></span></sc-if>
+              <span style="width:44px;height:44px;border-radius:12px;background:{{ e.tipoBg }};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">{{ e.icon }}</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+                  <span style="font-size:15px;font-weight:700;color:#16233B">{{ e.titulo }}</span>
+                  <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:{{ e.urgBg }};color:{{ e.urgFg }}">{{ e.urgLabel }}</span>
+                  <sc-if value="{{ e.nuevo }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:800;color:#2E6FC0">● NUEVO</span></sc-if>
+                </span>
+                <span style="display:block;font-size:13.5px;color:#5A6B85;line-height:1.45;margin-bottom:6px">{{ e.detalle }}</span>
+                <span style="display:flex;align-items:center;gap:10px;font-size:12px;color:#9AA7BD;flex-wrap:wrap">
+                  <span>{{ e.canalIcon }} {{ e.canal }}</span><span>·</span><span>{{ e.unidad }}</span><span>·</span><span>{{ e.when }}</span>
+                  <sc-if value="{{ e.hasConv }}" hint-placeholder-val="{{ false }}"><span style="color:#2E6FC0;font-weight:700">{{ e.convTag }}</span></sc-if>
+                </span>
+              </span>
+              <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:{{ e.estBg }};color:{{ e.estFg }};flex-shrink:0">{{ e.estLabel }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======= MI EDIFICIO ======= -->
+      <sc-if value="{{ secEdificio }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:mFade .3s ease both">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Mi Edificio</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Ficha de {{ curBuilding.name }}. Esta información es de consulta: si algo está desactualizado, tocá <strong style="color:#334259">Solicitar cambio</strong> y tu administrador lo revisa.</p>
+
+        <sc-if value="{{ hasPending }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#FBF3DE;border:1px solid #F0DCA6;border-radius:14px;padding:14px 18px;margin-bottom:20px">
+            <div style="font-size:14px;font-weight:800;color:#8A6410;margin-bottom:8px">⏳ Cambios pendientes de aprobación ({{ pendingCount }})</div>
+            <sc-for list="{{ pendingList }}" as="p" hint-placeholder-count="1">
+              <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#7A5A12;padding:3px 0">
+                <span style="font-weight:700">{{ p.label }}:</span>
+                <span style="text-decoration:line-through;opacity:.65">{{ p.from }}</span>
+                <span>→</span>
+                <span style="font-weight:700">{{ p.to }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">
+          <sc-for list="{{ fichaRows }}" as="r" hint-placeholder-count="8">
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 17px;display:flex;align-items:center;gap:12px">
+              <span style="width:40px;height:40px;border-radius:11px;background:#F1F5FB;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">{{ r.icon }}</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;font-weight:700;color:#8595AD;letter-spacing:.02em;text-transform:uppercase">{{ r.label }}</div>
+                <div style="font-size:15.5px;font-weight:700;color:#16233B;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.value }}</div>
+              </div>
+              <sc-if value="{{ r.pending }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:#FBF3DE;color:#8A6410;flex-shrink:0">Pendiente</span>
+              </sc-if>
+              <sc-if value="{{ r.editable }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ r.onRequest }}" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB;border-color:#B9CBE6">Solicitar cambio</button>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======= FACTURAS ======= -->
+      <sc-if value="{{ secFacturas }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:mFade .3s ease both">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Facturas y Fotos</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Comprobantes y archivos que vecinos y proveedores enviaron por WhatsApp, ordenados por Marcos.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">
+          <sc-for list="{{ facturasView }}" as="f" hint-placeholder-count="4">
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden">
+              <div style="height:120px;background:{{ f.thumbBg }};display:flex;align-items:center;justify-content:center;position:relative">
+                <span style="font-size:40px">{{ f.thumbIcon }}</span>
+                <span style="position:absolute;top:10px;left:10px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.9);color:#334259">{{ f.tipo }}</span>
+                <span style="position:absolute;top:10px;right:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:{{ f.monBg }};color:{{ f.monFg }}">{{ f.moneda }}</span>
+              </div>
+              <div style="padding:14px 16px">
+                <div style="font-size:15px;font-weight:700;margin-bottom:2px">{{ f.concepto }}</div>
+                <div style="font-size:13px;color:#8595AD;margin-bottom:12px">{{ f.proveedor }} · {{ f.fecha }}</div>
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <span style="font-size:19px;font-weight:800;letter-spacing:-.02em">{{ f.monto }}</span>
+                  <span style="font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:{{ f.estBg }};color:{{ f.estFg }}">{{ f.estado }}</span>
+                </div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======= EXPENSAS ======= -->
+      <sc-if value="{{ secExpensas }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:mFade .3s ease both;max-width:820px">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Expensas</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Subí las expensas del mes de {{ curBuilding.name }}. <strong style="color:#334259">Marcos queda habilitado para compartirlas</strong> con los vecinos que las pidan por WhatsApp, o para enviarlas cuando vos se lo indiques.</p>
+
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:26px">
+          <div style="font-size:15px;font-weight:800;margin-bottom:14px">Publicar nueva expensa</div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+            <div style="flex:1;min-width:130px">
+              <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Mes</div>
+              <input value="{{ expMonth }}" onInput="{{ onExpMonth }}" style="width:100%;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+            </div>
+            <div style="width:110px">
+              <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Año</div>
+              <input value="{{ expYear }}" onInput="{{ onExpYear }}" style="width:100%;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+            </div>
+          </div>
+
+          <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Formato</div>
+          <div style="display:flex;gap:9px;margin-bottom:16px;flex-wrap:wrap">
+            <button onClick="{{ setExpPdf }}" style="height:40px;padding:0 16px;border:1px solid {{ expPdfBorder }};border-radius:10px;background:{{ expPdfBg }};color:{{ expPdfFg }};font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">📄 PDF</button>
+            <button onClick="{{ setExpImg }}" style="height:40px;padding:0 16px;border:1px solid {{ expImgBorder }};border-radius:10px;background:{{ expImgBg }};color:{{ expImgFg }};font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">🖼️ Imagen</button>
+            <button onClick="{{ setExpLink }}" style="height:40px;padding:0 16px;border:1px solid {{ expLinkBorder }};border-radius:10px;background:{{ expLinkBg }};color:{{ expLinkFg }};font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">🔗 Link web</button>
+          </div>
+
+          <sc-if value="{{ expIsLink }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Dirección web</div>
+            <input value="{{ expName }}" onInput="{{ onExpName }}" placeholder="https://..." style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD;margin-bottom:16px" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+          </sc-if>
+          <sc-if value="{{ expIsFile }}" hint-placeholder-val="{{ true }}">
+            <div onClick="{{ pickFile }}" style="display:flex;align-items:center;gap:13px;border:1.5px dashed #C9D5E8;border-radius:12px;padding:16px;background:#F7F9FC;cursor:pointer;margin-bottom:16px" style-hover="background:#EAF1FB;border-color:#2E6FC0">
+              <span style="width:44px;height:44px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📎</span>
+              <div style="flex:1">
+                <sc-if value="{{ hasExpName }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:14.5px;font-weight:700;color:#16233B">{{ expName }}</div>
+                  <div style="font-size:12.5px;color:#1B7A43;font-weight:600">Archivo listo · tocá Publicar</div>
+                </sc-if>
+                <sc-if value="{{ noExpName }}" hint-placeholder-val="{{ true }}">
+                  <div style="font-size:14.5px;font-weight:700;color:#334259">Elegí el archivo</div>
+                  <div style="font-size:12.5px;color:#8595AD">Tocá para seleccionar el PDF o la imagen de las expensas</div>
+                </sc-if>
+              </div>
+            </div>
+          </sc-if>
+
+          <button onClick="{{ publishExp }}" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit" style-hover="background:linear-gradient(180deg,#3579cd,#2464bd)">Publicar para Marcos</button>
+        </div>
+
+        <div style="font-size:15px;font-weight:800;margin-bottom:12px">Expensas publicadas</div>
+        <sc-if value="{{ hasExp }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <sc-for list="{{ expView }}" as="x" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:15px;background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 18px;flex-wrap:wrap">
+                <span style="width:46px;height:46px;border-radius:12px;background:{{ x.typeBg }};display:flex;align-items:center;justify-content:center;font-size:21px;flex-shrink:0">{{ x.typeIcon }}</span>
+                <div style="flex:1;min-width:170px">
+                  <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+                    <span style="font-size:15.5px;font-weight:800">{{ x.period }}</span>
+                    <span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:{{ x.typeBg }};color:{{ x.typeFg }}">{{ x.typeLabel }}</span>
+                  </div>
+                  <div style="font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px">{{ x.name }}</div>
+                </div>
+                <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ Marcos puede compartirla</span>
+                <div style="display:flex;gap:8px">
+                  <button onClick="{{ x.onCopy }}" style="height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">🔗 Copiar</button>
+                  <button onClick="{{ x.onRemove }}" style="height:36px;padding:0 13px;border:1px solid #EEDcdc;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit" style-hover="background:#FDECEC">Quitar</button>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noExp }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Todavía no publicaste expensas para este edificio.</div>
+        </sc-if>
+      </div>
+      </sc-if>
+
+      <!-- ======= SUGERENCIAS ======= -->
+      <sc-if value="{{ secSugerencias }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:mFade .3s ease both;max-width:720px">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Sugerencias</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">¿Se te ocurre algo para mejorar la atención de tu edificio? Escribile a tu administrador. Te responde por acá.</p>
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px;margin-bottom:22px">
+          <textarea value="{{ sugText }}" onInput="{{ onSug }}" placeholder="Ej: Sería útil recibir un aviso antes de los cortes de agua programados..." style="width:100%;min-height:96px;border:1.5px solid #E1E7F1;border-radius:12px;padding:13px 15px;font-size:15px;font-family:inherit;color:#16233B;resize:vertical;outline:none;background:#F8FAFD;line-height:1.5" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)"></textarea>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+            <span style="font-size:13px;color:#9AA7BD">Sobre {{ curBuilding.name }}</span>
+            <button onClick="{{ sendSug }}" style="height:42px;padding:0 22px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit" style-hover="background:linear-gradient(180deg,#3579cd,#2464bd)">Enviar sugerencia</button>
+          </div>
+        </div>
+        <div style="font-size:14px;font-weight:800;color:#334259;margin-bottom:12px">Historial</div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <sc-for list="{{ sugList }}" as="s" hint-placeholder-count="3">
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:2px">
+                <div style="font-size:14.5px;color:#16233B;line-height:1.5;flex:1">{{ s.texto }}</div>
+                <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:{{ s.stBg }};color:{{ s.stFg }};flex-shrink:0">{{ s.estado }}</span>
+              </div>
+              <div style="font-size:12px;color:#9AA7BD;margin-bottom:10px">Enviada el {{ s.fecha }}</div>
+              <sc-if value="{{ s.hasReply }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:10px;background:#F1F5FB;border-radius:11px;padding:12px 14px">
+                  <span style="width:28px;height:28px;border-radius:50%;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex-shrink:0">D</span>
+                  <div>
+                    <div style="font-size:12px;font-weight:700;color:#2E6FC0;margin-bottom:2px">Respuesta del administrador</div>
+                    <div style="font-size:13.5px;color:#334259;line-height:1.5">{{ s.respuesta }}</div>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======= DUEÑO · RESUMEN ======= -->
+      <sc-if value="{{ secDResumen }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:mFade .3s ease both">
+        <div style="margin-bottom:20px">
+          <div style="font-size:13px;font-weight:700;color:#2E6FC0;margin-bottom:3px">Buen día, Daniel 👋</div>
+          <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">Panel general · todos los edificios</h1>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px">
+          <sc-for list="{{ dKpis }}" as="k" hint-placeholder-count="5">
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,59,.04)">
+              <span style="width:38px;height:38px;border-radius:11px;background:{{ k.iconBg }};display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:11px">{{ k.icon }}</span>
+              <div style="font-size:27px;font-weight:800;letter-spacing:-.03em;line-height:1">{{ k.value }}</div>
+              <div style="font-size:13px;color:#64748B;font-weight:600;margin-top:4px">{{ k.label }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <sc-if value="{{ excedeAlert }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:14px;background:linear-gradient(120deg,#8A2A24,#C0392B);border-radius:15px;padding:16px 20px;color:#fff;margin-bottom:22px;flex-wrap:wrap">
+            <span style="width:46px;height:46px;border-radius:12px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🧾</span>
+            <div style="flex:1;min-width:200px">
+              <div style="font-size:17px;font-weight:800">{{ excedeMsg }}</div>
+              <div style="font-size:14px;color:rgba(255,255,255,.85)">Excedente facturable acumulado: {{ facturableFmt }}</div>
+            </div>
+            <button onClick="{{ goConsumos }}" style="height:40px;padding:0 18px;border:none;border-radius:11px;background:#fff;color:#C0392B;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit">Ver consumos →</button>
+          </div>
+        </sc-if>
+        <div style="font-size:16px;font-weight:800;margin-bottom:14px">Estado por edificio</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
+          <sc-for list="{{ duenoBuildings }}" as="b" hint-placeholder-count="4">
+            <button onClick="{{ b.onOpen }}" style="text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px;cursor:pointer;font-family:inherit" style-hover="border-color:#C9D5E8;box-shadow:0 6px 18px -10px rgba(16,35,59,.25)">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <span style="width:42px;height:42px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:19px">🏢</span>
+                <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:{{ b.estBg }};color:{{ b.estFg }}">{{ b.estLabel }}</span>
+              </div>
+              <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">{{ b.name }}</div>
+              <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px">{{ b.cliente }} · {{ b.tipo }} · {{ b.unidades }} un.</div>
+              <div style="display:flex;gap:16px">
+                <span style="font-size:13px;color:#334259"><strong style="color:#2E6FC0;font-size:15px">{{ b.nuevos }}</strong> novedades</span>
+                <span style="font-size:13px;color:#334259"><strong style="color:#C0392B;font-size:15px">{{ b.urg }}</strong> urgencias</span>
+              </div>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======= DUEÑO · EVENTOS ======= -->
+      <sc-if value="{{ secDEventos }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:mFade .3s ease both">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Eventos · {{ duenoFilterLabel }}</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Feed de todos los consorcios. Usá el filtro de arriba para acotar por edificio.</p>
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden">
+          <sc-for list="{{ duenoEvents }}" as="e" hint-placeholder-count="6">
+            <button onClick="{{ e.onOpen }}" style="width:100%;display:flex;align-items:flex-start;gap:14px;padding:16px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left;font-family:inherit;position:relative" style-hover="background:#F8FAFD">
+              <sc-if value="{{ e.nuevo }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:#2E6FC0"></span></sc-if>
+              <span style="width:44px;height:44px;border-radius:12px;background:{{ e.tipoBg }};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">{{ e.icon }}</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+                  <span style="font-size:15px;font-weight:700;color:#16233B">{{ e.titulo }}</span>
+                  <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:{{ e.urgBg }};color:{{ e.urgFg }}">{{ e.urgLabel }}</span>
+                  <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 {{ e.buildingName }}</span>
+                </span>
+                <span style="display:block;font-size:13.5px;color:#5A6B85;line-height:1.45;margin-bottom:6px">{{ e.detalle }}</span>
+                <span style="display:flex;align-items:center;gap:10px;font-size:12px;color:#9AA7BD;flex-wrap:wrap">
+                  <span>{{ e.canalIcon }} {{ e.canal }}</span><span>·</span><span>{{ e.unidad }}</span><span>·</span><span>{{ e.when }}</span>
+                  <sc-if value="{{ e.hasConv }}" hint-placeholder-val="{{ false }}"><span style="color:#2E6FC0;font-weight:700">{{ e.convTag }}</span></sc-if>
+                </span>
+              </span>
+              <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:{{ e.estBg }};color:{{ e.estFg }};flex-shrink:0">{{ e.estLabel }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======= DUEÑO · CONSUMOS ======= -->
+      <sc-if value="{{ secConsumos }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:mFade .3s ease both">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Consumos y facturación</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Uso real de cada edificio contra su plan contratado. Los que exceden el plan base generan un excedente facturable.</p>
+        <div style="display:flex;align-items:center;gap:16px;background:#101F32;border-radius:16px;padding:18px 22px;color:#fff;margin-bottom:22px;flex-wrap:wrap">
+          <div style="flex:1;min-width:160px">
+            <div style="font-size:13px;color:rgba(255,255,255,.65);font-weight:600">Excedente facturable del mes</div>
+            <div style="font-size:30px;font-weight:800;letter-spacing:-.02em">{{ facturableFmt }}</div>
+          </div>
+          <div style="width:1px;height:44px;background:rgba(255,255,255,.15)"></div>
+          <div style="min-width:120px">
+            <div style="font-size:13px;color:rgba(255,255,255,.65);font-weight:600">Edificios que exceden</div>
+            <div style="font-size:30px;font-weight:800;letter-spacing:-.02em">{{ excedenCount }}</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px">
+          <sc-for list="{{ consumos }}" as="c" hint-placeholder-count="4">
+            <div style="background:#fff;border:1px solid {{ c.cardBorder }};border-radius:16px;padding:18px 20px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">{{ c.name }}</div>
+                <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:{{ c.estBg }};color:{{ c.estFg }}">{{ c.estLabel }}</span>
+              </div>
+              <div style="font-size:12.5px;color:#8595AD;margin-bottom:16px">{{ c.cliente }} · {{ c.tipo }} · {{ c.unidades }} un. · Plan {{ c.plan }}</div>
+
+              <div style="margin-bottom:13px">
+                <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px"><span style="color:#64748B;font-weight:600">💬 Mensajes</span><span style="font-weight:700;color:#16233B">{{ c.usMsg }} / {{ c.incMsg }}</span></div>
+                <div style="height:8px;background:#EEF2F8;border-radius:99px;overflow:hidden"><span style="display:block;height:100%;width:{{ c.msgPct }};background:{{ c.msgColor }};border-radius:99px"></span></div>
+              </div>
+              <div style="margin-bottom:13px">
+                <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px"><span style="color:#64748B;font-weight:600">📞 Minutos</span><span style="font-weight:700;color:#16233B">{{ c.usMin }} / {{ c.incMin }}</span></div>
+                <div style="height:8px;background:#EEF2F8;border-radius:99px;overflow:hidden"><span style="display:block;height:100%;width:{{ c.minPct }};background:{{ c.minColor }};border-radius:99px"></span></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:12.5px;color:#64748B;font-weight:600;padding:6px 0 4px"><span>📋 Eventos gestionados</span><span style="font-weight:700;color:#16233B">{{ c.eventos }}</span></div>
+
+              <sc-if value="{{ c.showExtra }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:14px;padding:14px;background:#FDECEC;border-radius:12px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                    <span style="font-size:13px;font-weight:700;color:#8A2A24">Excedente facturable</span>
+                    <span style="font-size:20px;font-weight:800;color:#C0392B;letter-spacing:-.02em">{{ c.extraFmt }}</span>
+                  </div>
+                  <div style="font-size:12px;color:#A24039;margin-bottom:12px">+{{ c.exMsg }} mensajes y +{{ c.exMin }} min sobre el plan Base</div>
+                  <div style="display:flex;gap:9px">
+                    <button onClick="{{ c.onFacturar }}" style="flex:1;height:38px;border:none;border-radius:9px;background:#C0392B;color:#fff;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit" style-hover="background:#a83228">Facturar excedente</button>
+                    <button onClick="{{ c.onUpgrade }}" style="flex:1;height:38px;border:1px solid #E3B4B0;border-radius:9px;background:#fff;color:#8A2A24;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit" style-hover="background:#FBE9E8">Proponer Plan Plus</button>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======= DUEÑO · FACTURAS ======= -->
+      <sc-if value="{{ secDFacturas }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:mFade .3s ease both">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Facturas y Fotos · {{ duenoFilterLabel }}</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Comprobantes y archivos de todos los consorcios. Usá el filtro de arriba para acotar por edificio.</p>
+        <sc-if value="{{ hasDFacturas }}" hint-placeholder-val="{{ true }}">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">
+            <sc-for list="{{ duenoFacturas }}" as="f" hint-placeholder-count="4">
+              <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden">
+                <div style="height:120px;background:{{ f.thumbBg }};display:flex;align-items:center;justify-content:center;position:relative">
+                  <span style="font-size:40px">{{ f.thumbIcon }}</span>
+                  <span style="position:absolute;top:10px;left:10px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.9);color:#334259">{{ f.tipo }}</span>
+                  <span style="position:absolute;top:10px;right:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:{{ f.monBg }};color:{{ f.monFg }}">{{ f.moneda }}</span>
+                </div>
+                <div style="padding:14px 16px">
+                  <span style="display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EEF2F8;color:#5A6B85;margin-bottom:8px">🏢 {{ f.buildingName }}</span>
+                  <div style="font-size:15px;font-weight:700;margin-bottom:2px">{{ f.concepto }}</div>
+                  <div style="font-size:13px;color:#8595AD;margin-bottom:12px">{{ f.proveedor }} · {{ f.fecha }}</div>
+                  <div style="display:flex;align-items:center;justify-content:space-between">
+                    <span style="font-size:19px;font-weight:800;letter-spacing:-.02em">{{ f.monto }}</span>
+                    <span style="font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:{{ f.estBg }};color:{{ f.estFg }}">{{ f.estado }}</span>
+                  </div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noDFacturas }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Este edificio todavía no tiene comprobantes cargados.</div>
+        </sc-if>
+      </div>
+      </sc-if>
+
+      <!-- ======= DUEÑO · EDIFICIOS ======= -->
+      <sc-if value="{{ secEdificios }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:mFade .3s ease both">
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px">
+          <div>
+            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Clientes y edificios</h1>
+            <p style="color:#64748B;font-size:15px;margin:0">Entrá por administrador para ver y editar sus edificios, o mirá todos juntos.</p>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onClick="{{ setEdifClientes }}" style="height:38px;padding:0 15px;border:1px solid {{ cTabEBorder }};border-radius:10px;background:{{ cTabEBg }};color:{{ cTabEFg }};font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">Por cliente</button>
+            <button onClick="{{ setEdifTodos }}" style="height:38px;padding:0 15px;border:1px solid {{ tTabEBorder }};border-radius:10px;background:{{ tTabEBg }};color:{{ tTabEFg }};font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">Todos los edificios</button>
+          </div>
+        </div>
+
+        <!-- MODO POR CLIENTE -->
+        <sc-if value="{{ edifClientes }}" hint-placeholder-val="{{ true }}">
+
+          <sc-if value="{{ hasSelCliente }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ backToClientes }}" style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border:1px solid #E1E7F1;border-radius:9px;background:#fff;color:#5A6B85;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;margin-bottom:16px" style-hover="background:#F1F5FB">← Clientes</button>
+            <div style="display:flex;align-items:center;gap:14px;background:linear-gradient(120deg,#0F326A,#2E6FC0);border-radius:16px;padding:18px 22px;color:#fff;margin-bottom:18px;flex-wrap:wrap">
+              <span style="width:52px;height:52px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;flex-shrink:0">{{ selClienteInitial }}</span>
+              <div style="flex:1;min-width:180px">
+                <div style="font-size:20px;font-weight:800;letter-spacing:-.01em">{{ selClienteName }}</div>
+                <div style="font-size:13.5px;color:rgba(255,255,255,.82)">{{ selClienteMeta }}</div>
+              </div>
+              <button onClick="{{ addEdificio }}" style="height:40px;padding:0 18px;border:none;border-radius:11px;background:#fff;color:#17408B;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit">+ Agregar edificio</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <sc-for list="{{ selClienteRows }}" as="b" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:16px;background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 18px;flex-wrap:wrap">
+                  <span style="width:44px;height:44px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🏢</span>
+                  <div style="min-width:180px;flex:1">
+                    <div style="font-size:15.5px;font-weight:800">{{ b.name }}</div>
+                    <div style="font-size:12.5px;color:#8595AD">{{ b.addr }} · {{ b.zona }}</div>
+                  </div>
+                  <div style="min-width:90px">
+                    <div style="font-size:11px;color:#8595AD;font-weight:700;text-transform:uppercase">Unidades</div>
+                    <div style="font-size:13.5px;font-weight:700">{{ b.unidades }}</div>
+                  </div>
+                  <div style="min-width:130px">
+                    <div style="font-size:11px;color:#8595AD;font-weight:700;text-transform:uppercase">Encargado</div>
+                    <div style="font-size:13.5px;font-weight:700">{{ b.encargado }}</div>
+                  </div>
+                  <span style="font-size:12px;font-weight:800;padding:5px 12px;border-radius:999px;background:{{ b.planBg }};color:{{ b.planFg }}">Plan {{ b.plan }}</span>
+                  <sc-if value="{{ b.isNew }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:800;padding:4px 10px;border-radius:999px;background:#E7F4EC;color:#1B7A43">Nuevo</span></sc-if>
+                  <button onClick="{{ b.onEdit }}" style="height:38px;padding:0 16px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">Editar</button>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ noSelCliente }}" hint-placeholder-val="{{ true }}">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:16px">
+              <sc-for list="{{ clientesCards }}" as="c" hint-placeholder-count="4">
+                <button onClick="{{ c.onOpen }}" style="text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px;cursor:pointer;font-family:inherit" style-hover="border-color:#C9D5E8;box-shadow:0 6px 18px -10px rgba(16,35,59,.25)">
+                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+                    <span style="width:46px;height:46px;border-radius:12px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;flex-shrink:0">{{ c.initial }}</span>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:16px;font-weight:800;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.cliente }}</div>
+                      <div style="font-size:12.5px;color:#8595AD">{{ c.count }} edificios · {{ c.unidades }} un.</div>
+                    </div>
+                  </div>
+                  <div style="display:flex;align-items:center;justify-content:space-between">
+                    <span style="font-size:12.5px;font-weight:700;color:#5A6B85;background:#EEF2F8;padding:4px 11px;border-radius:999px">{{ c.planMix }}</span>
+                    <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:{{ c.estBg }};color:{{ c.estFg }}">{{ c.estLabel }}</span>
+                  </div>
+                </button>
+              </sc-for>
+            </div>
+            <button onClick="{{ addCliente }}" style="height:44px;padding:0 20px;border:1.5px dashed #C9D5E8;border-radius:12px;background:#F7F9FC;color:#2E6FC0;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit" style-hover="background:#EAF1FB;border-color:#2E6FC0">+ Agregar cliente</button>
+          </sc-if>
+
+        </sc-if>
+
+        <!-- MODO TODOS -->
+        <sc-if value="{{ edifTodos }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <sc-for list="{{ edificiosRows }}" as="b" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:16px;background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 18px;flex-wrap:wrap">
+                <span style="width:44px;height:44px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🏢</span>
+                <div style="min-width:170px;flex:1">
+                  <div style="font-size:15.5px;font-weight:800">{{ b.name }}</div>
+                  <div style="font-size:12.5px;color:#8595AD">{{ b.addr }} · {{ b.zona }}</div>
+                </div>
+                <div style="min-width:130px">
+                  <div style="font-size:11px;color:#8595AD;font-weight:700;text-transform:uppercase">Cliente</div>
+                  <div style="font-size:13.5px;font-weight:700">{{ b.cliente }}</div>
+                </div>
+                <div style="min-width:80px">
+                  <div style="font-size:11px;color:#8595AD;font-weight:700;text-transform:uppercase">Unidades</div>
+                  <div style="font-size:13.5px;font-weight:700">{{ b.unidades }}</div>
+                </div>
+                <span style="font-size:12px;font-weight:800;padding:5px 12px;border-radius:999px;background:{{ b.planBg }};color:{{ b.planFg }}">Plan {{ b.plan }}</span>
+                <button onClick="{{ b.onEdit }}" style="height:38px;padding:0 16px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">Editar</button>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+      </sc-if>
+
+
+      <!-- ======= DUEÑO · SOLICITUDES ======= -->
+      <sc-if value="{{ secSolicitudes }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:mFade .3s ease both;max-width:820px">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Solicitudes</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 22px">Pedidos de cambio y sugerencias que mandaron tus clientes. Nada se aplica hasta que vos lo aprobás.</p>
+
+        <div style="font-size:15px;font-weight:800;margin-bottom:12px;display:flex;align-items:center;gap:8px">📥 Pedidos de cambio <span style="font-size:12px;font-weight:700;color:#8595AD">({{ solCount }})</span></div>
+        <sc-if value="{{ hasSol }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:28px">
+            <sc-for list="{{ solView }}" as="s" hint-placeholder-count="2">
+              <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+                  <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 {{ s.buildingName }}</span>
+                  <span style="font-size:13px;color:#8595AD">{{ s.cliente }} · {{ s.when }}</span>
+                </div>
+                <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">{{ s.label }}</div>
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+                  <span style="font-size:14.5px;color:#94A3B8;text-decoration:line-through">{{ s.from }}</span>
+                  <span style="color:#2E6FC0;font-weight:800">→</span>
+                  <span style="font-size:14.5px;font-weight:800;color:#16233B">{{ s.to }}</span>
+                </div>
+                <div style="font-size:13px;color:#5A6B85;background:#F7F9FC;border-radius:9px;padding:9px 12px;margin-bottom:14px">💬 {{ s.motivo }}</div>
+                <div style="display:flex;gap:10px">
+                  <button onClick="{{ s.onApprove }}" style="height:40px;padding:0 20px;border:none;border-radius:10px;background:#16A34A;color:#fff;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit" style-hover="background:#128a3f">✓ Aprobar y aplicar</button>
+                  <button onClick="{{ s.onReject }}" style="height:40px;padding:0 18px;border:1px solid #E3B4B0;border-radius:10px;background:#fff;color:#C0392B;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit" style-hover="background:#FDECEC">Rechazar</button>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <div style="font-size:15px;font-weight:800;margin-bottom:12px;display:flex;align-items:center;gap:8px">💡 Sugerencias para responder</div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <sc-for list="{{ sugPendView }}" as="s" hint-placeholder-count="2">
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+                <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 {{ s.buildingName }}</span>
+                <span style="font-size:13px;color:#8595AD">{{ s.cliente }} · {{ s.when }}</span>
+              </div>
+              <div style="font-size:14.5px;color:#16233B;line-height:1.5;margin-bottom:12px">{{ s.texto }}</div>
+              <div style="display:flex;gap:10px;align-items:flex-end">
+                <input value="{{ s.reply }}" onInput="{{ s.onReplyChange }}" placeholder="Escribí tu respuesta al cliente..." style="flex:1;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:14.5px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+                <button onClick="{{ s.onRespond }}" style="height:44px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit;flex-shrink:0" style-hover="background:linear-gradient(180deg,#3579cd,#2464bd)">Responder</button>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+    </main>
+  </div>
+
+  <!-- MOBILE BOTTOM NAV -->
+  <sc-if value="{{ showBottomNav }}" hint-placeholder-val="{{ false }}">
+  <nav style="position:fixed;bottom:0;left:0;right:0;height:64px;background:#fff;border-top:1px solid #E4E9F1;display:flex;z-index:40;box-shadow:0 -4px 20px -8px rgba(16,35,59,.15)">
+    <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+      <button onClick="{{ n.onClick }}" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:none;background:none;cursor:pointer;font-family:inherit;color:{{ n.mFg }};position:relative">
+        <span style="font-size:20px">{{ n.icon }}</span>
+        <span style="font-size:10.5px;font-weight:700">{{ n.short }}</span>
+        <sc-if value="{{ n.showBadge }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;top:6px;right:50%;margin-right:-20px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:#E5484D;color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center">{{ n.badge }}</span></sc-if>
+      </button>
+    </sc-for>
+  </nav>
+  </sc-if>
+
+  <!-- EVENT DETAIL DRAWER -->
+  <sc-if value="{{ hasDrawer }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeDrawer }}" style="position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:60;animation:mFade .2s ease both;display:flex;justify-content:flex-end">
+    <div onClick="{{ stop }}" style="width:440px;max-width:92vw;height:100%;background:#F6F8FB;overflow-y:auto;animation:mSlideR .28s cubic-bezier(.2,.8,.2,1) both">
+      <div style="background:{{ sel.tipoBg }};padding:22px 24px 20px;position:relative">
+        <button onClick="{{ closeDrawer }}" style="position:absolute;top:16px;right:16px;width:34px;height:34px;border:none;border-radius:9px;background:rgba(255,255,255,.7);cursor:pointer;font-size:17px;font-family:inherit" style-hover="background:#fff">✕</button>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:{{ sel.urgBg }};color:{{ sel.urgFg }}">{{ sel.urgLabel }}</span>
+          <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:{{ sel.estBg }};color:{{ sel.estFg }}">{{ sel.estLabel }}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:13px">
+          <span style="width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;font-size:26px">{{ sel.icon }}</span>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#5A6B85;text-transform:uppercase;letter-spacing:.04em">{{ sel.tipoLabel }}</div>
+            <div style="font-size:20px;font-weight:800;letter-spacing:-.02em;color:#16233B;line-height:1.2">{{ sel.titulo }}</div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:22px 24px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Canal</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">{{ sel.canalIcon }} {{ sel.canal }}</div></div>
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Unidad</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">{{ sel.unidad }}</div></div>
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Cuándo</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">{{ sel.when }}</div></div>
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Edificio</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">{{ sel.buildingName }}</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:11px;background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 14px;margin-bottom:18px">
+          <span style="width:36px;height:36px;border-radius:50%;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">{{ sel.agentInitial }}</span>
+          <div style="flex:1"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.03em">Atendió</div><div style="font-size:14.5px;font-weight:700;color:#16233B">{{ sel.agent }} · {{ sel.turno }}</div></div>
+        </div>
+        <div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:8px">El pedido</div>
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:14px 16px;font-size:14.5px;color:#334259;line-height:1.55;margin-bottom:20px">{{ sel.detalle }}</div>
+        <div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:8px">📝 Qué hizo {{ sel.agent }}</div>
+        <div style="background:linear-gradient(120deg,#EAF1FB,#F3F7FD);border:1px solid #D8E5F6;border-radius:12px;padding:14px 16px;font-size:14.5px;color:#1E3A6B;line-height:1.6">{{ sel.nota }}</div>
+
+        <sc-if value="{{ sel.hasConv }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:24px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-size:13px;font-weight:800;color:#334259">📄 Conversación registrada</div>
+            <button onClick="{{ dlTranscript }}" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">⬇ Descargar</button>
+          </div>
+          <div style="font-size:12px;color:#6B7A93;font-weight:600;margin-bottom:11px">{{ sel.convChannel }}</div>
+
+          <sc-if value="{{ sel.isCall }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#0F326A;border-radius:13px;padding:13px 15px;margin-bottom:12px;display:flex;align-items:center;gap:13px">
+              <span style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;font-size:15px;color:#fff">▶</span>
+              <div style="flex:1">
+                <div style="height:5px;background:rgba(255,255,255,.22);border-radius:99px;position:relative;margin-bottom:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:34%;background:#4ADE80;border-radius:99px"></span></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:rgba(255,255,255,.78)"><span>Grabación de la llamada</span><span>{{ sel.dur }}</span></div>
+              </div>
+            </div>
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:13px;padding:4px 16px">
+              <sc-for list="{{ sel.conv }}" as="c" hint-placeholder-count="4">
+                <div style="padding:11px 0;border-bottom:1px solid #F1F4F9">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:12px;font-weight:800;color:{{ c.nameColor }}">{{ c.who }}</span><span style="font-size:11px;color:#9AA7BD">{{ c.t }}</span></div>
+                  <div style="font-size:14px;color:#334259;line-height:1.5">{{ c.text }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sel.isChat }}" hint-placeholder-val="{{ true }}">
+            <div style="background:#ECE5DD;border:1px solid #E0D9CF;border-radius:13px;padding:13px 12px">
+              <sc-for list="{{ sel.conv }}" as="c" hint-placeholder-count="4">
+                <div style="display:flex;justify-content:{{ c.rowJustify }};margin-bottom:8px">
+                  <div style="max-width:82%;background:{{ c.bubbleBg }};border:1px solid {{ c.bubbleBorder }};border-radius:12px;padding:8px 11px;box-shadow:0 1px 1px rgba(0,0,0,.05)">
+                    <div style="font-size:11px;font-weight:800;color:{{ c.nameColor }};margin-bottom:2px">{{ c.who }}</div>
+                    <div style="font-size:14px;color:#16233B;line-height:1.45">{{ c.text }}</div>
+                    <div style="font-size:10px;color:#8A9683;text-align:right;margin-top:3px">{{ c.t }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <div style="display:flex;align-items:flex-start;gap:9px;background:#F1F5FB;border-radius:11px;padding:11px 14px;margin-top:12px;font-size:12.5px;color:#5A6B85;line-height:1.5">
+            <span style="font-size:15px">🔒</span>
+            <span>Registro textual completo de lo conversado. Queda como <strong style="color:#334259">comprobante</strong> ante cualquier reclamo: nadie puede negar lo que pidió o acordó.</span>
+          </div>
+        </div>
+        </sc-if>
+
+        <div style="display:flex;gap:10px;margin-top:22px">
+          <button onClick="{{ closeDrawer }}" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">Cerrar</button>
+          <button onClick="{{ goSugFromDrawer }}" style="flex:1;height:44px;border:none;border-radius:11px;background:#17408B;color:#fff;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit" style-hover="background:#1E5FB4">Comentar a mi admin</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- SOLICITAR CAMBIO MODAL -->
+  <sc-if value="{{ hasModal }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeModal }}" style="position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;animation:mFade .2s ease both">
+    <div onClick="{{ stop }}" style="width:440px;max-width:100%;background:#fff;border-radius:18px;overflow:hidden;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5)">
+      <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Solicitar cambio</div>
+        <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">{{ req.label }}</div>
+      </div>
+      <div style="padding:20px 24px">
+        <div style="font-size:13px;font-weight:700;color:#8595AD;margin-bottom:6px">Valor actual</div>
+        <div style="background:#F1F5FB;border:1px solid #E4EBF5;border-radius:11px;padding:12px 14px;font-size:15px;font-weight:600;color:#5A6B85;margin-bottom:18px">{{ req.current }}</div>
+        <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nuevo valor</div>
+        <input value="{{ reqNew }}" onInput="{{ onReqNew }}" placeholder="Escribí el valor correcto" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;margin-bottom:16px;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+        <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Motivo <span style="font-weight:500;color:#9AA7BD">(opcional)</span></div>
+        <textarea value="{{ reqReason }}" onInput="{{ onReqReason }}" placeholder="Ej: El encargado cambió el mes pasado." style="width:100%;min-height:70px;border:1.5px solid #DDE3EE;border-radius:11px;padding:11px 14px;font-size:14.5px;font-family:inherit;color:#16233B;outline:none;resize:vertical;background:#F8FAFD;line-height:1.5" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)"></textarea>
+        <div style="display:flex;align-items:center;gap:9px;background:#FBF3DE;border-radius:10px;padding:10px 13px;margin-top:16px;font-size:12.5px;color:#8A6410;line-height:1.4">
+          <span style="font-size:15px">🔒</span>
+          <span>Tu pedido queda <strong>pendiente</strong>. Tu administrador lo revisa y recién ahí se aplica. Nada se cambia solo.</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:11px;padding:0 24px 22px">
+        <button onClick="{{ closeModal }}" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">Cancelar</button>
+        <button onClick="{{ submitReq }}" style="flex:1.4;height:46px;border:none;border-radius:11px;background:{{ submitBg }};color:#fff;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit" style-hover="opacity:.92">Enviar solicitud</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- EDIT BUILDING MODAL (dueño) -->
+  <sc-if value="{{ editOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeEdit }}" style="position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;animation:mFade .2s ease both">
+    <div onClick="{{ stop }}" style="width:440px;max-width:100%;background:#fff;border-radius:18px;overflow:hidden;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5)">
+      <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Editar ficha · directo</div>
+        <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">{{ editBName }}</div>
+      </div>
+      <div style="padding:20px 24px">
+        <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del consorcio</div>
+        <input value="{{ editName }}" onInput="{{ onEditName }}" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;margin-bottom:16px;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+        <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Encargado</div>
+        <input value="{{ editEnc }}" onInput="{{ onEditEnc }}" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;margin-bottom:16px;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+        <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Plan contratado</div>
+        <div style="display:flex;gap:9px">
+          <button onClick="{{ setPlanBase }}" style="flex:1;height:44px;border:1.5px solid {{ planBaseBorder }};border-radius:11px;background:{{ planBaseBg }};color:{{ planBaseFg }};font-weight:700;font-size:14px;cursor:pointer;font-family:inherit">Base</button>
+          <button onClick="{{ setPlanPlus }}" style="flex:1;height:44px;border:1.5px solid {{ planPlusBorder }};border-radius:11px;background:{{ planPlusBg }};color:{{ planPlusFg }};font-weight:700;font-size:14px;cursor:pointer;font-family:inherit">Plus</button>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:9px;background:#EAF1FB;border-radius:10px;padding:10px 13px;margin-top:16px;font-size:12.5px;color:#2C55A8;line-height:1.4">
+          <span style="font-size:15px">⚡</span>
+          <span>Como dueño, este cambio se escribe <strong>directo</strong> en la planilla, sin pasar por aprobación.</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:11px;padding:0 24px 22px">
+        <button onClick="{{ closeEdit }}" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">Cancelar</button>
+        <button onClick="{{ saveEdit }}" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit" style-hover="opacity:.92">Guardar cambios</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- CLIENT PICKER (dueño → ver como cliente) -->
+  <sc-if value="{{ clientPickerOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeClientPicker }}" style="position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;animation:mFade .2s ease both">
+    <div onClick="{{ stop }}" style="width:460px;max-width:100%;background:#fff;border-radius:18px;overflow:hidden;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5)">
+      <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Ver como cliente</div>
+        <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">¿Qué administrador querés revisar?</div>
+        <div style="font-size:13px;color:#8595AD;margin-top:4px">Vas a ver su panel exactamente como lo ve él, para entender su reclamo.</div>
+      </div>
+      <div style="padding:12px;max-height:60vh;overflow-y:auto">
+        <sc-for list="{{ clientesList }}" as="c" hint-placeholder-count="4">
+          <button onClick="{{ c.onSelect }}" style="width:100%;display:flex;align-items:center;gap:13px;padding:13px;border:1px solid #EEF1F6;background:#fff;border-radius:12px;cursor:pointer;text-align:left;font-family:inherit;margin-bottom:8px" style-hover="background:#F7F9FC;border-color:#C9D5E8">
+            <span style="width:44px;height:44px;border-radius:11px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;flex-shrink:0">{{ c.initial }}</span>
+            <span style="flex:1;min-width:0">
+              <span style="display:block;font-size:15px;font-weight:800;color:#16233B">{{ c.cliente }}</span>
+              <span style="display:block;font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.sub }}</span>
+            </span>
+            <span style="font-size:12px;font-weight:700;color:#5A6B85;background:#EEF2F8;padding:4px 10px;border-radius:999px;flex-shrink:0">{{ c.count }} edif.</span>
+            <span style="color:#C9D5E8;font-size:16px">→</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="padding:4px 24px 20px">
+        <button onClick="{{ closeClientPicker }}" style="width:100%;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">Cancelar</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ALTA CLIENTE MODAL -->
+  <sc-if value="{{ addClientOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeAddClient }}" style="position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;animation:mFade .2s ease both">
+    <div onClick="{{ stop }}" style="width:440px;max-width:100%;background:#fff;border-radius:18px;overflow:hidden;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5)">
+      <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Nuevo cliente</div>
+        <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Alta de administrador</div>
+      </div>
+      <div style="padding:20px 24px">
+        <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del administrador</div>
+        <input value="{{ formCliName }}" onInput="{{ onCliName }}" placeholder="Ej: González Administraciones" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;margin-bottom:16px;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+        <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Usuario de acceso</div>
+        <input value="{{ formCliUser }}" onInput="{{ onCliUser }}" placeholder="gonzalez_admin" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;margin-bottom:16px;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+        <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email <span style="font-weight:500;color:#9AA7BD">(opcional)</span></div>
+        <input value="{{ formCliEmail }}" onInput="{{ onCliEmail }}" placeholder="contacto@administrador.com" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+      </div>
+      <div style="display:flex;gap:11px;padding:0 24px 22px">
+        <button onClick="{{ closeAddClient }}" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">Cancelar</button>
+        <button onClick="{{ addClientSave }}" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit" style-hover="opacity:.92">Crear cliente</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ALTA EDIFICIO MODAL -->
+  <sc-if value="{{ addBldgOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeAddBldg }}" style="position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;animation:mFade .2s ease both">
+    <div onClick="{{ stop }}" style="width:480px;max-width:100%;background:#fff;border-radius:18px;overflow:hidden;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5)">
+      <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Nuevo edificio · {{ addBldgClient }}</div>
+        <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Alta de consorcio</div>
+      </div>
+      <div style="padding:20px 24px">
+        <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del consorcio</div>
+        <input value="{{ formBName }}" onInput="{{ onBName }}" placeholder="Ej: Av. Corrientes 3000" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;margin-bottom:14px;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+        <div style="display:flex;gap:12px;margin-bottom:14px">
+          <div style="flex:1.5">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Dirección</div>
+            <input value="{{ formBAddr }}" onInput="{{ onBAddr }}" placeholder="Calle y número" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+          </div>
+          <div style="width:100px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Unidades</div>
+            <input value="{{ formBUnidades }}" onInput="{{ onBUnidades }}" placeholder="0" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:16px">
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Zona</div>
+            <input value="{{ formBZona }}" onInput="{{ onBZona }}" placeholder="Barrio, ciudad" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+          </div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Encargado</div>
+            <input value="{{ formBEnc }}" onInput="{{ onBEnc }}" placeholder="Nombre" style="width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;font-family:inherit;color:#16233B;outline:none;background:#F8FAFD" style-focus="border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)">
+          </div>
+        </div>
+        <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Plan contratado</div>
+        <div style="display:flex;gap:9px">
+          <button onClick="{{ setBPlanBase }}" style="flex:1;height:44px;border:1.5px solid {{ bPlanBaseBorder }};border-radius:11px;background:{{ bPlanBaseBg }};color:{{ bPlanBaseFg }};font-weight:700;font-size:14px;cursor:pointer;font-family:inherit">Base</button>
+          <button onClick="{{ setBPlanPlus }}" style="flex:1;height:44px;border:1.5px solid {{ bPlanPlusBorder }};border-radius:11px;background:{{ bPlanPlusBg }};color:{{ bPlanPlusFg }};font-weight:700;font-size:14px;cursor:pointer;font-family:inherit">Plus</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:11px;padding:0 24px 22px">
+        <button onClick="{{ closeAddBldg }}" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit" style-hover="background:#F1F5FB">Cancelar</button>
+        <button onClick="{{ addBldgSave }}" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit" style-hover="opacity:.92">Agregar edificio</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- TOAST -->
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#16233B;color:#fff;padding:13px 20px;border-radius:12px;font-size:14px;font-weight:600;z-index:90;box-shadow:0 16px 40px -12px rgba(16,35,59,.5);animation:mUp .25s ease both;display:flex;align-items:center;gap:10px">
+    <span style="font-size:16px">{{ toastIcon }}</span>{{ toast }}
+  </div>
+  </sc-if>
+
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:&quot;100%&quot;}}">
+class Component extends DCLogic {
+  state = {
+    screen: 'login', section: 'resumen', building: 0,
+    buildingMenu: false, userMenu: false,
+    user: 'amato_admin', pass: 'demo1234', showPass: false, remember: true,
+    authView: 'login', loginErr: '', fEmail: '', actUser: '', actPass: '', actPass2: '', actErr: '',
+    selectedEvent: null, requestFieldKey: null,
+    reqNew: '', reqReason: '',
+    pendingChanges: [], sentSug: [], sugText: '',
+    evFilter: 'todos', toast: null, toastIcon: '✓',
+    vw: (typeof window !== 'undefined' ? window.innerWidth : 1280),
+    role: 'cliente', roleMenu: false, duenoFilter: 'todos', notifOpen: false,
+    previewOwner: 'amato_admin', previewFromDueno: false, clientPicker: false,
+    selCliente: null, duenoEdifView: 'clientes',
+    newClients: [], newBuildings: [],
+    addClientOpen: false, addBldgOpen: false, addBldgOwner: null,
+    formCliName: '', formCliUser: '', formCliEmail: '',
+    formBName: '', formBAddr: '', formBZona: '', formBUnidades: '', formBPlan: 'Base', formBEnc: '',
+    expType: 'pdf', expMonth: 'Julio', expYear: '2025', expName: '',
+    expensas: [
+      { b:0, period:'Junio 2025', type:'pdf', name:'Expensas-Rivadavia-Junio-2025.pdf', when:'02/07' },
+      { b:0, period:'Mayo 2025', type:'link', name:'https://amato.expensas.online/riv5420/mayo', when:'03/06' },
+      { b:1, period:'Junio 2025', type:'pdf', name:'Expensas-Guemes-Junio-2025.pdf', when:'01/07' },
+    ],
+    buildingEdits: {}, editBldg: null, editForm: {},
+    solicitudes: [
+      { id:'r1', b:0, label:'Tel. encargado', from:'11 5544-8890', to:'11 5544-9021', motivo:'El encargado cambió de número.', cliente:'Amato Propiedades', when:'hoy 10:20' },
+      { id:'r2', b:1, label:'Horario SUM', from:'11 a 23hs · seña $12.000', to:'11 a 24hs · seña $15.000', motivo:'Nuevo reglamento aprobado en asamblea.', cliente:'Amato Propiedades', when:'ayer 16:05' },
+      { id:'r3', b:3, label:'Administrador', from:'Torres del Río SA', to:'Consultora RG', motivo:'Cambió la administración del complejo.', cliente:'Torres del Río', when:'ayer 09:40' },
+    ],
+    sugPending: [
+      { id:'g1', b:3, cliente:'Torres del Río', texto:'¿Pueden sumar atención los feriados también? Tenemos mucho movimiento.', when:'hoy 08:30', reply:'' },
+      { id:'g2', b:0, cliente:'Amato Propiedades', texto:'Sería genial recibir un resumen semanal por mail de cada edificio.', when:'ayer 19:10', reply:'' },
+    ],
+  };
+
+  componentDidMount() {
+    this._r = () => this.setState({ vw: window.innerWidth });
+    window.addEventListener('resize', this._r);
+    this._sizeLogo();
+  }
+  _sizeLogo(tries) {
+    tries = tries || 0;
+    const el = document.querySelector('image-slot#marcos-logo') || document.querySelector('image-slot');
+    if (el) { el.style.width = '100%'; el.style.height = '100%'; el.style.display = 'block'; }
+    else if (tries < 25) { setTimeout(() => this._sizeLogo(tries + 1), 100); }
+  }
+  componentWillUnmount() { window.removeEventListener('resize', this._r); if (this._t) clearTimeout(this._t); }
+
+  ACCOUNTS = {
+    'daniel': { pass: 'sistema2025', role: 'dueno', owner: 'amato_admin' },
+    'amato_admin': { pass: 'demo1234', role: 'cliente', owner: 'amato_admin' },
+    'delsur_admin': { pass: 'delsur2025', role: 'cliente', owner: 'delsur_admin' },
+    'medina_admin': { pass: 'medina2025', role: 'cliente', owner: 'medina_admin' },
+    'torresrio_admin': { pass: 'torres2025', role: 'cliente', owner: 'torresrio_admin' },
+  };
+
+  BUILDINGS = [
+    { name: 'Rivadavia 5420', addr: 'Av. Rivadavia 5420', zona: 'Caballito, CABA', unidades: 48, owner: 'amato_admin', cliente: 'Amato Propiedades', plan: 'Base', tipo: 'Edificio' },
+    { name: 'Güemes 1234', addr: 'Güemes 1234', zona: 'Palermo, CABA', unidades: 32, owner: 'amato_admin', cliente: 'Amato Propiedades', plan: 'Base', tipo: 'Edificio' },
+    { name: 'San Martín 890', addr: 'San Martín 890', zona: 'Vicente López, GBA', unidades: 24, owner: 'amato_admin', cliente: 'Amato Propiedades', plan: 'Base', tipo: 'Edificio' },
+    { name: 'Torres del Río', addr: 'Camino de la Ribera 2200', zona: 'Tigre, GBA', unidades: 240, owner: 'torresrio_admin', cliente: 'Torres del Río', plan: 'Base', tipo: 'Complejo · 4 torres' },
+    { name: 'Belgrano 2200', addr: 'Av. Belgrano 2200', zona: 'Belgrano, CABA', unidades: 60, owner: 'delsur_admin', cliente: 'Del Sur Administraciones', plan: 'Base', tipo: 'Edificio' },
+    { name: 'Cabildo 4100', addr: 'Av. Cabildo 4100', zona: 'Núñez, CABA', unidades: 40, owner: 'delsur_admin', cliente: 'Del Sur Administraciones', plan: 'Base', tipo: 'Edificio' },
+    { name: 'Nordelta · Torre Laguna', addr: 'Av. de los Lagos 500', zona: 'Nordelta, GBA', unidades: 120, owner: 'medina_admin', cliente: 'Grupo Medina', plan: 'Plus', tipo: 'Complejo · 2 torres' },
+  ];
+  CONSUMOS = {
+    0: { incMsg: 300, incMin: 200, usMsg: 268, usMin: 142, eventos: 4 },
+    1: { incMsg: 300, incMin: 200, usMsg: 210, usMin: 96, eventos: 3 },
+    2: { incMsg: 300, incMin: 200, usMsg: 180, usMin: 70, eventos: 3 },
+    3: { incMsg: 300, incMin: 200, usMsg: 1240, usMin: 620, eventos: 38 },
+    4: { incMsg: 300, incMin: 200, usMsg: 290, usMin: 185, eventos: 3 },
+    5: { incMsg: 300, incMin: 200, usMsg: 150, usMin: 60, eventos: 2 },
+    6: { incMsg: 1500, incMin: 1000, usMsg: 1180, usMin: 640, eventos: 22 },
+  };
+
+  EVENTS = [
+    // building 0
+    { id:1, b:0, tipo:'reclamo', titulo:'Pérdida de agua en cochera', detalle:'La unidad 2ºB reportó una pérdida de agua constante en el techo de la cochera, cerca del bauhaus 12.', urg:'alta', est:'curso', canal:'WhatsApp', unidad:'Unidad 2ºB', when:'hoy 08:15', nuevo:true, nota:'Derivé al plomero de guardia (Gastón, Plomería del Oeste). Confirmó visita para hoy 14hs. Avisé al encargado para que le dé acceso.' },
+    { id:2, b:0, tipo:'reserva', titulo:'Reserva del SUM — cumpleaños', detalle:'La unidad 5ºA quiere reservar el SUM para un cumpleaños infantil el sábado 12/7 de 15 a 20hs.', urg:'baja', est:'resuelto', canal:'WhatsApp', unidad:'Unidad 5ºA', when:'hoy 09:40', nuevo:true, nota:'Reserva confirmada para el sáb 12/7. Le informé que la seña es de $15.000 y las normas de uso. Cargué la fecha en el calendario del edificio.' },
+    { id:3, b:0, tipo:'seguridad', titulo:'Cámara del hall sin señal', detalle:'El encargado avisó que la cámara del hall de entrada quedó en negro desde anoche.', urg:'media', est:'nuevo', canal:'Llamado', unidad:'Encargado', when:'ayer 22:10', nuevo:true, nota:'Reinicié el DVR de forma remota, pero la cámara sigue sin imagen. Sugerí una visita técnica de CCTV; espero que confirmen el presupuesto.' },
+    { id:4, b:0, tipo:'mensaje', titulo:'Aviso: corte de luz programado', detalle:'Edenor informó un corte programado en la zona para el jueves 3/7 de 9 a 12hs.', urg:'baja', est:'resuelto', canal:'WhatsApp', unidad:'—', when:'mié 2 jul 11:20', nuevo:true, nota:'Avisé a todos los vecinos por el grupo del edificio y aclaré que el ascensor y la bomba no van a funcionar durante ese horario.' },
+    // building 1
+    { id:5, b:1, tipo:'reclamo', titulo:'Ascensor detenido en planta baja', detalle:'Varios vecinos reportaron que el ascensor quedó detenido en PB con las puertas abiertas.', urg:'alta', est:'curso', canal:'Llamado', unidad:'Varios vecinos', when:'hoy 07:50', nuevo:true, nota:'Llamé a Ascensores del Sur (empresa de mantenimiento). El técnico está en camino, ETA 11hs. Puse un cartel de fuera de servicio con el encargado.' },
+    { id:6, b:1, tipo:'mantenimiento', titulo:'Service de bomba de agua', detalle:'Toca el mantenimiento trimestral de la bomba presurizadora del tanque.', urg:'media', est:'curso', canal:'WhatsApp', unidad:'Proveedor', when:'hoy 10:05', nuevo:true, nota:'Coordiné con Hidráulica Norte para el jueves 10/7 por la mañana. Presupuesto de USD 180 por el service completo.' },
+    { id:7, b:1, tipo:'seguridad', titulo:'Visita técnica de gas — MetroGAS', detalle:'MetroGAS pidió acceso para la inspección anual de la sala de medidores.', urg:'baja', est:'resuelto', canal:'WhatsApp', unidad:'Encargado', when:'mié 2 jul 15:30', nuevo:true, nota:'Autoricé el ingreso de 9 a 11hs con el encargado presente. La inspección salió OK, sin observaciones.' },
+    // building 2
+    { id:8, b:2, tipo:'reserva', titulo:'Reserva del quincho', detalle:'La unidad 3ºC consultó disponibilidad del quincho para un asado el domingo 13/7.', urg:'baja', est:'nuevo', canal:'WhatsApp', unidad:'Unidad 3ºC', when:'hoy 12:20', nuevo:true, nota:'Reservé de forma tentativa el dom 13/7. Queda pendiente que confirmen la seña de $12.000 para dejarlo firme.' },
+    { id:9, b:2, tipo:'reclamo', titulo:'Filtración en pasillo del 4º', detalle:'La unidad 4ºA reportó una mancha de humedad creciente en el techo del pasillo del 4º piso.', urg:'media', est:'nuevo', canal:'WhatsApp', unidad:'Unidad 4ºA', when:'ayer 19:45', nuevo:true, nota:'Le pedí fotos y las guardé en Facturas/Fotos. Derivé a una empresa de impermeabilización; espero el presupuesto para pasártelo.' },
+    { id:10, b:2, tipo:'mensaje', titulo:'Reclamo por ruidos molestos', detalle:'La unidad 2ºB reportó ruidos molestos de madrugada desde el 3ºB.', urg:'baja', est:'resuelto', canal:'Llamado', unidad:'Unidad 2ºB', when:'lun 30 jun 23:15', nuevo:false, nota:'Contacté a la unidad 3ºB con tacto. Se comprometieron a bajar el volumen después de las 23hs. Cerré el caso.' },
+    { id:11, b:3, tipo:'mantenimiento', titulo:'Corte de agua programado — Torre B', detalle:'Aguas del complejo informó un corte para limpieza de tanques en la Torre B el viernes.', urg:'media', est:'curso', canal:'WhatsApp', unidad:'Administración', when:'hoy 09:10', nuevo:true, nota:'Avisé a las 60 unidades de la Torre B por el grupo. Coordiné la limpieza para el vie 11/7 de 8 a 14hs.' },
+    { id:12, b:3, tipo:'reclamo', titulo:'Ascensor de Torre C con ruido', detalle:'La unidad 12ºA de la Torre C reportó un ruido fuerte en el ascensor principal.', urg:'media', est:'nuevo', canal:'Llamado', unidad:'Torre C · 12ºA', when:'hoy 11:30', nuevo:true, nota:'Derivé a la empresa de ascensores del complejo para una revisión preventiva. Espero confirmación de visita.' },
+    { id:13, b:4, tipo:'reclamo', titulo:'Pérdida de gas en cocina — 7ºA', detalle:'La unidad 7ºA sintió olor a gas en la cocina. Se pidió no encender fuego.', urg:'alta', est:'curso', canal:'Llamado', unidad:'Unidad 7ºA', when:'hoy 08:40', nuevo:true, nota:'Derivé de urgencia a un gasista matriculado. Recomendé ventilar y cerrar la llave de paso. Técnico en camino.' },
+    { id:14, b:5, tipo:'reserva', titulo:'Reserva del SUM — reunión de consorcio', detalle:'La unidad 1ºB pidió el SUM para una reunión de propietarios el jueves.', urg:'baja', est:'resuelto', canal:'WhatsApp', unidad:'Unidad 1ºB', when:'ayer 17:20', nuevo:true, nota:'Confirmé el SUM para el jue 10/7 de 19 a 21hs, sin cargo por ser reunión de consorcio.' },
+    { id:15, b:6, tipo:'mantenimiento', titulo:'Mantenimiento de piscina climatizada', detalle:'Toca el service quincenal de la piscina climatizada del complejo.', urg:'media', est:'curso', canal:'WhatsApp', unidad:'Proveedor', when:'hoy 10:15', nuevo:true, nota:'Coordiné con Aqua Service para el vie 11/7. Avisé que la pileta queda cerrada de 8 a 12hs.' },
+  ];
+
+  DURS = { 3:'1:24', 5:'2:48', 10:'1:10' };
+  AGENTS = {
+    1:{name:'Marcos', turno:'turno mañana'},
+    2:{name:'Daniela', turno:'turno mañana'},
+    3:{name:'Lucía', turno:'turno noche'},
+    4:{name:'Marcos', turno:'turno mañana'},
+    5:{name:'Daniela', turno:'turno mañana'},
+    6:{name:'Marcos', turno:'turno mañana'},
+    7:{name:'Susana', turno:'turno tarde'},
+    8:{name:'Daniela', turno:'turno mediodía'},
+    9:{name:'Rodrigo', turno:'turno tarde'},
+    10:{name:'Lucía', turno:'turno noche'},
+    13:{name:'Marcos', turno:'turno mañana'},
+    14:{name:'Susana', turno:'turno tarde'},
+    15:{name:'Daniela', turno:'turno mañana'},
+  };
+  CONVS = {
+    1:[{who:'v',t:'08:12',text:'Hola, buenas. Tengo una pérdida de agua en el techo de la cochera, cerca de mi baulera. Gotea bastante.'},
+       {who:'m',t:'08:13',text:'Hola, buen día. Gracias por avisar. ¿Me confirmás tu unidad y desde cuándo lo notaste?'},
+       {who:'v',t:'08:14',text:'Unidad 2ºB. Desde anoche, pero hoy empeoró.'},
+       {who:'m',t:'08:15',text:'Perfecto. Derivo al plomero de guardia para hoy y te confirmo el horario. ¿Necesitás que corte el agua de esa zona mientras tanto?'},
+       {who:'v',t:'08:16',text:'No hace falta, gracias. Avisame el horario nomás.'},
+       {who:'m',t:'08:22',text:'Listo. El plomero (Gastón) va hoy a las 14hs. Te aviso ante cualquier cosa.'}],
+    2:[{who:'v',t:'09:35',text:'Hola! Quería reservar el SUM para un cumple el sábado 12/7 de 15 a 20.'},
+       {who:'m',t:'09:37',text:'¡Hola! Con gusto. El sábado 12/7 está libre. La seña es de $15.000 y el horario es hasta las 24hs. ¿Te lo reservo?'},
+       {who:'v',t:'09:38',text:'Sí, dale. ¿Cómo pago la seña?'},
+       {who:'m',t:'09:40',text:'Te paso el alias por privado. Con la seña queda confirmado. Ya te dejo la fecha tomada.'},
+       {who:'v',t:'09:41',text:'Genial, gracias!'}],
+    3:[{who:'m',t:'0:00',text:'Consorcio Rivadavia 5420, buenas noches.'},
+       {who:'v',t:'0:05',text:'Hola, soy Ramón, el encargado. La cámara del hall quedó toda en negro desde hace un rato.'},
+       {who:'m',t:'0:12',text:'Gracias por avisar, Ramón. ¿El resto de las cámaras funcionan bien?'},
+       {who:'v',t:'0:17',text:'Sí, las demás andan. Solo esa.'},
+       {who:'m',t:'0:23',text:'Bien. Reinicio el grabador de forma remota. Si no vuelve la imagen, coordino una visita técnica.'}],
+    4:[{who:'m',t:'11:20',text:'Buenas, les comparto un aviso importante: Edenor informó un corte de luz programado para el jueves 3/7 de 9 a 12hs en nuestra zona.'},
+       {who:'m',t:'11:21',text:'Durante ese horario el ascensor y la bomba de agua no van a funcionar. Les recomiendo juntar agua por las dudas.'},
+       {who:'v',t:'11:34',text:'Gracias por avisar!'}],
+    5:[{who:'m',t:'0:00',text:'Consorcio Güemes 1234, buenas. ¿En qué te puedo ayudar?'},
+       {who:'v',t:'0:06',text:'Sí, hola. El ascensor quedó parado en planta baja con las puertas abiertas y no responde.'},
+       {who:'m',t:'0:12',text:'Entiendo. ¿Hay alguien adentro del ascensor en este momento?'},
+       {who:'v',t:'0:16',text:'No, no. Está vacío, pero no anda.'},
+       {who:'m',t:'0:24',text:'Perfecto, gracias por confirmar. Llamo ya a la empresa de mantenimiento por un técnico urgente y pongo un cartel de fuera de servicio con el encargado.'},
+       {who:'v',t:'0:35',text:'Dale, muchas gracias.'}],
+    6:[{who:'m',t:'09:58',text:'Hola Hidráulica Norte, necesito coordinar el service trimestral de la bomba del edificio Güemes 1234.'},
+       {who:'v',t:'10:02',text:'Hola! Podemos ir el jueves 10/7 a la mañana. El service completo sale USD 180.'},
+       {who:'m',t:'10:05',text:'Perfecto, lo agendo para el jueves 10/7. Aviso al encargado para el acceso.'}],
+    7:[{who:'v',t:'15:20',text:'Hola, habla MetroGAS. Necesitamos acceso a la sala de medidores para la inspección anual.'},
+       {who:'m',t:'15:24',text:'Hola. Sí, sin problema. ¿Qué día y horario les queda cómodo?'},
+       {who:'v',t:'15:26',text:'Mañana miércoles de 9 a 11.'},
+       {who:'m',t:'15:30',text:'Listo, autorizo el ingreso de 9 a 11 con el encargado presente. Los espera.'}],
+    8:[{who:'v',t:'12:15',text:'Buenas, quería saber si el quincho está libre el domingo 13/7 para un asado.'},
+       {who:'m',t:'12:18',text:'¡Hola! El domingo 13/7 está disponible. La seña es de $12.000. ¿Te lo reservo de forma tentativa?'},
+       {who:'v',t:'12:20',text:'Sí, reservámelo. La seña la paso mañana.'},
+       {who:'m',t:'12:21',text:'Perfecto. Queda tentativo hasta que ingrese la seña. Te aviso cuando esté confirmado.'}],
+    9:[{who:'v',t:'19:40',text:'Hola, hay una mancha de humedad en el techo del pasillo del 4º y está creciendo. Les mando foto.'},
+       {who:'v',t:'19:41',text:'📷 Foto adjunta'},
+       {who:'m',t:'19:45',text:'Gracias, ya la guardo en el edificio. Derivo a una empresa de impermeabilización para que evalúe. Te paso el presupuesto apenas lo tenga.'}],
+    10:[{who:'m',t:'0:00',text:'Consorcio San Martín 890, buenas noches.'},
+        {who:'v',t:'0:04',text:'Hola, disculpá la hora. Hay ruidos muy fuertes desde el 3ºB y no podemos dormir.'},
+        {who:'m',t:'0:11',text:'Lamento la molestia. Contacto a esa unidad con discreción para pedirles que bajen el volumen. Gracias por avisar.'},
+        {who:'v',t:'0:18',text:'Gracias, buenas noches.'}],
+  };
+
+  FACTURAS = [
+    { b:0, tipo:'Factura', concepto:'Service ascensor (mensual)', proveedor:'Ascensores del Sur', monto:'$185.000', moneda:'ARS', fecha:'1 jul', estado:'Pagada', pagada:true },
+    { b:0, tipo:'Factura', concepto:'Licencia cámaras Hik-Connect', proveedor:'Seguridad CCTV', monto:'USD 48', moneda:'USD', fecha:'1 jul', estado:'Pendiente', pagada:false },
+    { b:0, tipo:'Foto', concepto:'Foto: pérdida en cochera', proveedor:'Unidad 2ºB', monto:'—', moneda:'ARS', fecha:'hoy', estado:'Recibida', pagada:true },
+    { b:1, tipo:'Factura', concepto:'Service bomba de agua', proveedor:'Hidráulica Norte', monto:'USD 180', moneda:'USD', fecha:'hoy', estado:'Pendiente', pagada:false },
+    { b:1, tipo:'Factura', concepto:'Abono limpieza (julio)', proveedor:'Limpieza Integral SA', monto:'$240.000', moneda:'ARS', fecha:'1 jul', estado:'Pagada', pagada:true },
+    { b:2, tipo:'Factura', concepto:'Plataforma de administración', proveedor:'AdminCloud', monto:'EUR 29', moneda:'EUR', fecha:'1 jul', estado:'Pagada', pagada:true },
+    { b:2, tipo:'Foto', concepto:'Foto: filtración pasillo 4º', proveedor:'Unidad 4ºA', monto:'—', moneda:'ARS', fecha:'ayer', estado:'Recibida', pagada:true },
+    { b:2, tipo:'Factura', concepto:'Impermeabilización (seña)', proveedor:'ImperMax', monto:'$150.000', moneda:'ARS', fecha:'hoy', estado:'Pendiente', pagada:false },
+    { b:3, tipo:'Factura', concepto:'Mantenimiento ascensores (4 torres)', proveedor:'Ascensores Delta', monto:'USD 640', moneda:'USD', fecha:'1 jul', estado:'Pendiente', pagada:false },
+    { b:3, tipo:'Foto', concepto:'Foto: filtración Torre B', proveedor:'Administración', monto:'—', moneda:'ARS', fecha:'hoy', estado:'Recibida', pagada:true },
+    { b:6, tipo:'Factura', concepto:'Service piscina climatizada', proveedor:'Aqua Service', monto:'EUR 120', moneda:'EUR', fecha:'1 jul', estado:'Pagada', pagada:true },
+  ];
+
+  FICHAS = [
+    [
+      { key:'nombre', icon:'🏢', label:'Consorcio', value:'Cons. Av. Rivadavia 5420', edit:true },
+      { key:'dir', icon:'📍', label:'Dirección', value:'Av. Rivadavia 5420, Caballito', edit:true },
+      { key:'admin', icon:'👔', label:'Administrador', value:'Amato Propiedades', edit:false },
+      { key:'telAdmin', icon:'📞', label:'Tel. administración', value:'011 6924-1157', edit:true },
+      { key:'encargado', icon:'🧑‍🔧', label:'Encargado', value:'Ramón Giménez', edit:true },
+      { key:'telEnc', icon:'📱', label:'Tel. encargado', value:'11 5544-8890', edit:true },
+      { key:'cuit', icon:'🧾', label:'CUIT', value:'30-71234567-8', edit:false },
+      { key:'unidades', icon:'🚪', label:'Unidades', value:'48 departamentos', edit:false },
+      { key:'sum', icon:'🎉', label:'Horario SUM', value:'10 a 24hs · seña $15.000', edit:true },
+      { key:'cochera', icon:'🚗', label:'Cocheras', value:'22 fijas + 4 de cortesía', edit:true },
+    ],
+    [
+      { key:'nombre', icon:'🏢', label:'Consorcio', value:'Cons. Güemes 1234', edit:true },
+      { key:'dir', icon:'📍', label:'Dirección', value:'Güemes 1234, Palermo', edit:true },
+      { key:'admin', icon:'👔', label:'Administrador', value:'Amato Propiedades', edit:false },
+      { key:'telAdmin', icon:'📞', label:'Tel. administración', value:'011 6924-1157', edit:true },
+      { key:'encargado', icon:'🧑‍🔧', label:'Encargado', value:'Sergio Paredes', edit:true },
+      { key:'telEnc', icon:'📱', label:'Tel. encargado', value:'11 6677-1120', edit:true },
+      { key:'cuit', icon:'🧾', label:'CUIT', value:'30-70998877-2', edit:false },
+      { key:'unidades', icon:'🚪', label:'Unidades', value:'32 departamentos', edit:false },
+      { key:'sum', icon:'🎉', label:'Horario SUM', value:'11 a 23hs · seña $12.000', edit:true },
+      { key:'cochera', icon:'🚗', label:'Cocheras', value:'18 fijas', edit:true },
+    ],
+    [
+      { key:'nombre', icon:'🏢', label:'Consorcio', value:'Cons. San Martín 890', edit:true },
+      { key:'dir', icon:'📍', label:'Dirección', value:'San Martín 890, Vicente López', edit:true },
+      { key:'admin', icon:'👔', label:'Administrador', value:'Amato Propiedades', edit:false },
+      { key:'telAdmin', icon:'📞', label:'Tel. administración', value:'011 6924-1157', edit:true },
+      { key:'encargado', icon:'🧑‍🔧', label:'Encargado', value:'Marta Ríos', edit:true },
+      { key:'telEnc', icon:'📱', label:'Tel. encargado', value:'11 3322-7788', edit:true },
+      { key:'cuit', icon:'🧾', label:'CUIT', value:'30-71555444-6', edit:false },
+      { key:'unidades', icon:'🚪', label:'Unidades', value:'24 departamentos', edit:false },
+      { key:'sum', icon:'🎉', label:'Quincho', value:'10 a 22hs · seña $12.000', edit:true },
+      { key:'cochera', icon:'🚗', label:'Cocheras', value:'12 fijas', edit:true },
+    ],
+    [
+      { key:'nombre', icon:'🏢', label:'Consorcio', value:'Complejo Torres del Río', edit:true },
+      { key:'dir', icon:'📍', label:'Dirección', value:'Camino de la Ribera 2200, Tigre', edit:true },
+      { key:'admin', icon:'👔', label:'Administrador', value:'Torres del Río SA', edit:false },
+      { key:'telAdmin', icon:'📞', label:'Tel. administración', value:'011 4749-3300', edit:true },
+      { key:'encargado', icon:'🧑‍🔧', label:'Jefe de mantenimiento', value:'Oscar Villalba', edit:true },
+      { key:'telEnc', icon:'📱', label:'Tel. mantenimiento', value:'11 2299-4455', edit:true },
+      { key:'cuit', icon:'🧾', label:'CUIT', value:'30-70443322-9', edit:false },
+      { key:'unidades', icon:'🚪', label:'Unidades', value:'240 (4 torres)', edit:false },
+      { key:'sum', icon:'🎉', label:'SUM + Quincho', value:'2 espacios · seña $20.000', edit:true },
+      { key:'cochera', icon:'🚗', label:'Cocheras', value:'180 fijas + subsuelo', edit:true },
+    ],
+    [
+      { key:'nombre', icon:'🏢', label:'Consorcio', value:'Cons. Av. Belgrano 2200', edit:true },
+      { key:'dir', icon:'📍', label:'Dirección', value:'Av. Belgrano 2200, Belgrano', edit:true },
+      { key:'admin', icon:'👔', label:'Administrador', value:'Del Sur Administraciones', edit:false },
+      { key:'telAdmin', icon:'📞', label:'Tel. administración', value:'011 4783-9000', edit:true },
+      { key:'encargado', icon:'🧑‍🔧', label:'Encargado', value:'Julio Bravo', edit:true },
+      { key:'telEnc', icon:'📱', label:'Tel. encargado', value:'11 4488-2211', edit:true },
+      { key:'cuit', icon:'🧾', label:'CUIT', value:'30-71222333-4', edit:false },
+      { key:'unidades', icon:'🚪', label:'Unidades', value:'60 departamentos', edit:false },
+      { key:'sum', icon:'🎉', label:'Horario SUM', value:'10 a 24hs · seña $18.000', edit:true },
+      { key:'cochera', icon:'🚗', label:'Cocheras', value:'40 fijas', edit:true },
+    ],
+    [
+      { key:'nombre', icon:'🏢', label:'Consorcio', value:'Cons. Av. Cabildo 4100', edit:true },
+      { key:'dir', icon:'📍', label:'Dirección', value:'Av. Cabildo 4100, Núñez', edit:true },
+      { key:'admin', icon:'👔', label:'Administrador', value:'Del Sur Administraciones', edit:false },
+      { key:'telAdmin', icon:'📞', label:'Tel. administración', value:'011 4783-9000', edit:true },
+      { key:'encargado', icon:'🧑‍🔧', label:'Encargado', value:'Nélida Suárez', edit:true },
+      { key:'telEnc', icon:'📱', label:'Tel. encargado', value:'11 5566-7788', edit:true },
+      { key:'cuit', icon:'🧾', label:'CUIT', value:'30-71888999-0', edit:false },
+      { key:'unidades', icon:'🚪', label:'Unidades', value:'40 departamentos', edit:false },
+      { key:'sum', icon:'🎉', label:'Horario SUM', value:'11 a 23hs · seña $14.000', edit:true },
+      { key:'cochera', icon:'🚗', label:'Cocheras', value:'28 fijas', edit:true },
+    ],
+    [
+      { key:'nombre', icon:'🏢', label:'Consorcio', value:'Nordelta · Torre Laguna', edit:true },
+      { key:'dir', icon:'📍', label:'Dirección', value:'Av. de los Lagos 500, Nordelta', edit:true },
+      { key:'admin', icon:'👔', label:'Administrador', value:'Grupo Medina', edit:false },
+      { key:'telAdmin', icon:'📞', label:'Tel. administración', value:'011 4871-2000', edit:true },
+      { key:'encargado', icon:'🧑‍🔧', label:'Jefe de mantenimiento', value:'Diego Ferrari', edit:true },
+      { key:'telEnc', icon:'📱', label:'Tel. mantenimiento', value:'11 6070-3040', edit:true },
+      { key:'cuit', icon:'🧾', label:'CUIT', value:'30-70555111-7', edit:false },
+      { key:'unidades', icon:'🚪', label:'Unidades', value:'120 (2 torres)', edit:false },
+      { key:'sum', icon:'🎉', label:'Amenities', value:'SUM, gym y piscina · seña $25.000', edit:true },
+      { key:'cochera', icon:'🚗', label:'Cocheras', value:'240 (2 por unidad)', edit:true },
+    ],
+  ];
+
+  SUG_HIST = [
+    { texto:'Sería útil recibir un resumen semanal por mail con lo que pasó en el edificio.', fecha:'28 jun', estado:'Respondida', respuesta:'¡Buenísima idea! Lo vamos a sumar como reporte automático de los lunes a partir de agosto.' },
+    { texto:'¿Pueden avisar con anticipación cuando hay cortes de agua programados?', fecha:'20 jun', estado:'Respondida', respuesta:'Sí, ya lo estamos cargando como aviso automático. Marcos te avisa apenas la empresa lo notifica.' },
+    { texto:'Me encantaría poder ver las fotos de los reclamos desde el celular.', fecha:'12 jun', estado:'En revisión', respuesta:'' },
+  ];
+
+  TIPO = {
+    reclamo:      { label:'Reclamo', icon:'🔧', bg:'#FDECEC' },
+    reserva:      { label:'Reserva', icon:'📅', bg:'#EAF3EC' },
+    seguridad:    { label:'Seguridad', icon:'📹', bg:'#EDEEFB' },
+    mensaje:      { label:'Aviso', icon:'💬', bg:'#EAF1FB' },
+    mantenimiento:{ label:'Mantenimiento', icon:'🧰', bg:'#FBF3DE' },
+  };
+  URG = {
+    alta:  { label:'Urgente', bg:'#FDECEC', fg:'#C0392B' },
+    media: { label:'Media', bg:'#FBF1DD', fg:'#8A6410' },
+    baja:  { label:'Baja', bg:'#EAF1FB', fg:'#2C5C9E' },
+  };
+  EST = {
+    nuevo:   { label:'Nuevo', bg:'#EAF1FB', fg:'#2C5C9E' },
+    curso:   { label:'En curso', bg:'#FBF1DD', fg:'#8A6410' },
+    resuelto:{ label:'Resuelto', bg:'#E7F4EC', fg:'#1B7A43' },
+  };
+
+  showToast(msg, icon) {
+    this.setState({ toast: msg, toastIcon: icon || '✓' });
+    if (this._t) clearTimeout(this._t);
+    this._t = setTimeout(() => this.setState({ toast: null }), 2600);
+  }
+
+  buildEvent(e) {
+    const t = this.TIPO[e.tipo], u = this.URG[e.urg], s = this.EST[e.est];
+    const isCall = e.canal === 'Llamado';
+    const ag = this.AGENTS[e.id] || { name:'Marcos', turno:'' };
+    const raw = this.CONVS[e.id] || [];
+    const conv = raw.map(c => {
+      const isM = c.who === 'm';
+      return { text:c.text, t:c.t, isM, who: isM ? ag.name : e.unidad,
+        nameColor: isM ? '#1B7A43' : '#2E6FC0',
+        rowJustify: isM ? 'flex-end' : 'flex-start',
+        bubbleBg: isM ? '#DCF3DE' : '#FFFFFF',
+        bubbleBorder: isM ? '#C4E7C9' : '#F0EDE6' };
+    });
+    const dur = this.DURS[e.id] || '';
+    return {
+      ...e, icon:t.icon, tipoLabel:t.label, tipoBg:t.bg,
+      urgLabel:u.label, urgBg:u.bg, urgFg:u.fg,
+      estLabel:s.label, estBg:s.bg, estFg:s.fg,
+      canalIcon: e.canal === 'WhatsApp' ? '🟢' : '📞',
+      notaCorta: e.nota,
+      conv, isCall, isChat: !isCall && conv.length > 0, hasConv: conv.length > 0, dur,
+      agent: ag.name, agentInitial: ag.name.charAt(0), turno: ag.turno,
+      buildingName: this.BUILDINGS[e.b] ? this.BUILDINGS[e.b].name : '',
+      convChannel: isCall ? ('📞 Llamada telefónica · ' + e.unidad) : ('🟢 WhatsApp · ' + e.unidad),
+      convTag: conv.length ? (isCall ? ('📄 Llamada ' + dur) : ('📄 ' + conv.length + ' mensajes')) : '',
+      onOpen: () => this.setState({ selectedEvent: e.id }),
+    };
+  }
+
+  renderVals() {
+    const st = this.state;
+    const isMobile = st.vw < 900;
+    const b = st.building;
+    const cur = this.BUILDINGS[b];
+    const all = this.EVENTS.filter(e => e.b === b);
+    const novos = all.filter(e => e.nuevo);
+
+    // stat cards
+    const cUrg = all.filter(e => e.urg === 'alta' && e.est !== 'resuelto').length;
+    const cCurso = all.filter(e => e.est === 'curso').length;
+    const cResuelto = all.filter(e => e.est === 'resuelto').length;
+    const statCards = [
+      { icon:'🌙', iconBg:'#EAF1FB', value:String(novos.length), label:'Novedades nuevas', delta:'nuevas', deltaColor:'#2E6FC0' },
+      { icon:'🚨', iconBg:'#FDECEC', value:String(cUrg), label:'Urgencias abiertas', delta: cUrg? 'atención':'ok', deltaColor: cUrg? '#C0392B':'#1B7A43' },
+      { icon:'⏳', iconBg:'#FBF3DE', value:String(cCurso), label:'En curso', delta:'en gestión', deltaColor:'#8A6410' },
+      { icon:'✅', iconBg:'#E7F4EC', value:String(cResuelto), label:'Resueltos', delta:'cerrados', deltaColor:'#1B7A43' },
+    ];
+
+    // tipo breakdown
+    const tipoBreak = Object.keys(this.TIPO).map(k => ({
+      icon:this.TIPO[k].icon, label:this.TIPO[k].label,
+      count:String(all.filter(e => e.tipo === k).length),
+    })).filter(x => x.count !== '0');
+
+    // divisa totals
+    const fb = this.FACTURAS.filter(f => f.b === b);
+    const sumMon = (code) => fb.filter(f => f.moneda === code).reduce((a,f) => a + (parseFloat((f.monto||'').replace(/[^0-9.]/g,'')) || 0), 0);
+    const usd = sumMon('USD'), eur = sumMon('EUR');
+
+    // filters
+    let filtered = all;
+    if (st.evFilter === 'nuevos') filtered = all.filter(e => e.nuevo);
+    else if (st.evFilter === 'alta') filtered = all.filter(e => e.urg === 'alta');
+    else if (st.evFilter === 'abiertos') filtered = all.filter(e => e.est !== 'resuelto');
+    const mkChip = (key, label) => {
+      const active = st.evFilter === key;
+      let cnt = all.length;
+      if (key==='nuevos') cnt = novos.length;
+      else if (key==='alta') cnt = all.filter(e=>e.urg==='alta').length;
+      else if (key==='abiertos') cnt = all.filter(e=>e.est!=='resuelto').length;
+      return { label, count:String(cnt), onClick:()=>this.setState({evFilter:key}),
+        bg: active?'#17408B':'#fff', fg: active?'#fff':'#334259', border: active?'#17408B':'#E1E7F1' };
+    };
+
+    // ficha rows
+    const ficha = this.FICHAS[b].map(r => {
+      const pend = st.pendingChanges.find(p => p.b === b && p.key === r.key);
+      return { ...r, value: r.value, editable: r.edit, pending: !!pend,
+        onRequest: () => this.setState({ requestFieldKey: r.key, reqNew:'', reqReason:'' }) };
+    });
+    const pendingList = st.pendingChanges.filter(p => p.b === b);
+
+    // expensas (cliente sube, Marcos comparte)
+    const expTypeMeta = (ty) => ({
+      pdf:   { label:'PDF', icon:'📄', bg:'#FDECEC', fg:'#C0392B' },
+      link:  { label:'Link web', icon:'🔗', bg:'#EAF1FB', fg:'#2C55A8' },
+      imagen:{ label:'Imagen', icon:'🖼️', bg:'#E7F4EC', fg:'#1B7A43' },
+    }[ty] || { label:ty, icon:'📄', bg:'#EEF2F8', fg:'#5A6B85' });
+    const expView = st.expensas.filter(x => x.b === b).map(x => { const m = expTypeMeta(x.type); return { ...x,
+      typeLabel:m.label, typeIcon:m.icon, typeBg:m.bg, typeFg:m.fg,
+      onRemove: () => this.setState({ expensas: this.state.expensas.filter(e => e !== x) }),
+      onView: () => this.showToast('Abriendo expensa (demo)', '👁️'),
+      onCopy: () => this.showToast('Enlace copiado — listo para compartir', '🔗'),
+    }; });
+
+    // sugerencias
+    const sugList = [
+      ...st.sentSug.filter(s => s.b === b).map(s => ({ texto:s.texto, fecha:s.fecha, estado:'Enviada', respuesta:'', hasReply:false, stBg:'#EAF1FB', stFg:'#2C5C9E' })),
+      ...this.SUG_HIST.map(s => ({ ...s, hasReply: !!s.respuesta,
+        stBg: s.respuesta?'#E7F4EC':'#FBF3DE', stFg: s.respuesta?'#1B7A43':'#8A6410' })),
+    ];
+
+    // ===================== DUEÑO (admin de sistema) =====================
+    const isDueno = st.role === 'dueno';
+    const fmt = (n) => n.toLocaleString('es-AR');
+    const PMSG = 95, PMIN = 140;
+    const allEv = this.EVENTS;
+    // consumos por edificio
+    const consumos = this.BUILDINGS.map((bl, i) => {
+      const c = this.CONSUMOS[i];
+      const exMsg = Math.max(0, c.usMsg - c.incMsg);
+      const exMin = Math.max(0, c.usMin - c.incMin);
+      const extra = exMsg * PMSG + exMin * PMIN;
+      const excede = extra > 0;
+      return { i, name: bl.name, cliente: bl.cliente, tipo: bl.tipo, unidades: bl.unidades, plan: bl.plan,
+        usMsg: fmt(c.usMsg), incMsg: fmt(c.incMsg), usMin: fmt(c.usMin), incMin: fmt(c.incMin), eventos: String(c.eventos),
+        msgPct: Math.min(100, Math.round(c.usMsg / c.incMsg * 100)) + '%',
+        minPct: Math.min(100, Math.round(c.usMin / c.incMin * 100)) + '%',
+        msgColor: c.usMsg > c.incMsg ? '#E5484D' : '#2E6FC0',
+        minColor: c.usMin > c.incMin ? '#E5484D' : '#2E6FC0',
+        exMsg: fmt(exMsg), exMin: fmt(exMin), extraVal: extra, extraFmt: '$' + fmt(extra), excede,
+        estLabel: excede ? 'Excede el plan' : 'Dentro del plan',
+        estBg: excede ? '#FDECEC' : '#E7F4EC', estFg: excede ? '#C0392B' : '#1B7A43',
+        cardBorder: excede ? '#F3C6C6' : '#E7ECF3',
+        showExtra: excede,
+        onFacturar: () => this.showToast('Excedente ' + ('$' + fmt(extra)) + ' facturado a ' + bl.cliente + ' (demo)', '🧾'),
+        onUpgrade: () => this.showToast('Propuesta de Plan Plus enviada a ' + bl.cliente, '⬆️'),
+      };
+    });
+    const facturableTotal = consumos.reduce((a, c) => a + c.extraVal, 0);
+    const excedenCount = consumos.filter(c => c.excede).length;
+
+    // solicitudes (pedidos de cambio) = de clientes + sembrados
+    const clientReqs = st.pendingChanges.map(p => ({ id: 'pc_' + p.b + '_' + p.key, b: p.b, label: p.label, from: p.from, to: p.to, motivo: p.reason || '—', cliente: this.BUILDINGS[p.b].cliente, when: 'recién', src: 'pc', key: p.key }));
+    const solAll = [...clientReqs, ...st.solicitudes];
+    const solTotal = solAll.length;
+    const solView = solAll.map(s => ({ ...s, buildingName: this.BUILDINGS[s.b].name,
+      onApprove: () => { if (s.src === 'pc') this.setState({ pendingChanges: this.state.pendingChanges.filter(p => !(p.b === s.b && p.key === s.key)) }); else this.setState({ solicitudes: this.state.solicitudes.filter(x => x.id !== s.id) }); this.showToast('Cambio aprobado y aplicado en la planilla', '✅'); },
+      onReject: () => { if (s.src === 'pc') this.setState({ pendingChanges: this.state.pendingChanges.filter(p => !(p.b === s.b && p.key === s.key)) }); else this.setState({ solicitudes: this.state.solicitudes.filter(x => x.id !== s.id) }); this.showToast('Solicitud rechazada · se notificó al cliente', '↩️'); },
+    }));
+    const sugPendView = st.sugPending.map(s => ({ ...s, buildingName: this.BUILDINGS[s.b].name,
+      onReplyChange: (e) => { const v = e.target.value; this.setState({ sugPending: this.state.sugPending.map(x => x.id === s.id ? { ...x, reply: v } : x) }); },
+      onRespond: () => { if (!(s.reply || '').trim()) { this.showToast('Escribí una respuesta', '✏️'); return; } this.setState({ sugPending: this.state.sugPending.filter(x => x.id !== s.id) }); this.showToast('Respuesta enviada a ' + s.cliente, '✅'); },
+    }));
+
+    // dueño KPIs + edificios
+    const dKpis = [
+      { icon: '🏢', iconBg: '#EAF1FB', value: String(this.BUILDINGS.length), label: 'Edificios activos' },
+      { icon: '🔔', iconBg: '#EDEEFB', value: String(allEv.filter(e => e.nuevo).length), label: 'Novedades hoy' },
+      { icon: '🚨', iconBg: '#FDECEC', value: String(allEv.filter(e => e.urg === 'alta' && e.est !== 'resuelto').length), label: 'Urgencias abiertas' },
+      { icon: '📥', iconBg: '#FBF3DE', value: String(solTotal), label: 'Solicitudes pendientes' },
+      { icon: '🧾', iconBg: '#E7F4EC', value: '$' + fmt(facturableTotal), label: 'Excedente facturable' },
+    ];
+    const duenoBuildings = this.BUILDINGS.map((bl, i) => {
+      const ev = this.EVENTS.filter(e => e.b === i);
+      const c = consumos[i];
+      return { i, name: bl.name, cliente: bl.cliente, unidades: String(bl.unidades), tipo: bl.tipo,
+        nuevos: String(ev.filter(e => e.nuevo).length), urg: String(ev.filter(e => e.urg === 'alta' && e.est !== 'resuelto').length),
+        excede: c.excede, estLabel: c.estLabel, estBg: c.estBg, estFg: c.estFg,
+        onOpen: () => this.setState({ duenoFilter: String(i), section: 'eventos' }) };
+    });
+    const edificiosRows = this.BUILDINGS.map((bl, i) => {
+      const ed = st.buildingEdits[i] || {};
+      const fichaEnc = this.FICHAS[i].find(r => r.key === 'encargado');
+      const plan = ed.plan || bl.plan;
+      return { i, name: ed.name || bl.name, cliente: bl.cliente, addr: bl.addr, zona: bl.zona,
+        unidades: String(bl.unidades), tipo: bl.tipo, plan,
+        encargado: ed.encargado || (fichaEnc ? fichaEnc.value : '—'),
+        planBg: plan === 'Plus' ? '#EDE9FB' : '#EEF2F8', planFg: plan === 'Plus' ? '#6D28D9' : '#5A6B85',
+        onEdit: () => this.setState({ editBldg: i, editForm: { name: ed.name || bl.name, encargado: ed.encargado || (fichaEnc ? fichaEnc.value : ''), plan } }) };
+    });
+    const editOpen = st.editBldg !== null && st.editBldg !== undefined;
+
+    // dueño · clientes (agrupación por administrador, incluye altas nuevas)
+    const ownersMap = [];
+    const getO = (owner, cliente) => { let o = ownersMap.find(x => x.owner === owner); if (!o) { o = { owner, cliente, idxs: [], extraB: [], unidades: 0, plus: 0, base: 0 }; ownersMap.push(o); } return o; };
+    this.BUILDINGS.forEach((bl, i) => { const o = getO(bl.owner, bl.cliente); o.idxs.push(i); o.unidades += bl.unidades; if (bl.plan === 'Plus') o.plus++; else o.base++; });
+    st.newBuildings.forEach(nb => { const o = getO(nb.owner, nb.cliente); o.extraB.push(nb); o.unidades += (Number(nb.unidades) || 0); if (nb.plan === 'Plus') o.plus++; else o.base++; });
+    st.newClients.forEach(c => { getO(c.owner, c.cliente); });
+    const ownerNameOf = (owner) => (ownersMap.find(o => o.owner === owner) || {}).cliente || '';
+    const clientesCards = ownersMap.map(o => {
+      const excede = o.idxs.some(i => consumos[i].excede);
+      const nuevos = o.idxs.reduce((a, i) => a + this.EVENTS.filter(e => e.b === i && e.nuevo).length, 0);
+      const total = o.idxs.length + o.extraB.length;
+      return { owner: o.owner, cliente: o.cliente, initial: o.cliente.charAt(0), count: String(total), unidades: String(o.unidades),
+        planMix: ((o.plus ? (o.plus + ' Plus') : '') + (o.plus && o.base ? ' · ' : '') + (o.base ? (o.base + ' Base') : '')) || 'Sin edificios',
+        nuevos: String(nuevos), excede, estLabel: excede ? 'Excede plan' : 'Al día', estBg: excede ? '#FDECEC' : '#E7F4EC', estFg: excede ? '#C0392B' : '#1B7A43',
+        onOpen: () => this.setState({ selCliente: o.owner }) };
+    });
+    const selClienteObj = st.selCliente ? ownersMap.find(o => o.owner === st.selCliente) : null;
+    const planCol = (p) => ({ planBg: p === 'Plus' ? '#EDE9FB' : '#EEF2F8', planFg: p === 'Plus' ? '#6D28D9' : '#5A6B85' });
+    const selClienteRows = selClienteObj ? [
+      ...edificiosRows.filter(r => this.BUILDINGS[r.i].owner === st.selCliente),
+      ...selClienteObj.extraB.map(nb => ({ i: -1, name: nb.name, addr: nb.addr, zona: nb.zona, unidades: String(nb.unidades || 0), tipo: nb.tipo, plan: nb.plan, encargado: nb.encargado, ...planCol(nb.plan), isNew: true, onEdit: () => this.showToast('Editá los datos del nuevo edificio (demo)', '✏️') })),
+    ] : [];
+
+    // dueño filtro de edificios (topbar)
+    const dfKeys = [{ key: 'todos', label: 'Todos los edificios', sub: this.BUILDINGS.length + ' consorcios' }].concat(
+      this.BUILDINGS.map((bl, i) => ({ key: String(i), label: bl.name, sub: bl.cliente + ' · ' + bl.unidades + ' un.' })));
+    const duenoFilterRows = dfKeys.map(o => ({ ...o, check: st.duenoFilter === o.key ? '✓' : '', rowBg: st.duenoFilter === o.key ? '#F1F5FB' : 'transparent', iconBg: st.duenoFilter === o.key ? '#DCE9FA' : '#F1F5FB', onSelect: () => this.setState({ duenoFilter: o.key, buildingMenu: false, selectedEvent: null }) }));
+    const duenoFilterLabel = st.duenoFilter === 'todos' ? 'Todos los edificios' : this.BUILDINGS[Number(st.duenoFilter)].name;
+    const duenoFilterSub = st.duenoFilter === 'todos' ? (this.BUILDINGS.length + ' consorcios activos') : this.BUILDINGS[Number(st.duenoFilter)].cliente;
+    const dEvRaw = this.EVENTS.filter(e => st.duenoFilter === 'todos' ? true : e.b === Number(st.duenoFilter));
+    const duenoEvents = dEvRaw.map(e => this.buildEvent(e));
+    // dueño facturas (todos / filtrado)
+    const facFmt = (f) => ({ ...f,
+      thumbIcon: f.tipo === 'Foto' ? '🖼️' : '🧾',
+      thumbBg: f.tipo === 'Foto' ? 'linear-gradient(135deg,#E7F4EC,#D5EADD)' : 'linear-gradient(135deg,#EAF1FB,#DCE9FA)',
+      monBg: f.moneda === 'USD' ? '#E7F4EC' : (f.moneda === 'EUR' ? '#E9EEFB' : '#EEF2F8'),
+      monFg: f.moneda === 'USD' ? '#1B7A43' : (f.moneda === 'EUR' ? '#2C55A8' : '#5A6B85'),
+      estBg: f.pagada ? '#E7F4EC' : '#FBF3DE', estFg: f.pagada ? '#1B7A43' : '#8A6410',
+      buildingName: this.BUILDINGS[f.b] ? this.BUILDINGS[f.b].name : '',
+    });
+    const duenoFacturas = this.FACTURAS.filter(f => st.duenoFilter === 'todos' ? true : f.b === Number(st.duenoFilter)).map(facFmt);
+    // notificaciones (dueño)
+    const notifList = [];
+    solAll.forEach(s => notifList.push({ icon: '📥', iconBg: '#FBF3DE', title: 'Pedido de cambio', desc: this.BUILDINGS[s.b].name + ' · ' + s.label, when: s.when, onClick: () => this.setState({ section: 'solicitudes', notifOpen: false }) }));
+    st.sugPending.forEach(s => notifList.push({ icon: '💡', iconBg: '#EDEEFB', title: 'Sugerencia sin responder', desc: s.cliente, when: s.when, onClick: () => this.setState({ section: 'solicitudes', notifOpen: false }) }));
+    this.EVENTS.filter(e => e.urg === 'alta' && e.est !== 'resuelto').forEach(e => notifList.push({ icon: '🚨', iconBg: '#FDECEC', title: 'Urgencia abierta', desc: this.BUILDINGS[e.b].name + ' · ' + e.titulo, when: e.when, onClick: () => this.setState({ section: 'eventos', duenoFilter: String(e.b), notifOpen: false }) }));
+
+    // nav
+    const totalNew = novos.length;
+    const navClient = [
+      { key:'resumen', icon:'📊', label:'Resumen', short:'Resumen' },
+      { key:'edificio', icon:'🏢', label:'Mi Edificio', short:'Edificio' },
+      { key:'eventos', icon:'🔔', label:'Eventos', short:'Eventos', badge: totalNew },
+      { key:'facturas', icon:'🧾', label:'Facturas/Fotos', short:'Facturas' },
+      { key:'expensas', icon:'📑', label:'Expensas', short:'Expensas' },
+      { key:'sugerencias', icon:'💡', label:'Sugerencias', short:'Ideas' },
+    ];
+    const navDueno = [
+      { key:'resumen', icon:'📊', label:'Resumen', short:'Resumen' },
+      { key:'eventos', icon:'🔔', label:'Eventos', short:'Eventos', badge: allEv.filter(e => e.nuevo).length },
+      { key:'consumos', icon:'📈', label:'Consumos', short:'Consumos' },
+      { key:'facturas', icon:'🧾', label:'Facturas/Fotos', short:'Facturas' },
+      { key:'edificios', icon:'👥', label:'Clientes', short:'Clientes' },
+      { key:'solicitudes', icon:'📥', label:'Solicitudes', short:'Pedidos', badge: solTotal },
+    ];
+    const navDef = isDueno ? navDueno : navClient;
+    const navItems = navDef.map(n => {
+      const active = st.section === n.key;
+      return { icon:n.icon, label:n.label, short:n.short,
+        onClick: () => this.setState({ section:n.key }),
+        bg: active?'#EAF1FB':'transparent', fg: active?'#17408B':'#475569', weight: active?'800':'600',
+        mFg: active?'#17408B':'#9AA7BD',
+        showBadge: !!n.badge, badge: String(n.badge||'') };
+    });
+
+    // building selector rows (cliente ve solo los suyos)
+    const activeOwner = st.previewOwner || 'amato_admin';
+    const clientMetaBl = this.BUILDINGS.find(bl => bl.owner === activeOwner) || {};
+    const clientNameActive = clientMetaBl.cliente || 'Amato Propiedades';
+    const clientInitials = clientNameActive.split(' ').filter(Boolean).slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
+    const clientGreetName = clientNameActive.split(' ')[0];
+    const buildingsView = this.BUILDINGS.map((bl, i) => ({
+      i, name:bl.name, addr:bl.addr, unidades:bl.unidades, owner:bl.owner,
+      check: i===b ? '✓' : '',
+      rowBg: i===b ? '#F1F5FB' : 'transparent',
+      iconBg: i===b ? '#DCE9FA' : '#F1F5FB',
+      onSelect: () => this.setState({ building:i, buildingMenu:false, selectedEvent:null }),
+    })).filter(x => x.owner === activeOwner);
+
+    // selected event
+    const selRaw = this.EVENTS.find(e => e.id === st.selectedEvent);
+    const sel = selRaw ? this.buildEvent(selRaw) : null;
+
+    // modal
+    const reqRow = st.requestFieldKey ? this.FICHAS[b].find(r => r.key === st.requestFieldKey) : null;
+    const req = reqRow ? { label: reqRow.label, current: reqRow.value } : null;
+
+    // facturas view
+    const facturasView = fb.map(f => ({
+      ...f,
+      thumbIcon: f.tipo==='Foto' ? '🖼️' : '🧾',
+      thumbBg: f.tipo==='Foto' ? 'linear-gradient(135deg,#E7F4EC,#D5EADD)' : 'linear-gradient(135deg,#EAF1FB,#DCE9FA)',
+      monBg: f.moneda==='USD'?'#E7F4EC':(f.moneda==='EUR'?'#E9EEFB':'#EEF2F8'),
+      monFg: f.moneda==='USD'?'#1B7A43':(f.moneda==='EUR'?'#2C55A8':'#5A6B85'),
+      estBg: f.pagada ? '#E7F4EC' : '#FBF3DE', estFg: f.pagada ? '#1B7A43' : '#8A6410',
+    }));
+
+    return {
+      isLogin: st.screen === 'login', isApp: st.screen === 'app',
+      // login
+      user: st.user, pass: st.pass, remember: st.remember,
+      passType: st.showPass ? 'text' : 'password', passLabel: st.showPass ? 'Ocultar' : 'Ver',
+      onUser: (e)=>this.setState({user:e.target.value}),
+      onPass: (e)=>this.setState({pass:e.target.value}),
+      togglePass: ()=>this.setState({showPass:!st.showPass}),
+      onRemember: (e)=>this.setState({remember:e.target.checked}),
+      doLogin: ()=>{ const u=(st.user||'').trim().toLowerCase(); const acc=this.ACCOUNTS[u]; if(!acc || acc.pass!==st.pass){ this.setState({loginErr:'Usuario o contraseña incorrectos. Verificá los datos.'}); return; } this.setState({screen:'app', role:acc.role, previewFromDueno:false, previewOwner: acc.owner||'amato_admin', section:'resumen', loginErr:'', authView:'login'}); },
+      loginCliente: ()=>this.setState({screen:'app', role:'cliente', user:'amato_admin', previewFromDueno:false, previewOwner:'amato_admin', section:'resumen', loginErr:''}),
+      loginDueno: ()=>this.setState({screen:'app', role:'dueno', user:'daniel', previewFromDueno:false, section:'resumen', loginErr:''}),
+      // flujo auth
+      authLogin: st.authView==='login', authForgot: st.authView==='forgot', authSent: st.authView==='sent', authActivate: st.authView==='activate', authActivated: st.authView==='activated',
+      loginErr: st.loginErr, hasLoginErr: !!st.loginErr,
+      goForgot: ()=>this.setState({authView:'forgot', loginErr:'', fEmail:''}),
+      goActivate: ()=>this.setState({authView:'activate', loginErr:'', actErr:'', actUser:'', actPass:'', actPass2:''}),
+      backToLogin: ()=>this.setState({authView:'login', loginErr:'', actErr:''}),
+      fEmail: st.fEmail, onFEmail:(e)=>this.setState({fEmail:e.target.value}),
+      sendForgot: ()=>{ if(!st.fEmail.trim()){ this.showToast('Ingresá tu email','✏️'); return; } this.setState({authView:'sent'}); },
+      actUser: st.actUser, actPass: st.actPass, actPass2: st.actPass2, actErr: st.actErr, hasActErr: !!st.actErr,
+      onActUser:(e)=>this.setState({actUser:e.target.value}),
+      onActPass:(e)=>this.setState({actPass:e.target.value}),
+      onActPass2:(e)=>this.setState({actPass2:e.target.value}),
+      doActivate: ()=>{ if(!st.actUser.trim()||!st.actPass){ this.setState({actErr:'Completá usuario y contraseña.'}); return; } if(st.actPass.length<6){ this.setState({actErr:'La contraseña debe tener al menos 6 caracteres.'}); return; } if(st.actPass!==st.actPass2){ this.setState({actErr:'Las contraseñas no coinciden.'}); return; } this.setState({authView:'activated', actErr:''}); },
+      doLogout: ()=>this.setState({screen:'login', userMenu:false, section:'resumen', previewFromDueno:false}),
+      noop: (e)=>{ if(e&&e.preventDefault) e.preventDefault(); },
+
+      // shell
+      curBuilding: cur, lastConn: 'martes 1 jul · 18:42',
+      buildingMenu: st.buildingMenu, userMenu: st.userMenu,
+      toggleBuildingMenu: ()=>this.setState({buildingMenu:!st.buildingMenu, userMenu:false}),
+      toggleUserMenu: ()=>this.setState({userMenu:!st.userMenu, buildingMenu:false}),
+      buildingsView, navItems,
+      showSidebar: !isMobile, showBottomNav: isMobile,
+      goEventos: ()=>this.setState({section:'eventos'}),
+      goFacturas: ()=>this.setState({section:'facturas'}),
+      goConsumos: ()=>this.setState({section:'consumos'}),
+      goSugerencias: ()=>this.setState({section:'sugerencias'}),
+
+      // sections flags (cliente)
+      secResumen: !isDueno && st.section==='resumen', secEventos: !isDueno && st.section==='eventos',
+      secEdificio: !isDueno && st.section==='edificio', secFacturas: !isDueno && st.section==='facturas',
+      secSugerencias: !isDueno && st.section==='sugerencias',
+      secExpensas: !isDueno && st.section==='expensas',
+      // expensas
+      expView, hasExp: expView.length>0,
+      expType: st.expType, expMonth: st.expMonth, expYear: st.expYear, expName: st.expName,
+      setExpPdf: ()=>this.setState({expType:'pdf', expName:''}),
+      setExpLink: ()=>this.setState({expType:'link', expName:''}),
+      setExpImg: ()=>this.setState({expType:'imagen', expName:''}),
+      expIsPdf: st.expType==='pdf', expIsLink: st.expType==='link', expIsImg: st.expType==='imagen',
+      expIsFile: st.expType==='pdf' || st.expType==='imagen',
+      noExp: expView.length===0,
+      expPdfBg: st.expType==='pdf'?'#17408B':'#fff', expPdfFg: st.expType==='pdf'?'#fff':'#334259', expPdfBorder: st.expType==='pdf'?'#17408B':'#E1E7F1',
+      expLinkBg: st.expType==='link'?'#17408B':'#fff', expLinkFg: st.expType==='link'?'#fff':'#334259', expLinkBorder: st.expType==='link'?'#17408B':'#E1E7F1',
+      expImgBg: st.expType==='imagen'?'#17408B':'#fff', expImgFg: st.expType==='imagen'?'#fff':'#334259', expImgBorder: st.expType==='imagen'?'#17408B':'#E1E7F1',
+      onExpName:(e)=>this.setState({expName:e.target.value}),
+      onExpMonth:(e)=>this.setState({expMonth:e.target.value}),
+      onExpYear:(e)=>this.setState({expYear:e.target.value}),
+      pickFile: ()=>{ const ext = st.expType==='imagen'?'jpg':'pdf'; this.setState({expName:'Expensas-'+st.expMonth+'-'+st.expYear+'.'+ext}); },
+      hasExpName: !!st.expName.trim(),
+      noExpName: !st.expName.trim(),
+      publishExp: ()=>{ const nm=st.expName.trim(); if(!nm){ this.showToast('Elegí un archivo o pegá el link primero','✏️'); return; } this.setState({ expensas:[{b, period:st.expMonth+' '+st.expYear, type:st.expType, name:nm, when:'hoy'}, ...st.expensas], expName:'' }); this.showToast('Expensa publicada · Marcos ya puede compartirla','✅'); },
+      goExpensas: ()=>this.setState({section:'expensas'}),
+      // sections flags (dueño)
+      isDueno, roleClientActive: !isDueno,
+      isPreview: !isDueno && st.previewFromDueno,
+      previewClientName: (this.BUILDINGS.find(bl => bl.owner === activeOwner) || {}).cliente || '',
+      verComoCliente: () => this.setState({ clientPicker: true, userMenu: false }),
+      clientPickerOpen: st.clientPicker && isDueno,
+      closeClientPicker: () => this.setState({ clientPicker: false }),
+      clientesList: (() => {
+        const owners = [];
+        this.BUILDINGS.forEach((bl, i) => { let o = owners.find(x => x.owner === bl.owner); if (!o) { o = { owner: bl.owner, cliente: bl.cliente, buildings: [], firstIdx: i }; owners.push(o); } o.buildings.push(bl.name); });
+        return owners.map(o => ({ owner: o.owner, cliente: o.cliente, initial: o.cliente.charAt(0), count: String(o.buildings.length), sub: o.buildings.join(' · '),
+          onSelect: () => this.setState({ role: 'cliente', previewFromDueno: true, previewOwner: o.owner, building: o.firstIdx, section: 'resumen', clientPicker: false, selectedEvent: null }) }));
+      })(),
+      exitPreview: () => this.setState({ role:'dueno', previewFromDueno:false, section:'resumen', userMenu:false }),
+      cTabBg: !isDueno?'#fff':'transparent', cTabFg: !isDueno?'#17408B':'#8595AD', cTabSh: !isDueno?'0 1px 2px rgba(16,35,59,.14)':'none',
+      dTabBg: isDueno?'#fff':'transparent', dTabFg: isDueno?'#17408B':'#8595AD', dTabSh: isDueno?'0 1px 2px rgba(16,35,59,.14)':'none',
+      setRoleCliente: ()=>this.setState({ role:'cliente', section:'resumen', selectedEvent:null, buildingMenu:false, userMenu:false }),
+      setRoleDueno: ()=>this.setState({ role:'dueno', section:'resumen', selectedEvent:null, buildingMenu:false, userMenu:false }),
+      secDResumen: isDueno && st.section==='resumen', secDEventos: isDueno && st.section==='eventos',
+      secConsumos: isDueno && st.section==='consumos', secEdificios: isDueno && st.section==='edificios',
+      secSolicitudes: isDueno && st.section==='solicitudes',
+      secDFacturas: isDueno && st.section==='facturas',
+      duenoFacturas, hasDFacturas: duenoFacturas.length>0, noDFacturas: duenoFacturas.length===0,
+      notifList, notifCount: String(notifList.length), hasNotif: notifList.length>0,
+      notifOpen: st.notifOpen && isDueno,
+      toggleNotif: ()=>this.setState({notifOpen:!st.notifOpen, userMenu:false, buildingMenu:false}),
+      // user (por rol)
+      userName: isDueno ? 'Daniel' : clientNameActive,
+      userSub: isDueno ? 'Admin de sistema' : activeOwner,
+      userInitial: isDueno ? 'D' : clientInitials,
+      userGrad: isDueno ? 'linear-gradient(140deg,#17408B,#2E6FC0)' : 'linear-gradient(140deg,#D99B1F,#E7B84A)',
+      clientGreetName,
+      userMeta: isDueno ? ('Dueño del sistema · ' + this.BUILDINGS.length + ' edificios') : ('Administrador · ' + this.BUILDINGS.filter(bl => bl.owner === activeOwner).length + ' edificios'),
+      // dueño topbar filtro
+      duenoFilterRows, duenoFilterLabel, duenoFilterSub,
+      // dueño resumen
+      dKpis, duenoBuildings, facturableFmt: '$' + fmt(facturableTotal), excedenCount: String(excedenCount),
+      // dueño eventos
+      duenoEvents,
+      // dueño consumos
+      consumos, excedeAlert: excedenCount > 0, excedeMsg: excedenCount + (excedenCount===1?' edificio excede':' edificios exceden') + ' su plan',
+      // dueño edificios / clientes
+      edificiosRows,
+      clientesCards,
+      edifClientes: st.duenoEdifView==='clientes', edifTodos: st.duenoEdifView==='todos',
+      setEdifClientes: ()=>this.setState({duenoEdifView:'clientes'}),
+      setEdifTodos: ()=>this.setState({duenoEdifView:'todos'}),
+      cTabEBg: st.duenoEdifView==='clientes'?'#17408B':'#fff', cTabEFg: st.duenoEdifView==='clientes'?'#fff':'#334259', cTabEBorder: st.duenoEdifView==='clientes'?'#17408B':'#E1E7F1',
+      tTabEBg: st.duenoEdifView==='todos'?'#17408B':'#fff', tTabEFg: st.duenoEdifView==='todos'?'#fff':'#334259', tTabEBorder: st.duenoEdifView==='todos'?'#17408B':'#E1E7F1',
+      hasSelCliente: !!selClienteObj,
+      noSelCliente: !selClienteObj,
+      selClienteName: selClienteObj ? selClienteObj.cliente : '',
+      selClienteInitial: selClienteObj ? selClienteObj.cliente.charAt(0) : '',
+      selClienteMeta: selClienteObj ? ((selClienteObj.idxs.length + selClienteObj.extraB.length) + ' edificios · ' + selClienteObj.unidades + ' unidades') : '',
+      selClienteRows,
+      backToClientes: ()=>this.setState({selCliente:null}),
+      addCliente: ()=>this.setState({addClientOpen:true}),
+      addEdificio: ()=>this.setState({addBldgOpen:true, addBldgOwner:st.selCliente}),
+      // alta cliente
+      addClientOpen: st.addClientOpen, closeAddClient: ()=>this.setState({addClientOpen:false}),
+      formCliName: st.formCliName, formCliUser: st.formCliUser, formCliEmail: st.formCliEmail,
+      onCliName:(e)=>this.setState({formCliName:e.target.value}),
+      onCliUser:(e)=>this.setState({formCliUser:e.target.value}),
+      onCliEmail:(e)=>this.setState({formCliEmail:e.target.value}),
+      addClientSave: ()=>{ const name=st.formCliName.trim(); if(!name){this.showToast('Poné el nombre del administrador','✏️');return;} const owner='cli_'+Date.now(); this.setState({ newClients:[...this.state.newClients,{owner,cliente:name,usuario:st.formCliUser.trim(),email:st.formCliEmail.trim()}], addClientOpen:false, formCliName:'',formCliUser:'',formCliEmail:'', selCliente:owner }); this.showToast('Cliente creado · agregale su primer edificio','✅'); },
+      // alta edificio
+      addBldgOpen: st.addBldgOpen, closeAddBldg: ()=>this.setState({addBldgOpen:false}),
+      addBldgClient: ownerNameOf(st.addBldgOwner),
+      formBName: st.formBName, formBAddr: st.formBAddr, formBZona: st.formBZona, formBUnidades: st.formBUnidades, formBEnc: st.formBEnc,
+      onBName:(e)=>this.setState({formBName:e.target.value}),
+      onBAddr:(e)=>this.setState({formBAddr:e.target.value}),
+      onBZona:(e)=>this.setState({formBZona:e.target.value}),
+      onBUnidades:(e)=>this.setState({formBUnidades:e.target.value}),
+      onBEnc:(e)=>this.setState({formBEnc:e.target.value}),
+      setBPlanBase:()=>this.setState({formBPlan:'Base'}), setBPlanPlus:()=>this.setState({formBPlan:'Plus'}),
+      bPlanBaseBg: st.formBPlan==='Base'?'#EAF1FB':'#fff', bPlanBaseFg: st.formBPlan==='Base'?'#17408B':'#64748B', bPlanBaseBorder: st.formBPlan==='Base'?'#2E6FC0':'#DDE3EE',
+      bPlanPlusBg: st.formBPlan==='Plus'?'#EDE9FB':'#fff', bPlanPlusFg: st.formBPlan==='Plus'?'#6D28D9':'#64748B', bPlanPlusBorder: st.formBPlan==='Plus'?'#8B5CF6':'#DDE3EE',
+      addBldgSave: ()=>{ const nm=st.formBName.trim(); if(!nm){this.showToast('Poné el nombre del edificio','✏️');return;} const owner=st.addBldgOwner; const cliente=ownerNameOf(owner); this.setState({ newBuildings:[...this.state.newBuildings,{owner,cliente,name:nm,addr:st.formBAddr.trim()||'—',zona:st.formBZona.trim()||'—',unidades:Number(st.formBUnidades)||0,plan:st.formBPlan,encargado:st.formBEnc.trim()||'—',tipo:'Edificio'}], addBldgOpen:false, formBName:'',formBAddr:'',formBZona:'',formBUnidades:'',formBEnc:'',formBPlan:'Base' }); this.showToast('Edificio agregado a '+cliente,'✅'); },
+      editOpen, editName: st.editForm.name||'', editEnc: st.editForm.encargado||'', editPlan: st.editForm.plan||'Base',
+      editBName: editOpen ? this.BUILDINGS[st.editBldg].name : '',
+      onEditName:(e)=>this.setState({editForm:{...this.state.editForm, name:e.target.value}}),
+      onEditEnc:(e)=>this.setState({editForm:{...this.state.editForm, encargado:e.target.value}}),
+      setPlanBase:()=>this.setState({editForm:{...this.state.editForm, plan:'Base'}}),
+      setPlanPlus:()=>this.setState({editForm:{...this.state.editForm, plan:'Plus'}}),
+      planBaseActive: (st.editForm.plan||'Base')==='Base', planPlusActive: (st.editForm.plan||'Base')==='Plus',
+      planBaseBg: (st.editForm.plan||'Base')==='Base'?'#EAF1FB':'#fff', planBaseFg: (st.editForm.plan||'Base')==='Base'?'#17408B':'#64748B', planBaseBorder: (st.editForm.plan||'Base')==='Base'?'#2E6FC0':'#DDE3EE',
+      planPlusBg: (st.editForm.plan||'Base')==='Plus'?'#EDE9FB':'#fff', planPlusFg: (st.editForm.plan||'Base')==='Plus'?'#6D28D9':'#64748B', planPlusBorder: (st.editForm.plan||'Base')==='Plus'?'#8B5CF6':'#DDE3EE',
+      closeEdit:()=>this.setState({editBldg:null}),
+      saveEdit:()=>{ this.setState({ buildingEdits:{...this.state.buildingEdits, [st.editBldg]:{...(this.state.buildingEdits[st.editBldg]||{}), ...this.state.editForm}}, editBldg:null }); this.showToast('Ficha actualizada directamente en la planilla','✅'); },
+      // dueño solicitudes
+      solView, sugPendView, hasSol: solView.length>0, hasSug: sugPendView.length>0, solCount: String(solTotal),
+
+      // resumen
+      novedadesTitle: novos.length + (novos.length===1?' novedad nueva':' novedades nuevas'),
+      novCount: String(novos.length),
+      novedades: novos.map(e => this.buildEvent(e)),
+      statCards, tipoBreak,
+      usdTotal: usd ? ('USD ' + usd) : 'USD 0',
+      eurTotal: eur ? ('EUR ' + eur) : 'EUR 0',
+
+      // eventos
+      eventsView: filtered.map(e => this.buildEvent(e)),
+      filterChips: [ mkChip('todos','Todos'), mkChip('nuevos','Nuevos'), mkChip('alta','Urgentes'), mkChip('abiertos','Sin resolver') ],
+
+      // edificio
+      fichaRows: ficha, hasPending: pendingList.length>0, pendingCount:String(pendingList.length),
+      pendingList: pendingList.map(p=>({label:p.label, from:p.from, to:p.to})),
+
+      // facturas
+      facturasView,
+
+      // sugerencias
+      sugText: st.sugText, onSug:(e)=>this.setState({sugText:e.target.value}),
+      sendSug: ()=>{
+        if(!st.sugText.trim()) { this.showToast('Escribí tu sugerencia primero','✏️'); return; }
+        this.setState({ sentSug:[{b, texto:st.sugText.trim(), fecha:'hoy'}, ...st.sentSug], sugText:'' });
+        this.showToast('¡Sugerencia enviada a tu administrador!','💡');
+      },
+      sugList,
+
+      // drawer
+      hasDrawer: !!sel, sel: sel || {},
+      closeDrawer: ()=>this.setState({selectedEvent:null}),
+      stop: (e)=>{ e.stopPropagation(); },
+      goSugFromDrawer: ()=>this.setState({selectedEvent:null, section:'sugerencias'}),
+      dlTranscript: ()=>this.showToast('Transcripción descargada como comprobante (demo)','⬇'),
+
+      // modal
+      hasModal: !!req, req: req || {},
+      reqNew: st.reqNew, reqReason: st.reqReason,
+      onReqNew:(e)=>this.setState({reqNew:e.target.value}),
+      onReqReason:(e)=>this.setState({reqReason:e.target.value}),
+      closeModal: ()=>this.setState({requestFieldKey:null}),
+      submitBg: st.reqNew.trim() ? 'linear-gradient(180deg,#2E6FC0,#1E5FB4)' : '#A9BEDD',
+      submitReq: ()=>{
+        if(!st.reqNew.trim()){ this.showToast('Ingresá el nuevo valor','✏️'); return; }
+        if(!reqRow) return;
+        this.setState({
+          pendingChanges:[...st.pendingChanges.filter(p=>!(p.b===b&&p.key===reqRow.key)),
+            {b, key:reqRow.key, label:reqRow.label, from:reqRow.value, to:st.reqNew.trim(), reason:st.reqReason}],
+          requestFieldKey:null,
+        });
+        this.showToast('Solicitud enviada · queda pendiente de aprobación','⏳');
+      },
+
+      // toast
+      hasToast: !!st.toast, toast: st.toast, toastIcon: st.toastIcon,
+    };
+  }
+}
+</script>
+</body>
+</html>
