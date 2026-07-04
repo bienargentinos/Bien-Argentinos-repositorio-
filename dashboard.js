@@ -641,6 +641,27 @@ td input{width:100%}
 .sol-diff .arr{color:var(--muted)}
 .sol-diff .new{color:var(--ok-deep);font-weight:600;font-size:13px}
 
+/* DRAWER DE DETALLE DE EVENTO */
+.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(15,20,30,.35);z-index:60}
+.drawer-overlay.open{display:block}
+.drawer-panel{
+  display:none;position:fixed;top:0;right:0;bottom:0;width:420px;max-width:92vw;background:var(--card);
+  box-shadow:var(--shadow-pop);z-index:61;overflow-y:auto;padding:24px;
+}
+.drawer-panel.open{display:block;animation:drawerIn .22s ease}
+@keyframes drawerIn{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
+.drawer-panel .dclose{position:absolute;top:18px;right:18px;background:none;border:none;font-size:20px;
+  color:var(--muted);cursor:pointer;line-height:1}
+.drawer-panel h3{font-size:19px;margin:0 0 4px;padding-right:30px}
+.drawer-panel .dgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0}
+.drawer-panel .dgrid .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted2);font-weight:700}
+.drawer-panel .dgrid .v{font-size:14px;font-weight:600;margin-top:3px}
+.drawer-panel .dsection{margin-top:18px}
+.drawer-panel .dsection h4{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 8px}
+.drawer-panel .dbox{background:var(--bg);border-radius:10px;padding:12px 14px;font-size:14px;line-height:1.5;white-space:pre-wrap}
+.drawer-panel .dnote{margin-top:18px;font-size:12.5px;color:var(--muted);background:var(--warn-bg);
+  border:1px solid rgba(217,155,31,.3);border-radius:10px;padding:10px 12px}
+
 /* CLIENTES Y EDIFICIOS */
 .cli-head-row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:22px}
 .cli-toggle{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius-sm);padding:4px}
@@ -1014,6 +1035,41 @@ async function confirmarAgregarEdificio(clienteUsuario){
   }catch(e){ toast('Error: '+e.message,'err'); }
 }
 
+// Drawer de detalle de un evento (usa window.__EVENTOS__ inyectado por la pagina)
+function abrirDrawerEvento(idx){
+  var datos=(window.__EVENTOS__||[])[idx];
+  if(!datos)return;
+  var panel=document.getElementById('drawer-panel');
+  var overlay=document.getElementById('drawer-overlay');
+  if(!panel||!overlay)return;
+  var urgLabel={alta:'Urgente',media:'Media',baja:'Baja'}[datos.urgencia]||datos.urgencia;
+  panel.innerHTML=
+    '<button class="dclose" onclick="cerrarDrawerEvento()">✕</button>'+
+    '<span class="badge '+datos.urgencia+'">'+escapeHtml(urgLabel)+'</span>'+
+    (datos.estado?' <span class="badge tipo">'+escapeHtml(datos.estado)+'</span>':'')+
+    '<h3 style="margin-top:10px">'+escapeHtml(datos.vecino||'Vecino')+'</h3>'+
+    '<div class="dgrid">'+
+      '<div><div class="k">Canal</div><div class="v">'+escapeHtml(datos.tipo||'')+'</div></div>'+
+      '<div><div class="k">Edificio</div><div class="v">'+escapeHtml(datos.edificio||'')+'</div></div>'+
+      '<div><div class="k">Cuándo</div><div class="v">'+escapeHtml(datos.fecha||'')+'</div></div>'+
+      '<div><div class="k">Teléfono</div><div class="v">'+escapeHtml(datos.telefono||'—')+'</div></div>'+
+      (datos.tecnico?'<div><div class="k">Técnico / rubro</div><div class="v">'+escapeHtml(datos.tecnico)+'</div></div>':'')+
+    '</div>'+
+    (datos.mensaje?'<div class="dsection"><h4>El pedido</h4><div class="dbox">'+escapeHtml(datos.mensaje)+'</div></div>':'')+
+    (datos.notas?'<div class="dsection"><h4>Qué hizo Marcos</h4><div class="dbox">'+escapeHtml(datos.notas)+'</div></div>':'')+
+    '<div class="dnote">⚠ La conversación completa (WhatsApp/llamada) todavía no se guarda mensaje por mensaje '+
+    'en el sistema — esto que ves es el resumen que escribe Marcos, no el chat real. Guardar la transcripción '+
+    'completa es un cambio en el motor de Marcos, no en este panel.</div>';
+  overlay.classList.add('open');
+  panel.classList.add('open');
+}
+function cerrarDrawerEvento(){
+  var panel=document.getElementById('drawer-panel');
+  var overlay=document.getElementById('drawer-overlay');
+  if(panel)panel.classList.remove('open');
+  if(overlay)overlay.classList.remove('open');
+}
+
 // Filtros del feed de eventos (client-side)
 function aplicarFiltros(){
   var fe=document.getElementById('f-edificio');
@@ -1297,7 +1353,10 @@ router.get('/set-filtro', (req, res) => {
       req.session.edificioActivo = edificio || undefined;
     }
   }
-  res.redirect('/admin');
+  const volver = req.query.volver && String(req.query.volver).startsWith('/admin')
+    ? req.query.volver
+    : '/admin';
+  res.redirect(volver);
 });
 
 /* ----------------- RESUMEN DEL DIA ----------------- */
@@ -1312,10 +1371,6 @@ router.get('/', async (req, res) => {
     const hoy = eventos.filter((e) => esHoy(parseFecha(e.fecha)));
     const urgentesHoy = hoy.filter((e) => e.urgencia === 'alta');
     const mediaHoy = hoy.filter((e) => e.urgencia === 'media');
-
-    const ult = [...eventos]
-      .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0))
-      .slice(0, 6);
 
     const saludo = dueno
       ? `${horaSaludo()}, tomate unos mates 🧉`
@@ -1353,14 +1408,18 @@ router.get('/', async (req, res) => {
         const clienteDe = clientes.find((c) => c.edificios.includes(e.nombre));
         const eventosDe = hoy.filter((ev) => ev.edificio === e.nombre);
         const urgDe = eventosDe.filter((ev) => ev.urgencia === 'alta').length;
+        const sub = [clienteDe ? clienteDe.nombre : 'Sin asignar', e.tipo, e.unidades ? `${e.unidades} un.` : '']
+          .filter(Boolean).join(' · ');
         return `
-          <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}" class="card" style="text-decoration:none;color:inherit;display:block">
-            <div style="width:34px;height:34px;border-radius:9px;background:var(--bg);border:1px solid var(--line);
-              display:flex;align-items:center;justify-content:center;font-size:15px">🏢</div>
-            <div style="font-weight:700;font-size:15px;margin-top:10px">${esc(e.nombre)}</div>
-            <div style="color:var(--muted);font-size:12.5px;margin-top:2px">
-              ${esc(clienteDe ? clienteDe.nombre : 'Sin asignar')}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}
+          <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/eventos')}"
+             class="card" style="text-decoration:none;color:inherit;display:block">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+              <div style="width:34px;height:34px;border-radius:9px;background:var(--bg);border:1px solid var(--line);
+                display:flex;align-items:center;justify-content:center;font-size:15px">🏢</div>
+              <span class="badge baja">Dentro del plan</span>
             </div>
+            <div style="font-weight:700;font-size:15px;margin-top:10px">${esc(e.nombre)}</div>
+            <div style="color:var(--muted);font-size:12.5px;margin-top:2px">${esc(sub)}</div>
             <div style="display:flex;gap:14px;margin-top:10px;font-size:13px">
               <span><b style="color:var(--brand2)">${eventosDe.length}</b> novedades</span>
               <span><b style="color:${urgDe ? 'var(--bad-deep)' : 'var(--muted)'}">${urgDe}</b> urgencias</span>
@@ -1388,10 +1447,6 @@ router.get('/', async (req, res) => {
           : 'Panel general · todos los edificios')
       : `Panel de ${esc((edificiosPermitidos(req) || []).join(', '))}`;
 
-    const ultHtml = ult.length
-      ? `<div class="feed">${ult.map(renderEventoMini).join('')}</div>`
-      : `<div class="empty">Todavia no hay eventos registrados.</div>`;
-
     res.send(
       page(
         'resumen',
@@ -1400,8 +1455,6 @@ router.get('/', async (req, res) => {
          <p style="color:var(--muted);margin-top:-8px">${subtitulo}</p>
          ${cards}
          ${estadoEdificiosHtml}
-         <h2>Ultimos movimientos</h2>
-         ${ultHtml}
          <p style="margin-top:18px"><a class="btn ghost sm" href="/admin/eventos">Ver todos los eventos →</a></p>`,
         req
       )
@@ -1416,22 +1469,6 @@ function horaSaludo() {
   if (h < 12) return 'Buenos dias';
   if (h < 20) return 'Buenas tardes';
   return 'Buenas noches';
-}
-
-function renderEventoMini(e) {
-  return `<div class="event">
-    <div class="head">
-      <div>
-        <div class="who">${esc(e.edificio)} · ${esc(e.vecino)}</div>
-        <div class="meta">${esc(fechaCorta(parseFecha(e.fecha)) || e.fecha)}</div>
-      </div>
-      <div class="badges">
-        <span class="badge tipo">${tipoLabel(e.tipo)}</span>
-        <span class="badge ${e.urgencia}">${e.urgencia}</span>
-      </div>
-    </div>
-    <div class="body">${esc(truncate(e.mensaje || e.transcripcion || e.resumen, 180))}</div>
-  </div>`;
 }
 
 function truncate(s, n) {
@@ -1459,17 +1496,37 @@ router.get('/eventos', async (req, res) => {
     const edificios = [...new Set(eventos.map((e) => e.edificio).filter(Boolean))].sort();
     const opcionesEdi = edificios.map((e) => `<option value="${esc(e)}">${esc(e)}</option>`).join('');
 
+    const hoy = eventos.filter((e) => esHoy(parseFecha(e.fecha)));
+    const urgentesHoy = hoy.filter((e) => e.urgencia === 'alta');
+    const filtroActivo = esDueno(req) && req.session.filtroEdificioDueno;
+
+    const stats = `
+      <div class="cards" style="margin-bottom:18px">
+        <div class="card"><div class="k">Novedades hoy</div><div class="v">${hoy.length}</div></div>
+        <div class="card alta"><div class="k">Urgencias hoy</div><div class="v">${urgentesHoy.length}</div></div>
+        <div class="card"><div class="k">Total en la lista</div><div class="v">${eventos.length}</div></div>
+      </div>`;
+
     // Admins de consorcio no pueden dejar feedback (eso es para Daniel)
     const feed = eventos.length
-      ? `<div class="feed">${eventos.map((e) => renderEventoFull(e, req)).join('')}</div>
+      ? `<div class="feed">${eventos.map((e, i) => renderEventoFull(e, req, i)).join('')}</div>
          <div id="no-results" class="empty" style="display:none">No hay eventos que coincidan con el filtro.</div>`
       : `<div class="empty">Todavia no hay eventos registrados.</div>`;
+
+    const datosDrawer = eventos.map((e) => ({
+      edificio: e.edificio, vecino: e.vecino, telefono: e.telefono, fecha: fechaCorta(parseFecha(e.fecha)) || e.fecha,
+      tipo: tipoLabel(e.tipo), urgencia: e.urgencia, estado: e.estado, tecnico: e.tecnico,
+      mensaje: e.mensaje, notas: e.transcripcion || e.resumen,
+    }));
+    const jsonDrawer = JSON.stringify(datosDrawer).replace(/</g, '\\u003c');
 
     res.send(
       page(
         'eventos',
         'Eventos',
-        `<h1>Feed de eventos</h1>
+        `<h1>Feed de eventos${filtroActivo ? ` · ${esc(filtroActivo)}` : ''}</h1>
+         <p style="color:var(--muted);margin-top:-8px">Tocá un evento para ver el detalle completo.</p>
+         ${stats}
          <div class="filters">
            <label class="flt">Edificio
              <select id="f-edificio" onchange="aplicarFiltros()">
@@ -1488,7 +1545,10 @@ router.get('/eventos', async (req, res) => {
              <input id="f-texto" placeholder="vecino, texto..." oninput="aplicarFiltros()">
            </label>
          </div>
-         ${feed}`,
+         ${feed}
+         <div class="drawer-overlay" id="drawer-overlay" onclick="cerrarDrawerEvento()"></div>
+         <div class="drawer-panel" id="drawer-panel"></div>
+         <script>window.__EVENTOS__=${jsonDrawer};</script>`,
         req
       )
     );
@@ -1497,7 +1557,7 @@ router.get('/eventos', async (req, res) => {
   }
 });
 
-function renderEventoFull(e, req) {
+function renderEventoFull(e, req, idx) {
   const transcript = e.transcripcion
     ? `<div class="transcript"><span class="lbl">Notas de Marcos</span>${esc(e.transcripcion)}</div>`
     : '';
@@ -1507,7 +1567,7 @@ function renderEventoFull(e, req) {
     : '';
 
   const feedbackHtml = esDueno({ session: req && req.session })
-    ? `<div class="fb">
+    ? `<div class="fb" onclick="event.stopPropagation()">
         <div class="existing" data-existing style="${e.feedback ? '' : 'display:none'}"><b>Tu nota:</b> ${esc(e.feedback)}</div>
         <div class="row">
           <textarea data-fb placeholder="Dejale una nota a Marcos para que aprenda de este caso...">${esc(e.feedback || '')}</textarea>
@@ -1516,7 +1576,8 @@ function renderEventoFull(e, req) {
       </div>`
     : (e.feedback ? `<div class="fb"><div class="existing"><b>Nota:</b> ${esc(e.feedback)}</div></div>` : '');
 
-  return `<div class="event" data-edificio="${esc(e.edificio)}" data-urgencia="${esc(e.urgencia)}">
+  return `<div class="event" data-edificio="${esc(e.edificio)}" data-urgencia="${esc(e.urgencia)}"
+    onclick="abrirDrawerEvento(${idx})" style="cursor:pointer">
     <div class="head">
       <div>
         <div class="who">${esc(e.edificio)} · ${esc(e.vecino)}</div>
@@ -1530,7 +1591,7 @@ function renderEventoFull(e, req) {
         ${e.estado ? `<span class="badge tipo">${esc(e.estado)}</span>` : ''}
       </div>
     </div>
-    ${e.mensaje ? `<div class="body">${esc(e.mensaje)}</div>` : ''}
+    ${e.mensaje ? `<div class="body">${esc(truncate(e.mensaje, 220))}</div>` : ''}
     ${e.tecnico ? `<div class="meta" style="margin-top:6px">🔧 ${esc(e.tecnico)}</div>` : ''}
     ${transcript}
     ${resumen}
