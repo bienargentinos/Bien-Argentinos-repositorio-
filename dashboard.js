@@ -38,6 +38,12 @@ const { google } = require('googleapis');
 
 const router = express.Router();
 
+// Logo de marca (design/assets/logo.png). Servido cacheable, sin sesion.
+router.use('/assets', express.static(path.join(__dirname, 'design', 'assets'), {
+  maxAge: '7d',
+}));
+const LOGO_URL = '/admin/assets/logo.png';
+
 /* ===================================================================
  * CONFIGURACION
  * =================================================================== */
@@ -394,9 +400,9 @@ a:hover{text-decoration:underline}
 }
 .side-brand{display:flex;align-items:center;gap:10px;padding:0 6px 20px;margin-bottom:4px}
 .side-brand .mark{
-  width:34px;height:34px;border-radius:9px;background:linear-gradient(150deg,var(--brand-deep),var(--brand2));
-  color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex-shrink:0;
+  width:34px;height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
 }
+.side-brand .mark img{width:100%;height:100%;object-fit:contain}
 .side-brand .name{font-weight:800;font-size:16.5px;letter-spacing:-.01em;line-height:1.15}
 .side-menu-label{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted2);text-transform:uppercase;padding:0 10px;margin:10px 0 8px}
 .side-nav{display:flex;flex-direction:column;gap:2px}
@@ -585,8 +591,9 @@ td input{width:100%}
   background:radial-gradient(circle,rgba(255,255,255,.10),transparent 70%)}
 .login-brand>*{position:relative}
 .login-brand .top{display:flex;align-items:center;gap:14px}
-.login-brand .mark{width:52px;height:52px;border-radius:12px;background:#fff;color:var(--brand);font-weight:800;
-  font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 22px -8px rgba(0,0,0,.35)}
+.login-brand .mark{width:64px;height:64px;border-radius:12px;background:#fff;padding:8px;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 8px 22px -8px rgba(0,0,0,.35)}
+.login-brand .mark img{width:100%;height:100%;object-fit:contain}
 .login-brand .top .name{font-weight:800;font-size:20px;letter-spacing:-.02em}
 .login-brand .top .by{font-size:12px;color:rgba(255,255,255,.72);font-weight:600}
 .login-brand .status{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.12);
@@ -668,7 +675,7 @@ function page(active, title, bodyHtml, req) {
 <div class="app-shell">
   <aside class="sidebar">
     <div class="side-brand">
-      <div class="mark">M</div>
+      <div class="mark"><img src="${LOGO_URL}" alt="Bien Argentinos"></div>
       <div class="name">Marcos IA</div>
     </div>
     <div class="side-menu-label">Menú</div>
@@ -926,7 +933,7 @@ router.get('/login', (req, res) => {
 <div class="login-shell">
   <div class="login-brand">
     <div class="top">
-      <div class="mark">M</div>
+      <div class="mark"><img src="${LOGO_URL}" alt="Bien Argentinos"></div>
       <div>
         <div class="name">Marcos IA</div>
         <div class="by">por Bien Argentinos</div>

@@ -16,13 +16,22 @@ ssh -p5436 root@200.58.102.182
 
 - Repo: `bienargentinos/bien-argentinos-repositorio-`
 - Branch de desarrollo: `claude/ecstatic-hamilton-d1564x`
-- Para transferir archivos al VPS:
+- Para transferir archivos al VPS (rama de desarrollo, no `main`):
   ```bash
-  curl -o /root/marcos/Consorcio-AI-Assistant/dashboard.js \
-    https://raw.githubusercontent.com/bienargentinos/bien-argentinos-repositorio-/main/dashboard.js
-  pm2 restart marcos-ia
+  curl -L -s "https://raw.githubusercontent.com/bienargentinos/Bien-Argentinos-repositorio-/claude/ecstatic-hamilton-d1564x/dashboard.js" \
+    -o /root/marcos/Consorcio-AI-Assistant/dashboard.js && \
+  node --check /root/marcos/Consorcio-AI-Assistant/dashboard.js && \
+  pm2 restart marcos-ai
   ```
   > El repo debe estar público para que curl funcione. Ponerlo privado después.
+- Logo de marca: `dashboard.js` sirve `/admin/assets/logo.png` desde `design/assets/logo.png`.
+  Ese archivo NO se actualiza con el curl de arriba (curl solo baja `dashboard.js`) — copiarlo
+  una sola vez al VPS:
+  ```bash
+  mkdir -p /root/marcos/Consorcio-AI-Assistant/design/assets && \
+  curl -L -s "https://raw.githubusercontent.com/bienargentinos/Bien-Argentinos-repositorio-/claude/ecstatic-hamilton-d1564x/design/assets/logo.png" \
+    -o /root/marcos/Consorcio-AI-Assistant/design/assets/logo.png
+  ```
 
 ## Stack técnico
 
