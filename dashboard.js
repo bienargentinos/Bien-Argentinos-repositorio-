@@ -2076,24 +2076,24 @@ router.get('/mi-edificio', async (req, res) => {
     const estadoHorarioRow = fichaRow('🕒', 'Estado y horario del encargado', estadoHorarioValor, false, `
         <button onclick="abrirModal('modal-encargado-horario')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-soft">Editar</button>`);
 
-    // ---- FICHAS: encargado y datos del edificio, de solo lectura con
-    // "Editar" por modal (sin aprobación) ----
-    const encargadoHtml = [
-      editRow('🧑‍🔧', 'encargado', cur.encargado, 'Nombre del encargado', 'Nombre y apellido'),
+    // Fichas de "Editar" directo (sin aprobación) — se arman abajo y se
+    // combinan con las de "Solicitar cambio" en una sola grilla, a modo
+    // de ficha de presentación completa del edificio.
+    const encargadoRows = [
+      editRow('🧑‍🔧', 'encargado', cur.encargado, 'Encargado', 'Nombre y apellido'),
       editRow('📞', 'tel_encargado', cur.tel_encargado, 'Tel. encargado', 'Teléfono'),
+    ];
+    const datosDirectosRows = [
+      editRow('🏠', 'unidades', cur.unidades, 'Unidades', 'Cantidad'),
+      editRow('📅', 'horario_sum', cur.horario_sum, 'Horario SUM', 'Ej: 10 a 24hs · seña $15.000'),
+      editRow('🚗', 'cocheras', cur.cocheras, 'Cocheras', 'Ej: 22 fijas + 4 de cortesía'),
+      editRow('🗺️', 'zona', cur.zona, 'Zona / barrio', 'Barrio, ciudad'),
+      editRow('🏷️', 'aliases', cur.aliases, 'Alias / doble dirección', 'Ej: Ortiz 1486 (como lo conocen los vecinos)', 'Si el edificio figura con una altura legal pero los vecinos lo nombran distinto, cargá acá los dos. Marcos reconoce cualquiera de las dos.'),
+      editRow('📞', 'tel_seguridad', cur.tel_seguridad, 'Tel. seguridad de la entrada', 'Si el edificio tiene'),
       editRow('🧑‍🔧', 'encargado_suplente', cur.encargado_suplente, 'Encargado suplente / limpieza', 'Quién lo cubre'),
       editRow('📞', 'tel_suplente', cur.tel_suplente, 'Tel. suplente', 'Teléfono'),
       estadoHorarioRow,
-    ].join('');
-
-    const datosHtml = [
-      editRow('🗺️', 'zona', cur.zona, 'Zona / barrio', 'Barrio, ciudad'),
-      editRow('🏷️', 'aliases', cur.aliases, 'Alias / doble dirección', 'Ej: Ortiz 1486 (como lo conocen los vecinos)', 'Si el edificio figura con una altura legal pero los vecinos lo nombran distinto, cargá acá los dos. Marcos reconoce cualquiera de las dos.'),
-      editRow('🏠', 'unidades', cur.unidades, 'Unidades funcionales', 'Cantidad'),
-      editRow('📅', 'horario_sum', cur.horario_sum, 'Horario del SUM', 'Ej: 10 a 24hs · seña $15.000'),
-      editRow('🚗', 'cocheras', cur.cocheras, 'Cocheras', 'Ej: 22 fijas + 4 de cortesía'),
-      editRow('📞', 'tel_seguridad', cur.tel_seguridad, 'Tel. seguridad de la entrada', 'Si el edificio tiene'),
-    ].join('');
+    ];
 
     // ---- PROVEEDORES: asignados a este edificio + asignar desde la lista ----
     const rubroColor = (r) => ({
@@ -2156,16 +2156,26 @@ router.get('/mi-edificio', async (req, res) => {
         ${asignarBloque}
       </div>`;
 
-    // ---- DATOS SENSIBLES (con aprobacion del administrador) ----
-    const consultaRows = [
-      { campo: 'nombre', icon: '🏢', label: 'Consorcio', value: cur.nombre },
-      { campo: 'direccion', icon: '📍', label: 'Dirección', value: cur.direccion || '—' },
-      { campo: 'cuit', icon: '🧾', label: 'CUIT del edificio', value: cur.cuit || '—' },
-      { campo: 'administrador', icon: '👔', label: 'Administrador', value: cur.administrador || '—' },
-      { campo: 'telefonos', icon: '📞', label: 'Tel. administración', value: cur.telefonos || '—' },
-    ];
-    const consultaHtml = consultaRows.map((r) => fichaRow(r.icon, r.label, r.value, pendCampos.has(r.campo), `
-        <button onclick="abrirSolicitud('${escJs(r.campo)}','${escJs(r.label)}','${escJs(r.value === '—' ? '' : r.value)}','${escJs(cur.nombre)}')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-softb">Solicitar cambio</button>`)).join('');
+    // ---- FICHA COMPLETA: todo junto, una sola grilla — orientativa para
+    // el cliente. Los datos sensibles piden permiso; el resto se edita
+    // directo. ----
+    const solicitarRow = (icon, campo, labelTxt, valorCrudo) => {
+      const value = valorCrudo || '—';
+      return fichaRow(icon, labelTxt, value, pendCampos.has(campo), `
+        <button onclick="abrirSolicitud('${escJs(campo)}','${escJs(labelTxt)}','${escJs(value === '—' ? '' : value)}','${escJs(cur.nombre)}')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-softb">Solicitar cambio</button>`);
+    };
+
+    // Orden pensado como ficha de presentación: identidad del consorcio
+    // primero, encargado (lo que más cambia) enseguida, después el resto.
+    const fichaHtml = [
+      solicitarRow('🏢', 'nombre', 'Consorcio', cur.nombre),
+      solicitarRow('📍', 'direccion', 'Dirección', cur.direccion),
+      solicitarRow('👔', 'administrador', 'Administrador', cur.administrador),
+      solicitarRow('📞', 'telefonos', 'Tel. administración', cur.telefonos),
+      ...encargadoRows,
+      solicitarRow('🧾', 'cuit', 'CUIT del edificio', cur.cuit),
+      ...datosDirectosRows,
+    ].join('');
 
     const modalSolicitud = `
       <div id="modal-solicitud" class="modal-overlay" onclick="cerrarModal('modal-solicitud')">
@@ -2225,13 +2235,8 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
         <div style="height:16px"></div>
         ${pendHtml}
-        <div style="font-size:14px;font-weight:800;color:#334259;margin:0 0 12px">🏢 Datos del edificio</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:26px" class="fichagrid">${datosHtml}</div>
-        <div style="font-size:14px;font-weight:800;color:#334259;margin:0 0 12px">🧑‍🔧 Encargado</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:26px" class="fichagrid">${encargadoHtml}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:26px" class="fichagrid">${fichaHtml}</div>
         ${proveedoresCard}
-        <div style="font-size:14px;font-weight:800;color:#334259;margin:8px 0 12px">Datos sensibles (los cambia tu administrador)</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">${consultaHtml}</div>
       </div>
       ${modalSolicitud}
       ${modalEncargadoHorario}
