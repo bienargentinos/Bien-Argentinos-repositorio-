@@ -1265,6 +1265,7 @@ function shell(req, d, activeKey, contenido) {
   const navCliente = [
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
     { key: 'edificio', icon: '🏢', label: 'Mi Edificio', href: '/admin/mi-edificio' },
+    { key: 'proveedores', icon: '🧰', label: 'Proveedores', href: '/admin/proveedores' },
     { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosCliente },
     { key: 'facturas', icon: '🧾', label: 'Facturas/Fotos', href: '/admin/archivos' },
     { key: 'expensas', icon: '📑', label: 'Expensas', href: '/admin/expensas' },
@@ -2041,53 +2042,11 @@ router.get('/mi-edificio', async (req, res) => {
       <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:4px">
           <div style="font-size:16px;font-weight:800">🧰 Proveedores de este edificio</div>
-          <button onclick="abrirModal('modal-proveedores')" style="height:36px;padding:0 14px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Mi lista de proveedores (${maestros.length})</button>
+          <a href="/admin/proveedores" style="display:inline-flex;align-items:center;height:36px;padding:0 14px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Mi lista de proveedores (${maestros.length})</a>
         </div>
         <p style="font-size:13px;color:#8595AD;margin:0 0 16px">Cuando surge un evento (pérdida de agua, ascensor, etc.), Marcos recurre al proveedor del rubro según la prioridad que le pongas acá. Cargás cada proveedor <strong>una sola vez</strong> en tu lista y lo asignás a los edificios que quieras.</p>
         <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">${asigFilas}</div>
         ${asignarBloque}
-      </div>`;
-
-    // Modal: lista maestra del cliente (cargar/quitar una vez, sirve a todos).
-    const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
-    const maestroFilas = maestros.length ? maestros.map((m) => `
-      <div style="display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid #E7ECF3;border-radius:11px;background:#fff;flex-wrap:wrap">
-        <span style="font-size:11px;font-weight:800;padding:4px 10px;border-radius:999px;background:${rubroColor(m.rubro)};color:#334259;min-width:86px;text-align:center">${esc(m.rubro)}</span>
-        <div style="flex:1;min-width:110px">
-          <div style="font-size:14px;font-weight:700">${esc(m.nombre || '—')}</div>
-          ${m.notas ? `<div style="font-size:12px;color:#8595AD">${esc(m.notas)}</div>` : ''}
-        </div>
-        <div style="font-size:13.5px;font-weight:700;color:#2E6FC0">${esc(m.telefono || '—')}</div>
-        <button onclick="quitarProveedor(this,${m._row})" style="height:32px;padding:0 11px;border:1px solid #EEDCDC;border-radius:8px;background:#fff;color:#C0392B;font-weight:700;font-size:12px;cursor:pointer" class="hv-red">Quitar</button>
-      </div>`).join('') : '<div style="font-size:13.5px;color:#8595AD;padding:8px 2px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
-
-    const modalProveedores = `
-      <div id="modal-proveedores" class="modal-overlay" onclick="cerrarModal('modal-proveedores')">
-        <div class="modal-box" style="width:560px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
-            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Mi lista de proveedores</div>
-            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Técnicos de confianza</div>
-            <div style="font-size:13px;color:#8595AD;margin-top:4px">Cargalos una sola vez acá. Después los asignás a cada edificio desde su ficha.</div>
-          </div>
-          <div style="padding:18px 24px;max-height:44vh;overflow-y:auto">
-            <div style="display:flex;flex-direction:column;gap:9px">${maestroFilas}</div>
-          </div>
-          <div style="padding:16px 24px;border-top:1px solid #EEF1F6;background:#F8FAFD">
-            <div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:10px">Agregar proveedor a mi lista</div>
-            <div style="display:grid;grid-template-columns:130px 1fr;gap:10px;margin-bottom:10px">
-              <div>${label('Rubro')}<select id="prov-rubro" class="inp" style="height:42px">${rubroOptions}</select></div>
-              <div>${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:42px" placeholder="Ej: Gastón, Plomería del Oeste"></div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
-              <div>${label('Teléfono')}<input id="prov-tel" class="inp" style="height:42px" placeholder="Teléfono"></div>
-              <div>${label('Notas (opcional)')}<input id="prov-notas" class="inp" style="height:42px" placeholder="Ej: tiene llave del edificio"></div>
-            </div>
-            <button onclick="agregarProveedor(this)" style="height:42px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">+ Agregar a mi lista</button>
-          </div>
-          <div style="padding:14px 24px 20px">
-            <button onclick="cerrarModal('modal-proveedores')" style="width:100%;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Listo</button>
-          </div>
-        </div>
       </div>`;
 
     // ---- DATOS DE CONSULTA (con aprobacion) ----
@@ -2152,10 +2111,73 @@ router.get('/mi-edificio', async (req, res) => {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">${consultaHtml}</div>
         ${barraGuardar}
       </div>
-      ${modalSolicitud}
-      ${modalProveedores}`;
+      ${modalSolicitud}`;
 
     res.send(shell(req, d, 'edificio', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+/* ===================================================================
+ * PROVEEDORES (cliente) — lista MAESTRA, independiente de cualquier
+ * edificio. Se carga una sola vez acá; después se asigna a cada
+ * edificio (con prioridad) desde "Mi Edificio".
+ * =================================================================== */
+
+router.get('/proveedores', async (req, res) => {
+  if (esDueno(req)) return res.redirect('/admin/clientes');
+  try {
+    const d = await cargarDatos(req);
+    const usuarioCliente = enPreview(req) ? req.session.previewOwner : req.session.user;
+
+    let maestros = [];
+    try {
+      const { rows } = await readTab(TAB_PROVEEDORES);
+      maestros = rows.map(mapProveedor).filter((p) => p.cliente === usuarioCliente && p.estado !== 'eliminado');
+    } catch (_) {}
+
+    const label = (t) => `<div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">${t}</div>`;
+    const rubroColor = (r) => ({
+      Plomero: '#EAF1FB', Gasista: '#FBF3DE', Electricista: '#FDF3D6', Ascensores: '#EDEEFB',
+    }[r] || '#EEF2F8');
+
+    const filas = maestros.length ? maestros.map((m) => `
+      <div style="display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:800;padding:5px 11px;border-radius:999px;background:${rubroColor(m.rubro)};color:#334259;min-width:92px;text-align:center">${esc(m.rubro)}</span>
+        <div style="flex:1;min-width:140px">
+          <div style="font-size:14.5px;font-weight:700">${esc(m.nombre || '—')}</div>
+          ${m.notas ? `<div style="font-size:12px;color:#8595AD">${esc(m.notas)}</div>` : ''}
+        </div>
+        <div style="font-size:14px;font-weight:700;color:#2E6FC0">${esc(m.telefono || '—')}</div>
+        <button onclick="quitarProveedor(this,${m._row})" style="height:34px;padding:0 12px;border:1px solid #EEDCDC;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-red">Quitar</button>
+      </div>`).join('') : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
+
+    const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both;max-width:820px">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Proveedores</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Tu lista de técnicos de confianza, <strong style="color:#334259">independiente de cada edificio</strong>: cargás a cada uno una sola vez acá y después lo asignás, con prioridad, a los edificios que quieras desde "Mi Edificio".</p>
+
+        <div style="font-size:15px;font-weight:800;margin-bottom:12px">Mi lista (${maestros.length})</div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:26px">${filas}</div>
+
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px">
+          <div style="font-size:15px;font-weight:800;margin-bottom:14px">Agregar proveedor a mi lista</div>
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;margin-bottom:14px">
+            <div>${label('Rubro')}<select id="prov-rubro" class="inp" style="height:44px">${rubroOptions}</select></div>
+            <div>${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:44px" placeholder="Ej: Gastón, Plomería del Oeste"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+            <div>${label('Teléfono')}<input id="prov-tel" class="inp" style="height:44px" placeholder="Teléfono"></div>
+            <div>${label('Notas (opcional)')}<input id="prov-notas" class="inp" style="height:44px" placeholder="Ej: tiene llave del edificio"></div>
+          </div>
+          <button onclick="agregarProveedor(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">+ Agregar a mi lista</button>
+        </div>
+      </div>`;
+
+    res.send(shell(req, d, 'proveedores', contenido));
   } catch (e) {
     res.status(500).send(paginaError(e));
   }
