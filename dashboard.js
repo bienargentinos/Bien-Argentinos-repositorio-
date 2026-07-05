@@ -1281,21 +1281,25 @@ function shell(req, d, activeKey, contenido) {
     selectorHtml = selectorEdificioHtml(label, sub, 'Filtrar por edificio', filas, '/admin/set-filtro');
   } else {
     const cur = d.curBuilding;
-    const label = cur ? cur.nombre : 'Sin edificio';
-    const sub = cur ? (cur.zona || cur.direccion || '') : '';
-    const filas = d.propios.map((e) => ({
-      label: e.nombre,
-      sub: `${e.direccion || e.nombre}${e.unidades ? ' · ' + e.unidades + ' un.' : ''}`,
-      val: e.nombre,
-      activo: !!(cur && cur.nombre === e.nombre),
-    }));
+    const todos = !req.session.edificioActivo;
+    const label = todos ? 'Todos los edificios' : (cur ? cur.nombre : 'Sin edificio');
+    const sub = todos ? `${d.propios.length} edificios` : (cur ? (cur.zona || cur.direccion || '') : '');
+    const filas = [
+      { label: 'Todos los edificios', sub: `${d.propios.length} edificios`, val: '', activo: todos },
+      ...d.propios.map((e) => ({
+        label: e.nombre,
+        sub: `${e.direccion || e.nombre}${e.unidades ? ' · ' + e.unidades + ' un.' : ''}`,
+        val: e.nombre,
+        activo: !todos && !!(cur && cur.nombre === e.nombre),
+      })),
+    ];
     selectorHtml = d.propios.length > 1
       ? selectorEdificioHtml(label, sub, 'Tus edificios', filas, '/admin/set-filtro')
       : `<div style="display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border:1px solid #E1E7F1;border-radius:11px;background:#F7F9FC">
           <span style="font-size:15px">🏢</span>
           <span style="text-align:left;line-height:1.15">
-            <span style="display:block;font-size:14px;font-weight:700;color:#16233B">${esc(label)}</span>
-            <span style="display:block;font-size:11px;color:#8595AD">${esc(sub)}</span>
+            <span style="display:block;font-size:14px;font-weight:700;color:#16233B">${esc(cur ? cur.nombre : 'Sin edificio')}</span>
+            <span style="display:block;font-size:11px;color:#8595AD">${esc(cur ? (cur.zona || cur.direccion || '') : '')}</span>
           </span>
         </div>`;
   }
@@ -1609,6 +1613,7 @@ router.post('/login', async (req, res) => {
     req.session.role = 'consorcio';
     req.session.user = user;
     req.session.edificios = consorcioCfg.edificios;
+    req.session.edificioActivo = undefined; // arranca en "Todos los edificios"
     return req.session.save(() => res.redirect('/admin'));
   }
   try {
@@ -1620,6 +1625,7 @@ router.post('/login', async (req, res) => {
       req.session.role = 'consorcio';
       req.session.user = user;
       req.session.edificios = match.edificios;
+      req.session.edificioActivo = undefined; // arranca en "Todos los edificios"
       // Ultima conexion (para el banner de novedades): guarda la anterior
       // en sesion y registra la actual en la planilla.
       req.session.lastConn = match.ultimo_acceso || '';
@@ -1752,7 +1758,55 @@ router.get('/', async (req, res) => {
       return res.send(shell(req, d, 'resumen', contenido));
     }
 
-    // ---------- RESUMEN CLIENTE ----------
+    // ---------- RESUMEN CLIENTE · TODOS LOS EDIFICIOS (panorama general) ----------
+    if (!req.session.edificioActivo && d.propios.length > 1) {
+      const greetName = (d.clienteActual ? d.clienteActual.nombre : req.session.user).split(' ')[0];
+      const evPropios = d.eventos.filter((e) => d.propios.some((b) => b.nombre === e.edificio));
+      const nuevosHoy = evPropios.filter((e) => esHoy(parseFecha(e.fecha)));
+      const urgAbiertas = evPropios.filter((e) => e.urgencia === 'alta' && estadoNormalizado(e.estado) !== 'resuelto');
+      const kpis = [
+        { icon: '🏢', iconBg: '#EAF1FB', value: String(d.propios.length), label: 'Tus edificios' },
+        { icon: '🌙', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: 'Novedades hoy' },
+        { icon: '🚨', iconBg: '#FDECEC', value: String(urgAbiertas.length), label: 'Urgencias abiertas' },
+      ];
+      const kpiHtml = kpis.map((k) => `
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,59,.04)">
+          <span style="width:38px;height:38px;border-radius:11px;background:${k.iconBg};display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:11px">${k.icon}</span>
+          <div style="font-size:27px;font-weight:800;letter-spacing:-.03em;line-height:1">${k.value}</div>
+          <div style="font-size:13px;color:#64748B;font-weight:600;margin-top:4px">${k.label}</div>
+        </div>`).join('');
+      const cardsHtml = d.propios.map((e) => {
+        const ev = d.eventos.filter((x) => x.edificio === e.nombre);
+        const nuevos = ev.filter((x) => esHoy(parseFecha(x.fecha))).length;
+        const urg = ev.filter((x) => x.urgencia === 'alta' && estadoNormalizado(x.estado) !== 'resuelto').length;
+        return `
+          <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}"
+            style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px;cursor:pointer" class="hv-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <span style="width:42px;height:42px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:19px">🏢</span>
+              <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:${urg ? '#FDECEC' : '#E7F4EC'};color:${urg ? '#C0392B' : '#1B7A43'}">${urg ? urg + ' urgente' + (urg === 1 ? '' : 's') : 'Sin urgencias'}</span>
+            </div>
+            <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">${esc(e.nombre)}</div>
+            <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px">${esc(e.direccion || e.nombre)}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
+            <div style="display:flex;gap:16px">
+              <span style="font-size:13px;color:#334259"><strong style="color:#2E6FC0;font-size:15px">${nuevos}</strong> novedades hoy</span>
+            </div>
+          </a>`;
+      }).join('');
+      const contenido = `
+        <div style="animation:mFade .3s ease both">
+          <div style="margin-bottom:20px">
+            <div style="font-size:13px;font-weight:700;color:#2E6FC0;letter-spacing:.02em;margin-bottom:3px">Hola de nuevo, ${esc(greetName)} 👋</div>
+            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">Panorama general · todos tus edificios</h1>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px">${kpiHtml}</div>
+          <div style="font-size:16px;font-weight:800;margin-bottom:14px">Estado por edificio</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">${cardsHtml}</div>
+        </div>`;
+      return res.send(shell(req, d, 'resumen', contenido));
+    }
+
+    // ---------- RESUMEN CLIENTE · UN EDIFICIO ----------
     const cur = d.curBuilding;
     const evTodos = d.eventos.filter((e) => cur && e.edificio === cur.nombre);
     const vistas = evTodos.map(vistaEvento);
