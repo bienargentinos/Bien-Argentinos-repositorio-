@@ -64,20 +64,29 @@ ssh -p5436 root@200.58.102.182
     (pendiente: hashear con bcrypt cuando hagamos el auth real con activación por token).
   - `expensas`: (la crea el dashboard) fecha, edificio, periodo, formato (pdf/imagen/link), nombre, url, estado.
     El binario del PDF todavía NO se sube — se registra nombre/link para que Marcos lo comparta.
-  - `proveedores`: (la crea el dashboard, Mi Edificio) edificio, rubro, nombre, telefono, notas, estado.
-    Técnicos de confianza del consorcio (plomero, gasista, electricista, ascensores...). Marcos recurre a
-    estos según el rubro del evento. Una fila por proveedor (un edificio puede tener varios del mismo rubro).
+  - `proveedores`: (la crea el dashboard) **lista MAESTRA por cliente**: cliente, rubro, nombre, telefono,
+    notas, estado. El cliente carga cada técnico UNA sola vez (no por edificio). Ej: el electricista de un
+    admin con 27 edificios se carga una vez acá.
+  - `proveedor_asignaciones`: (la crea el dashboard) cliente, edificio, proveedor, rubro, telefono,
+    prioridad (primera/segunda/urgencias), estado. Vincula un proveedor de la lista maestra a un edificio
+    puntual con su prioridad. Marcos lee esta tab: `edificio + rubro` → proveedor ordenado por prioridad
+    (denormaliza nombre/telefono/rubro para no tener que hacer join).
 - IMPORTANTE: el dashboard apunta a estas tabs por defecto. Overrides en `.env`: `SHEET_TAB_EVENTOS`,
-  `SHEET_TAB_EDIFICIOS`, `SHEET_TAB_ARCHIVOS`, `SHEET_TAB_CLIENTES`, `SHEET_TAB_EXPENSAS`, `SHEET_TAB_PROVEEDORES`.
+  `SHEET_TAB_EDIFICIOS`, `SHEET_TAB_ARCHIVOS`, `SHEET_TAB_CLIENTES`, `SHEET_TAB_EXPENSAS`,
+  `SHEET_TAB_PROVEEDORES`, `SHEET_TAB_ASIGNACIONES`.
 
 ## Mi Edificio (lado cliente) — qué edita sin permiso vs. con aprobación
 
 - **Edita DIRECTO el cliente** (se guarda al instante, botón "Guardar cambios del edificio"): dirección, zona,
   alias/doble dirección, CUIT, unidades funcionales, horario del SUM, cocheras, tel. seguridad de la entrada,
   encargado (nombre/tel), suplente (nombre/tel), **estado del encargado** (activo/licencia/vacaciones) y
-  **horario del encargado** (aparece solo si está activo). Endpoint `POST /api/mi-edificio`.
-- **Proveedores**: se agregan/quitan directo desde una tarjeta propia (rubro, nombre, teléfono, notas).
-  Endpoints `POST /api/proveedor` y `POST /api/proveedor-quitar`.
+  **horario del encargado** con selectores de hora (relojito): 2 rangos Lun-Vie + 1 Sábados, se serializa a
+  JSON `{lv1:[hh,hh],lv2:[...],sab:[...]}` en la celda `encargado_horario`. Aparece solo si está activo.
+  Endpoint `POST /api/mi-edificio`.
+- **Proveedores (flujo de 2 pasos, para no recargar 27 veces)**: (1) el cliente carga su **lista maestra**
+  una vez (modal "Mi lista de proveedores") → `POST /api/proveedor`; (2) en cada edificio **asigna** desde un
+  desplegable de su lista + prioridad → `POST /api/proveedor-asignar`. Quitar: `/api/proveedor-quitar` (de la
+  lista) y `/api/proveedor-desasignar` (del edificio).
 - **Pasa por aprobación** (botón "Solicitar cambio" → tab `solicitudes` → el dueño aprueba): solo el nombre
   del consorcio y el administrador + su teléfono. Son los datos "de identidad" que no debería cambiar el
   cliente a ciegas.

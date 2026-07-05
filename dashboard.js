@@ -69,6 +69,7 @@ const TAB_SOLICITUDES = process.env.SHEET_TAB_SOLICITUDES || 'solicitudes';
 const TAB_CLIENTES = process.env.SHEET_TAB_CLIENTES || 'clientes';
 const TAB_EXPENSAS = process.env.SHEET_TAB_EXPENSAS || 'expensas';
 const TAB_PROVEEDORES = process.env.SHEET_TAB_PROVEEDORES || 'proveedores';
+const TAB_ASIGNACIONES = process.env.SHEET_TAB_ASIGNACIONES || 'proveedor_asignaciones';
 
 /* ===================================================================
  * SESSION
@@ -281,13 +282,12 @@ function mapExpensa(r) {
   };
 }
 
-// Proveedor del edificio (plomero, gasista, electricista, ascensores...).
-// Marcos recurre a estos telefonos por orden del administrador cuando hay
-// un evento del rubro correspondiente.
+// Proveedor: LISTA MAESTRA por cliente (se carga una vez). El mismo plomero
+// no se recarga en cada edificio: se asigna despues (mapAsignacion).
 function mapProveedor(r) {
   return {
     _row: r._row,
-    edificio: pick(r, ['edificio', 'consorcio']),
+    cliente: pick(r, ['cliente', 'usuario', 'owner']),
     rubro: pick(r, ['rubro', 'especialidad', 'tipo'], 'Otro'),
     nombre: pick(r, ['nombre', 'proveedor', 'empresa']),
     telefono: pick(r, ['telefono', 'tel', 'celular', 'contacto']),
@@ -296,8 +296,53 @@ function mapProveedor(r) {
   };
 }
 
+// Asignacion proveedor -> edificio con prioridad. Una fila por (proveedor,
+// edificio). Denormaliza nombre/telefono/rubro para que Marcos lea esta tab
+// sola (edificio + rubro -> proveedor ordenado por prioridad).
+function mapAsignacion(r) {
+  return {
+    _row: r._row,
+    cliente: pick(r, ['cliente', 'usuario', 'owner']),
+    edificio: pick(r, ['edificio', 'consorcio']),
+    proveedor: pick(r, ['proveedor', 'nombre']),
+    rubro: pick(r, ['rubro', 'especialidad'], 'Otro'),
+    telefono: pick(r, ['telefono', 'tel']),
+    prioridad: pick(r, ['prioridad'], 'primera'),
+    estado: pick(r, ['estado'], 'activo'),
+  };
+}
+
 // Rubros sugeridos (el cliente puede escribir otro).
 const RUBROS_PROVEEDOR = ['Plomero', 'Gasista', 'Electricista', 'Ascensores', 'Cerrajero', 'Pintor', 'Limpieza', 'Seguridad', 'Otro'];
+const PRIORIDADES = [
+  { key: 'primera', label: '1ra opción', bg: '#E7F4EC', fg: '#1B7A43' },
+  { key: 'segunda', label: '2da opción', bg: '#EAF1FB', fg: '#2C55A8' },
+  { key: 'urgencias', label: 'Solo urgencias', bg: '#FBF3DE', fg: '#8A6410' },
+];
+
+// Serializa/parsea el horario del encargado. Guardado como JSON en la celda
+// encargado_horario para poder rearmar los selectores; el bot puede leerlo.
+function parseHorarioEnc(str) {
+  if (!str) return { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
+  try {
+    const o = JSON.parse(str);
+    return {
+      lv1: Array.isArray(o.lv1) ? o.lv1 : ['', ''],
+      lv2: Array.isArray(o.lv2) ? o.lv2 : ['', ''],
+      sab: Array.isArray(o.sab) ? o.sab : ['', ''],
+    };
+  } catch (_) {
+    return { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
+  }
+}
+function horarioTexto(str) {
+  const h = parseHorarioEnc(str);
+  const seg = [];
+  if (h.lv1[0] && h.lv1[1]) seg.push(`Lun a Vie ${h.lv1[0]}-${h.lv1[1]}`);
+  if (h.lv2[0] && h.lv2[1]) seg.push(`Lun a Vie ${h.lv2[0]}-${h.lv2[1]}`);
+  if (h.sab[0] && h.sab[1]) seg.push(`Sáb ${h.sab[0]}-${h.sab[1]}`);
+  return seg.join(' · ') || 'Sin horario cargado';
+}
 
 /* ===================================================================
  * FECHAS
@@ -752,10 +797,17 @@ function setEncEstado(estado){
   var w=document.getElementById('enc-horario-wrap');
   if(w)w.style.display=estado==='activo'?'block':'none';
 }
+function valEl(id){var e=document.getElementById(id);return e?e.value:'';}
 async function guardarMiEdificio(btn){
   var data={};
   document.querySelectorAll('[data-me]').forEach(function(el){
     data[el.getAttribute('data-me')]=el.value;
+  });
+  // Horario del encargado: armar JSON desde los selectores de hora.
+  data.encargado_horario=JSON.stringify({
+    lv1:[valEl('enc-lv1a'),valEl('enc-lv1b')],
+    lv2:[valEl('enc-lv2a'),valEl('enc-lv2b')],
+    sab:[valEl('enc-saba'),valEl('enc-sabb')]
   });
   btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
   try{
@@ -766,6 +818,7 @@ async function guardarMiEdificio(btn){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
+// Agregar proveedor a la lista maestra del cliente (una sola vez).
 async function agregarProveedor(btn){
   var rubro=(document.getElementById('prov-rubro')||{}).value||'';
   var nombre=(document.getElementById('prov-nombre')||{}).value||'';
@@ -778,7 +831,7 @@ async function agregarProveedor(btn){
       body:JSON.stringify({rubro:rubro,nombre:nombre.trim(),telefono:tel.trim(),notas:notas.trim()})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Proveedor agregado','ok');
+    toast('Proveedor agregado a tu lista','ok');
     setTimeout(function(){location.reload();},800);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
@@ -789,7 +842,33 @@ async function quitarProveedor(btn,row){
     var r=await fetch('/admin/api/proveedor-quitar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({row:row})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Proveedor quitado','ok');
+    toast('Proveedor quitado de tu lista','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;}
+}
+// Asignar un proveedor de la lista a ESTE edificio con prioridad.
+async function asignarProveedor(btn){
+  var prov=(document.getElementById('asig-prov')||{}).value||'';
+  var prio=(document.getElementById('asig-prio')||{}).value||'primera';
+  if(!prov){toast('Elegí un proveedor','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Asignando...';
+  try{
+    var r=await fetch('/admin/api/proveedor-asignar',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({proveedor:prov,prioridad:prio})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Proveedor asignado a este edificio','ok');
+    setTimeout(function(){location.reload();},800);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+async function desasignarProveedor(btn,row){
+  btn.disabled=true;
+  try{
+    var r=await fetch('/admin/api/proveedor-desasignar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({row:row})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Proveedor quitado del edificio','ok');
     setTimeout(function(){location.reload();},700);
   }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;}
 }
@@ -1794,11 +1873,19 @@ router.get('/mi-edificio', async (req, res) => {
       return res.send(shell(req, d, 'edificio', '<div style="padding:30px;text-align:center;color:#8595AD">No hay edificio asignado a tu cuenta.</div>'));
     }
 
-    // Proveedores del edificio.
-    let proveedores = [];
+    const usuarioCliente = enPreview(req) ? req.session.previewOwner : req.session.user;
+
+    // Lista MAESTRA de proveedores del cliente (se carga una vez) y las
+    // asignaciones a ESTE edificio.
+    let maestros = [];
+    let asignados = [];
     try {
       const { rows } = await readTab(TAB_PROVEEDORES);
-      proveedores = rows.map(mapProveedor).filter((p) => p.edificio === cur.nombre && p.estado !== 'eliminado');
+      maestros = rows.map(mapProveedor).filter((p) => p.cliente === usuarioCliente && p.estado !== 'eliminado');
+    } catch (_) {}
+    try {
+      const { rows } = await readTab(TAB_ASIGNACIONES);
+      asignados = rows.map(mapAsignacion).filter((a) => a.edificio === cur.nombre && a.estado !== 'eliminado');
     } catch (_) {}
 
     // Pedidos de cambio pendientes (para los campos de consulta con aprobacion).
@@ -1835,6 +1922,17 @@ router.get('/mi-edificio', async (req, res) => {
       return `<button type="button" data-enc-estado="${e.key}" onclick="setEncEstado('${e.key}')" style="height:38px;padding:0 16px;border:1.5px solid ${act ? e.fg : '#DDE3EE'};border-radius:10px;background:${act ? e.bg : '#fff'};color:${act ? e.fg : '#64748B'};font-weight:700;font-size:13.5px;cursor:pointer">${e.label}</button>`;
     }).join('');
 
+    // Horario con selectores de hora (tipo rueda): 2 rangos Lun-Vie + Sáb.
+    const hor = parseHorarioEnc(cur.encargado_horario);
+    const timeInput = (id, val) => `<input type="time" id="${id}" value="${esc(val)}" class="inp" style="height:42px;width:auto;min-width:120px">`;
+    const rangoHorario = (titulo, idA, valA, idB, valB) => `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <span style="font-size:13px;font-weight:700;color:#334259;min-width:120px">${titulo}</span>
+        ${timeInput(idA, valA)}
+        <span style="color:#8595AD">a</span>
+        ${timeInput(idB, valB)}
+      </div>`;
+
     const encargadoCard = `
       <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
         <div style="font-size:16px;font-weight:800;margin-bottom:4px">🧑‍🔧 Encargado</div>
@@ -1850,10 +1948,12 @@ router.get('/mi-edificio', async (req, res) => {
           <div style="display:flex;gap:9px;flex-wrap:wrap">${btnEstado}</div>
           <input type="hidden" data-me="encargado_estado" id="enc-estado-val" value="${esc(estadoActual)}">
         </div>
-        <div id="enc-horario-wrap" style="margin-top:16px;${estadoActual === 'activo' ? '' : 'display:none'}">
+        <div id="enc-horario-wrap" style="margin-top:18px;${estadoActual === 'activo' ? '' : 'display:none'}">
           ${label('Horario del encargado (cuando está activo)')}
-          ${inputEditable('encargado_horario', cur.encargado_horario, 'Ej: Lun a Vie 8 a 16hs')}
-          <div style="font-size:12px;color:#9AA7BD;margin-top:6px">Marcos se fija en este rango para saber si el encargado está disponible al momento del evento.</div>
+          ${rangoHorario('Lun a Vie', 'enc-lv1a', hor.lv1[0], 'enc-lv1b', hor.lv1[1])}
+          ${rangoHorario('Lun a Vie (2° turno)', 'enc-lv2a', hor.lv2[0], 'enc-lv2b', hor.lv2[1])}
+          ${rangoHorario('Sábados', 'enc-saba', hor.sab[0], 'enc-sabb', hor.sab[1])}
+          <div style="font-size:12px;color:#9AA7BD;margin-top:4px">Marcos se fija en estos horarios para saber si el encargado está disponible al momento del evento. Dejá vacío el 2° turno si no aplica.</div>
         </div>
       </div>`;
 
@@ -1876,35 +1976,106 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
-    // ---- PROVEEDORES ----
+    // ---- PROVEEDORES: asignados a este edificio + asignar desde la lista ----
     const rubroColor = (r) => ({
       Plomero: '#EAF1FB', Gasista: '#FBF3DE', Electricista: '#FDF3D6', Ascensores: '#EDEEFB',
     }[r] || '#EEF2F8');
-    const provFilas = proveedores.length ? proveedores.map((p) => `
-      <div style="display:flex;align-items:center;gap:13px;padding:12px 14px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
-        <span style="font-size:11px;font-weight:800;padding:5px 11px;border-radius:999px;background:${rubroColor(p.rubro)};color:#334259;min-width:92px;text-align:center">${esc(p.rubro)}</span>
-        <div style="flex:1;min-width:120px">
-          <div style="font-size:14.5px;font-weight:700">${esc(p.nombre || '—')}</div>
-          ${p.notas ? `<div style="font-size:12px;color:#8595AD">${esc(p.notas)}</div>` : ''}
-        </div>
-        <div style="font-size:14px;font-weight:700;color:#2E6FC0">${esc(p.telefono || '—')}</div>
-        <button onclick="quitarProveedor(this,${p._row})" style="height:34px;padding:0 12px;border:1px solid #EEDCDC;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-red">Quitar</button>
-      </div>`).join('') : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">Todavía no cargaste proveedores. Marcos los va a usar para derivar los eventos al rubro que corresponda.</div>';
+    const prioStyle = (k) => (PRIORIDADES.find((p) => p.key === k) || PRIORIDADES[0]);
 
-    const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
+    // Fila de proveedor asignado (resuelve telefono desde la maestra por si cambió).
+    const asigFilas = asignados.length ? asignados
+      .slice()
+      .sort((a, b) => PRIORIDADES.findIndex((p) => p.key === a.prioridad) - PRIORIDADES.findIndex((p) => p.key === b.prioridad))
+      .map((a) => {
+        const m = maestros.find((x) => x.nombre === a.proveedor) || {};
+        const tel = m.telefono || a.telefono || '—';
+        const pr = prioStyle(a.prioridad);
+        return `
+          <div style="display:flex;align-items:center;gap:13px;padding:12px 14px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:800;padding:5px 11px;border-radius:999px;background:${rubroColor(a.rubro)};color:#334259;min-width:92px;text-align:center">${esc(a.rubro)}</span>
+            <div style="flex:1;min-width:120px">
+              <div style="font-size:14.5px;font-weight:700">${esc(a.proveedor || '—')}</div>
+              ${m.notas ? `<div style="font-size:12px;color:#8595AD">${esc(m.notas)}</div>` : ''}
+            </div>
+            <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:${pr.bg};color:${pr.fg}">${pr.label}</span>
+            <div style="font-size:14px;font-weight:700;color:#2E6FC0">${esc(tel)}</div>
+            <button onclick="desasignarProveedor(this,${a._row})" style="height:34px;padding:0 12px;border:1px solid #EEDCDC;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-red">Quitar</button>
+          </div>`;
+      }).join('')
+      : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">Todavía no asignaste proveedores a este edificio. Elegí de tu lista abajo.</div>';
+
+    // Opciones para asignar: los de la maestra que no estan ya asignados.
+    const yaAsignados = new Set(asignados.map((a) => a.proveedor));
+    const disponibles = maestros.filter((m) => !yaAsignados.has(m.nombre));
+    const optMaestros = disponibles.length
+      ? disponibles.map((m) => `<option value="${esc(m.nombre)}">${esc(m.rubro)} · ${esc(m.nombre)}${m.telefono ? ' (' + esc(m.telefono) + ')' : ''}</option>`).join('')
+      : '';
+    const optPrioridad = PRIORIDADES.map((p) => `<option value="${p.key}">${p.label}</option>`).join('');
+
+    const asignarBloque = maestros.length ? `
+      <div style="border-top:1px dashed #E4E9F1;padding-top:16px">
+        <div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:10px">Asignar un proveedor de tu lista a este edificio</div>
+        ${disponibles.length ? `
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div style="flex:1;min-width:200px">${label('Proveedor')}<select id="asig-prov" class="inp" style="height:44px">${optMaestros}</select></div>
+          <div style="width:170px">${label('Prioridad')}<select id="asig-prio" class="inp" style="height:44px">${optPrioridad}</select></div>
+          <button onclick="asignarProveedor(this)" style="height:44px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Asignar</button>
+        </div>` : '<div style="font-size:13px;color:#8595AD">Ya asignaste todos tus proveedores a este edificio.</div>'}
+      </div>` : `
+      <div style="border-top:1px dashed #E4E9F1;padding-top:16px;font-size:13.5px;color:#8595AD">
+        Todavía no tenés proveedores en tu lista. Cargalos una vez con el botón de arriba y después asignalos a cada edificio.
+      </div>`;
+
     const proveedoresCard = `
       <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
-        <div style="font-size:16px;font-weight:800;margin-bottom:4px">🧰 Proveedores del edificio</div>
-        <p style="font-size:13px;color:#8595AD;margin:0 0 16px">Los técnicos de confianza del consorcio. Cuando surge un evento (una pérdida de agua, el ascensor, etc.), Marcos recurre al proveedor del rubro que cargues acá.</p>
-        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">${provFilas}</div>
-        <div style="border-top:1px dashed #E4E9F1;padding-top:16px">
-          <div style="display:grid;grid-template-columns:130px 1fr 150px;gap:10px;margin-bottom:10px" class="fichagrid">
-            <div>${label('Rubro')}<select id="prov-rubro" class="inp" style="height:44px">${rubroOptions}</select></div>
-            <div>${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:44px" placeholder="Ej: Gastón, Plomería del Oeste"></div>
-            <div>${label('Teléfono')}<input id="prov-tel" class="inp" style="height:44px" placeholder="Teléfono"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+          <div style="font-size:16px;font-weight:800">🧰 Proveedores de este edificio</div>
+          <button onclick="abrirModal('modal-proveedores')" style="height:36px;padding:0 14px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Mi lista de proveedores (${maestros.length})</button>
+        </div>
+        <p style="font-size:13px;color:#8595AD;margin:0 0 16px">Cuando surge un evento (pérdida de agua, ascensor, etc.), Marcos recurre al proveedor del rubro según la prioridad que le pongas acá. Cargás cada proveedor <strong>una sola vez</strong> en tu lista y lo asignás a los edificios que quieras.</p>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">${asigFilas}</div>
+        ${asignarBloque}
+      </div>`;
+
+    // Modal: lista maestra del cliente (cargar/quitar una vez, sirve a todos).
+    const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
+    const maestroFilas = maestros.length ? maestros.map((m) => `
+      <div style="display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid #E7ECF3;border-radius:11px;background:#fff;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:800;padding:4px 10px;border-radius:999px;background:${rubroColor(m.rubro)};color:#334259;min-width:86px;text-align:center">${esc(m.rubro)}</span>
+        <div style="flex:1;min-width:110px">
+          <div style="font-size:14px;font-weight:700">${esc(m.nombre || '—')}</div>
+          ${m.notas ? `<div style="font-size:12px;color:#8595AD">${esc(m.notas)}</div>` : ''}
+        </div>
+        <div style="font-size:13.5px;font-weight:700;color:#2E6FC0">${esc(m.telefono || '—')}</div>
+        <button onclick="quitarProveedor(this,${m._row})" style="height:32px;padding:0 11px;border:1px solid #EEDCDC;border-radius:8px;background:#fff;color:#C0392B;font-weight:700;font-size:12px;cursor:pointer" class="hv-red">Quitar</button>
+      </div>`).join('') : '<div style="font-size:13.5px;color:#8595AD;padding:8px 2px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
+
+    const modalProveedores = `
+      <div id="modal-proveedores" class="modal-overlay" onclick="cerrarModal('modal-proveedores')">
+        <div class="modal-box" style="width:560px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Mi lista de proveedores</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Técnicos de confianza</div>
+            <div style="font-size:13px;color:#8595AD;margin-top:4px">Cargalos una sola vez acá. Después los asignás a cada edificio desde su ficha.</div>
           </div>
-          <div style="margin-bottom:12px">${label('Notas (opcional)')}<input id="prov-notas" class="inp" style="height:44px" placeholder="Ej: solo urgencias, o tiene llave del edificio"></div>
-          <button onclick="agregarProveedor(this)" style="height:42px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">+ Agregar proveedor</button>
+          <div style="padding:18px 24px;max-height:44vh;overflow-y:auto">
+            <div style="display:flex;flex-direction:column;gap:9px">${maestroFilas}</div>
+          </div>
+          <div style="padding:16px 24px;border-top:1px solid #EEF1F6;background:#F8FAFD">
+            <div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:10px">Agregar proveedor a mi lista</div>
+            <div style="display:grid;grid-template-columns:130px 1fr;gap:10px;margin-bottom:10px">
+              <div>${label('Rubro')}<select id="prov-rubro" class="inp" style="height:42px">${rubroOptions}</select></div>
+              <div>${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:42px" placeholder="Ej: Gastón, Plomería del Oeste"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+              <div>${label('Teléfono')}<input id="prov-tel" class="inp" style="height:42px" placeholder="Teléfono"></div>
+              <div>${label('Notas (opcional)')}<input id="prov-notas" class="inp" style="height:42px" placeholder="Ej: tiene llave del edificio"></div>
+            </div>
+            <button onclick="agregarProveedor(this)" style="height:42px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">+ Agregar a mi lista</button>
+          </div>
+          <div style="padding:14px 24px 20px">
+            <button onclick="cerrarModal('modal-proveedores')" style="width:100%;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Listo</button>
+          </div>
         </div>
       </div>`;
 
@@ -1970,7 +2141,8 @@ router.get('/mi-edificio', async (req, res) => {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">${consultaHtml}</div>
         ${barraGuardar}
       </div>
-      ${modalSolicitud}`;
+      ${modalSolicitud}
+      ${modalProveedores}`;
 
     res.send(shell(req, d, 'edificio', contenido));
   } catch (e) {
@@ -2925,18 +3097,24 @@ router.post('/api/mi-edificio', async (req, res) => {
 });
 
 // Agregar un proveedor al edificio del cliente.
+// Usuario del cliente cuya lista de proveedores estamos tocando (soporta
+// preview del dueño). Devuelve null si es el dueño real sin preview.
+function clienteDeSesion(req) {
+  if (enPreview(req)) return req.session.previewOwner;
+  if (!esDuenoReal(req)) return req.session.user;
+  return null;
+}
+
+// Agregar proveedor a la LISTA MAESTRA del cliente (se carga una vez).
 router.post('/api/proveedor', async (req, res) => {
-  const dueno = esDueno(req);
-  if (!dueno && bloquearSiPreview(req, res)) return;
+  if (bloquearSiPreview(req, res)) return;
   try {
-    const { rubro, nombre, telefono, notas, edificio } = req.body || {};
-    let nombreEd;
-    if (dueno) nombreEd = edificio;
-    else nombreEd = (edificiosPermitidos(req) || [])[0];
-    if (!nombreEd) return res.status(400).json({ error: 'Falta el edificio' });
+    const { rubro, nombre, telefono, notas } = req.body || {};
+    const cliente = clienteDeSesion(req);
+    if (!cliente) return res.status(400).json({ error: 'Solo clientes cargan su lista' });
     if (!nombre && !telefono) return res.status(400).json({ error: 'Cargá nombre o teléfono' });
     await appendRow(TAB_PROVEEDORES, {
-      edificio: nombreEd,
+      cliente,
       rubro: rubro || 'Otro',
       nombre: nombre || '',
       telefono: telefono || '',
@@ -2949,24 +3127,74 @@ router.post('/api/proveedor', async (req, res) => {
   }
 });
 
+// Quitar un proveedor de la lista maestra (marca eliminado).
 router.post('/api/proveedor-quitar', async (req, res) => {
-  const dueno = esDueno(req);
-  if (!dueno && bloquearSiPreview(req, res)) return;
+  if (bloquearSiPreview(req, res)) return;
   try {
     const { row } = req.body || {};
     if (!row) return res.status(400).json({ error: 'Fila inválida' });
-    // El cliente solo puede quitar proveedores de su edificio.
-    if (!dueno) {
-      const { rows } = await readTab(TAB_PROVEEDORES);
-      const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
-      const permitidos = edificiosPermitidos(req) || [];
-      if (!prov || !permitidos.includes(prov.edificio)) {
-        return res.status(403).json({ error: 'Sin permiso sobre ese proveedor' });
-      }
+    const cliente = clienteDeSesion(req);
+    const { rows } = await readTab(TAB_PROVEEDORES);
+    const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
+    if (cliente && (!prov || prov.cliente !== cliente)) {
+      return res.status(403).json({ error: 'Sin permiso sobre ese proveedor' });
     }
     const plan = await findOrPlanColumn(TAB_PROVEEDORES, ['estado']);
     if (plan.create) await ensureHeader(TAB_PROVEEDORES, plan.col, 'estado', false);
     await writeCell(TAB_PROVEEDORES, plan.col, Number(row), 'eliminado');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Asignar un proveedor de la lista al edificio activo con prioridad.
+router.post('/api/proveedor-asignar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { proveedor, prioridad } = req.body || {};
+    const cliente = clienteDeSesion(req);
+    if (!cliente) return res.status(400).json({ error: 'Solo clientes asignan proveedores' });
+    const edificio = (edificiosPermitidos(req) || [])[0];
+    if (!edificio) return res.status(400).json({ error: 'Sin edificio activo' });
+    if (!proveedor) return res.status(400).json({ error: 'Falta el proveedor' });
+
+    const { rows } = await readTab(TAB_PROVEEDORES);
+    const m = rows.map(mapProveedor).find((p) => p.cliente === cliente && p.nombre === proveedor);
+    if (!m) return res.status(404).json({ error: 'Ese proveedor no está en tu lista' });
+
+    // Evitar duplicado del mismo proveedor en el mismo edificio.
+    try {
+      const { rows: aRows } = await readTab(TAB_ASIGNACIONES);
+      const dup = aRows.map(mapAsignacion).some((a) => a.edificio === edificio && a.proveedor === proveedor && a.estado !== 'eliminado');
+      if (dup) return res.status(400).json({ error: 'Ese proveedor ya está asignado a este edificio' });
+    } catch (_) {}
+
+    await appendRow(TAB_ASIGNACIONES, {
+      cliente, edificio, proveedor,
+      rubro: m.rubro, telefono: m.telefono,
+      prioridad: prioridad || 'primera', estado: 'activo',
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/proveedor-desasignar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+    const cliente = clienteDeSesion(req);
+    const { rows } = await readTab(TAB_ASIGNACIONES);
+    const a = rows.map(mapAsignacion).find((x) => x._row === Number(row));
+    if (cliente && (!a || a.cliente !== cliente)) {
+      return res.status(403).json({ error: 'Sin permiso' });
+    }
+    const plan = await findOrPlanColumn(TAB_ASIGNACIONES, ['estado']);
+    if (plan.create) await ensureHeader(TAB_ASIGNACIONES, plan.col, 'estado', false);
+    await writeCell(TAB_ASIGNACIONES, plan.col, Number(row), 'eliminado');
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
