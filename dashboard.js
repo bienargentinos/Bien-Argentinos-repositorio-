@@ -1761,7 +1761,13 @@ router.get('/', async (req, res) => {
     // ---------- RESUMEN CLIENTE · TODOS LOS EDIFICIOS (panorama general) ----------
     if (!req.session.edificioActivo && d.propios.length > 1) {
       const greetName = (d.clienteActual ? d.clienteActual.nombre : req.session.user).split(' ')[0];
-      const evPropios = d.eventos.filter((e) => d.propios.some((b) => b.nombre === e.edificio));
+      const lastConn = req.session.lastConn || '—';
+      const evPropios = d.eventos
+        .filter((e) => d.propios.some((b) => b.nombre === e.edificio))
+        .slice()
+        .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
+      const vistasPropios = evPropios.map(vistaEvento);
+      const novedadesPropios = vistasPropios.filter((v) => v.nuevo);
       const nuevosHoy = evPropios.filter((e) => esHoy(parseFecha(e.fecha)));
       const urgAbiertas = evPropios.filter((e) => e.urgencia === 'alta' && estadoNormalizado(e.estado) !== 'resuelto');
       const kpis = [
@@ -1775,6 +1781,26 @@ router.get('/', async (req, res) => {
           <div style="font-size:27px;font-weight:800;letter-spacing:-.03em;line-height:1">${k.value}</div>
           <div style="font-size:13px;color:#64748B;font-weight:600;margin-top:4px">${k.label}</div>
         </div>`).join('');
+
+      // feed de novedades de TODOS los edificios (o últimos eventos si no hay nuevos hoy)
+      const feedVistas = (novedadesPropios.length ? novedadesPropios : vistasPropios).slice(0, 6);
+      const novHtml = feedVistas.map((v, i) => `
+        <button onclick="abrirDrawerEvento(${i})" style="width:100%;display:flex;align-items:flex-start;gap:13px;padding:15px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left" class="hv-row">
+          <span style="width:40px;height:40px;border-radius:11px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${v.catIcon}</span>
+          <span style="flex:1;min-width:0">
+            <span style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+              <span style="font-size:14.5px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
+              <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
+              <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 ${esc(v.edificio)}</span>
+            </span>
+            <span style="display:block;font-size:13px;color:#64748B;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.detalle || v.titulo)}</span>
+            <span style="display:flex;align-items:center;gap:10px;margin-top:5px;font-size:12px;color:#9AA7BD">
+              <span>${v.canalIcon} ${esc(v.canal)}</span><span>·</span><span>${esc(v.vecino)}</span><span>·</span><span>${esc(v.when)}</span>
+            </span>
+          </span>
+          <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:${v.estBg};color:${v.estFg};flex-shrink:0;margin-top:2px">${v.estLabel}</span>
+        </button>`).join('');
+
       const cardsHtml = d.propios.map((e) => {
         const ev = d.eventos.filter((x) => x.edificio === e.nombre);
         const nuevos = ev.filter((x) => esHoy(parseFecha(x.fecha))).length;
@@ -1799,10 +1825,26 @@ router.get('/', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#2E6FC0;letter-spacing:.02em;margin-bottom:3px">Hola de nuevo, ${esc(greetName)} 👋</div>
             <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">Panorama general · todos tus edificios</h1>
           </div>
+          <div style="display:flex;align-items:center;gap:16px;background:linear-gradient(120deg,#0F326A,#2E6FC0);border-radius:16px;padding:18px 22px;color:#fff;margin-bottom:22px;flex-wrap:wrap">
+            <div style="width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🌙</div>
+            <div style="flex:1;min-width:200px">
+              <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">${novedadesPropios.length} novedad${novedadesPropios.length === 1 ? ' nueva' : 'es nuevas'}</div>
+              <div style="font-size:14px;color:rgba(255,255,255,.82)">Desde tu última conexión · ${esc(lastConn)}</div>
+            </div>
+            <a href="/admin/eventos" style="display:inline-flex;align-items:center;height:42px;padding:0 20px;border-radius:11px;background:#fff;color:#17408B;font-weight:700;font-size:14px" class="hv-blue">Ver todo →</a>
+          </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px">${kpiHtml}</div>
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden;margin-bottom:26px">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #EEF1F6">
+              <div style="font-size:16px;font-weight:800">Novedades desde tu ausencia</div>
+              <div style="font-size:13px;color:#8595AD;font-weight:600">${novedadesPropios.length} nuevas</div>
+            </div>
+            ${novHtml || '<div style="padding:26px;text-align:center;font-size:13.5px;color:#8595AD">Sin novedades por ahora.</div>'}
+          </div>
           <div style="font-size:16px;font-weight:800;margin-bottom:14px">Estado por edificio</div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">${cardsHtml}</div>
-        </div>`;
+        </div>
+        <script>window.__EVENTOS__=${jsonEventos(feedVistas)};window.__ES_DUENO__=false;</script>`;
       return res.send(shell(req, d, 'resumen', contenido));
     }
 
@@ -2015,6 +2057,26 @@ router.get('/mi-edificio', async (req, res) => {
   if (esDueno(req)) return res.redirect('/admin/clientes');
   try {
     const d = await cargarDatos(req);
+
+    // En modo "Todos los edificios" (más de uno, sin elegir ninguno todavía)
+    // se muestra un bloque por edificio para elegir cuál ver en detalle.
+    if (!req.session.edificioActivo && d.propios.length > 1) {
+      const cards = d.propios.map((e) => `
+        <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/mi-edificio')}"
+          style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px;cursor:pointer" class="hv-card">
+          <span style="width:42px;height:42px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:19px;margin-bottom:10px">🏢</span>
+          <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">${esc(e.nombre)}</div>
+          <div style="font-size:12.5px;color:#8595AD">${esc(e.direccion || e.nombre)}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
+        </a>`).join('');
+      const contenido = `
+        <div style="animation:mFade .3s ease both">
+          <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Mi Edificio</h1>
+          <p style="color:#64748B;font-size:15px;margin:0 0 20px">Elegí qué edificio querés ver en detalle.</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">${cards}</div>
+        </div>`;
+      return res.send(shell(req, d, 'edificio', contenido));
+    }
+
     const cur = d.curBuilding;
     if (!cur) {
       return res.send(shell(req, d, 'edificio', '<div style="padding:30px;text-align:center;color:#8595AD">No hay edificio asignado a tu cuenta.</div>'));
