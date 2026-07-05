@@ -68,6 +68,7 @@ const TAB_SUGERENCIAS = process.env.SHEET_TAB_SUGERENCIAS || 'sugerencias';
 const TAB_SOLICITUDES = process.env.SHEET_TAB_SOLICITUDES || 'solicitudes';
 const TAB_CLIENTES = process.env.SHEET_TAB_CLIENTES || 'clientes';
 const TAB_EXPENSAS = process.env.SHEET_TAB_EXPENSAS || 'expensas';
+const TAB_PROVEEDORES = process.env.SHEET_TAB_PROVEEDORES || 'proveedores';
 
 /* ===================================================================
  * SESSION
@@ -213,7 +214,9 @@ function mapEdificio(r) {
     encargado: pick(r, ['encargado', 'portero', 'sereno']),
     tel_encargado: pick(r, ['telefono_encargado', 'tel_encargado', 'celular_encargado']),
     encargado_estado: pick(r, ['encargado_estado', 'estado_encargado'], 'activo'),
+    encargado_horario: pick(r, ['encargado_horario', 'horario_encargado']),
     encargado_suplente: pick(r, ['encargado_suplente', 'suplente', 'personal_limpieza']),
+    tel_suplente: pick(r, ['tel_suplente', 'telefono_suplente']),
     tel_seguridad: pick(r, ['telefono_seguridad', 'tel_seguridad', 'seguridad']),
     administrador: pick(r, ['admin_nombre', 'administrador', 'admin']),
     telefonos: pick(r, ['admin_telefono', 'telefonos', 'contactos', 'telefono', 'numeros']),
@@ -277,6 +280,24 @@ function mapExpensa(r) {
     estado: pick(r, ['estado'], 'publicada'),
   };
 }
+
+// Proveedor del edificio (plomero, gasista, electricista, ascensores...).
+// Marcos recurre a estos telefonos por orden del administrador cuando hay
+// un evento del rubro correspondiente.
+function mapProveedor(r) {
+  return {
+    _row: r._row,
+    edificio: pick(r, ['edificio', 'consorcio']),
+    rubro: pick(r, ['rubro', 'especialidad', 'tipo'], 'Otro'),
+    nombre: pick(r, ['nombre', 'proveedor', 'empresa']),
+    telefono: pick(r, ['telefono', 'tel', 'celular', 'contacto']),
+    notas: pick(r, ['notas', 'observaciones']),
+    estado: pick(r, ['estado'], 'activo'),
+  };
+}
+
+// Rubros sugeridos (el cliente puede escribir otro).
+const RUBROS_PROVEEDOR = ['Plomero', 'Gasista', 'Electricista', 'Ascensores', 'Cerrajero', 'Pintor', 'Limpieza', 'Seguridad', 'Otro'];
 
 /* ===================================================================
  * FECHAS
@@ -714,6 +735,63 @@ async function enviarSolicitud(btn){
     setTimeout(function(){location.reload();},900);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
+}
+
+// --- mi edificio: datos editables directo ---
+function setEncEstado(estado){
+  var h=document.getElementById('enc-estado-val');if(h)h.value=estado;
+  var colores={activo:['#1B7A43','#E7F4EC'],licencia:['#8A6410','#FBF3DE'],vacaciones:['#2C55A8','#EAF1FB']};
+  document.querySelectorAll('[data-enc-estado]').forEach(function(b){
+    var k=b.getAttribute('data-enc-estado');
+    var act=k===estado;
+    var c=colores[k]||['#64748B','#fff'];
+    b.style.borderColor=act?c[0]:'#DDE3EE';
+    b.style.background=act?c[1]:'#fff';
+    b.style.color=act?c[0]:'#64748B';
+  });
+  var w=document.getElementById('enc-horario-wrap');
+  if(w)w.style.display=estado==='activo'?'block':'none';
+}
+async function guardarMiEdificio(btn){
+  var data={};
+  document.querySelectorAll('[data-me]').forEach(function(el){
+    data[el.getAttribute('data-me')]=el.value;
+  });
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/mi-edificio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Datos del edificio guardados','ok');
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+async function agregarProveedor(btn){
+  var rubro=(document.getElementById('prov-rubro')||{}).value||'';
+  var nombre=(document.getElementById('prov-nombre')||{}).value||'';
+  var tel=(document.getElementById('prov-tel')||{}).value||'';
+  var notas=(document.getElementById('prov-notas')||{}).value||'';
+  if(!nombre.trim()&&!tel.trim()){toast('Cargá al menos nombre o teléfono','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Agregando...';
+  try{
+    var r=await fetch('/admin/api/proveedor',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({rubro:rubro,nombre:nombre.trim(),telefono:tel.trim(),notas:notas.trim()})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Proveedor agregado','ok');
+    setTimeout(function(){location.reload();},800);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+async function quitarProveedor(btn,row){
+  btn.disabled=true;
+  try{
+    var r=await fetch('/admin/api/proveedor-quitar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({row:row})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Proveedor quitado','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;}
 }
 
 // --- solicitudes (dueño) ---
@@ -1716,9 +1794,18 @@ router.get('/mi-edificio', async (req, res) => {
       return res.send(shell(req, d, 'edificio', '<div style="padding:30px;text-align:center;color:#8595AD">No hay edificio asignado a tu cuenta.</div>'));
     }
 
+    // Proveedores del edificio.
+    let proveedores = [];
+    try {
+      const { rows } = await readTab(TAB_PROVEEDORES);
+      proveedores = rows.map(mapProveedor).filter((p) => p.edificio === cur.nombre && p.estado !== 'eliminado');
+    } catch (_) {}
+
+    // Pedidos de cambio pendientes (para los campos de consulta con aprobacion).
     const pendientes = d.solicitudes.filter((s) =>
       (!s.estado || s.estado === 'pendiente') && String(s.edificio || '').includes(cur.nombre)
     );
+    const pendCampos = new Set(pendientes.map((p) => p.campo));
     const pendHtml = pendientes.length ? `
       <div style="background:#FBF3DE;border:1px solid #F0DCA6;border-radius:14px;padding:14px 18px;margin-bottom:20px">
         <div style="font-size:14px;font-weight:800;color:#8A6410;margin-bottom:8px">⏳ Cambios pendientes de aprobación (${pendientes.length})</div>
@@ -1731,21 +1818,103 @@ router.get('/mi-edificio', async (req, res) => {
           </div>`).join('')}
       </div>` : '';
 
-    const pendCampos = new Set(pendientes.map((p) => p.campo));
-    const fichaRows = [
-      { campo: 'nombre', icon: '🏢', label: 'Consorcio', value: cur.nombre, edit: true },
-      { campo: 'direccion', icon: '📍', label: 'Dirección', value: cur.direccion ? `${cur.direccion}${cur.zona ? ', ' + cur.zona : ''}` : (cur.zona || '—'), edit: true },
-      { campo: 'administrador', icon: '👔', label: 'Administrador', value: cur.administrador || '—', edit: false },
-      { campo: 'telefonos', icon: '📞', label: 'Tel. administración', value: cur.telefonos || '—', edit: true },
-      { campo: 'encargado', icon: '🧑‍🔧', label: 'Encargado', value: cur.encargado || '—', edit: true },
-      { campo: 'tel_encargado', icon: '📱', label: 'Tel. encargado', value: cur.tel_encargado || '—', edit: true },
-      { campo: 'cuit', icon: '🧾', label: 'CUIT', value: cur.cuit || '—', edit: false },
-      { campo: 'unidades', icon: '🚪', label: 'Unidades', value: cur.unidades ? `${cur.unidades} departamentos` : '—', edit: false },
-      { campo: 'horario_sum', icon: '🎉', label: 'Horario SUM', value: cur.horario_sum || '—', edit: true },
-      { campo: 'cocheras', icon: '🚗', label: 'Cocheras', value: cur.cocheras || '—', edit: true },
-    ];
+    // ---- helpers de campo ----
+    const label = (t) => `<div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">${t}</div>`;
+    const inputEditable = (campo, valor, placeholder) =>
+      `<input data-me="${campo}" value="${esc(valor)}" placeholder="${esc(placeholder || '')}" class="inp" style="height:44px">`;
 
-    const fichaHtml = fichaRows.map((r) => `
+    // ---- ENCARGADO (estado + horario) ----
+    const estados = [
+      { key: 'activo', label: 'Activo', bg: '#E7F4EC', fg: '#1B7A43' },
+      { key: 'licencia', label: 'Licencia', bg: '#FBF3DE', fg: '#8A6410' },
+      { key: 'vacaciones', label: 'Vacaciones', bg: '#EAF1FB', fg: '#2C55A8' },
+    ];
+    const estadoActual = (cur.encargado_estado || 'activo').toLowerCase();
+    const btnEstado = estados.map((e) => {
+      const act = e.key === estadoActual;
+      return `<button type="button" data-enc-estado="${e.key}" onclick="setEncEstado('${e.key}')" style="height:38px;padding:0 16px;border:1.5px solid ${act ? e.fg : '#DDE3EE'};border-radius:10px;background:${act ? e.bg : '#fff'};color:${act ? e.fg : '#64748B'};font-weight:700;font-size:13.5px;cursor:pointer">${e.label}</button>`;
+    }).join('');
+
+    const encargadoCard = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:800;margin-bottom:4px">🧑‍🔧 Encargado</div>
+        <p style="font-size:13px;color:#8595AD;margin:0 0 16px">Marcos usa estos datos para saber si puede contar con el encargado cuando surge un evento.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">
+          <div>${label('Nombre del encargado')}${inputEditable('encargado', cur.encargado, 'Nombre y apellido')}</div>
+          <div>${label('Tel. encargado')}${inputEditable('tel_encargado', cur.tel_encargado, 'Teléfono')}</div>
+          <div>${label('Encargado suplente / limpieza')}${inputEditable('encargado_suplente', cur.encargado_suplente, 'Quién lo cubre')}</div>
+          <div>${label('Tel. suplente')}${inputEditable('tel_suplente', cur.tel_suplente, 'Teléfono')}</div>
+        </div>
+        <div style="margin-top:16px">
+          ${label('Estado del encargado')}
+          <div style="display:flex;gap:9px;flex-wrap:wrap">${btnEstado}</div>
+          <input type="hidden" data-me="encargado_estado" id="enc-estado-val" value="${esc(estadoActual)}">
+        </div>
+        <div id="enc-horario-wrap" style="margin-top:16px;${estadoActual === 'activo' ? '' : 'display:none'}">
+          ${label('Horario del encargado (cuando está activo)')}
+          ${inputEditable('encargado_horario', cur.encargado_horario, 'Ej: Lun a Vie 8 a 16hs')}
+          <div style="font-size:12px;color:#9AA7BD;margin-top:6px">Marcos se fija en este rango para saber si el encargado está disponible al momento del evento.</div>
+        </div>
+      </div>`;
+
+    // ---- DATOS DEL EDIFICIO (editables directo) ----
+    const datosCard = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:800;margin-bottom:4px">🏢 Datos del edificio</div>
+        <p style="font-size:13px;color:#8595AD;margin:0 0 16px">Estos datos los editás vos y se guardan al instante — no necesitan aprobación.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">
+          <div>${label('Dirección')}${inputEditable('direccion', cur.direccion, 'Calle y número (legal)')}</div>
+          <div>${label('Zona / barrio')}${inputEditable('zona', cur.zona, 'Barrio, ciudad')}</div>
+          <div style="grid-column:1/-1">${label('Alias / doble dirección')}${inputEditable('aliases', cur.aliases, 'Ej: Ortiz 1486 (como lo conocen los vecinos)')}
+            <div style="font-size:12px;color:#9AA7BD;margin-top:6px">Si el edificio figura con una altura legal pero los vecinos lo nombran distinto, cargá acá los dos. Marcos reconoce cualquiera de las dos.</div>
+          </div>
+          <div>${label('CUIT del edificio')}${inputEditable('cuit', cur.cuit, '30-XXXXXXXX-X')}</div>
+          <div>${label('Unidades funcionales')}${inputEditable('unidades', cur.unidades, 'Cantidad')}</div>
+          <div>${label('Horario del SUM')}${inputEditable('horario_sum', cur.horario_sum, 'Ej: 10 a 24hs · seña $15.000')}</div>
+          <div>${label('Cocheras')}${inputEditable('cocheras', cur.cocheras, 'Ej: 22 fijas + 4 de cortesía')}</div>
+          <div>${label('Tel. seguridad de la entrada')}${inputEditable('tel_seguridad', cur.tel_seguridad, 'Si el edificio tiene')}</div>
+        </div>
+      </div>`;
+
+    // ---- PROVEEDORES ----
+    const rubroColor = (r) => ({
+      Plomero: '#EAF1FB', Gasista: '#FBF3DE', Electricista: '#FDF3D6', Ascensores: '#EDEEFB',
+    }[r] || '#EEF2F8');
+    const provFilas = proveedores.length ? proveedores.map((p) => `
+      <div style="display:flex;align-items:center;gap:13px;padding:12px 14px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:800;padding:5px 11px;border-radius:999px;background:${rubroColor(p.rubro)};color:#334259;min-width:92px;text-align:center">${esc(p.rubro)}</span>
+        <div style="flex:1;min-width:120px">
+          <div style="font-size:14.5px;font-weight:700">${esc(p.nombre || '—')}</div>
+          ${p.notas ? `<div style="font-size:12px;color:#8595AD">${esc(p.notas)}</div>` : ''}
+        </div>
+        <div style="font-size:14px;font-weight:700;color:#2E6FC0">${esc(p.telefono || '—')}</div>
+        <button onclick="quitarProveedor(this,${p._row})" style="height:34px;padding:0 12px;border:1px solid #EEDCDC;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-red">Quitar</button>
+      </div>`).join('') : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">Todavía no cargaste proveedores. Marcos los va a usar para derivar los eventos al rubro que corresponda.</div>';
+
+    const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
+    const proveedoresCard = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:800;margin-bottom:4px">🧰 Proveedores del edificio</div>
+        <p style="font-size:13px;color:#8595AD;margin:0 0 16px">Los técnicos de confianza del consorcio. Cuando surge un evento (una pérdida de agua, el ascensor, etc.), Marcos recurre al proveedor del rubro que cargues acá.</p>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">${provFilas}</div>
+        <div style="border-top:1px dashed #E4E9F1;padding-top:16px">
+          <div style="display:grid;grid-template-columns:130px 1fr 150px;gap:10px;margin-bottom:10px" class="fichagrid">
+            <div>${label('Rubro')}<select id="prov-rubro" class="inp" style="height:44px">${rubroOptions}</select></div>
+            <div>${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:44px" placeholder="Ej: Gastón, Plomería del Oeste"></div>
+            <div>${label('Teléfono')}<input id="prov-tel" class="inp" style="height:44px" placeholder="Teléfono"></div>
+          </div>
+          <div style="margin-bottom:12px">${label('Notas (opcional)')}<input id="prov-notas" class="inp" style="height:44px" placeholder="Ej: solo urgencias, o tiene llave del edificio"></div>
+          <button onclick="agregarProveedor(this)" style="height:42px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">+ Agregar proveedor</button>
+        </div>
+      </div>`;
+
+    // ---- DATOS DE CONSULTA (con aprobacion) ----
+    const consultaRows = [
+      { campo: 'nombre', icon: '🏢', label: 'Consorcio', value: cur.nombre },
+      { campo: 'administrador', icon: '👔', label: 'Administrador', value: cur.administrador || '—' },
+      { campo: 'telefonos', icon: '📞', label: 'Tel. administración', value: cur.telefonos || '—' },
+    ];
+    const consultaHtml = consultaRows.map((r) => `
       <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 17px;display:flex;align-items:center;gap:12px">
         <span style="width:40px;height:40px;border-radius:11px;background:#F1F5FB;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${r.icon}</span>
         <div style="flex:1;min-width:0">
@@ -1753,7 +1922,7 @@ router.get('/mi-edificio', async (req, res) => {
           <div style="font-size:15.5px;font-weight:700;color:#16233B;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.value)}</div>
         </div>
         ${pendCampos.has(r.campo) ? '<span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:#FBF3DE;color:#8A6410;flex-shrink:0">Pendiente</span>' : ''}
-        ${r.edit ? `<button onclick="abrirSolicitud('${escJs(r.campo)}','${escJs(r.label)}','${escJs(r.value === '—' ? '' : r.value)}','${escJs(cur.nombre)}')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-softb">Solicitar cambio</button>` : ''}
+        <button onclick="abrirSolicitud('${escJs(r.campo)}','${escJs(r.label)}','${escJs(r.value === '—' ? '' : r.value)}','${escJs(cur.nombre)}')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-softb">Solicitar cambio</button>
       </div>`).join('');
 
     const modalSolicitud = `
@@ -1769,7 +1938,7 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nuevo valor</div>
             <input id="req-nuevo" placeholder="Escribí el valor correcto" class="inp" style="margin-bottom:16px">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Motivo <span style="font-weight:500;color:#9AA7BD">(opcional)</span></div>
-            <textarea id="req-motivo" placeholder="Ej: El encargado cambió el mes pasado." class="inp"></textarea>
+            <textarea id="req-motivo" placeholder="Ej: Cambiamos de administrador." class="inp"></textarea>
             <div style="display:flex;align-items:center;gap:9px;background:#FBF3DE;border-radius:10px;padding:10px 13px;margin-top:16px;font-size:12.5px;color:#8A6410;line-height:1.4">
               <span style="font-size:15px">🔒</span>
               <span>Tu pedido queda <strong>pendiente</strong>. Tu administrador lo revisa y recién ahí se aplica. Nada se cambia solo.</span>
@@ -1782,12 +1951,24 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
+    // barra de guardar (sticky abajo) para los datos editables directos
+    const barraGuardar = `
+      <div style="position:sticky;bottom:0;background:linear-gradient(0deg,#EEF1F6 60%,transparent);padding:14px 0 4px;margin-top:4px;z-index:5">
+        <button onclick="guardarMiEdificio(this)" style="height:48px;padding:0 26px;border:none;border-radius:12px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:15px;cursor:pointer;box-shadow:0 8px 20px -8px rgba(30,95,180,.5)" class="hv-primary">Guardar cambios del edificio</button>
+        <span style="margin-left:14px;font-size:12.5px;color:#8595AD">Datos del edificio, encargado y estado. Los proveedores se guardan por separado.</span>
+      </div>`;
+
     const contenido = `
       <div style="animation:mFade .3s ease both">
         <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Mi Edificio</h1>
-        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Ficha de ${esc(cur.nombre)}. Esta información es de consulta: si algo está desactualizado, tocá <strong style="color:#334259">Solicitar cambio</strong> y tu administrador lo revisa.</p>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Ficha de ${esc(cur.nombre)}. Estos son los datos que Marcos usa para atender tu consorcio. Casi todo lo editás vos directo; solo el nombre del consorcio y el administrador pasan por tu administrador.</p>
         ${pendHtml}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">${fichaHtml}</div>
+        ${datosCard}
+        ${encargadoCard}
+        ${proveedoresCard}
+        <div style="font-size:14px;font-weight:800;color:#334259;margin:8px 0 12px">Datos de consulta (los cambia tu administrador)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">${consultaHtml}</div>
+        ${barraGuardar}
       </div>
       ${modalSolicitud}`;
 
@@ -2683,6 +2864,109 @@ router.post('/api/expensa-quitar', async (req, res) => {
     const plan = await findOrPlanColumn(TAB_EXPENSAS, ['estado']);
     if (plan.create) await ensureHeader(TAB_EXPENSAS, plan.col, 'estado', false);
     await writeCell(TAB_EXPENSAS, plan.col, Number(row), 'eliminada');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Campos que el CLIENTE edita directo en Mi Edificio (sin aprobacion).
+// nombre/administrador NO estan aca: esos van por solicitud de cambio.
+const MI_EDIFICIO_FIELDS = {
+  direccion: ['direccion', 'domicilio'],
+  zona: ['zona', 'barrio'],
+  aliases: ['aliases', 'alias', 'otros_nombres'],
+  cuit: ['cuit'],
+  unidades: ['unidades', 'unidad', 'departamentos'],
+  horario_sum: ['horario_sum', 'sum'],
+  cocheras: ['cocheras', 'cochera'],
+  tel_seguridad: ['telefono_seguridad', 'tel_seguridad', 'seguridad'],
+  encargado: ['encargado', 'portero', 'sereno'],
+  tel_encargado: ['telefono_encargado', 'tel_encargado', 'celular_encargado'],
+  encargado_suplente: ['encargado_suplente', 'suplente', 'personal_limpieza'],
+  tel_suplente: ['tel_suplente', 'telefono_suplente'],
+  encargado_estado: ['encargado_estado', 'estado_encargado'],
+  encargado_horario: ['encargado_horario', 'horario_encargado'],
+};
+
+// Guarda los datos editables directo del edificio del cliente.
+router.post('/api/mi-edificio', async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const body = req.body || {};
+    // El cliente solo puede tocar SU edificio activo.
+    const permitidos = edificiosPermitidos(req) || [];
+    const nombreEd = permitidos[0];
+    if (!nombreEd) return res.status(400).json({ error: 'Sin edificio asignado' });
+
+    const { rows, headers } = await readTab(TAB_EDIFICIOS);
+    const edRow = rows.map(mapEdificio).find((e) => e.nombre === nombreEd);
+    if (!edRow) return res.status(404).json({ error: 'Edificio no encontrado' });
+
+    let workingHeaders = headers.slice();
+    for (const field of Object.keys(MI_EDIFICIO_FIELDS)) {
+      if (body[field] === undefined) continue;
+      const candidates = MI_EDIFICIO_FIELDS[field];
+      let idx = workingHeaders.findIndex((h) => candidates.includes(h));
+      let col;
+      if (idx >= 0) col = columnLetter(idx + 1);
+      else {
+        col = columnLetter(workingHeaders.length + 1);
+        await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
+        workingHeaders.push(candidates[0]);
+      }
+      await writeCell(TAB_EDIFICIOS, col, edRow._row, body[field]);
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Agregar un proveedor al edificio del cliente.
+router.post('/api/proveedor', async (req, res) => {
+  const dueno = esDueno(req);
+  if (!dueno && bloquearSiPreview(req, res)) return;
+  try {
+    const { rubro, nombre, telefono, notas, edificio } = req.body || {};
+    let nombreEd;
+    if (dueno) nombreEd = edificio;
+    else nombreEd = (edificiosPermitidos(req) || [])[0];
+    if (!nombreEd) return res.status(400).json({ error: 'Falta el edificio' });
+    if (!nombre && !telefono) return res.status(400).json({ error: 'Cargá nombre o teléfono' });
+    await appendRow(TAB_PROVEEDORES, {
+      edificio: nombreEd,
+      rubro: rubro || 'Otro',
+      nombre: nombre || '',
+      telefono: telefono || '',
+      notas: notas || '',
+      estado: 'activo',
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/proveedor-quitar', async (req, res) => {
+  const dueno = esDueno(req);
+  if (!dueno && bloquearSiPreview(req, res)) return;
+  try {
+    const { row } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+    // El cliente solo puede quitar proveedores de su edificio.
+    if (!dueno) {
+      const { rows } = await readTab(TAB_PROVEEDORES);
+      const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
+      const permitidos = edificiosPermitidos(req) || [];
+      if (!prov || !permitidos.includes(prov.edificio)) {
+        return res.status(403).json({ error: 'Sin permiso sobre ese proveedor' });
+      }
+    }
+    const plan = await findOrPlanColumn(TAB_PROVEEDORES, ['estado']);
+    if (plan.create) await ensureHeader(TAB_PROVEEDORES, plan.col, 'estado', false);
+    await writeCell(TAB_PROVEEDORES, plan.col, Number(row), 'eliminado');
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });

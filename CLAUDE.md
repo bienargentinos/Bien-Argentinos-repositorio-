@@ -49,17 +49,40 @@ ssh -p5436 root@200.58.102.182
 - Credenciales: `gen-lang-client-0735429936-bba6999e5e60.json`
 - Tabs reales (definidas en `sheets.js`, en minúscula):
   - `reportes` (= eventos): fecha, vecino, edificio, problema, urgencia, tecnico, acceso, estado, notas_ia
-  - `edificios`: edificio, tipo, notas_especiales, admin_nombre, admin_telefono, aliases, unidades, plan
+  - `edificios`: edificio, tipo, direccion, zona, aliases, cuit, unidades, plan, horario_sum, cocheras,
+    admin_nombre (=administrador), admin_telefono (=telefonos), tel_seguridad, notas_especiales,
+    encargado, telefono_encargado, encargado_estado (activo/licencia/vacaciones), encargado_horario,
+    encargado_suplente, tel_suplente. **Las columnas nuevas se crean solas** al guardar desde Mi Edificio.
   - `facturas`: fecha, proveedor, monto, concepto, edificio, url_archivo
   - `memoria`: telefono, nombre, fecha_ultimo_contacto, resumen_historial, notas_trato
   - `llamadas`: fecha, duracion, telefono, vecino, edificio, resumen, transcripcion, urgencia, estado, mensaje_enviado
   - `vecinos`: telefono, nombre, edificio, departamento, encargado, ...
   - `sugerencias`: (la crea el dashboard) fecha, usuario, edificio, texto, estado, respuesta
   - `solicitudes`: (la crea el dashboard) fecha, usuario, edificio, campo, valor_actual, valor_nuevo, estado, motivo_rechazo
-  - `clientes`: (la crea el dashboard, sección Clientes) nombre, usuario, contrasena, email, edificios, plan, activo
+  - `clientes`: (la crea el dashboard, sección Clientes) nombre, usuario, contrasena, email, edificios, plan, activo, ultimo_acceso
     — reemplaza de a poco a `CONSORCIO_USERS` del `.env`. **Contraseña en texto plano por ahora**
     (pendiente: hashear con bcrypt cuando hagamos el auth real con activación por token).
-- IMPORTANTE: el dashboard apunta a estas tabs por defecto. Si cambian, override con `SHEET_TAB_EVENTOS`, `SHEET_TAB_EDIFICIOS`, `SHEET_TAB_ARCHIVOS`, `SHEET_TAB_CLIENTES` en `.env`.
+  - `expensas`: (la crea el dashboard) fecha, edificio, periodo, formato (pdf/imagen/link), nombre, url, estado.
+    El binario del PDF todavía NO se sube — se registra nombre/link para que Marcos lo comparta.
+  - `proveedores`: (la crea el dashboard, Mi Edificio) edificio, rubro, nombre, telefono, notas, estado.
+    Técnicos de confianza del consorcio (plomero, gasista, electricista, ascensores...). Marcos recurre a
+    estos según el rubro del evento. Una fila por proveedor (un edificio puede tener varios del mismo rubro).
+- IMPORTANTE: el dashboard apunta a estas tabs por defecto. Overrides en `.env`: `SHEET_TAB_EVENTOS`,
+  `SHEET_TAB_EDIFICIOS`, `SHEET_TAB_ARCHIVOS`, `SHEET_TAB_CLIENTES`, `SHEET_TAB_EXPENSAS`, `SHEET_TAB_PROVEEDORES`.
+
+## Mi Edificio (lado cliente) — qué edita sin permiso vs. con aprobación
+
+- **Edita DIRECTO el cliente** (se guarda al instante, botón "Guardar cambios del edificio"): dirección, zona,
+  alias/doble dirección, CUIT, unidades funcionales, horario del SUM, cocheras, tel. seguridad de la entrada,
+  encargado (nombre/tel), suplente (nombre/tel), **estado del encargado** (activo/licencia/vacaciones) y
+  **horario del encargado** (aparece solo si está activo). Endpoint `POST /api/mi-edificio`.
+- **Proveedores**: se agregan/quitan directo desde una tarjeta propia (rubro, nombre, teléfono, notas).
+  Endpoints `POST /api/proveedor` y `POST /api/proveedor-quitar`.
+- **Pasa por aprobación** (botón "Solicitar cambio" → tab `solicitudes` → el dueño aprueba): solo el nombre
+  del consorcio y el administrador + su teléfono. Son los datos "de identidad" que no debería cambiar el
+  cliente a ciegas.
+- El **dueño** edita casi todo directo desde la ficha del edificio en Clientes (modal). Los proveedores
+  también los puede cargar el dueño pasando `edificio` en el body.
 
 ## Roles del dashboard
 
