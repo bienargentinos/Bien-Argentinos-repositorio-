@@ -496,6 +496,7 @@ const PLAN_STYLE = (p) => (p === 'Plus'
 // Etiquetas de campos de la ficha (para solicitudes de cambio).
 const FICHA_LABELS = {
   nombre: 'Consorcio', direccion: 'Dirección', telefonos: 'Tel. administración',
+  administrador: 'Administrador', cuit: 'CUIT del edificio',
   encargado: 'Encargado', tel_encargado: 'Tel. encargado',
   horario_sum: 'Horario SUM', cocheras: 'Cocheras',
 };
@@ -521,6 +522,62 @@ function escJs(str) {
 function truncate(s, n) {
   s = String(s || '');
   return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+// Modal de alta de edificio, compartido entre "Clientes y edificios" (dueño)
+// y "Mi Edificio" (cliente) — completo, para que el edificio quede armado
+// desde el alta y no como una ficha vacía para llenar después.
+function modalAltaEdificioHtml(eyebrow, clienteUsuario) {
+  const campo = (id, labelTxt, placeholder, extra) => `
+    <div${extra || ''}>
+      <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">${labelTxt}</div>
+      <input id="${id}" placeholder="${esc(placeholder || '')}" class="inp">
+    </div>`;
+  return `
+      <div id="modal-edificio" class="modal-overlay" onclick="cerrarModal('modal-edificio')">
+        <div class="modal-box" style="width:560px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">${esc(eyebrow)}</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Alta de consorcio</div>
+          </div>
+          <div style="padding:20px 24px;max-height:60vh;overflow-y:auto">
+            ${campo('ed-nombre', 'Nombre del consorcio', 'Ej: Av. Corrientes 3000', ' style="margin-bottom:14px"')}
+            <div style="display:flex;gap:12px;margin-bottom:14px">
+              ${campo('ed-direccion', 'Dirección', 'Calle y número (legal)', ' style="flex:1.5"')}
+              ${campo('ed-unidades', 'Unidades', '0', ' style="width:100px"')}
+            </div>
+            <div style="display:flex;gap:12px;margin-bottom:14px">
+              ${campo('ed-zona', 'Zona / barrio', 'Barrio, ciudad', ' style="flex:1"')}
+              ${campo('ed-cuit', 'CUIT del edificio', '30-XXXXXXXX-X', ' style="flex:1"')}
+            </div>
+            ${campo('ed-aliases', 'Alias / doble dirección', 'Ej: Ortiz 1486 (como lo conocen los vecinos)', ' style="margin-bottom:14px"')}
+            <div style="display:flex;gap:12px;margin-bottom:14px">
+              ${campo('ed-horario-sum', 'Horario del SUM', 'Ej: 10 a 24hs · seña $15.000', ' style="flex:1"')}
+              ${campo('ed-cocheras', 'Cocheras', 'Ej: 22 fijas + 4 de cortesía', ' style="flex:1"')}
+            </div>
+            ${campo('ed-tel-seguridad', 'Tel. seguridad de la entrada', 'Si el edificio tiene', ' style="margin-bottom:14px"')}
+            <div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:8px">Encargado</div>
+            <div style="display:flex;gap:12px;margin-bottom:14px">
+              ${campo('ed-encargado', 'Nombre', 'Nombre y apellido', ' style="flex:1"')}
+              ${campo('ed-tel-encargado', 'Teléfono', 'Teléfono', ' style="flex:1"')}
+            </div>
+            <div style="display:flex;gap:12px;margin-bottom:16px">
+              ${campo('ed-suplente', 'Suplente / limpieza', 'Quién lo cubre', ' style="flex:1"')}
+              ${campo('ed-tel-suplente', 'Tel. suplente', 'Teléfono', ' style="flex:1"')}
+            </div>
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Plan contratado</div>
+            <div style="display:flex;gap:9px">
+              <button data-plan-btn onclick="elegirPlanNuevo(this,'Base')" style="flex:1;height:44px;border:1.5px solid #2E6FC0;border-radius:11px;background:#EAF1FB;color:#17408B;font-weight:700;font-size:14px;cursor:pointer">Base</button>
+              <button data-plan-btn onclick="elegirPlanNuevo(this,'Plus')" style="flex:1;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;background:#fff;color:#64748B;font-weight:700;font-size:14px;cursor:pointer">Plus</button>
+            </div>
+            <input type="hidden" id="ed-plan" value="Base">
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-edificio')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="crearEdificio(this${clienteUsuario ? `,'${escJs(clienteUsuario)}'` : ''})" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Agregar edificio</button>
+          </div>
+        </div>
+      </div>`;
 }
 
 /* ===================================================================
@@ -798,23 +855,47 @@ function setEncEstado(estado){
   if(w)w.style.display=estado==='activo'?'block':'none';
 }
 function valEl(id){var e=document.getElementById(id);return e?e.value:'';}
-async function guardarMiEdificio(btn){
-  var data={};
-  document.querySelectorAll('[data-me]').forEach(function(el){
-    data[el.getAttribute('data-me')]=el.value;
-  });
-  // Horario del encargado: armar JSON desde los selectores de hora.
-  data.encargado_horario=JSON.stringify({
-    lv1:[valEl('enc-lv1a'),valEl('enc-lv1b')],
-    lv2:[valEl('enc-lv2a'),valEl('enc-lv2b')],
-    sab:[valEl('enc-saba'),valEl('enc-sabb')]
-  });
+async function guardarEncargadoHorario(btn){
+  var data={
+    encargado_estado: valEl('enc-estado-val'),
+    encargado_horario: JSON.stringify({
+      lv1:[valEl('enc-lv1a'),valEl('enc-lv1b')],
+      lv2:[valEl('enc-lv2a'),valEl('enc-lv2b')],
+      sab:[valEl('enc-saba'),valEl('enc-sabb')]
+    })
+  };
   btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
   try{
     var r=await fetch('/admin/api/mi-edificio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Datos del edificio guardados','ok');
+    cerrarModal('modal-encargado-horario');
+    toast('Estado y horario guardados','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+// Editar un campo directo (sin aprobación) de "Mi Edificio" vía modal chico.
+var _ecCampo=null;
+function abrirEditarCampo(campo,label,actual,placeholder,ayuda){
+  _ecCampo=campo;
+  var l=document.getElementById('ec-label');if(l)l.textContent=label;
+  var v=document.getElementById('ec-valor');if(v){v.value=actual||'';v.placeholder=placeholder||'';}
+  var a=document.getElementById('ec-ayuda');
+  if(a){ if(ayuda){a.textContent=ayuda;a.style.display='block';} else {a.style.display='none';} }
+  abrirModal('modal-editar-campo');
+}
+async function guardarCampoEditado(btn){
+  var valor=(document.getElementById('ec-valor')||{}).value||'';
+  var data={};data[_ecCampo]=valor;
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/mi-edificio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    cerrarModal('modal-editar-campo');
+    toast('Dato guardado','ok');
+    setTimeout(function(){location.reload();},700);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
@@ -957,13 +1038,24 @@ async function crearEdificio(btn,clienteUsuario){
   var direccion=(document.getElementById('ed-direccion')||{}).value||'';
   var unidades=(document.getElementById('ed-unidades')||{}).value||'';
   var zona=(document.getElementById('ed-zona')||{}).value||'';
+  var cuit=(document.getElementById('ed-cuit')||{}).value||'';
+  var aliases=(document.getElementById('ed-aliases')||{}).value||'';
+  var horarioSum=(document.getElementById('ed-horario-sum')||{}).value||'';
+  var cocheras=(document.getElementById('ed-cocheras')||{}).value||'';
+  var telSeguridad=(document.getElementById('ed-tel-seguridad')||{}).value||'';
   var encargado=(document.getElementById('ed-encargado')||{}).value||'';
+  var telEncargado=(document.getElementById('ed-tel-encargado')||{}).value||'';
+  var suplente=(document.getElementById('ed-suplente')||{}).value||'';
+  var telSuplente=(document.getElementById('ed-tel-suplente')||{}).value||'';
   var plan=(document.getElementById('ed-plan')||{}).value||'Base';
   if(!nombre.trim()){toast('Falta el nombre del consorcio','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Creando...';
   try{
     var r=await fetch('/admin/api/edificio-nuevo',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({nombre:nombre.trim(),direccion:direccion.trim(),unidades:unidades.trim(),zona:zona.trim(),encargado:encargado.trim(),plan:plan,clienteUsuario:clienteUsuario||undefined})});
+      body:JSON.stringify({nombre:nombre.trim(),direccion:direccion.trim(),unidades:unidades.trim(),zona:zona.trim(),
+        cuit:cuit.trim(),aliases:aliases.trim(),horario_sum:horarioSum.trim(),cocheras:cocheras.trim(),tel_seguridad:telSeguridad.trim(),
+        encargado:encargado.trim(),tel_encargado:telEncargado.trim(),encargado_suplente:suplente.trim(),tel_suplente:telSuplente.trim(),
+        plan:plan,clienteUsuario:clienteUsuario||undefined})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Edificio agregado','ok');
@@ -1906,20 +1998,23 @@ router.get('/mi-edificio', async (req, res) => {
           </div>`).join('')}
       </div>` : '';
 
-    // ---- helpers de campo ----
+    // ---- helpers de ficha (misma fila icono+label+valor para todo:
+    // "Editar" guarda directo por modal, "Solicitar cambio" pasa por
+    // aprobación del administrador) ----
     const label = (t) => `<div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">${t}</div>`;
-    const inputEditable = (campo, valor, placeholder) =>
-      `<input data-me="${campo}" value="${esc(valor)}" placeholder="${esc(placeholder || '')}" class="inp" style="height:44px">`;
-    // Fila con cuadrito de ícono, igual al patrón de fichaRows del boceto,
-    // para que los campos editables se vean como el resto de las tarjetas.
-    const fieldRow = (icon, campo, valor, labelTxt, placeholder) => `
-      <div style="display:flex;align-items:center;gap:12px">
+    const fichaRow = (icon, labelTxt, valor, pendiente, boton) => `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 17px;display:flex;align-items:center;gap:12px">
         <span style="width:40px;height:40px;border-radius:11px;background:#F1F5FB;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${icon}</span>
         <div style="flex:1;min-width:0">
-          ${label(labelTxt)}
-          ${inputEditable(campo, valor, placeholder)}
+          <div style="font-size:12px;font-weight:700;color:#8595AD;letter-spacing:.02em;text-transform:uppercase">${labelTxt}</div>
+          <div style="font-size:15.5px;font-weight:700;color:#16233B;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(valor || '—')}</div>
         </div>
+        ${pendiente ? '<span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:#FBF3DE;color:#8A6410;flex-shrink:0">Pendiente</span>' : ''}
+        ${boton}
       </div>`;
+    // Campo directo: sin aprobación, guarda al instante vía modal chico.
+    const editRow = (icon, campo, valor, labelTxt, placeholder, ayuda) => fichaRow(icon, labelTxt, valor, false, `
+        <button onclick="abrirEditarCampo('${escJs(campo)}','${escJs(labelTxt)}','${escJs(valor || '')}','${escJs(placeholder || '')}','${escJs(ayuda || '')}')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-soft">Editar</button>`);
 
     // ---- ENCARGADO (estado + horario) ----
     const estados = [
@@ -1944,49 +2039,61 @@ router.get('/mi-edificio', async (req, res) => {
         ${timeInput(idB, valB)}
       </div>`;
 
-    const encargadoCard = `
-      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
-        <div style="font-size:16px;font-weight:800;margin-bottom:4px">🧑‍🔧 Encargado</div>
-        <p style="font-size:13px;color:#8595AD;margin:0 0 16px">Marcos usa estos datos para saber si puede contar con el encargado cuando surge un evento.</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">
-          ${fieldRow('🧑‍🔧', 'encargado', cur.encargado, 'Nombre del encargado', 'Nombre y apellido')}
-          ${fieldRow('📞', 'tel_encargado', cur.tel_encargado, 'Tel. encargado', 'Teléfono')}
-          ${fieldRow('🧑‍🔧', 'encargado_suplente', cur.encargado_suplente, 'Encargado suplente / limpieza', 'Quién lo cubre')}
-          ${fieldRow('📞', 'tel_suplente', cur.tel_suplente, 'Tel. suplente', 'Teléfono')}
-        </div>
-        <div style="margin-top:16px">
-          ${label('Estado del encargado')}
-          <div style="display:flex;gap:9px;flex-wrap:wrap">${btnEstado}</div>
-          <input type="hidden" data-me="encargado_estado" id="enc-estado-val" value="${esc(estadoActual)}">
-        </div>
-        <div id="enc-horario-wrap" style="margin-top:18px;${estadoActual === 'activo' ? '' : 'display:none'}">
-          ${label('Horario del encargado (cuando está activo)')}
-          ${rangoHorario('Lun a Vie', 'enc-lv1a', hor.lv1[0], 'enc-lv1b', hor.lv1[1])}
-          ${rangoHorario('Lun a Vie (2° turno)', 'enc-lv2a', hor.lv2[0], 'enc-lv2b', hor.lv2[1])}
-          ${rangoHorario('Sábados', 'enc-saba', hor.sab[0], 'enc-sabb', hor.sab[1])}
-          <div style="font-size:12px;color:#9AA7BD;margin-top:4px">Marcos se fija en estos horarios para saber si el encargado está disponible al momento del evento. Dejá vacío el 2° turno si no aplica.</div>
+    // Modal: estado + horario del encargado (compuesto, se edita junto).
+    const modalEncargadoHorario = `
+      <div id="modal-encargado-horario" class="modal-overlay" onclick="cerrarModal('modal-encargado-horario')">
+        <div class="modal-box" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Editar dato</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Estado y horario del encargado</div>
+          </div>
+          <div style="padding:20px 24px">
+            ${label('Estado del encargado')}
+            <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:18px">${btnEstado}</div>
+            <input type="hidden" id="enc-estado-val" value="${esc(estadoActual)}">
+            <div id="enc-horario-wrap" style="${estadoActual === 'activo' ? '' : 'display:none'}">
+              ${label('Horario del encargado (cuando está activo)')}
+              ${rangoHorario('Lun a Vie', 'enc-lv1a', hor.lv1[0], 'enc-lv1b', hor.lv1[1])}
+              ${rangoHorario('Lun a Vie (2° turno)', 'enc-lv2a', hor.lv2[0], 'enc-lv2b', hor.lv2[1])}
+              ${rangoHorario('Sábados', 'enc-saba', hor.sab[0], 'enc-sabb', hor.sab[1])}
+              <div style="font-size:12px;color:#9AA7BD;margin-top:4px">Marcos se fija en estos horarios para saber si el encargado está disponible al momento del evento. Dejá vacío el 2° turno si no aplica.</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-encargado-horario')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarEncargadoHorario(this)" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Guardar</button>
+          </div>
         </div>
       </div>`;
 
-    // ---- DATOS DEL EDIFICIO (editables directo) ----
-    const datosCard = `
-      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
-        <div style="font-size:16px;font-weight:800;margin-bottom:4px">🏢 Datos del edificio</div>
-        <p style="font-size:13px;color:#8595AD;margin:0 0 16px">Estos datos los editás vos y se guardan al instante — no necesitan aprobación.</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">
-          ${fieldRow('📍', 'direccion', cur.direccion, 'Dirección', 'Calle y número (legal)')}
-          ${fieldRow('🗺️', 'zona', cur.zona, 'Zona / barrio', 'Barrio, ciudad')}
-          <div style="grid-column:1/-1">
-            ${fieldRow('🏷️', 'aliases', cur.aliases, 'Alias / doble dirección', 'Ej: Ortiz 1486 (como lo conocen los vecinos)')}
-            <div style="font-size:12px;color:#9AA7BD;margin-top:6px;margin-left:52px">Si el edificio figura con una altura legal pero los vecinos lo nombran distinto, cargá acá los dos. Marcos reconoce cualquiera de las dos.</div>
-          </div>
-          ${fieldRow('🧾', 'cuit', cur.cuit, 'CUIT del edificio', '30-XXXXXXXX-X')}
-          ${fieldRow('🏠', 'unidades', cur.unidades, 'Unidades funcionales', 'Cantidad')}
-          ${fieldRow('📅', 'horario_sum', cur.horario_sum, 'Horario del SUM', 'Ej: 10 a 24hs · seña $15.000')}
-          ${fieldRow('🚗', 'cocheras', cur.cocheras, 'Cocheras', 'Ej: 22 fijas + 4 de cortesía')}
-          ${fieldRow('📞', 'tel_seguridad', cur.tel_seguridad, 'Tel. seguridad de la entrada', 'Si el edificio tiene')}
-        </div>
-      </div>`;
+    const estadoInfo = estados.find((e) => e.key === estadoActual) || estados[0];
+    const horarioResumen = [
+      hor.lv1[0] && hor.lv1[1] ? `L-V ${hor.lv1[0]}–${hor.lv1[1]}` : null,
+      hor.lv2[0] && hor.lv2[1] ? `L-V ${hor.lv2[0]}–${hor.lv2[1]}` : null,
+      hor.sab[0] && hor.sab[1] ? `Sáb ${hor.sab[0]}–${hor.sab[1]}` : null,
+    ].filter(Boolean).join(' · ') || 'Sin horario cargado';
+    const estadoHorarioValor = `${estadoInfo.label}${estadoActual === 'activo' ? ' · ' + horarioResumen : ''}`;
+    const estadoHorarioRow = fichaRow('🕒', 'Estado y horario del encargado', estadoHorarioValor, false, `
+        <button onclick="abrirModal('modal-encargado-horario')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-soft">Editar</button>`);
+
+    // ---- FICHAS: encargado y datos del edificio, de solo lectura con
+    // "Editar" por modal (sin aprobación) ----
+    const encargadoHtml = [
+      editRow('🧑‍🔧', 'encargado', cur.encargado, 'Nombre del encargado', 'Nombre y apellido'),
+      editRow('📞', 'tel_encargado', cur.tel_encargado, 'Tel. encargado', 'Teléfono'),
+      editRow('🧑‍🔧', 'encargado_suplente', cur.encargado_suplente, 'Encargado suplente / limpieza', 'Quién lo cubre'),
+      editRow('📞', 'tel_suplente', cur.tel_suplente, 'Tel. suplente', 'Teléfono'),
+      estadoHorarioRow,
+    ].join('');
+
+    const datosHtml = [
+      editRow('🗺️', 'zona', cur.zona, 'Zona / barrio', 'Barrio, ciudad'),
+      editRow('🏷️', 'aliases', cur.aliases, 'Alias / doble dirección', 'Ej: Ortiz 1486 (como lo conocen los vecinos)', 'Si el edificio figura con una altura legal pero los vecinos lo nombran distinto, cargá acá los dos. Marcos reconoce cualquiera de las dos.'),
+      editRow('🏠', 'unidades', cur.unidades, 'Unidades funcionales', 'Cantidad'),
+      editRow('📅', 'horario_sum', cur.horario_sum, 'Horario del SUM', 'Ej: 10 a 24hs · seña $15.000'),
+      editRow('🚗', 'cocheras', cur.cocheras, 'Cocheras', 'Ej: 22 fijas + 4 de cortesía'),
+      editRow('📞', 'tel_seguridad', cur.tel_seguridad, 'Tel. seguridad de la entrada', 'Si el edificio tiene'),
+    ].join('');
 
     // ---- PROVEEDORES: asignados a este edificio + asignar desde la lista ----
     const rubroColor = (r) => ({
@@ -2049,22 +2156,16 @@ router.get('/mi-edificio', async (req, res) => {
         ${asignarBloque}
       </div>`;
 
-    // ---- DATOS DE CONSULTA (con aprobacion) ----
+    // ---- DATOS SENSIBLES (con aprobacion del administrador) ----
     const consultaRows = [
       { campo: 'nombre', icon: '🏢', label: 'Consorcio', value: cur.nombre },
+      { campo: 'direccion', icon: '📍', label: 'Dirección', value: cur.direccion || '—' },
+      { campo: 'cuit', icon: '🧾', label: 'CUIT del edificio', value: cur.cuit || '—' },
       { campo: 'administrador', icon: '👔', label: 'Administrador', value: cur.administrador || '—' },
       { campo: 'telefonos', icon: '📞', label: 'Tel. administración', value: cur.telefonos || '—' },
     ];
-    const consultaHtml = consultaRows.map((r) => `
-      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 17px;display:flex;align-items:center;gap:12px">
-        <span style="width:40px;height:40px;border-radius:11px;background:#F1F5FB;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${r.icon}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:12px;font-weight:700;color:#8595AD;letter-spacing:.02em;text-transform:uppercase">${r.label}</div>
-          <div style="font-size:15.5px;font-weight:700;color:#16233B;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.value)}</div>
-        </div>
-        ${pendCampos.has(r.campo) ? '<span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:#FBF3DE;color:#8A6410;flex-shrink:0">Pendiente</span>' : ''}
-        <button onclick="abrirSolicitud('${escJs(r.campo)}','${escJs(r.label)}','${escJs(r.value === '—' ? '' : r.value)}','${escJs(cur.nombre)}')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-softb">Solicitar cambio</button>
-      </div>`).join('');
+    const consultaHtml = consultaRows.map((r) => fichaRow(r.icon, r.label, r.value, pendCampos.has(r.campo), `
+        <button onclick="abrirSolicitud('${escJs(r.campo)}','${escJs(r.label)}','${escJs(r.value === '—' ? '' : r.value)}','${escJs(cur.nombre)}')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-softb">Solicitar cambio</button>`)).join('');
 
     const modalSolicitud = `
       <div id="modal-solicitud" class="modal-overlay" onclick="cerrarModal('modal-solicitud')">
@@ -2092,26 +2193,50 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
-    // barra de guardar (sticky abajo) para los datos editables directos
-    const barraGuardar = `
-      <div style="position:sticky;bottom:0;background:linear-gradient(0deg,#EEF1F6 60%,transparent);padding:14px 0 4px;margin-top:4px;z-index:5">
-        <button onclick="guardarMiEdificio(this)" style="height:48px;padding:0 26px;border:none;border-radius:12px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:15px;cursor:pointer;box-shadow:0 8px 20px -8px rgba(30,95,180,.5)" class="hv-primary">Guardar cambios del edificio</button>
-        <span style="margin-left:14px;font-size:12.5px;color:#8595AD">Datos del edificio, encargado y estado. Los proveedores se guardan por separado.</span>
+    // Modal genérico para editar un campo directo (sin aprobación).
+    const modalEditarCampo = `
+      <div id="modal-editar-campo" class="modal-overlay" onclick="cerrarModal('modal-editar-campo')">
+        <div class="modal-box" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Editar dato</div>
+            <div id="ec-label" style="font-size:19px;font-weight:800;letter-spacing:-.01em"></div>
+          </div>
+          <div style="padding:20px 24px">
+            <input id="ec-valor" placeholder="" class="inp">
+            <div id="ec-ayuda" style="font-size:12px;color:#9AA7BD;margin-top:8px;display:none"></div>
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-editar-campo')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarCampoEditado(this)" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Guardar</button>
+          </div>
+        </div>
       </div>`;
+
+    const modalNuevoEdificio = modalAltaEdificioHtml('Nuevo edificio');
 
     const contenido = `
       <div style="animation:mFade .3s ease both">
-        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Mi Edificio</h1>
-        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Ficha de ${esc(cur.nombre)}. Estos son los datos que Marcos usa para atender tu consorcio. Casi todo lo editás vos directo; solo el nombre del consorcio y el administrador pasan por tu administrador.</p>
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:4px">
+          <div>
+            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Mi Edificio</h1>
+            <p style="color:#64748B;font-size:15px;margin:0">Ficha de ${esc(cur.nombre)}. Tocá "Editar" para actualizar un dato al instante, o "Solicitar cambio" en los datos sensibles del consorcio.</p>
+          </div>
+          <button onclick="abrirModal('modal-edificio')" style="flex-shrink:0;height:40px;padding:0 18px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">+ Agregar edificio</button>
+        </div>
+        <div style="height:16px"></div>
         ${pendHtml}
-        ${datosCard}
-        ${encargadoCard}
+        <div style="font-size:14px;font-weight:800;color:#334259;margin:0 0 12px">🏢 Datos del edificio</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:26px" class="fichagrid">${datosHtml}</div>
+        <div style="font-size:14px;font-weight:800;color:#334259;margin:0 0 12px">🧑‍🔧 Encargado</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:26px" class="fichagrid">${encargadoHtml}</div>
         ${proveedoresCard}
-        <div style="font-size:14px;font-weight:800;color:#334259;margin:8px 0 12px">Datos de consulta (los cambia tu administrador)</div>
+        <div style="font-size:14px;font-weight:800;color:#334259;margin:8px 0 12px">Datos sensibles (los cambia tu administrador)</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">${consultaHtml}</div>
-        ${barraGuardar}
       </div>
-      ${modalSolicitud}`;
+      ${modalSolicitud}
+      ${modalEncargadoHorario}
+      ${modalEditarCampo}
+      ${modalNuevoEdificio}`;
 
     res.send(shell(req, d, 'edificio', contenido));
   } catch (e) {
@@ -2565,49 +2690,7 @@ router.get('/clientes', async (req, res) => {
         </div>
       </div>`;
 
-    const modalEdificio = clienteSel ? `
-      <div id="modal-edificio" class="modal-overlay" onclick="cerrarModal('modal-edificio')">
-        <div class="modal-box" style="width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
-            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Nuevo edificio · ${esc(clienteSel.nombre)}</div>
-            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Alta de consorcio</div>
-          </div>
-          <div style="padding:20px 24px">
-            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del consorcio</div>
-            <input id="ed-nombre" placeholder="Ej: Av. Corrientes 3000" class="inp" style="margin-bottom:14px">
-            <div style="display:flex;gap:12px;margin-bottom:14px">
-              <div style="flex:1.5">
-                <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Dirección</div>
-                <input id="ed-direccion" placeholder="Calle y número" class="inp">
-              </div>
-              <div style="width:100px">
-                <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Unidades</div>
-                <input id="ed-unidades" placeholder="0" class="inp">
-              </div>
-            </div>
-            <div style="display:flex;gap:12px;margin-bottom:16px">
-              <div style="flex:1">
-                <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Zona</div>
-                <input id="ed-zona" placeholder="Barrio, ciudad" class="inp">
-              </div>
-              <div style="flex:1">
-                <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Encargado</div>
-                <input id="ed-encargado" placeholder="Nombre" class="inp">
-              </div>
-            </div>
-            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Plan contratado</div>
-            <div style="display:flex;gap:9px">
-              <button data-plan-btn onclick="elegirPlanNuevo(this,'Base')" style="flex:1;height:44px;border:1.5px solid #2E6FC0;border-radius:11px;background:#EAF1FB;color:#17408B;font-weight:700;font-size:14px;cursor:pointer">Base</button>
-              <button data-plan-btn onclick="elegirPlanNuevo(this,'Plus')" style="flex:1;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;background:#fff;color:#64748B;font-weight:700;font-size:14px;cursor:pointer">Plus</button>
-            </div>
-            <input type="hidden" id="ed-plan" value="Base">
-          </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
-            <button onclick="cerrarModal('modal-edificio')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
-            <button onclick="crearEdificio(this,'${escJs(clienteSel.usuario)}')" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Agregar edificio</button>
-          </div>
-        </div>
-      </div>` : '';
+    const modalEdificio = clienteSel ? modalAltaEdificioHtml(`Nuevo edificio · ${clienteSel.nombre}`, clienteSel.usuario) : '';
 
     const modalEditar = `
       <div id="modal-editar" class="modal-overlay" onclick="cerrarModal('modal-editar')">
@@ -2897,7 +2980,8 @@ router.post('/api/edificio-nuevo', async (req, res) => {
   if (!dueno && !esConsorcio) return res.status(403).json({ error: 'Sin permiso' });
   if (!dueno && bloquearSiPreview(req, res)) return;
   try {
-    const { nombre, direccion, zona, unidades, encargado, plan } = req.body || {};
+    const body = req.body || {};
+    const { nombre, direccion, zona, unidades, encargado, plan } = body;
     if (!nombre) return res.status(400).json({ error: 'Falta el nombre del consorcio' });
     const clienteUsuario = dueno ? req.body.clienteUsuario : req.session.user;
     const { rows: edRows } = await readTab(TAB_EDIFICIOS);
@@ -2908,6 +2992,11 @@ router.post('/api/edificio-nuevo', async (req, res) => {
       edificio: nombre, direccion: direccion || '', zona: zona || '',
       unidades: unidades || '', encargado: encargado || '', plan: plan || 'Base',
     });
+    // Resto de la ficha (cuit, alias, horario SUM, cocheras, seguridad,
+    // suplente...) — mismo camino que "Mi Edificio", crea columnas si faltan.
+    const { rows: edRows2, headers: edHeaders2 } = await readTab(TAB_EDIFICIOS);
+    const nuevaFila = edRows2.map(mapEdificio).find((e) => e.nombre === nombre);
+    if (nuevaFila) await guardarCamposEdificio(nuevaFila, edHeaders2, body, EDIFICIO_CAMPOS_ALTA);
     if (clienteUsuario) {
       const { rows: cliRows } = await readTab(TAB_CLIENTES);
       const cliente = cliRows.map(mapCliente).find((c) => c.usuario === clienteUsuario);
@@ -3075,13 +3164,13 @@ router.post('/api/expensa-quitar', async (req, res) => {
   }
 });
 
-// Campos que el CLIENTE edita directo en Mi Edificio (sin aprobacion).
-// nombre/administrador NO estan aca: esos van por solicitud de cambio.
+// Campos que el CLIENTE edita directo en Mi Edificio (sin aprobacion), UNA
+// VEZ que el edificio ya existe. direccion/cuit/nombre/administrador/
+// telefonos NO estan aca: esos van por solicitud de cambio (son "datos
+// sensibles" de identidad del consorcio).
 const MI_EDIFICIO_FIELDS = {
-  direccion: ['direccion', 'domicilio'],
   zona: ['zona', 'barrio'],
   aliases: ['aliases', 'alias', 'otros_nombres'],
-  cuit: ['cuit'],
   unidades: ['unidades', 'unidad', 'departamentos'],
   horario_sum: ['horario_sum', 'sum'],
   cocheras: ['cocheras', 'cochera'],
@@ -3094,7 +3183,34 @@ const MI_EDIFICIO_FIELDS = {
   encargado_horario: ['encargado_horario', 'horario_encargado'],
 };
 
-// Guarda los datos editables directo del edificio del cliente.
+// En el ALTA del edificio no hay nada que "aprobar" todavía (el cliente
+// recien lo esta cargando), asi que ahi si se cargan directo.
+const EDIFICIO_CAMPOS_ALTA = {
+  ...MI_EDIFICIO_FIELDS,
+  direccion: ['direccion', 'domicilio'],
+  cuit: ['cuit'],
+};
+
+// Escribe en TAB_EDIFICIOS los campos de `fieldsMap` presentes en `body`
+// para la fila `edRow`, creando la columna si todavía no existe.
+async function guardarCamposEdificio(edRow, headers, body, fieldsMap) {
+  fieldsMap = fieldsMap || MI_EDIFICIO_FIELDS;
+  let workingHeaders = headers.slice();
+  for (const field of Object.keys(fieldsMap)) {
+    if (body[field] === undefined) continue;
+    const candidates = fieldsMap[field];
+    let idx = workingHeaders.findIndex((h) => candidates.includes(h));
+    let col;
+    if (idx >= 0) col = columnLetter(idx + 1);
+    else {
+      col = columnLetter(workingHeaders.length + 1);
+      await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
+      workingHeaders.push(candidates[0]);
+    }
+    await writeCell(TAB_EDIFICIOS, col, edRow._row, body[field]);
+  }
+}
+
 router.post('/api/mi-edificio', async (req, res) => {
   if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
   if (bloquearSiPreview(req, res)) return;
@@ -3109,20 +3225,7 @@ router.post('/api/mi-edificio', async (req, res) => {
     const edRow = rows.map(mapEdificio).find((e) => e.nombre === nombreEd);
     if (!edRow) return res.status(404).json({ error: 'Edificio no encontrado' });
 
-    let workingHeaders = headers.slice();
-    for (const field of Object.keys(MI_EDIFICIO_FIELDS)) {
-      if (body[field] === undefined) continue;
-      const candidates = MI_EDIFICIO_FIELDS[field];
-      let idx = workingHeaders.findIndex((h) => candidates.includes(h));
-      let col;
-      if (idx >= 0) col = columnLetter(idx + 1);
-      else {
-        col = columnLetter(workingHeaders.length + 1);
-        await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
-        workingHeaders.push(candidates[0]);
-      }
-      await writeCell(TAB_EDIFICIOS, col, edRow._row, body[field]);
-    }
+    await guardarCamposEdificio(edRow, headers, body);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
