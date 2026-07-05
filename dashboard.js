@@ -1,31 +1,17 @@
 /**
- * dashboard.js
+ * dashboard.js — Panel de administración "Marcos IA"
  * -------------------------------------------------------------------
- * Dashboard web del administrador para "Marcos IA".
- *
- * Router de Express que se monta en /admin del servidor principal:
+ * Router de Express montado en /admin del servidor principal:
  *
  *     const dashboard = require('./dashboard');
  *     app.use('/admin', dashboard);
  *
- * Caracteristicas:
- *   - Login simple (admin / marcos2024) con express-session.
- *   - Resumen del dia (eventos, urgencias, edificios activos).
- *   - Feed cronologico de eventos (WhatsApp texto / audio / llamadas).
- *   - Filtros por edificio y por urgencia.
- *   - Transcripciones de audio.
- *   - Facturas / fotos enviadas por vecinos o proveedores.
- *   - Feedback por caso (se guarda en Google Sheets para que Marcos aprenda).
- *   - Datos de edificios (ver / editar encargados, propietarios, telefonos).
+ * UI porteada 1:1 del prototipo de diseño (design/Panel Consorcio.dc.html)
+ * siguiendo design/PORTING.md: markup y estilos inline copiados del
+ * prototipo, con los {{ }} reemplazados por datos reales de Google Sheets.
  *
- * Disenado para no requerir dependencias nuevas mas alla de:
- *   - express
- *   - express-session   (se instala con: npm i express-session)
- *   - googleapis        (ya usado por el proyecto para Google Sheets)
- *
- * Lee los datos directamente de Google Sheets usando las mismas
- * credenciales del .env. Si existe un ./sheets.js con helpers, intenta
- * reutilizarlo; si no, cae a su propio cliente de Sheets.
+ * Roles: dueño (Daniel, ve todo) y cliente (admin de consorcio, ve lo suyo).
+ * El dueño puede impersonar ("Ver como cliente") en modo solo lectura.
  * -------------------------------------------------------------------
  */
 
@@ -51,9 +37,8 @@ const LOGO_URL = '/admin/assets/logo.png';
 const ADMIN_USER = process.env.DASHBOARD_USER || 'admin';
 const ADMIN_PASS = process.env.DASHBOARD_PASS || 'marcos2024';
 
-// Usuarios de administradores de consorcio (clientes del servicio).
-// Formato en .env: CONSORCIO_USERS={"usuario1":"pass1:Edificio A,Edificio B","usuario2":"pass2:Edificio C"}
-// El valor es "contraseña:edificio1,edificio2" — los edificios que puede ver ese usuario.
+// Usuarios de administradores de consorcio via .env (fallback historico).
+// Formato: CONSORCIO_USERS={"usuario1":"pass1:Edificio A,Edificio B"}
 let CONSORCIO_USERS = {};
 try {
   if (process.env.CONSORCIO_USERS) {
@@ -67,6 +52,7 @@ try {
     });
   }
 } catch (_) {}
+
 const SESSION_SECRET =
   process.env.DASHBOARD_SECRET || 'marcos-secret-cambiar-en-produccion-2024';
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
@@ -74,17 +60,14 @@ const CREDENTIALS_FILE =
   process.env.GOOGLE_CREDENTIALS_FILE ||
   'gen-lang-client-0735429936-bba6999e5e60.json';
 
-// Nombres de pestanias (tabs) esperados en el Google Sheet.
-// Se pueden sobreescribir por .env si los nombres reales difieren.
-// Nombres de pestanias (tabs) reales que usa Marcos (sheets.js).
-// Se pueden sobreescribir por .env si los nombres difieren.
+// Pestanias reales que usa Marcos (sheets.js), en minuscula.
 const TAB_EVENTOS = process.env.SHEET_TAB_EVENTOS || 'reportes';
 const TAB_EDIFICIOS = process.env.SHEET_TAB_EDIFICIOS || 'edificios';
 const TAB_ARCHIVOS = process.env.SHEET_TAB_ARCHIVOS || 'facturas';
-const TAB_FEEDBACK = process.env.SHEET_TAB_FEEDBACK || 'Feedback';
 const TAB_SUGERENCIAS = process.env.SHEET_TAB_SUGERENCIAS || 'sugerencias';
 const TAB_SOLICITUDES = process.env.SHEET_TAB_SOLICITUDES || 'solicitudes';
 const TAB_CLIENTES = process.env.SHEET_TAB_CLIENTES || 'clientes';
+const TAB_EXPENSAS = process.env.SHEET_TAB_EXPENSAS || 'expensas';
 
 /* ===================================================================
  * SESSION
@@ -100,7 +83,6 @@ router.use(
       httpOnly: true,
       sameSite: 'lax',
       maxAge: 1000 * 60 * 60 * 12, // 12 horas
-      // secure: true, // activar si siempre se accede por HTTPS
     },
   })
 );
@@ -110,9 +92,6 @@ router.use(express.json());
 
 /* ===================================================================
  * CLIENTE GOOGLE SHEETS
- * -------------------------------------------------------------------
- * Intentamos reutilizar ./sheets.js. Si no expone lo que necesitamos,
- * usamos nuestro propio cliente con las credenciales del .env.
  * =================================================================== */
 
 let externalSheets = null;
@@ -126,8 +105,6 @@ try {
 let _sheetsClient = null;
 async function getSheetsClient() {
   if (_sheetsClient) return _sheetsClient;
-
-  // Si sheets.js ya expone un cliente autenticado, usarlo.
   if (externalSheets && externalSheets.sheets) {
     _sheetsClient = externalSheets.sheets;
     return _sheetsClient;
@@ -136,11 +113,9 @@ async function getSheetsClient() {
     _sheetsClient = await externalSheets.getSheetsClient();
     return _sheetsClient;
   }
-
   const keyFile = path.isAbsolute(CREDENTIALS_FILE)
     ? CREDENTIALS_FILE
     : path.join(__dirname, CREDENTIALS_FILE);
-
   const auth = new google.auth.GoogleAuth({
     keyFile,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -150,10 +125,7 @@ async function getSheetsClient() {
   return _sheetsClient;
 }
 
-/**
- * Lee una pestania completa y la devuelve como array de objetos,
- * usando la primera fila como encabezados (normalizados a minusculas).
- */
+/** Lee una pestania completa como array de objetos (headers en minuscula). */
 async function readTab(tabName) {
   const sheets = await getSheetsClient();
   let res;
@@ -163,25 +135,20 @@ async function readTab(tabName) {
       range: `${tabName}!A:Z`,
     });
   } catch (e) {
-    // Pestania inexistente u otro error -> devolvemos vacio para no romper UI.
-    return { headers: [], rows: [] };
+    return { headers: [], rows: [], rawHeaders: [] };
   }
-
   const values = (res.data && res.data.values) || [];
-  if (values.length === 0) return { headers: [], rows: [] };
-
+  if (values.length === 0) return { headers: [], rows: [], rawHeaders: [] };
   const rawHeaders = values[0].map((h) => String(h || '').trim());
   const headers = rawHeaders.map(normalizeKey);
-
   const rows = values.slice(1).map((row, idx) => {
-    const obj = { _row: idx + 2 }; // numero de fila real en la hoja (1-based + header)
+    const obj = { _row: idx + 2 };
     headers.forEach((h, i) => {
       if (!h) return;
       obj[h] = row[i] !== undefined ? row[i] : '';
     });
     return obj;
   });
-
   return { headers, rows, rawHeaders };
 }
 
@@ -190,12 +157,11 @@ function normalizeKey(k) {
     .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '') // sacar tildes (marcas diacriticas)
+    .replace(/\p{Diacritic}/gu, '')
     .replace(/\s+/g, '_')
     .replace(/[^a-z0-9_]/g, '');
 }
 
-/** Devuelve el primer valor presente entre varias claves candidatas. */
 function pick(obj, keys, fallback = '') {
   for (const k of keys) {
     if (obj[k] !== undefined && obj[k] !== '') return obj[k];
@@ -203,21 +169,18 @@ function pick(obj, keys, fallback = '') {
   return fallback;
 }
 
-/** Normaliza una fila de "Eventos" a un shape estable para la UI. */
-function mapEvento(r) {
-  const tipoRaw = String(
-    pick(r, ['tipo', 'canal', 'tipo_mensaje', 'medio'])
-  ).toLowerCase();
+/* ===================================================================
+ * MAPPERS (fila de Sheets -> shape estable)
+ * =================================================================== */
 
+function mapEvento(r) {
+  const tipoRaw = String(pick(r, ['tipo', 'canal', 'tipo_mensaje', 'medio'])).toLowerCase();
   let tipo = 'texto';
   if (/audio|voz|nota/.test(tipoRaw)) tipo = 'audio';
   else if (/llamad|call|telefono|voice/.test(tipoRaw)) tipo = 'llamada';
   else if (/imagen|foto|image/.test(tipoRaw)) tipo = 'imagen';
 
-  const urgRaw = String(
-    pick(r, ['urgencia', 'prioridad', 'gravedad', 'severidad'])
-  ).toLowerCase();
-
+  const urgRaw = String(pick(r, ['urgencia', 'prioridad', 'gravedad', 'severidad'])).toLowerCase();
   let urgencia = 'baja';
   if (/alta|urgent|critic|grave|emergen/.test(urgRaw)) urgencia = 'alta';
   else if (/media|medio|moder/.test(urgRaw)) urgencia = 'media';
@@ -228,51 +191,35 @@ function mapEvento(r) {
     _row: r._row,
     fecha: pick(r, ['fecha', 'fecha_hora', 'timestamp', 'fecha_y_hora', 'hora']),
     edificio: pick(r, ['edificio', 'consorcio', 'building', 'direccion'], 'Sin edificio'),
-    vecino: pick(r, ['vecino', 'nombre', 'remitente', 'contacto', 'usuario'], 'Anonimo'),
+    vecino: pick(r, ['vecino', 'nombre', 'remitente', 'contacto', 'usuario'], 'Vecino'),
     telefono: pick(r, ['telefono', 'numero', 'phone', 'celular', 'whatsapp']),
     tipo,
-    tipoRaw,
     mensaje: pick(r, ['problema', 'mensaje', 'texto', 'consulta', 'detalle', 'descripcion', 'contenido']),
-    transcripcion: pick(r, ['notas_ia', 'transcripcion', 'transcripcion_audio', 'transcript', 'audio_texto']),
+    notas: pick(r, ['notas_ia', 'transcripcion', 'resumen', 'sintesis', 'respuesta_marcos']),
     urgencia,
-    resumen: pick(r, ['notas_ia', 'resumen', 'sintesis', 'respuesta_marcos', 'respuesta']),
     estado: pick(r, ['estado', 'status']),
     tecnico: pick(r, ['tecnico', 'proveedor', 'rubro']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
   };
 }
 
-/** Normaliza una fila de "Archivos". */
-function mapArchivo(r) {
-  return {
-    _row: r._row,
-    fecha: pick(r, ['fecha', 'fecha_hora', 'timestamp', 'hora']),
-    edificio: pick(r, ['edificio', 'consorcio', 'building'], 'Sin edificio'),
-    enviado_por: pick(r, ['vecino', 'enviado_por', 'remitente', 'proveedor', 'nombre'], 'Desconocido'),
-    tipo: pick(r, ['tipo', 'categoria', 'clase'], 'archivo'),
-    descripcion: pick(r, ['descripcion', 'detalle', 'concepto', 'nota']),
-    monto: pick(r, ['monto', 'importe', 'total', 'valor']),
-    url: pick(r, ['url_archivo', 'url', 'link', 'enlace', 'drive_url', 'archivo', 'imagen', 'foto', 'factura']),
-  };
-}
-
-/** Normaliza una fila de "Edificios". */
 function mapEdificio(r) {
   return {
     _row: r._row,
-    nombre: pick(r, ['edificio', 'nombre', 'consorcio', 'direccion'], 'Sin nombre'),
+    nombre: pick(r, ['edificio', 'nombre', 'consorcio'], 'Sin nombre'),
     direccion: pick(r, ['direccion', 'domicilio', 'address']),
-    tipo: pick(r, ['tipo']),
     zona: pick(r, ['zona', 'barrio']),
+    tipo: pick(r, ['tipo'], 'Edificio'),
     encargado: pick(r, ['encargado', 'portero', 'sereno']),
     tel_encargado: pick(r, ['telefono_encargado', 'tel_encargado', 'celular_encargado']),
     encargado_estado: pick(r, ['encargado_estado', 'estado_encargado'], 'activo'),
     encargado_suplente: pick(r, ['encargado_suplente', 'suplente', 'personal_limpieza']),
     tel_seguridad: pick(r, ['telefono_seguridad', 'tel_seguridad', 'seguridad']),
     administrador: pick(r, ['admin_nombre', 'administrador', 'admin']),
-    tel_admin: pick(r, ['admin_telefono', 'telefono_admin', 'tel_admin', 'telefono_administrador']),
-    propietarios: pick(r, ['propietarios', 'duenos', 'duenios']),
     telefonos: pick(r, ['admin_telefono', 'telefonos', 'contactos', 'telefono', 'numeros']),
+    cuit: pick(r, ['cuit']),
+    horario_sum: pick(r, ['horario_sum', 'sum']),
+    cocheras: pick(r, ['cocheras', 'cochera']),
     notas: pick(r, ['notas_especiales', 'notas', 'observaciones', 'comentarios']),
     aliases: pick(r, ['aliases', 'alias', 'otros_nombres']),
     unidades: pick(r, ['unidades', 'unidad', 'departamentos']),
@@ -280,7 +227,6 @@ function mapEdificio(r) {
   };
 }
 
-/** Normaliza una fila de "clientes" (administradores de consorcio). */
 function mapCliente(r) {
   return {
     _row: r._row,
@@ -292,32 +238,58 @@ function mapCliente(r) {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
-    plan: pick(r, ['plan'], 'Base'),
     activo: String(pick(r, ['activo'], 'si')).toLowerCase() !== 'no',
+    ultimo_acceso: pick(r, ['ultimo_acceso']),
+  };
+}
+
+function mapFactura(r) {
+  const url = pick(r, ['url_archivo', 'url', 'link', 'enlace', 'archivo']);
+  const concepto = pick(r, ['concepto', 'descripcion', 'detalle'], 'Comprobante');
+  const monto = pick(r, ['monto', 'importe', 'total']);
+  const esFoto = /foto|imagen/i.test(concepto) || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+  let moneda = 'ARS';
+  if (/usd|u\$s|dolar/i.test(monto + ' ' + concepto)) moneda = 'USD';
+  else if (/eur|€/i.test(monto + ' ' + concepto)) moneda = 'EUR';
+  return {
+    _row: r._row,
+    fecha: pick(r, ['fecha', 'fecha_hora', 'timestamp']),
+    proveedor: pick(r, ['proveedor', 'vecino', 'remitente'], 'Sin datos'),
+    monto,
+    concepto,
+    edificio: pick(r, ['edificio', 'consorcio'], 'Sin edificio'),
+    url,
+    estado: pick(r, ['estado'], 'Pendiente'),
+    tipo: esFoto ? 'Foto' : 'Factura',
+    moneda,
+  };
+}
+
+function mapExpensa(r) {
+  return {
+    _row: r._row,
+    fecha: pick(r, ['fecha']),
+    edificio: pick(r, ['edificio']),
+    periodo: pick(r, ['periodo', 'mes']),
+    formato: pick(r, ['formato', 'tipo'], 'pdf'),
+    nombre: pick(r, ['nombre', 'archivo']),
+    url: pick(r, ['url', 'link']),
+    estado: pick(r, ['estado'], 'publicada'),
   };
 }
 
 /* ===================================================================
- * UTILIDADES DE FECHA
+ * FECHAS
  * =================================================================== */
 
 function parseFecha(str) {
   if (!str) return null;
   const d = new Date(str);
   if (!isNaN(d.getTime())) return d;
-  // formato dd/mm/yyyy [hh:mm]
-  const m = String(str).match(
-    /(\d{1,2})\/(\d{1,2})\/(\d{2,4})[ ,T]*(\d{1,2})?:?(\d{1,2})?/
-  );
+  const m = String(str).match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})[ ,T]*(\d{1,2})?:?(\d{1,2})?/);
   if (m) {
     const yr = m[3].length === 2 ? '20' + m[3] : m[3];
-    const dd = new Date(
-      Number(yr),
-      Number(m[2]) - 1,
-      Number(m[1]),
-      Number(m[4] || 0),
-      Number(m[5] || 0)
-    );
+    const dd = new Date(Number(yr), Number(m[2]) - 1, Number(m[1]), Number(m[4] || 0), Number(m[5] || 0));
     if (!isNaN(dd.getTime())) return dd;
   }
   return null;
@@ -335,16 +307,11 @@ function esHoy(date) {
 
 function fechaCorta(date) {
   if (!date) return '';
-  return date.toLocaleString('es-AR', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return date.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 /* ===================================================================
- * AUTH MIDDLEWARE
+ * AUTH / ROLES / PREVIEW
  * =================================================================== */
 
 function requireAuth(req, res, next) {
@@ -355,26 +322,45 @@ function requireAuth(req, res, next) {
   return res.redirect('/admin/login');
 }
 
-// Devuelve true si la sesión es del dueño del sistema (Daniel).
-function esDueno(req) {
+// Dueño real de la sesion (independiente del modo preview).
+function esDuenoReal(req) {
   return req.session && req.session.role === 'dueno';
 }
 
-// Devuelve los edificios que puede ver el usuario actual.
-// null = todos (dueño); array = filtrado (admin consorcio).
+// Modo "Ver como cliente" activo.
+function enPreview(req) {
+  return esDuenoReal(req) && !!(req.session && req.session.previewOwner);
+}
+
+// Vista efectiva: cliente si es rol consorcio O si el dueño esta en preview.
+function vistaCliente(req) {
+  return !esDuenoReal(req) || enPreview(req);
+}
+
+// Dueño con vista de dueño (sin preview).
+function esDueno(req) {
+  return esDuenoReal(req) && !enPreview(req);
+}
+
+// Edificios visibles para la vista actual. null = todos (dueño).
 function edificiosPermitidos(req) {
   if (esDueno(req)) return null;
+  if (enPreview(req)) return req.session.previewEdificios || [];
   const propios = req.session.edificios || [];
   const activo = req.session.edificioActivo;
   if (activo && propios.includes(activo)) return [activo];
   return propios;
 }
 
+// Todos los edificios de la cuenta (sin estrechar por edificioActivo).
+function edificiosDeLaCuenta(req) {
+  if (enPreview(req)) return req.session.previewEdificios || [];
+  return (req.session && req.session.edificios) || [];
+}
+
 function filtrarPorEdificio(lista, req, campo = 'edificio') {
   const permitidos = edificiosPermitidos(req);
   if (!permitidos) {
-    // Dueño sin restriccion de cliente, pero puede haber elegido un
-    // edificio puntual en el selector del header.
     const filtro = req && req.session && req.session.filtroEdificioDueno;
     if (!filtro) return lista;
     return lista.filter((item) => String(item[campo] || '').toLowerCase().includes(filtro.toLowerCase()));
@@ -384,8 +370,72 @@ function filtrarPorEdificio(lista, req, campo = 'edificio') {
   );
 }
 
+// Bloquea escrituras del cliente cuando el dueño esta en modo preview.
+function bloquearSiPreview(req, res) {
+  if (enPreview(req)) {
+    res.status(403).json({ error: 'Vista previa: solo lectura' });
+    return true;
+  }
+  return false;
+}
+
 /* ===================================================================
- * HTML HELPERS (escape)
+ * CATEGORIAS / CANAL / ESTADO (identicos al prototipo)
+ * =================================================================== */
+
+const CATEGORIAS_EVENTO = {
+  reclamo: { label: 'Reclamo', icon: '🔧', bg: '#FDECEC' },
+  reserva: { label: 'Reserva', icon: '📅', bg: '#EAF3EC' },
+  seguridad: { label: 'Seguridad', icon: '📹', bg: '#EDEEFB' },
+  mensaje: { label: 'Aviso', icon: '💬', bg: '#EAF1FB' },
+  mantenimiento: { label: 'Mantenimiento', icon: '🧰', bg: '#FBF3DE' },
+};
+
+function clasificarEvento(e) {
+  const txt = `${e.mensaje || ''} ${e.notas || ''}`.toLowerCase();
+  if (/reserva|sum\b|quincho|salon|cumplea/.test(txt)) return 'reserva';
+  if (/camara|cámara|seguridad|cerradura|robo|alarma|magnetica|magnética/.test(txt)) return 'seguridad';
+  if (/service|mantenimiento|bomba de agua|limpieza de tanque|fumigaci/.test(txt)) return 'mantenimiento';
+  if (/aviso|informo|informó|corte programado|factura|recepcion|recepción/.test(txt)) return 'mensaje';
+  return 'reclamo';
+}
+
+function canalDe(e) {
+  if (e.tipo === 'llamada') return { icon: '📞', nombre: 'Llamado' };
+  return { icon: '🟢', nombre: 'WhatsApp' };
+}
+
+const URG_STYLE = {
+  alta: { label: 'Urgente', bg: '#FDECEC', fg: '#C0392B' },
+  media: { label: 'Media', bg: '#FBF1DD', fg: '#8A6410' },
+  baja: { label: 'Baja', bg: '#EAF1FB', fg: '#2C5C9E' },
+};
+const EST_STYLE = {
+  nuevo: { label: 'Nuevo', bg: '#EAF1FB', fg: '#2C5C9E' },
+  curso: { label: 'En curso', bg: '#FBF1DD', fg: '#8A6410' },
+  resuelto: { label: 'Resuelto', bg: '#E7F4EC', fg: '#1B7A43' },
+};
+
+function estadoNormalizado(estado) {
+  const s = String(estado || '').toLowerCase();
+  if (/resuel|cerrad|finaliz|completad/.test(s)) return 'resuelto';
+  if (/proceso|curso|iniciado|coordinando|gestion|gestión|pendiente/.test(s)) return 'curso';
+  return 'nuevo';
+}
+
+const PLAN_STYLE = (p) => (p === 'Plus'
+  ? { bg: '#EDE9FB', fg: '#6D28D9' }
+  : { bg: '#EEF2F8', fg: '#5A6B85' });
+
+// Etiquetas de campos de la ficha (para solicitudes de cambio).
+const FICHA_LABELS = {
+  nombre: 'Consorcio', direccion: 'Dirección', telefonos: 'Tel. administración',
+  encargado: 'Encargado', tel_encargado: 'Tel. encargado',
+  horario_sum: 'Horario SUM', cocheras: 'Cocheras',
+};
+
+/* ===================================================================
+ * HTML HELPERS
  * =================================================================== */
 
 function esc(str) {
@@ -397,695 +447,115 @@ function esc(str) {
     .replace(/'/g, '&#39;');
 }
 
-// Como esc(), pero ademas neutraliza saltos de linea reales. Usar SIEMPRE que
-// se inserte texto de Sheets dentro de un atributo onclick="fn('...')" --
-// un salto de linea crudo (Alt+Enter en una celda) rompe el JS con
-// "string literal contains an unescaped line break" aunque las comillas
-// ya esten escapadas por esc().
+// esc() + neutraliza saltos de linea (para onclick="fn('...')").
 function escJs(str) {
   return esc(str).replace(/\r\n|\r|\n/g, ' ');
 }
 
+function truncate(s, n) {
+  s = String(s || '');
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
 /* ===================================================================
- * CSS (dark theme, responsive) -- inline
+ * CSS BASE
+ * -------------------------------------------------------------------
+ * El prototipo usa estilos inline en todo; aca solo va lo que inline
+ * no puede expresar: reset, tipografia, keyframes y estados :hover
+ * (los style-hover del prototipo, con sus valores exactos).
  * =================================================================== */
 
 const CSS = `
-:root{
-  --bg:#EEF1F6; --card:#FFFFFF; --line:#E7ECF3; --line2:#E4E9F1;
-  --ink:#16233B; --muted:#64748B; --muted2:#8595AD;
-  --brand:#1E5FB4; --brand2:#2E6FC0; --brand-deep:#0F326A; --brand-mid:#17408B;
-  --gold:#D99B1F;
-  --ok:#16A34A; --ok-deep:#1B7A43; --ok-bg:#E7F4EC;
-  --warn:#D99B1F; --warn-deep:#8A6410; --warn-bg:#FBF3DE;
-  --bad:#E5484D; --bad-deep:#C0392B; --bad-bg:#FDECEC;
-  --radius:14px; --radius-sm:11px; --radius-pill:999px;
-  --shadow:0 1px 2px rgba(16,35,59,.04);
-  --shadow-pop:0 16px 40px -12px rgba(16,35,59,.28);
-}
-*{box-sizing:border-box}
+*{box-sizing:border-box;margin:0;padding:0}
 html,body{margin:0;padding:0}
-body{
-  background:var(--bg); color:var(--ink);
-  font-family:'Hanken Grotesk',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
-}
-a{color:var(--brand2);text-decoration:none}
-a:hover{text-decoration:underline}
-
-/* ---------- APP SHELL (sidebar + main) ---------- */
-.app-shell{display:flex;min-height:100vh;align-items:stretch}
-.sidebar{
-  width:232px;flex-shrink:0;background:var(--card);border-right:1px solid var(--line);
-  padding:22px 16px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
-}
-.side-brand{display:flex;align-items:center;gap:10px;padding:0 6px 20px;margin-bottom:4px}
-.side-brand .mark{
-  width:34px;height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
-}
-.side-brand .mark img{width:100%;height:100%;object-fit:contain}
-.side-brand .name{font-weight:800;font-size:16.5px;letter-spacing:-.01em;line-height:1.15}
-.side-menu-label{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted2);text-transform:uppercase;padding:0 10px;margin:10px 0 8px}
-.side-nav{display:flex;flex-direction:column;gap:2px}
-.side-nav a{
-  display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:10px;
-  color:var(--muted);font-weight:600;font-size:14.5px;position:relative;
-}
-.side-nav a .ico{font-size:15px;width:18px;text-align:center;flex-shrink:0}
-.side-nav a:hover{background:var(--bg);text-decoration:none;color:var(--ink)}
-.side-nav a.active{background:rgba(46,111,192,.10);color:var(--brand);text-decoration:none}
-.side-nav a .count{
-  margin-left:auto;background:var(--bad);color:#fff;font-size:11px;font-weight:700;
-  min-width:19px;height:19px;border-radius:999px;display:flex;align-items:center;justify-content:center;padding:0 5px;
-}
-.side-spacer{flex:1}
-.side-help{
-  background:linear-gradient(150deg,var(--brand-deep),var(--brand2));color:#fff;border-radius:var(--radius);
-  padding:16px;margin-top:16px;
-}
-.side-help h4{margin:0 0 4px;font-size:14px;font-weight:700}
-.side-help p{margin:0 0 12px;font-size:12.5px;color:rgba(255,255,255,.82);line-height:1.4}
-.side-help .btn{width:100%;justify-content:center;background:#fff;color:var(--brand)}
-.side-help .btn:hover{background:#f2f6fc}
-
-.app-main{flex:1;min-width:0;display:flex;flex-direction:column}
-.app-topbar{
-  position:sticky;top:0;z-index:30;background:rgba(238,241,246,.92);backdrop-filter:blur(8px);
-  border-bottom:1px solid var(--line);padding:14px 28px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-}
-.topbar-wrap{position:relative}
-.topbar-pill{
-  display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
-  border-radius:var(--radius-sm);padding:7px 12px;font-size:13.5px;font-weight:600;color:var(--ink);
-  cursor:pointer;font-family:inherit;
-}
-.topbar-pill .sub{color:var(--muted2);font-weight:500;font-size:12px}
-.topbar-menu{
-  display:none;position:absolute;left:0;top:calc(100% + 8px);background:var(--card);border:1px solid var(--line);
-  border-radius:var(--radius);box-shadow:var(--shadow-pop);min-width:280px;max-width:340px;max-height:400px;
-  overflow-y:auto;z-index:40;
-}
-.topbar-menu.open{display:block}
-.topbar-menu-label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted2);
-  padding:12px 14px 8px}
-.topbar-menu-list a{display:flex;align-items:center;gap:10px;padding:9px 14px;color:var(--ink)}
-.topbar-menu-list a:hover{background:var(--bg);text-decoration:none}
-.topbar-menu-list a.active{background:rgba(46,111,192,.08)}
-.topbar-menu-list .ico{width:30px;height:30px;border-radius:8px;background:var(--bg);border:1px solid var(--line);
-  display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
-.topbar-menu-list .nom{font-weight:700;font-size:13.5px}
-.topbar-menu-list .sub{color:var(--muted);font-size:11.5px;margin-top:1px}
-.topbar-menu-list .grow{flex:1;min-width:0}
-.topbar-menu-list .check{color:var(--brand2);font-weight:800}
-.spacer{flex:1}
-.bell{position:relative;width:38px;height:38px;border-radius:10px;background:var(--card);border:1px solid var(--line);
-  display:flex;align-items:center;justify-content:center;font-size:16px;cursor:default}
-.bell .count{position:absolute;top:-5px;right:-5px;background:var(--bad);color:#fff;font-size:10.5px;font-weight:700;
-  min-width:17px;height:17px;border-radius:999px;display:flex;align-items:center;justify-content:center;padding:0 4px}
-.avatar-wrap{position:relative}
-.avatar-btn{display:flex;align-items:center;gap:9px;background:none;border:none;cursor:pointer;padding:4px;border-radius:10px;font-family:inherit}
-.avatar-btn:hover{background:var(--card)}
-.avatar-circ{width:36px;height:36px;border-radius:10px;color:#fff;font-weight:800;font-size:13.5px;
-  display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.avatar-circ.owner{background:var(--brand)}
-.avatar-circ.client{background:var(--gold)}
-.avatar-name{text-align:left;line-height:1.2}
-.avatar-name .n{font-weight:700;font-size:13.5px;color:var(--ink)}
-.avatar-name .r{font-size:11.5px;color:var(--muted2)}
-.avatar-menu{
-  display:none;position:absolute;right:0;top:calc(100% + 8px);background:var(--card);border:1px solid var(--line);
-  border-radius:var(--radius);box-shadow:var(--shadow-pop);min-width:200px;padding:8px;z-index:40;
-}
-.avatar-menu.open{display:block}
-.avatar-menu a{display:block;padding:9px 11px;border-radius:8px;color:var(--ink);font-size:14px;font-weight:600}
-.avatar-menu a:hover{background:var(--bg);text-decoration:none}
-.avatar-menu a.danger{color:var(--bad-deep)}
-.avatar-menu hr{border:none;border-top:1px solid var(--line);margin:6px 2px}
-
-.content{max-width:1100px;width:100%;margin:0 auto;padding:28px}
-
-.btn{
-  background:var(--brand2);color:#fff;border:none;padding:10px 16px;
-  border-radius:var(--radius-sm);font-weight:700;cursor:pointer;font-size:14px;font-family:inherit;
-  transition:.15s;display:inline-flex;align-items:center;gap:6px
-}
-.btn:hover{background:var(--brand)}
-.btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line)}
-.btn.ghost:hover{background:var(--bg)}
-.btn.sm{padding:7px 12px;font-size:13px}
-
-h1{font-size:23px;font-weight:800;letter-spacing:-.01em;margin:6px 0 18px}
-h2{font-size:17px;font-weight:700;margin:26px 0 12px}
-
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:8px}
-.card{
-  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-  padding:18px;box-shadow:var(--shadow)
-}
-.card .k{color:var(--muted);font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
-.card .v{font-size:30px;font-weight:800;margin-top:6px;color:var(--ink)}
-.card.alta .v{color:var(--bad)} .card.media .v{color:var(--warn-deep)} .card.ok .v{color:var(--ok-deep)}
-
-.filters{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 18px;align-items:center}
-select,input,textarea{
-  background:var(--card);color:var(--ink);border:1.5px solid var(--line);
-  border-radius:var(--radius-sm);padding:9px 12px;font-size:14px;font-family:inherit;outline:none
-}
-select:focus,input:focus,textarea:focus{border-color:var(--brand2);box-shadow:0 0 0 4px rgba(46,111,192,.12)}
-textarea{width:100%;resize:vertical;min-height:60px}
-label.flt{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
-
-/* Feed de eventos -- calcado del boceto: un solo contenedor blanco con
- * filas separadas por linea, icono de categoria a la izquierda. */
-.feed{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
-.event{
-  display:flex;align-items:flex-start;gap:14px;padding:16px 20px;
-  border-bottom:1px solid #F1F4F9;position:relative;background:none;
-}
-.event:last-child{border-bottom:none}
-.event:hover{background:#F8FAFD}
-.event .nuevobar{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--brand2)}
-.event .evico{width:44px;height:44px;border-radius:12px;font-size:20px;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center}
-.evico.reclamo{background:#FDECEC}
-.evico.reserva{background:#EAF3EC}
-.evico.seguridad{background:#EDEEFB}
-.evico.mensaje{background:#EAF1FB}
-.evico.mantenimiento{background:#FBF3DE}
-.event .evmain{flex:1;min-width:0}
-.event .evtitle-row{display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap}
-.event .evtitle{font-size:15px;font-weight:700;color:var(--ink)}
-.event .evdetalle{display:block;font-size:13.5px;color:#5A6B85;line-height:1.45;margin-bottom:6px}
-.event .evmeta{display:flex;align-items:center;gap:10px;font-size:12px;color:#9AA7BD;flex-wrap:wrap}
-.event .evmeta .mlink{color:var(--brand2);font-weight:700}
-
-/* Pills del boceto (urgencia / estado / edificio) -- pastel exactos */
-.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
-.pill.urg-alta{background:#FDECEC;color:#C0392B}
-.pill.urg-media{background:#FBF1DD;color:#8A6410}
-.pill.urg-baja{background:#EAF1FB;color:#2C5C9E}
-.pill.bldg{background:#EEF2F8;color:#5A6B85}
-.pill.est{padding:3px 10px;flex-shrink:0}
-.pill.est-nuevo{background:#EAF1FB;color:#2C5C9E}
-.pill.est-curso{background:#FBF1DD;color:#8A6410}
-.pill.est-resuelto{background:#E7F4EC;color:#1B7A43}
-
-.badges{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.badge{font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.4px}
-.badge.alta{background:var(--bad-bg);color:var(--bad-deep);border:1px solid rgba(229,72,77,.3)}
-.badge.media{background:var(--warn-bg);color:var(--warn-deep);border:1px solid rgba(217,155,31,.35)}
-.badge.baja{background:var(--ok-bg);color:var(--ok-deep);border:1px solid rgba(22,163,74,.3)}
-.badge.tipo{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
-
-.fb{margin-top:12px;border-top:1px dashed var(--line);padding-top:12px}
-.fb .row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
-.fb textarea{flex:1;min-width:200px}
-.fb .saved{color:var(--ok-deep);font-size:13px;font-weight:600}
-.fb .existing{background:var(--bg);padding:8px 11px;border-radius:8px;font-size:13px;margin-bottom:8px}
-.fb .existing b{color:var(--brand)}
-
-.grid-files{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
-.file{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
-.file .thumb{height:140px;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden}
-.file .thumb img{width:100%;height:100%;object-fit:cover}
-.file .thumb .ph{font-size:40px;color:var(--muted2)}
-.file .info{padding:12px}
-.file .info .t{font-weight:700;font-size:14px}
-.file .info .m{color:var(--muted);font-size:12px;margin-top:3px}
-
-table{width:100%;border-collapse:collapse;font-size:14px}
-.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--card)}
-th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
-th{background:var(--bg);color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0}
-tr:last-child td{border-bottom:none}
-td input{width:100%}
-
-.empty{text-align:center;color:var(--muted);padding:50px 20px;
-  background:var(--card);border:1px dashed var(--line);border-radius:var(--radius)}
-
-.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
-  background:var(--ink);color:#fff;padding:12px 18px;border-radius:12px;
-  box-shadow:var(--shadow-pop);opacity:0;transition:.25s;z-index:80;font-weight:600}
-.toast.show{opacity:1;bottom:28px}
-.toast.ok{background:var(--ok-deep)}
-.toast.err{background:var(--bad-deep)}
-
-/* FICHA EDIFICIO */
-.ficha{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow);margin-bottom:24px}
-.ficha .ficha-head{display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap}
-.ficha .ficha-icon{width:64px;height:64px;border-radius:14px;background:var(--bg);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0}
-.ficha .ficha-data h2{margin:0 0 4px;font-size:20px}
-.ficha .ficha-data .dir{color:var(--muted);font-size:14px;margin-bottom:10px}
-.ficha .ficha-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-.ficha .chip{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-size:13px}
-.ficha .chip b{color:var(--brand)}
-.ficha-divider{border:none;border-top:1px solid var(--line);margin:18px 0}
-
-/* SUGERENCIAS / SOLICITUDES */
-.sug-form{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:20px}
-.sug-form h3{margin:0 0 12px;font-size:16px}
-.sug-list{display:flex;flex-direction:column;gap:10px}
-.sug-item{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
-.sug-item .sug-meta{color:var(--muted);font-size:12px;margin-bottom:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.sug-item .sug-texto{white-space:pre-wrap}
-.sug-item .sug-resp{margin-top:10px;background:var(--bg);border-left:3px solid var(--ok);padding:8px 12px;border-radius:6px;font-size:14px}
-.badge.pendiente{background:var(--warn-bg);color:var(--warn-deep);border:1px solid rgba(217,155,31,.35)}
-.badge.aprobada{background:var(--ok-bg);color:var(--ok-deep);border:1px solid rgba(22,163,74,.3)}
-.badge.rechazada{background:var(--bad-bg);color:var(--bad-deep);border:1px solid rgba(229,72,77,.3)}
-.badge.aplicada{background:rgba(46,111,192,.12);color:var(--brand);border:1px solid rgba(46,111,192,.3)}
-.sol-campo{font-family:ui-monospace,Menlo,monospace;background:var(--bg);padding:3px 8px;border-radius:6px;font-size:13px}
-.sol-diff{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center}
-.sol-diff .old{color:var(--bad-deep);text-decoration:line-through;font-size:13px}
-.sol-diff .arr{color:var(--muted)}
-.sol-diff .new{color:var(--ok-deep);font-weight:600;font-size:13px}
-
-/* DRAWER DE DETALLE DE EVENTO -- calcado del boceto */
-.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:60}
-.drawer-overlay.open{display:block;animation:mFade .2s ease both}
+body{background:#EEF1F6;color:#16233B;font-family:'Hanken Grotesk',system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font-family:inherit}
+input,textarea,select{font-family:inherit}
+a{color:inherit;text-decoration:none}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#CBD5E6;border-radius:20px;border:2px solid transparent;background-clip:content-box}
 @keyframes mFade{from{opacity:0}to{opacity:1}}
-.drawer-panel{
-  display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:#F6F8FB;
-  box-shadow:var(--shadow-pop);z-index:61;overflow-y:auto;
-}
-.drawer-panel.open{display:block;animation:drawerIn .28s cubic-bezier(.2,.8,.2,1) both}
-@keyframes drawerIn{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
-.drawer-panel .dhead{padding:22px 24px 20px;position:relative}
-.drawer-panel .dclose{position:absolute;top:16px;right:16px;width:34px;height:34px;border:none;border-radius:9px;
-  background:rgba(255,255,255,.7);cursor:pointer;font-size:17px;font-family:inherit;line-height:1}
-.drawer-panel .dclose:hover{background:#fff}
-.drawer-panel .dhead .dbadges{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-.drawer-panel .dhead .dtop{display:flex;align-items:center;gap:13px}
-.drawer-panel .dhead .dicon{width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.75);
-  display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0}
-.drawer-panel .dhead .deyebrow{font-size:12px;font-weight:700;color:#5A6B85;text-transform:uppercase;letter-spacing:.04em}
-.drawer-panel .dhead h3{font-size:20px;font-weight:800;letter-spacing:-.02em;color:#16233B;line-height:1.2;margin:0}
-.drawer-body{padding:22px 24px}
-.drawer-panel .dgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
-.drawer-panel .dgrid .dcell{background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px}
-.drawer-panel .dgrid .k{font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase}
-.drawer-panel .dgrid .v{font-size:14.5px;font-weight:700;margin-top:2px;color:#16233B}
-.drawer-panel .datendio{display:flex;align-items:center;gap:11px;background:#fff;border:1px solid #E7ECF3;
-  border-radius:12px;padding:11px 14px;margin-bottom:18px}
-.drawer-panel .datendio .av{width:36px;height:36px;border-radius:50%;background:linear-gradient(140deg,#17408B,#2E6FC0);
-  color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0}
-.drawer-panel .datendio .k{font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.03em}
-.drawer-panel .datendio .v{font-size:14.5px;font-weight:700;color:#16233B}
-.drawer-panel .dtitle{font-size:13px;font-weight:800;color:#334259;margin:0 0 8px;
-  display:flex;align-items:center;justify-content:space-between}
-.drawer-panel .dbox{background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:14px 16px;
-  font-size:14.5px;color:#334259;line-height:1.55;margin-bottom:20px;white-space:pre-wrap}
-.drawer-panel .dbox.marcos{background:linear-gradient(120deg,#EAF1FB,#F3F7FD);border-color:#D8E5F6;color:#1E3A6B;line-height:1.6}
-.drawer-panel .dlock{display:flex;align-items:flex-start;gap:9px;background:#F1F5FB;border-radius:11px;
-  padding:11px 14px;margin-top:12px;font-size:12.5px;color:#5A6B85;line-height:1.5}
-.drawer-panel .ddl{height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;
-  color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit}
-.drawer-panel .ddl:hover{background:#F1F5FB}
-.drawer-panel .dfoot{display:flex;gap:10px;margin-top:22px}
-.drawer-panel .dfoot button{flex:1;height:44px;border-radius:11px;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit}
-.drawer-panel .dfoot .fcerrar{border:1px solid #DCE4F0;background:#fff;color:#334259}
-.drawer-panel .dfoot .fcerrar:hover{background:#F1F5FB}
-.drawer-panel .dfoot .faccion{border:none;background:#17408B;color:#fff}
-.drawer-panel .dfoot .faccion:hover{background:#1E5FB4}
-
-/* CLIENTES Y EDIFICIOS */
-.cli-head-row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:22px}
-.cli-toggle{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius-sm);padding:4px}
-.cli-toggle a{padding:8px 14px;border-radius:8px;font-size:13.5px;font-weight:700;color:var(--muted)}
-.cli-toggle a.active{background:var(--brand2);color:#fff}
-.cli-toggle a:hover{text-decoration:none}
-.cli-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
-.cli-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);
-  display:flex;flex-direction:column;gap:10px}
-.cli-card .top{display:flex;gap:12px;align-items:flex-start}
-.cli-avatar{width:40px;height:40px;border-radius:10px;background:var(--brand);color:#fff;font-weight:800;font-size:16px;
-  display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.cli-card .nom{font-weight:700;font-size:15px}
-.cli-card .sub{color:var(--muted);font-size:12.5px;margin-top:2px}
-.cli-card .foot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:auto}
-.cli-add-card{border:1.5px dashed var(--line);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;
-  min-height:110px;color:var(--brand2);font-weight:700;font-size:14px}
-.cli-add-card:hover{background:var(--card);text-decoration:none;border-color:var(--brand2)}
-.cli-banner{background:linear-gradient(150deg,var(--brand-deep),var(--brand2));color:#fff;border-radius:var(--radius);
-  padding:20px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:20px}
-.cli-banner .top{display:flex;gap:14px;align-items:center}
-.cli-banner .cli-avatar{background:rgba(255,255,255,.18);width:44px;height:44px}
-.cli-banner .nom{font-weight:800;font-size:18px}
-.cli-banner .sub{color:rgba(255,255,255,.75);font-size:13px;margin-top:2px}
-.cli-banner .btn{background:#fff;color:var(--brand)}
-.cli-banner .btn:hover{background:#f2f6fc}
-.ed-row{display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--line)}
-.ed-row:last-child{border-bottom:none}
-.ed-row .ico{width:38px;height:38px;border-radius:9px;background:var(--bg);border:1px solid var(--line);flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;font-size:17px}
-.ed-row .nom{font-weight:700;font-size:14.5px}
-.ed-row .sub{color:var(--muted);font-size:12.5px;margin-top:1px}
-.ed-row .col{min-width:70px}
-.ed-row .col .k{font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:.05em;font-weight:700}
-.ed-row .col .v{font-size:13.5px;font-weight:600;margin-top:2px}
-.ed-row .grow{flex:1;min-width:150px}
-
-/* LOGIN */
-.login-shell{min-height:100vh;display:grid;grid-template-columns:1.05fr 1fr}
-.login-brand{
-  position:relative;background:linear-gradient(150deg,var(--brand-deep) 0%,var(--brand-mid) 45%,var(--brand2) 100%);
-  color:#fff;padding:56px 60px;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;
-}
-.login-brand::before{content:"";position:absolute;top:-120px;right:-120px;width:420px;height:420px;border-radius:50%;
-  background:radial-gradient(circle,rgba(217,155,31,.28),transparent 70%)}
-.login-brand::after{content:"";position:absolute;bottom:-160px;left:-80px;width:380px;height:380px;border-radius:50%;
-  background:radial-gradient(circle,rgba(255,255,255,.10),transparent 70%)}
-.login-brand>*{position:relative}
-.login-brand .top{display:flex;align-items:center;gap:14px}
-.login-brand .mark{width:64px;height:64px;border-radius:12px;background:#fff;padding:8px;
-  display:flex;align-items:center;justify-content:center;box-shadow:0 8px 22px -8px rgba(0,0,0,.35)}
-.login-brand .mark img{width:100%;height:100%;object-fit:contain}
-.login-brand .top .name{font-weight:800;font-size:20px;letter-spacing:-.02em}
-.login-brand .top .by{font-size:12px;color:rgba(255,255,255,.72);font-weight:600}
-.login-brand .status{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.12);
-  border:1px solid rgba(255,255,255,.18);padding:7px 14px;border-radius:999px;font-size:13px;font-weight:600;margin-bottom:24px}
-.login-brand .status .dot{width:8px;height:8px;border-radius:50%;background:#4ADE80;box-shadow:0 0 0 4px rgba(74,222,128,.25)}
-.login-brand h1{font-size:38px;line-height:1.1;font-weight:800;letter-spacing:-.03em;margin:0 0 16px;text-wrap:balance}
-.login-brand p{font-size:16.5px;line-height:1.55;color:rgba(255,255,255,.82);max-width:440px;margin:0}
-.login-form-wrap{display:flex;align-items:center;justify-content:center;padding:40px}
-.login-form{width:100%;max-width:380px}
-.login-eyebrow{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--brand2);margin-bottom:10px}
-.login-form h2{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
-.login-form .sub{color:var(--muted);font-size:15px;margin:0 0 26px}
-.login-form label{display:block;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:7px}
-.login-form .field{margin-bottom:16px;position:relative}
-.login-form .field .ico-in{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none}
-.login-form input{width:100%;height:46px;padding:0 14px 0 42px}
-.login-form .field .toggle-pass{
-  position:absolute;right:10px;top:50%;transform:translateY(-50%);border:none;background:none;
-  color:var(--muted);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;padding:6px 8px}
-.login-form .row-between{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;font-size:13.5px}
-.login-form .remember{display:flex;align-items:center;gap:7px;color:var(--ink);font-weight:600}
-.login-form .remember input{width:16px;height:16px;padding:0;accent-color:var(--brand2)}
-.login-form .forgot{color:var(--brand2);font-weight:600}
-.login-form .btn{width:100%;justify-content:center;margin-top:6px;padding:12px;font-size:15px}
-.login-form .err{background:var(--bad-bg);color:var(--bad-deep);
-  border:1px solid rgba(229,72,77,.35);padding:10px 12px;border-radius:10px;margin-bottom:16px;font-size:14px}
-.login-form .activate{text-align:center;margin-top:18px;font-size:14px;color:var(--muted)}
-.login-form .activate a{color:var(--brand2);font-weight:700}
-.login-form .demo{margin-top:20px;font-size:12.5px;color:var(--muted2);text-align:center}
-
-@media(max-width:900px){
-  .login-shell{grid-template-columns:1fr}
-  .login-brand{display:none}
-  .app-shell{flex-direction:column}
-  .sidebar{width:100%;height:auto;position:static;flex-direction:row;flex-wrap:wrap;padding:14px 16px}
-  .side-nav{flex-direction:row;flex-wrap:wrap}
-  .side-help,.side-spacer{display:none}
-}
-@media(max-width:600px){
-  .card .v{font-size:24px}
-  h1{font-size:20px}
-  .content{padding:18px}
-}
+@keyframes mSlideR{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes mPop{from{transform:scale(.96);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes mUp{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
+/* style-hover del prototipo */
+.hv-row:hover{background:#F8FAFD}
+.hv-soft:hover{background:#F1F5FB}
+.hv-softb:hover{background:#F1F5FB;border-color:#B9CBE6}
+.hv-selbtn:hover{border-color:#C9D5E8;background:#F1F5FB}
+.hv-card:hover{border-color:#C9D5E8;box-shadow:0 6px 18px -10px rgba(16,35,59,.25)}
+.hv-white:hover{background:#fff}
+.hv-blue:hover{background:#EAF1FB}
+.hv-bluedash:hover{background:#EAF1FB;border-color:#2E6FC0}
+.hv-primary:hover{background:linear-gradient(180deg,#3579cd,#2464bd)!important}
+.hv-green:hover{background:#128a3f!important}
+.hv-red:hover{background:#FDECEC}
+.hv-navy:hover{background:#1E5FB4!important}
+.hv-op:hover{opacity:.92}
+/* toast */
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#16233B;color:#fff;padding:12px 18px;border-radius:12px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);opacity:0;transition:.25s;z-index:90;font-weight:600;pointer-events:none}
+.toast.show{opacity:1;bottom:28px}
+.toast.ok{background:#1B7A43}
+.toast.err{background:#C0392B}
+/* menus del topbar (server-rendered, toggle por JS) */
+.menu-pop{display:none}
+.menu-pop.open{display:block}
+/* drawer */
+.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:60}
+.drawer-overlay.open{display:flex;justify-content:flex-end;animation:mFade .2s ease both}
+.drawer-panel{display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:#F6F8FB;overflow-y:auto;z-index:61}
+.drawer-panel.open{display:block;animation:mSlideR .28s cubic-bezier(.2,.8,.2,1) both}
+/* modales */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex;animation:mFade .2s ease both}
+.modal-box{width:440px;max-width:100%;background:#fff;border-radius:18px;overflow:hidden;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5)}
+/* inputs (style-focus del prototipo) */
+.inp{width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;color:#16233B;outline:none;background:#F8FAFD}
+.inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)}
+textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-height:1.5}
+@media(max-width:980px){.resgrid{grid-template-columns:1fr!important}.fichagrid{grid-template-columns:1fr!important}}
+@media(max-width:900px){.sidebar-nav{display:none!important}.username{display:none!important}}
 `;
 
 /* ===================================================================
- * LAYOUT
- * =================================================================== */
-
-function page(active, title, bodyHtml, req) {
-  const isDueno = !req || (req.session && req.session.role === 'dueno');
-  const userName = (req && req.session && req.session.user) || '';
-  const edificios = (req && edificiosPermitidos(req)) || [];
-
-  const nav = [
-    ['/admin', '📊', 'Resumen', 'resumen', true],
-    ['/admin/mi-edificio', '🏢', 'Mi Edificio', 'mi-edificio', !isDueno],
-    ['/admin/eventos', '🔔', 'Eventos', 'eventos', true],
-    ['/admin/archivos', '📄', 'Facturas/Fotos', 'archivos', true],
-    ['/admin/sugerencias', '💡', 'Sugerencias', 'sugerencias', !isDueno],
-    ['/admin/clientes', '👤', 'Clientes y edificios', 'clientes', isDueno],
-    ['/admin/solicitudes', '📋', 'Solicitudes', 'solicitudes', isDueno],
-  ];
-
-  const initials = (userName || 'M').slice(0, 2).toUpperCase();
-  const filtroActivo = req && req.session && req.session.filtroEdificioDueno;
-  const pillLabel = isDueno ? (filtroActivo || 'Todos los edificios') : (edificios.join(', ') || 'Sin edificio asignado');
-  const tieneVariosEdificios = isDueno || ((req && req.session && req.session.edificios) || []).length > 1;
-  const topbarPill = tieneVariosEdificios
-    ? `<div class="topbar-wrap">
-        <button class="topbar-pill" onclick="toggleEdificioMenu()">🏢 ${esc(pillLabel)} <span style="color:var(--muted2);margin-left:2px">▾</span></button>
-        <div class="topbar-menu" id="topbar-menu">
-          <div class="topbar-menu-label">${isDueno ? 'Filtrar por edificio' : 'Tus edificios'}</div>
-          <div id="topbar-menu-list" class="topbar-menu-list">
-            <div style="padding:14px;color:var(--muted);font-size:13px">Cargando...</div>
-          </div>
-        </div>
-      </div>`
-    : `<div class="topbar-pill" style="cursor:default">🏢 ${esc(pillLabel)}</div>`;
-
-  return `<!DOCTYPE html>
-<html lang="es-AR">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<title>${esc(title)} · Marcos IA</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
-<style>${CSS}</style>
-</head>
-<body>
-<div class="app-shell">
-  <aside class="sidebar">
-    <div class="side-brand">
-      <div class="mark"><img src="${LOGO_URL}" alt="Bien Argentinos"></div>
-      <div class="name">Marcos IA</div>
-    </div>
-    <div class="side-menu-label">Menú</div>
-    <nav class="side-nav">
-      ${nav
-        .filter(([, , , , visible]) => visible)
-        .map(
-          ([href, ico, label, id]) =>
-            `<a href="${href}" class="${active === id ? 'active' : ''}"><span class="ico">${ico}</span>${label}</a>`
-        )
-        .join('')}
-    </nav>
-    <div class="side-spacer"></div>
-    <div class="side-help">
-      <h4>¿Necesitás algo?</h4>
-      <p>Tu consorcio está siendo atendido las 24 horas.</p>
-      <a class="btn sm" href="${isDueno ? '/admin/solicitudes' : '/admin/sugerencias'}">Enviar sugerencia</a>
-    </div>
-  </aside>
-
-  <div class="app-main">
-    <header class="app-topbar">
-      ${topbarPill}
-      <div class="spacer"></div>
-      <div class="avatar-wrap">
-        <button class="avatar-btn" onclick="toggleAvatarMenu()">
-          <div class="avatar-circ ${isDueno ? 'owner' : 'client'}">${esc(initials)}</div>
-          <div class="avatar-name">
-            <div class="n">${esc(userName || 'Usuario')}</div>
-            <div class="r">${isDueno ? 'Admin de sistema' : 'Administrador'}</div>
-          </div>
-        </button>
-        <div class="avatar-menu" id="avatar-menu">
-          <a href="#">👤 Mi cuenta</a>
-          <a href="#">⚙️ Preferencias</a>
-          <hr>
-          <a href="/admin/logout" class="danger">↩ Cerrar sesión</a>
-        </div>
-      </div>
-    </header>
-    <main class="content">
-${bodyHtml}
-    </main>
-  </div>
-</div>
-<div id="toast" class="toast"></div>
-<script>${CLIENT_JS}</script>
-</body>
-</html>`;
-}
-
-/* ===================================================================
- * CLIENT-SIDE JS (vanilla)
+ * CLIENT-SIDE JS
  * =================================================================== */
 
 const CLIENT_JS = `
-function toggleAvatarMenu(){
-  var m=document.getElementById('avatar-menu');
-  if(!m)return;
-  var willOpen=!m.classList.contains('open');
-  m.classList.toggle('open',willOpen);
-  if(willOpen){
-    setTimeout(function(){
-      document.addEventListener('click',function closeIt(e){
-        if(!m.contains(e.target)){m.classList.remove('open');document.removeEventListener('click',closeIt);}
-      });
-    },0);
-  }
-}
-
-var _edificiosMenuCargado=false;
-function toggleEdificioMenu(){
-  var m=document.getElementById('topbar-menu');
-  if(!m)return;
-  var willOpen=!m.classList.contains('open');
-  m.classList.toggle('open',willOpen);
-  if(willOpen){
-    if(!_edificiosMenuCargado)cargarMenuEdificios();
-    setTimeout(function(){
-      document.addEventListener('click',function closeIt(e){
-        if(!m.contains(e.target)){m.classList.remove('open');document.removeEventListener('click',closeIt);}
-      });
-    },0);
-  }
-}
-async function cargarMenuEdificios(){
-  var list=document.getElementById('topbar-menu-list');
-  if(!list)return;
-  try{
-    var r=await fetch('/admin/api/topbar-edificios');
-    var j=await r.json();
-    if(!r.ok||j.error)throw new Error(j.error||'Error');
-    _edificiosMenuCargado=true;
-    var html='<a href="/admin/set-filtro?edificio=" class="'+(j.actual?'':'active')+'">'+
-      '<div class="ico">🏢</div><div class="grow"><div class="nom">Todos los edificios</div>'+
-      '<div class="sub">'+j.edificios.length+' consorcio'+(j.edificios.length===1?'':'s')+'</div></div>'+
-      (j.actual?'':'<span class="check">✓</span>')+'</a>';
-    j.edificios.forEach(function(e){
-      var act=j.actual===e.nombre;
-      html+='<a href="/admin/set-filtro?edificio='+encodeURIComponent(e.nombre)+'" class="'+(act?'active':'')+'">'+
-        '<div class="ico">🏢</div><div class="grow"><div class="nom">'+escapeHtml(e.nombre)+'</div>'+
-        '<div class="sub">'+escapeHtml(e.cliente||'Sin asignar')+(e.unidades?' · '+escapeHtml(String(e.unidades))+' un.':'')+'</div></div>'+
-        (act?'<span class="check">✓</span>':'')+'</a>';
-    });
-    list.innerHTML=html;
-  }catch(e){
-    list.innerHTML='<div style="padding:14px;color:var(--bad-deep);font-size:13px">No se pudo cargar: '+escapeHtml(e.message)+'</div>';
-  }
-}
-
-function toast(msg, kind){
+function toast(msg,kind){
   var t=document.getElementById('toast');
   if(!t)return;
   t.textContent=msg;
   t.className='toast show '+(kind||'ok');
   setTimeout(function(){t.className='toast';},2600);
 }
-
-// Guardar feedback de un evento
-async function guardarFeedback(btn, row){
-  var card=btn.closest('.event');
-  var ta=card.querySelector('textarea[data-fb]');
-  var nota=ta.value.trim();
-  btn.disabled=true;btn.textContent='Guardando...';
-  try{
-    var r=await fetch('/admin/api/feedback',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({row:row,nota:nota})
-    });
-    var j=await r.json();
-    if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Feedback guardado. Marcos va a aprender de esto.','ok');
-    var ex=card.querySelector('[data-existing]');
-    if(ex){ex.innerHTML='<b>Tu nota:</b> '+escapeHtml(nota);ex.style.display=nota?'block':'none';}
-  }catch(e){
-    toast('No se pudo guardar: '+e.message,'err');
-  }finally{
-    btn.disabled=false;btn.textContent='Guardar nota';
-  }
-}
-
-// Guardar fila de edificio
-async function guardarEdificio(btn, row){
-  var cont=btn.closest('[data-form-edificio]')||btn.closest('tr');
-  var data={row:row};
-  cont.querySelectorAll('[data-field]').forEach(function(inp){
-    data[inp.getAttribute('data-field')]=inp.value;
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
   });
-  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
-  try{
-    var r=await fetch('/admin/api/edificio',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(data)
-    });
-    var j=await r.json();
-    if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Edificio actualizado','ok');
-  }catch(e){ toast('Error: '+e.message,'err'); }
-  finally{ btn.disabled=false;btn.textContent=old; }
 }
-
-// Agregar cliente (dueño)
-async function agregarCliente(btn){
-  var nombre=(document.getElementById('cli-nombre')||{}).value||'';
-  var usuario=(document.getElementById('cli-usuario')||{}).value||'';
-  var pass=(document.getElementById('cli-pass')||{}).value||'';
-  var email=(document.getElementById('cli-email')||{}).value||'';
-  if(!nombre.trim()||!usuario.trim()||!pass.trim()){
-    toast('Completá nombre, usuario y contraseña','err');return;
+// --- menus del topbar ---
+function toggleMenu(id){
+  var m=document.getElementById(id);
+  if(!m)return;
+  document.querySelectorAll('.menu-pop.open').forEach(function(x){if(x!==m)x.classList.remove('open');});
+  var willOpen=!m.classList.contains('open');
+  m.classList.toggle('open',willOpen);
+  if(willOpen){
+    setTimeout(function(){
+      document.addEventListener('click',function closeIt(e){
+        if(!m.contains(e.target)){m.classList.remove('open');document.removeEventListener('click',closeIt);}
+      });
+    },0);
   }
-  btn.disabled=true;var old=btn.textContent;btn.textContent='Agregando...';
-  try{
-    var r=await fetch('/admin/api/clientes',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({nombre:nombre.trim(),usuario:usuario.trim(),pass:pass.trim(),email:email.trim()})
-    });
-    var j=await r.json();
-    if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Cliente agregado','ok');
-    setTimeout(function(){location.reload();},1000);
-  }catch(e){ toast('Error: '+e.message,'err'); }
-  finally{ btn.disabled=false;btn.textContent=old; }
 }
+// --- modales genericos ---
+function abrirModal(id){var m=document.getElementById(id);if(m)m.classList.add('open');}
+function cerrarModal(id){var m=document.getElementById(id);if(m)m.classList.remove('open');}
+function stopEv(e){e.stopPropagation();}
 
-// Agregar edificio nuevo dentro de la ficha de un cliente
-function mostrarFormEdificio(){
-  var f=document.getElementById('form-nuevo-edificio');
-  if(!f)return;
-  f.style.display='block';
-  f.scrollIntoView({behavior:'smooth',block:'center'});
-}
-function ocultarFormEdificio(){
-  var f=document.getElementById('form-nuevo-edificio');
-  if(f)f.style.display='none';
-}
-function elegirPlanEdificio(btn){
-  var grupo=btn.parentElement;
-  Array.from(grupo.children).forEach(function(b){b.classList.remove('btn');b.classList.add('ghost');});
-  btn.classList.remove('ghost');btn.classList.add('btn');
-  var hidden=document.getElementById('ed-plan');
-  if(hidden)hidden.value=btn.getAttribute('data-plan');
-}
-async function confirmarAgregarEdificio(clienteUsuario){
-  var nombre=(document.getElementById('ed-nombre')||{}).value||'';
-  var direccion=(document.getElementById('ed-direccion')||{}).value||'';
-  var zona=(document.getElementById('ed-zona')||{}).value||'';
-  var unidades=(document.getElementById('ed-unidades')||{}).value||'';
-  var encargado=(document.getElementById('ed-encargado')||{}).value||'';
-  var telEncargado=(document.getElementById('ed-tel-encargado')||{}).value||'';
-  var telSeguridad=(document.getElementById('ed-tel-seguridad')||{}).value||'';
-  var plan=(document.getElementById('ed-plan')||{}).value||'Base';
-  if(!nombre.trim()){toast('Falta el nombre del edificio','err');return;}
-  try{
-    var r=await fetch('/admin/api/edificio-nuevo',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        nombre:nombre.trim(),direccion:direccion.trim(),zona:zona.trim(),unidades:unidades.trim(),
-        encargado:encargado.trim(),tel_encargado:telEncargado.trim(),tel_seguridad:telSeguridad.trim(),
-        plan:plan,clienteUsuario:clienteUsuario||undefined
-      })
-    });
-    var j=await r.json();
-    if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Edificio agregado','ok');
-    setTimeout(function(){location.reload();},900);
-  }catch(e){ toast('Error: '+e.message,'err'); }
-}
-
-// Drawer de detalle de un evento (usa window.__EVENTOS__ inyectado por la pagina)
+// --- drawer de evento ---
 var _drawerActual=null;
-
 function abrirDrawerEvento(idx){
   var datos=(window.__EVENTOS__||[])[idx];
   if(!datos)return;
@@ -1094,93 +564,81 @@ function abrirDrawerEvento(idx){
   var overlay=document.getElementById('drawer-overlay');
   if(!panel||!overlay)return;
   var esDueno=!!window.__ES_DUENO__;
-  var titulo=(datos.mensaje||'Evento');
-  if(titulo.length>70)titulo=titulo.slice(0,70)+'…';
-
-  var feedbackHtml='';
+  var titulo=datos.titulo||'Evento';
+  var fbHtml='';
   if(esDueno){
-    feedbackHtml=
-      '<div class="dtitle">📝 Tu nota para Marcos</div>'+
-      '<div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:4px">'+
-        '<textarea data-fb-drawer rows="2" placeholder="Dejale una nota a Marcos para que aprenda de este caso..." '+
-          'style="flex:1;min-height:52px">'+escapeHtml(datos.feedback||'')+'</textarea>'+
-        '<button class="btn sm" onclick="guardarFeedbackDrawer(this,'+datos.row+')">Guardar</button>'+
-      '</div>';
+    fbHtml='<div style="margin-top:22px"><div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:8px">📝 Tu nota para Marcos</div>'+
+      '<div style="display:flex;gap:8px;align-items:flex-end">'+
+      '<textarea data-fb-drawer class="inp" style="flex:1;min-height:52px" placeholder="Dejale una nota a Marcos para que aprenda de este caso...">'+escapeHtml(datos.feedback||'')+'</textarea>'+
+      '<button onclick="guardarFeedbackDrawer(this,'+datos.row+')" style="height:44px;padding:0 16px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">Guardar</button>'+
+      '</div></div>';
   }
-
   panel.innerHTML=
-    '<div class="dhead" style="background:'+escapeHtml(datos.catBg||'#EAF1FB')+'">'+
-      '<button class="dclose" onclick="cerrarDrawerEvento()">✕</button>'+
-      '<div class="dbadges">'+
-        '<span class="pill urg-'+escapeHtml(datos.urgencia)+'">'+escapeHtml(datos.urgLabel)+'</span>'+
-        '<span class="pill est est-'+escapeHtml(datos.estClase)+'">'+escapeHtml(datos.estLabel)+'</span>'+
+    '<div style="background:'+escapeHtml(datos.catBg)+';padding:22px 24px 20px;position:relative">'+
+      '<button onclick="cerrarDrawerEvento()" style="position:absolute;top:16px;right:16px;width:34px;height:34px;border:none;border-radius:9px;background:rgba(255,255,255,.7);cursor:pointer;font-size:17px" class="hv-white">✕</button>'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
+        '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:'+escapeHtml(datos.urgBg)+';color:'+escapeHtml(datos.urgFg)+'">'+escapeHtml(datos.urgLabel)+'</span>'+
+        '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:'+escapeHtml(datos.estBg)+';color:'+escapeHtml(datos.estFg)+'">'+escapeHtml(datos.estLabel)+'</span>'+
       '</div>'+
-      '<div class="dtop">'+
-        '<div class="dicon">'+escapeHtml(datos.catIcon||'💬')+'</div>'+
-        '<div><div class="deyebrow">'+escapeHtml(datos.catLabel||'Evento')+'</div>'+
-        '<h3>'+escapeHtml(titulo)+'</h3></div>'+
+      '<div style="display:flex;align-items:center;gap:13px">'+
+        '<span style="width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;font-size:26px">'+escapeHtml(datos.catIcon)+'</span>'+
+        '<div><div style="font-size:12px;font-weight:700;color:#5A6B85;text-transform:uppercase;letter-spacing:.04em">'+escapeHtml(datos.catLabel)+'</div>'+
+        '<div style="font-size:20px;font-weight:800;letter-spacing:-.02em;color:#16233B;line-height:1.2">'+escapeHtml(titulo)+'</div></div>'+
       '</div>'+
     '</div>'+
-    '<div class="drawer-body">'+
-    '<div class="dgrid">'+
-      '<div class="dcell"><div class="k">Canal</div><div class="v">'+escapeHtml(datos.canalIcon||'')+' '+escapeHtml(datos.canalNombre||'')+'</div></div>'+
-      '<div class="dcell"><div class="k">Vecino</div><div class="v">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
-      '<div class="dcell"><div class="k">Cuándo</div><div class="v">'+escapeHtml(datos.fecha||'')+'</div></div>'+
-      '<div class="dcell"><div class="k">Edificio</div><div class="v">'+escapeHtml(datos.edificio||'')+'</div></div>'+
-      (datos.telefono?'<div class="dcell"><div class="k">Teléfono</div><div class="v">'+escapeHtml(datos.telefono)+'</div></div>':'')+
-      (datos.tecnico?'<div class="dcell"><div class="k">Técnico / rubro</div><div class="v">'+escapeHtml(datos.tecnico)+'</div></div>':'')+
-    '</div>'+
-    '<div class="datendio"><div class="av">M</div><div style="flex:1"><div class="k">Atendió</div><div class="v">Marcos</div></div></div>'+
-    (datos.mensaje?'<div class="dtitle">El pedido</div><div class="dbox">'+escapeHtml(datos.mensaje)+'</div>':'')+
-    (datos.notas?'<div class="dtitle">📝 Qué hizo Marcos</div><div class="dbox marcos">'+escapeHtml(datos.notas)+'</div>':'')+
-    '<div class="dtitle">📄 Conversación registrada'+
-      '<button class="ddl" onclick="descargarResumenEvento()">⬇ Descargar</button></div>'+
-    '<div class="dlock"><span style="font-size:15px">🔒</span>'+
-      '<span>El registro textual completo de lo conversado queda como <strong style="color:#334259">comprobante</strong> '+
-      'ante cualquier reclamo. Hoy Marcos guarda su resumen del caso — la transcripción mensaje por mensaje '+
-      'se va a sumar en la próxima etapa del motor.</span></div>'+
-    (feedbackHtml?'<div style="margin-top:20px">'+feedbackHtml+'</div>':'')+
-    '<div class="dfoot">'+
-      '<button class="fcerrar" onclick="cerrarDrawerEvento()">Cerrar</button>'+
-      (esDueno?'':'<button class="faccion" onclick="location.href=\\'/admin/sugerencias\\'">Comentar a mi admin</button>')+
-    '</div>'+
+    '<div style="padding:22px 24px">'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">'+
+        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Canal</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">'+escapeHtml(datos.canalIcon)+' '+escapeHtml(datos.canal)+'</div></div>'+
+        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Vecino</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
+        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Cuándo</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">'+escapeHtml(datos.when||'')+'</div></div>'+
+        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Edificio</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">'+escapeHtml(datos.edificio||'')+'</div></div>'+
+      '</div>'+
+      '<div style="display:flex;align-items:center;gap:11px;background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 14px;margin-bottom:18px">'+
+        '<span style="width:36px;height:36px;border-radius:50%;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">M</span>'+
+        '<div style="flex:1"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.03em">Atendió</div><div style="font-size:14.5px;font-weight:700;color:#16233B">Marcos</div></div>'+
+      '</div>'+
+      '<div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:8px">El pedido</div>'+
+      '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:14px 16px;font-size:14.5px;color:#334259;line-height:1.55;margin-bottom:20px;white-space:pre-wrap">'+escapeHtml(datos.mensaje||'—')+'</div>'+
+      '<div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:8px">📝 Qué hizo Marcos</div>'+
+      '<div style="background:linear-gradient(120deg,#EAF1FB,#F3F7FD);border:1px solid #D8E5F6;border-radius:12px;padding:14px 16px;font-size:14.5px;color:#1E3A6B;line-height:1.6;white-space:pre-wrap">'+escapeHtml(datos.notas||'—')+'</div>'+
+      '<div style="margin-top:24px">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'+
+          '<div style="font-size:13px;font-weight:800;color:#334259">📄 Conversación registrada</div>'+
+          '<button onclick="descargarResumenEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar</button>'+
+        '</div>'+
+        '<div style="display:flex;align-items:flex-start;gap:9px;background:#F1F5FB;border-radius:11px;padding:11px 14px;font-size:12.5px;color:#5A6B85;line-height:1.5">'+
+          '<span style="font-size:15px">🔒</span>'+
+          '<span>Registro textual completo de lo conversado. Queda como <strong style="color:#334259">comprobante</strong> ante cualquier reclamo: nadie puede negar lo que pidió o acordó.</span>'+
+        '</div>'+
+      '</div>'+
+      fbHtml+
+      '<div style="display:flex;gap:10px;margin-top:22px">'+
+        '<button onclick="cerrarDrawerEvento()" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cerrar</button>'+
+        (esDueno?'':'<button onclick="location.href=\\'/admin/sugerencias\\'" style="flex:1;height:44px;border:none;border-radius:11px;background:#17408B;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-navy">Comentar a mi admin</button>')+
+      '</div>'+
     '</div>';
   overlay.classList.add('open');
   panel.classList.add('open');
 }
-
-// Guardar la nota del dueño desde el drawer (misma API que el feed viejo)
-async function guardarFeedbackDrawer(btn,row){
-  var ta=btn.parentElement.querySelector('textarea[data-fb-drawer]');
-  var nota=ta?ta.value.trim():'';
-  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
-  try{
-    var r=await fetch('/admin/api/feedback',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({row:row,nota:nota})
-    });
-    var j=await r.json();
-    if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Nota guardada. Marcos va a aprender de esto.','ok');
-    if(_drawerActual)_drawerActual.feedback=nota;
-  }catch(e){ toast('Error: '+e.message,'err'); }
-  finally{ btn.disabled=false;btn.textContent=old; }
+function cerrarDrawerEvento(){
+  var p=document.getElementById('drawer-panel');
+  var o=document.getElementById('drawer-overlay');
+  if(p)p.classList.remove('open');
+  if(o)o.classList.remove('open');
 }
-
 function descargarResumenEvento(){
   var d=_drawerActual;
   if(!d)return;
   var lineas=[
-    'MARCOS IA -- Resumen de evento (no es la conversacion completa)',
-    '========================================================',
+    'MARCOS IA -- Registro de evento',
+    '========================================',
     'Edificio: '+(d.edificio||''),
     'Vecino: '+(d.vecino||''),
     'Telefono: '+(d.telefono||''),
-    'Canal: '+(d.tipo||''),
-    'Fecha: '+(d.fecha||''),
-    'Urgencia: '+(d.urgencia||''),
-    'Estado: '+(d.estado||''),
-    (d.tecnico?'Tecnico/rubro: '+d.tecnico:''),
+    'Canal: '+(d.canal||''),
+    'Fecha: '+(d.when||''),
+    'Urgencia: '+(d.urgLabel||''),
+    'Estado: '+(d.estLabel||''),
     '',
     'EL PEDIDO',
     '---------',
@@ -1190,154 +648,637 @@ function descargarResumenEvento(){
     '---------------',
     (d.notas||'(sin datos)'),
     '',
-    'Nota: este archivo NO contiene la conversacion completa de WhatsApp/llamada.',
-    'Es un resumen generado por la IA. Descargado el '+new Date().toLocaleString('es-AR'),
-  ].filter(Boolean).join('\\n');
+    'Descargado el '+new Date().toLocaleString('es-AR'),
+  ].join('\\n');
   var blob=new Blob([lineas],{type:'text/plain;charset=utf-8'});
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
   a.href=url;
-  a.download='marcos-evento-'+(d.edificio||'').replace(/[^a-z0-9]+/gi,'-')+'-'+(d.fecha||'').replace(/[^a-z0-9]+/gi,'-')+'.txt';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  a.download='marcos-evento-'+(d.edificio||'').replace(/[^a-z0-9]+/gi,'-')+'.txt';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
   setTimeout(function(){URL.revokeObjectURL(url);},2000);
 }
-
-function cerrarDrawerEvento(){
-  var panel=document.getElementById('drawer-panel');
-  var overlay=document.getElementById('drawer-overlay');
-  if(panel)panel.classList.remove('open');
-  if(overlay)overlay.classList.remove('open');
-}
-
-// Filtros del feed de eventos (client-side)
-function aplicarFiltros(){
-  var fe=document.getElementById('f-edificio');
-  var fu=document.getElementById('f-urgencia');
-  var ft=document.getElementById('f-texto');
-  var edi=fe?fe.value:'';
-  var urg=fu?fu.value:'';
-  var txt=ft?ft.value.toLowerCase():'';
-  var vis=0;
-  document.querySelectorAll('.event[data-edificio]').forEach(function(ev){
-    var okE=!edi||ev.getAttribute('data-edificio')===edi;
-    var okU=!urg||ev.getAttribute('data-urgencia')===urg;
-    var okT=!txt||ev.textContent.toLowerCase().indexOf(txt)>=0;
-    var show=okE&&okU&&okT;
-    ev.style.display=show?'':'none';
-    if(show)vis++;
-  });
-  var none=document.getElementById('no-results');
-  if(none)none.style.display=vis===0?'block':'none';
-}
-
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g,function(c){
-    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
-  });
-}
-
-// Enviar sugerencia
-async function enviarSugerencia(btn){
-  var ta=document.getElementById('sug-input');
-  var texto=(ta?ta.value:'').trim();
-  if(!texto){toast('Escribi tu sugerencia antes de enviar','err');return;}
-  btn.disabled=true;btn.textContent='Enviando...';
+async function guardarFeedbackDrawer(btn,row){
+  var ta=btn.parentElement.querySelector('textarea[data-fb-drawer]');
+  var nota=ta?ta.value.trim():'';
+  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
   try{
-    var r=await fetch('/admin/api/sugerencia',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({texto:texto})
-    });
+    var r=await fetch('/admin/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({row:row,nota:nota})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Sugerencia enviada. La revisaremos pronto.','ok');
-    ta.value='';
-    setTimeout(function(){location.reload();},1200);
-  }catch(e){toast('Error: '+e.message,'err');}
-  finally{btn.disabled=false;btn.textContent='Enviar sugerencia';}
-}
-
-// Solicitar cambio de dato del edificio
-async function solicitarCambio(btn, campo, valorActual){
-  var nuevoVal=prompt('Valor actual: "'+valorActual+'"\\n\\nNuevo valor para '+campo+':');
-  if(nuevoVal===null||nuevoVal.trim()===''||nuevoVal===valorActual)return;
-  btn.disabled=true;var old=btn.textContent;btn.textContent='Enviando...';
-  try{
-    var r=await fetch('/admin/api/solicitar-cambio',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({campo:campo,valorActual:valorActual,valorNuevo:nuevoVal.trim()})
-    });
-    var j=await r.json();
-    if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Solicitud enviada. El administrador la revisará.','ok');
+    toast('Nota guardada. Marcos va a aprender de esto.','ok');
+    if(_drawerActual)_drawerActual.feedback=nota;
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
 
-// Aprobar solicitud (dueño)
-async function aprobarSolicitud(btn, row){
-  if(!confirm('Aprobar y aplicar este cambio en la planilla?'))return;
-  btn.disabled=true;btn.textContent='Aplicando...';
+// --- chips de filtro de eventos (cliente) ---
+function filtrarEventos(modo,btn){
+  document.querySelectorAll('[data-chip]').forEach(function(c){
+    var act=c===btn;
+    c.style.background=act?'#17408B':'#fff';
+    c.style.color=act?'#fff':'#475569';
+    c.style.borderColor=act?'#17408B':'#E1E7F1';
+  });
+  document.querySelectorAll('[data-evrow]').forEach(function(r){
+    var show=true;
+    if(modo==='nuevos')show=r.getAttribute('data-nuevo')==='1';
+    else if(modo==='urgentes')show=r.getAttribute('data-urg')==='alta';
+    else if(modo==='abiertos')show=r.getAttribute('data-est')!=='resuelto';
+    r.style.display=show?'':'none';
+  });
+}
+
+// --- solicitar cambio (cliente) ---
+var _reqCampo=null,_reqActual=null,_reqEdificio=null;
+function abrirSolicitud(campo,label,actual,edificio){
+  _reqCampo=campo;_reqActual=actual;_reqEdificio=edificio;
+  var l=document.getElementById('req-label');if(l)l.textContent=label;
+  var c=document.getElementById('req-current');if(c)c.textContent=actual||'—';
+  var n=document.getElementById('req-nuevo');if(n)n.value='';
+  var m=document.getElementById('req-motivo');if(m)m.value='';
+  abrirModal('modal-solicitud');
+}
+async function enviarSolicitud(btn){
+  var nuevo=(document.getElementById('req-nuevo')||{}).value||'';
+  var motivo=(document.getElementById('req-motivo')||{}).value||'';
+  if(!nuevo.trim()){toast('Escribí el valor nuevo','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Enviando...';
   try{
-    var r=await fetch('/admin/api/aprobar-solicitud',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({row:row})
-    });
+    var r=await fetch('/admin/api/solicitar-cambio',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({campo:_reqCampo,valorActual:_reqActual,valorNuevo:nuevo.trim(),motivo:motivo.trim(),edificio:_reqEdificio})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    cerrarModal('modal-solicitud');
+    toast('Solicitud enviada. Tu administrador la revisa.','ok');
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+
+// --- solicitudes (dueño) ---
+async function aprobarSolicitud(btn,row){
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Aplicando...';
+  try{
+    var r=await fetch('/admin/api/aprobar-solicitud',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({row:row})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Cambio aplicado y registrado.','ok');
-    btn.closest('.sug-item').style.opacity='0.5';
-    setTimeout(function(){location.reload();},1200);
-  }catch(e){toast('Error: '+e.message,'err');}
-  finally{btn.disabled=false;}
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;btn.textContent=old;}
 }
-
-// Rechazar solicitud (dueño)
-async function rechazarSolicitud(btn, row){
-  var motivo=prompt('Motivo del rechazo (opcional):');
-  if(motivo===null)return;
-  btn.disabled=true;btn.textContent='Rechazando...';
+async function rechazarSolicitud(btn,row){
+  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
   try{
-    var r=await fetch('/admin/api/rechazar-solicitud',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({row:row,motivo:motivo.trim()})
-    });
+    var r=await fetch('/admin/api/rechazar-solicitud',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({row:row})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Solicitud rechazada.','ok');
-    setTimeout(function(){location.reload();},1200);
-  }catch(e){toast('Error: '+e.message,'err');}
-  finally{btn.disabled=false;}
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;btn.textContent=old;}
 }
-
-// Responder sugerencia (dueño)
-async function responderSugerencia(btn, row){
-  var resp=prompt('Tu respuesta para el administrador del consorcio:');
-  if(resp===null||resp.trim()==='')return;
-  btn.disabled=true;btn.textContent='Enviando...';
+async function responderSugerencia(btn,row){
+  var inp=btn.parentElement.querySelector('input');
+  var resp=inp?inp.value.trim():'';
+  if(!resp){toast('Escribí la respuesta','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
   try{
-    var r=await fetch('/admin/api/responder-sugerencia',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({row:row,respuesta:resp.trim()})
-    });
+    var r=await fetch('/admin/api/responder-sugerencia',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({row:row,respuesta:resp})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Respuesta enviada.','ok');
-    setTimeout(function(){location.reload();},1200);
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;btn.textContent=old;}
+}
+
+// --- sugerencias (cliente) ---
+async function enviarSugerencia(btn){
+  var ta=document.getElementById('sug-input');
+  var texto=(ta?ta.value:'').trim();
+  if(!texto){toast('Escribí tu sugerencia antes de enviar','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Enviando...';
+  try{
+    var r=await fetch('/admin/api/sugerencia',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({texto:texto})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Sugerencia enviada. Te respondemos por acá.','ok');
+    ta.value='';
+    setTimeout(function(){location.reload();},1000);
   }catch(e){toast('Error: '+e.message,'err');}
-  finally{btn.disabled=false;}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+
+// --- alta cliente / edificio (dueño) ---
+async function crearCliente(btn){
+  var nombre=(document.getElementById('cli-nombre')||{}).value||'';
+  var usuario=(document.getElementById('cli-usuario')||{}).value||'';
+  var pass=(document.getElementById('cli-pass')||{}).value||'';
+  var email=(document.getElementById('cli-email')||{}).value||'';
+  if(!nombre.trim()||!usuario.trim()||!pass.trim()){toast('Completá nombre, usuario y contraseña','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Creando...';
+  try{
+    var r=await fetch('/admin/api/clientes',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nombre:nombre.trim(),usuario:usuario.trim(),pass:pass.trim(),email:email.trim()})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Cliente creado','ok');
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+function elegirPlanNuevo(btn,plan){
+  document.querySelectorAll('[data-plan-btn]').forEach(function(b){
+    var act=b===btn;
+    b.style.borderColor=act?'#2E6FC0':'#DDE3EE';
+    b.style.background=act?'#EAF1FB':'#fff';
+    b.style.color=act?'#17408B':'#64748B';
+  });
+  var h=document.getElementById('ed-plan');if(h)h.value=plan;
+}
+async function crearEdificio(btn,clienteUsuario){
+  var nombre=(document.getElementById('ed-nombre')||{}).value||'';
+  var direccion=(document.getElementById('ed-direccion')||{}).value||'';
+  var unidades=(document.getElementById('ed-unidades')||{}).value||'';
+  var zona=(document.getElementById('ed-zona')||{}).value||'';
+  var encargado=(document.getElementById('ed-encargado')||{}).value||'';
+  var plan=(document.getElementById('ed-plan')||{}).value||'Base';
+  if(!nombre.trim()){toast('Falta el nombre del consorcio','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Creando...';
+  try{
+    var r=await fetch('/admin/api/edificio-nuevo',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nombre:nombre.trim(),direccion:direccion.trim(),unidades:unidades.trim(),zona:zona.trim(),encargado:encargado.trim(),plan:plan,clienteUsuario:clienteUsuario||undefined})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Edificio agregado','ok');
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+
+// --- editar ficha directo (dueño) ---
+var _editRow=null;
+function abrirEditar(row,nombre,encargado,plan){
+  _editRow=row;
+  var t=document.getElementById('edit-bname');if(t)t.textContent=nombre;
+  var n=document.getElementById('edit-nombre');if(n)n.value=nombre;
+  var e=document.getElementById('edit-encargado');if(e)e.value=encargado||'';
+  document.querySelectorAll('[data-editplan-btn]').forEach(function(b){
+    var act=b.getAttribute('data-editplan-btn')===plan;
+    b.style.borderColor=act?'#2E6FC0':'#DDE3EE';
+    b.style.background=act?'#EAF1FB':'#fff';
+    b.style.color=act?'#17408B':'#64748B';
+  });
+  var h=document.getElementById('edit-plan');if(h)h.value=plan||'Base';
+  abrirModal('modal-editar');
+}
+function elegirPlanEditar(btn,plan){
+  document.querySelectorAll('[data-editplan-btn]').forEach(function(b){
+    var act=b===btn;
+    b.style.borderColor=act?'#2E6FC0':'#DDE3EE';
+    b.style.background=act?'#EAF1FB':'#fff';
+    b.style.color=act?'#17408B':'#64748B';
+  });
+  var h=document.getElementById('edit-plan');if(h)h.value=plan;
+}
+async function guardarEditar(btn){
+  var nombre=(document.getElementById('edit-nombre')||{}).value||'';
+  var encargado=(document.getElementById('edit-encargado')||{}).value||'';
+  var plan=(document.getElementById('edit-plan')||{}).value||'Base';
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/edificio',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:_editRow,nombre:nombre.trim(),encargado:encargado.trim(),plan:plan})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Ficha actualizada','ok');
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+
+// --- expensas (cliente) ---
+var _expFormato='pdf';
+function elegirFormatoExp(btn,f){
+  _expFormato=f;
+  document.querySelectorAll('[data-exp-btn]').forEach(function(b){
+    var act=b===btn;
+    b.style.borderColor=act?'#17408B':'#DDE3EE';
+    b.style.background=act?'#17408B':'#fff';
+    b.style.color=act?'#fff':'#64748B';
+  });
+  var link=document.getElementById('exp-link-wrap');
+  var file=document.getElementById('exp-file-wrap');
+  if(link)link.style.display=f==='link'?'block':'none';
+  if(file)file.style.display=f==='link'?'none':'flex';
+}
+function pickExpFile(){
+  var i=document.getElementById('exp-file-input');
+  if(i)i.click();
+}
+function expFileElegido(inp){
+  var n=inp.files&&inp.files[0]?inp.files[0].name:'';
+  var t=document.getElementById('exp-file-nombre');
+  var s=document.getElementById('exp-file-sub');
+  if(t&&n){t.textContent=n;t.style.color='#16233B';}
+  if(s&&n){s.textContent='Archivo listo · tocá Publicar';s.style.color='#1B7A43';}
+}
+async function publicarExpensa(btn){
+  var mes=(document.getElementById('exp-mes')||{}).value||'';
+  var anio=(document.getElementById('exp-anio')||{}).value||'';
+  var url=(document.getElementById('exp-url')||{}).value||'';
+  var fileInp=document.getElementById('exp-file-input');
+  var nombre=fileInp&&fileInp.files&&fileInp.files[0]?fileInp.files[0].name:'';
+  if(!mes.trim()||!anio.trim()){toast('Completá mes y año','err');return;}
+  if(_expFormato==='link'&&!url.trim()){toast('Pegá la dirección web','err');return;}
+  if(_expFormato!=='link'&&!nombre){toast('Elegí el archivo','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Publicando...';
+  try{
+    var r=await fetch('/admin/api/expensa',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mes:mes.trim(),anio:anio.trim(),formato:_expFormato,url:url.trim(),nombre:nombre})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Expensa publicada. Marcos ya puede compartirla.','ok');
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+function copiarExpensa(texto){
+  navigator.clipboard.writeText(texto).then(function(){toast('Enlace copiado','ok');},function(){toast('No se pudo copiar','err');});
+}
+async function quitarExpensa(btn,row){
+  btn.disabled=true;
+  try{
+    var r=await fetch('/admin/api/expensa-quitar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({row:row})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Expensa quitada','ok');
+    setTimeout(function(){location.reload();},800);
+  }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;}
 }
 `;
 
 /* ===================================================================
- * RUTAS: LOGIN / LOGOUT
+ * CARGA DE DATOS COMPARTIDA
+ * =================================================================== */
+
+async function cargarDatos(req) {
+  const [ev, ed, cli, sol, sug] = await Promise.all([
+    readTab(TAB_EVENTOS),
+    readTab(TAB_EDIFICIOS),
+    readTab(TAB_CLIENTES),
+    readTab(TAB_SOLICITUDES),
+    readTab(TAB_SUGERENCIAS),
+  ]);
+  const eventos = ev.rows.map(mapEvento);
+  const edificios = ed.rows.map(mapEdificio);
+  const clientes = cli.rows.map(mapCliente);
+  const solicitudes = sol.rows;
+  const sugerencias = sug.rows;
+
+  // Edificio "actual" para la vista cliente.
+  const permitidos = edificiosPermitidos(req);
+  const propios = vistaCliente(req)
+    ? edificios.filter((e) => edificiosDeLaCuenta(req).includes(e.nombre))
+    : edificios;
+  const curBuilding = vistaCliente(req)
+    ? (propios.find((e) => permitidos && permitidos.includes(e.nombre)) || propios[0] || null)
+    : null;
+
+  // Nombre visible del cliente (para saludo/avatar).
+  let clienteActual = null;
+  if (vistaCliente(req)) {
+    const usuario = enPreview(req) ? req.session.previewOwner : req.session.user;
+    clienteActual = clientes.find((c) => c.usuario === usuario) || null;
+  }
+
+  return { eventos, edificios, clientes, solicitudes, sugerencias, propios, curBuilding, clienteActual };
+}
+
+/* ===================================================================
+ * VISTA DE EVENTO (fila del feed + datos del drawer)
+ * =================================================================== */
+
+function vistaEvento(e) {
+  const cat = clasificarEvento(e);
+  const catInfo = CATEGORIAS_EVENTO[cat];
+  const canal = canalDe(e);
+  const urg = URG_STYLE[e.urgencia] || URG_STYLE.baja;
+  const estKey = estadoNormalizado(e.estado);
+  const est = EST_STYLE[estKey];
+  const nuevo = esHoy(parseFecha(e.fecha));
+  return {
+    row: e._row,
+    titulo: truncate(e.mensaje || e.notas || 'Evento', 80),
+    detalle: truncate(e.notas || '', 150),
+    catKey: cat, catLabel: catInfo.label, catIcon: catInfo.icon, catBg: catInfo.bg,
+    urgKey: e.urgencia, urgLabel: urg.label, urgBg: urg.bg, urgFg: urg.fg,
+    estKey, estLabel: est.label, estBg: est.bg, estFg: est.fg,
+    canalIcon: canal.icon, canal: canal.nombre,
+    vecino: e.vecino, telefono: e.telefono, edificio: e.edificio,
+    when: fechaCorta(parseFecha(e.fecha)) || e.fecha,
+    mensaje: e.mensaje, notas: e.notas, feedback: e.feedback, nuevo,
+  };
+}
+
+// Fila del feed de eventos, markup identico al prototipo.
+// chipEdificio: true para la vista del dueño (pill 🏢 nombre).
+function filaEvento(v, idx, chipEdificio) {
+  return `
+    <button onclick="abrirDrawerEvento(${idx})" data-evrow data-nuevo="${v.nuevo ? '1' : '0'}" data-urg="${esc(v.urgKey)}" data-est="${esc(v.estKey)}"
+      style="width:100%;display:flex;align-items:flex-start;gap:14px;padding:16px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left;font-family:inherit;position:relative" class="hv-row">
+      ${v.nuevo ? '<span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:#2E6FC0"></span>' : ''}
+      <span style="width:44px;height:44px;border-radius:12px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${v.catIcon}</span>
+      <span style="flex:1;min-width:0">
+        <span style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+          <span style="font-size:15px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
+          <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
+          ${chipEdificio ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 ${esc(v.edificio)}</span>` : ''}
+          ${!chipEdificio && v.nuevo ? '<span style="font-size:11px;font-weight:800;color:#2E6FC0">● NUEVO</span>' : ''}
+        </span>
+        ${v.detalle && v.detalle !== v.titulo ? `<span style="display:block;font-size:13.5px;color:#5A6B85;line-height:1.45;margin-bottom:6px">${esc(v.detalle)}</span>` : ''}
+        <span style="display:flex;align-items:center;gap:10px;font-size:12px;color:#9AA7BD;flex-wrap:wrap">
+          <span>${v.canalIcon} ${esc(v.canal)}</span><span>·</span><span>${esc(v.vecino)}</span><span>·</span><span>${esc(v.when)}</span>
+        </span>
+      </span>
+      <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:${v.estBg};color:${v.estFg};flex-shrink:0">${v.estLabel}</span>
+    </button>`;
+}
+
+/* ===================================================================
+ * SHELL (topbar + sidebar + main), calcado del prototipo
+ * =================================================================== */
+
+function shell(req, d, activeKey, contenido) {
+  const dueno = esDueno(req);
+  const preview = enPreview(req);
+  const permitidos = edificiosPermitidos(req);
+
+  // --- datos del selector de edificio ---
+  let selectorHtml = '';
+  if (dueno) {
+    const filtro = req.session.filtroEdificioDueno || '';
+    const label = filtro || 'Todos los edificios';
+    const sub = filtro
+      ? ((d.clientes.find((c) => c.edificios.includes(filtro)) || {}).nombre || '')
+      : `${d.edificios.length} consorcios activos`;
+    const filas = [
+      { label: 'Todos los edificios', sub: `${d.edificios.length} consorcios`, val: '', activo: !filtro },
+      ...d.edificios.map((e) => ({
+        label: e.nombre,
+        sub: `${(d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar'}${e.unidades ? ' · ' + e.unidades + ' un.' : ''}`,
+        val: e.nombre, activo: filtro === e.nombre,
+      })),
+    ];
+    selectorHtml = selectorEdificioHtml(label, sub, 'Filtrar por edificio', filas, '/admin/set-filtro');
+  } else {
+    const cur = d.curBuilding;
+    const label = cur ? cur.nombre : 'Sin edificio';
+    const sub = cur ? (cur.zona || cur.direccion || '') : '';
+    const filas = d.propios.map((e) => ({
+      label: e.nombre,
+      sub: `${e.direccion || e.nombre}${e.unidades ? ' · ' + e.unidades + ' un.' : ''}`,
+      val: e.nombre,
+      activo: !!(cur && cur.nombre === e.nombre),
+    }));
+    selectorHtml = d.propios.length > 1
+      ? selectorEdificioHtml(label, sub, 'Tus edificios', filas, '/admin/set-filtro')
+      : `<div style="display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border:1px solid #E1E7F1;border-radius:11px;background:#F7F9FC">
+          <span style="font-size:15px">🏢</span>
+          <span style="text-align:left;line-height:1.15">
+            <span style="display:block;font-size:14px;font-weight:700;color:#16233B">${esc(label)}</span>
+            <span style="display:block;font-size:11px;color:#8595AD">${esc(sub)}</span>
+          </span>
+        </div>`;
+  }
+
+  // --- notificaciones (solo dueño) ---
+  let notifHtml = '';
+  if (dueno) {
+    const notifs = [];
+    d.solicitudes.filter((s) => !s.estado || s.estado === 'pendiente').forEach((s) => {
+      notifs.push({
+        icon: '📥', iconBg: '#FBF3DE', title: 'Pedido de cambio',
+        desc: `${s.edificio || ''} · ${FICHA_LABELS[s.campo] || s.campo || ''}`,
+        when: s.fecha || '', href: '/admin/solicitudes',
+      });
+    });
+    d.sugerencias.filter((s) => (!s.estado || s.estado === 'pendiente') && !s.respuesta).forEach((s) => {
+      notifs.push({ icon: '💡', iconBg: '#EDEEFB', title: 'Sugerencia sin responder', desc: s.usuario || '', when: s.fecha || '', href: '/admin/solicitudes' });
+    });
+    d.eventos.filter((e) => e.urgencia === 'alta' && estadoNormalizado(e.estado) !== 'resuelto').forEach((e) => {
+      notifs.push({ icon: '🚨', iconBg: '#FDECEC', title: 'Urgencia abierta', desc: `${e.edificio} · ${truncate(e.mensaje, 40)}`, when: fechaCorta(parseFecha(e.fecha)) || e.fecha, href: '/admin/eventos' });
+    });
+    const nCount = notifs.length;
+    notifHtml = `
+      <div style="position:relative">
+        <button onclick="toggleMenu('menu-notif')" style="position:relative;width:42px;height:42px;border:1px solid #E1E7F1;border-radius:11px;background:#F7F9FC;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center" class="hv-selbtn">🔔
+          ${nCount ? `<span style="position:absolute;top:-5px;right:-5px;min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:#E5484D;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;border:2px solid #fff">${nCount}</span>` : ''}
+        </button>
+        <div id="menu-notif" class="menu-pop" style="position:absolute;top:50px;right:0;width:340px;background:#fff;border:1px solid #E4E9F1;border-radius:14px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);z-index:50;animation:mPop .16s ease both;overflow:hidden">
+          <div style="padding:14px 16px;border-bottom:1px solid #EEF1F6;display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:14.5px;font-weight:800">Notificaciones</span>
+            <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#FDECEC;color:#C0392B">${nCount} nuevas</span>
+          </div>
+          <div style="max-height:400px;overflow-y:auto">
+            ${notifs.length ? notifs.map((n) => `
+              <a href="${esc(n.href)}" style="width:100%;display:flex;align-items:flex-start;gap:11px;padding:13px 16px;border-bottom:1px solid #F1F4F9;text-align:left" class="hv-row">
+                <span style="width:36px;height:36px;border-radius:10px;background:${n.iconBg};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${n.icon}</span>
+                <span style="flex:1;min-width:0">
+                  <span style="display:block;font-size:13.5px;font-weight:700;color:#16233B">${esc(n.title)}</span>
+                  <span style="display:block;font-size:12.5px;color:#64748B;line-height:1.4">${esc(n.desc)}</span>
+                  <span style="display:block;font-size:11px;color:#9AA7BD;margin-top:2px">${esc(n.when)}</span>
+                </span>
+              </a>`).join('') : '<div style="padding:22px;font-size:13px;color:#8595AD;text-align:center">Sin novedades</div>'}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // --- usuario ---
+  const userName = dueno || !d.clienteActual ? (esDuenoReal(req) && !preview ? 'Daniel' : (d.clienteActual ? d.clienteActual.nombre : req.session.user)) : d.clienteActual.nombre;
+  const displayName = dueno ? (req.session.user === 'admin' ? 'Daniel' : req.session.user) : (d.clienteActual ? d.clienteActual.nombre : req.session.user);
+  const userSub = dueno ? 'Admin de sistema' : (enPreview(req) ? req.session.previewOwner : req.session.user);
+  const userInitial = String(displayName || 'M').split(' ').filter(Boolean).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join('');
+  const userGrad = dueno ? 'linear-gradient(140deg,#17408B,#2E6FC0)' : 'linear-gradient(140deg,#B4841C,#D99B1F)';
+  const userMeta = dueno ? `Dueño del sistema · ${d.edificios.length} edificios` : `Administrador · ${d.propios.length} edificio${d.propios.length === 1 ? '' : 's'}`;
+
+  // --- nav ---
+  const nuevosCliente = filtrarPorEdificio(d.eventos, req).filter((e) => esHoy(parseFecha(e.fecha))).length;
+  const solPend = d.solicitudes.filter((s) => !s.estado || s.estado === 'pendiente').length;
+  const navCliente = [
+    { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
+    { key: 'edificio', icon: '🏢', label: 'Mi Edificio', href: '/admin/mi-edificio' },
+    { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosCliente },
+    { key: 'facturas', icon: '🧾', label: 'Facturas/Fotos', href: '/admin/archivos' },
+    { key: 'expensas', icon: '📑', label: 'Expensas', href: '/admin/expensas' },
+    { key: 'sugerencias', icon: '💡', label: 'Sugerencias', href: '/admin/sugerencias' },
+  ];
+  const nuevosDueno = d.eventos.filter((e) => esHoy(parseFecha(e.fecha))).length;
+  const navDueno = [
+    { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
+    { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosDueno },
+    { key: 'consumos', icon: '📈', label: 'Consumos', href: '/admin/consumos' },
+    { key: 'facturas', icon: '🧾', label: 'Facturas/Fotos', href: '/admin/archivos' },
+    { key: 'edificios', icon: '👥', label: 'Clientes', href: '/admin/clientes' },
+    { key: 'solicitudes', icon: '📥', label: 'Solicitudes', href: '/admin/solicitudes', badge: solPend },
+  ];
+  const nav = dueno ? navDueno : navCliente;
+  const navHtml = nav.map((n) => {
+    const active = n.key === activeKey;
+    return `
+      <a href="${n.href}" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;border-radius:11px;background:${active ? '#EAF1FB' : 'transparent'};color:${active ? '#17408B' : '#475569'};font-weight:${active ? '800' : '600'};font-size:14.5px;text-align:left;position:relative" class="hv-soft">
+        <span style="font-size:17px;width:22px;text-align:center">${n.icon}</span>
+        <span style="flex:1">${n.label}</span>
+        ${n.badge ? `<span style="min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#E5484D;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${n.badge}</span>` : ''}
+      </a>`;
+  }).join('');
+
+  const previewBanner = preview ? `
+    <div style="background:linear-gradient(90deg,#8A6410,#B4841C);color:#fff;min-height:42px;display:flex;align-items:center;justify-content:center;gap:14px;padding:6px 16px;font-size:13.5px;font-weight:600;flex-wrap:wrap">
+      <span>👁 Vista previa — así ve su panel <strong>${esc(d.clienteActual ? d.clienteActual.nombre : req.session.previewOwner)}</strong></span>
+      <a href="/admin/preview-exit" style="height:28px;padding:0 13px;border-radius:7px;background:rgba(255,255,255,.22);color:#fff;font-weight:700;font-size:12.5px;display:inline-flex;align-items:center">← Volver a mi panel de dueño</a>
+    </div>` : '';
+
+  const verComoCliente = esDuenoReal(req) && !preview
+    ? `<button onclick="abrirModal('modal-clientpicker')" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#334259;font-weight:600" class="hv-soft">👁&nbsp;&nbsp;Ver como cliente</button>`
+    : '';
+
+  // client picker modal (dueño)
+  const clientPickerHtml = esDuenoReal(req) && !preview ? `
+    <div id="modal-clientpicker" class="modal-overlay" onclick="cerrarModal('modal-clientpicker')">
+      <div class="modal-box" style="width:460px" onclick="stopEv(event)">
+        <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+          <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Ver como cliente</div>
+          <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">¿Qué administrador querés revisar?</div>
+          <div style="font-size:13px;color:#8595AD;margin-top:4px">Vas a ver su panel exactamente como lo ve él, para entender su reclamo.</div>
+        </div>
+        <div style="padding:12px;max-height:60vh;overflow-y:auto">
+          ${d.clientes.map((c) => `
+            <a href="/admin/preview?cliente=${encodeURIComponent(c.usuario)}" style="width:100%;display:flex;align-items:center;gap:13px;padding:13px;border:1px solid #EEF1F6;background:#fff;border-radius:12px;text-align:left;margin-bottom:8px" class="hv-selbtn">
+              <span style="width:44px;height:44px;border-radius:11px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;flex-shrink:0">${esc(c.nombre.charAt(0).toUpperCase())}</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:15px;font-weight:800;color:#16233B">${esc(c.nombre)}</span>
+                <span style="display:block;font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.edificios.join(', ') || 'Sin edificios')}</span>
+              </span>
+              <span style="font-size:12px;font-weight:700;color:#5A6B85;background:#EEF2F8;padding:4px 10px;border-radius:999px;flex-shrink:0">${c.edificios.length} edif.</span>
+              <span style="color:#C9D5E8;font-size:16px">→</span>
+            </a>`).join('')}
+        </div>
+        <div style="padding:4px 24px 20px">
+          <button onclick="cerrarModal('modal-clientpicker')" style="width:100%;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+        </div>
+      </div>
+    </div>` : '';
+
+  const sugerenciaHref = dueno ? '/admin/solicitudes' : '/admin/sugerencias';
+
+  return `<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Marcos IA · Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
+<style>${CSS}</style>
+</head>
+<body>
+<div style="min-height:100vh;display:flex;flex-direction:column">
+  ${previewBanner}
+  <!-- TOPBAR -->
+  <header style="height:64px;background:#fff;border-bottom:1px solid #E4E9F1;display:flex;align-items:center;gap:18px;padding:0 20px;position:sticky;top:0;z-index:40">
+    <div style="display:flex;align-items:center;gap:11px">
+      <div style="width:36px;height:36px;border-radius:10px;background:#fff;border:1px solid #E4E9F1;display:flex;align-items:center;justify-content:center;overflow:hidden"><img src="${LOGO_URL}" alt="Bien Argentinos" style="width:100%;height:100%;object-fit:contain"></div>
+      <div style="font-weight:800;font-size:17px;letter-spacing:-.02em">Marcos IA</div>
+    </div>
+    ${selectorHtml}
+    <div style="flex:1"></div>
+    ${notifHtml}
+    <div style="position:relative">
+      <button onclick="toggleMenu('menu-user')" style="display:flex;align-items:center;gap:10px;height:44px;padding:0 8px 0 6px;border:1px solid transparent;border-radius:12px;background:none;cursor:pointer" class="hv-soft">
+        <span style="width:36px;height:36px;border-radius:50%;background:${userGrad};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px">${esc(userInitial)}</span>
+        <span style="text-align:left;line-height:1.15" class="username">
+          <span style="display:block;font-size:13.5px;font-weight:700;color:#16233B">${esc(displayName)}</span>
+          <span style="display:block;font-size:11px;color:#8595AD">${esc(userSub)}</span>
+        </span>
+        <span style="color:#8595AD;font-size:11px">▾</span>
+      </button>
+      <div id="menu-user" class="menu-pop" style="position:absolute;top:52px;right:0;width:220px;background:#fff;border:1px solid #E4E9F1;border-radius:14px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);padding:7px;z-index:50;animation:mPop .16s ease both">
+        <div style="padding:10px 11px 12px;border-bottom:1px solid #EEF1F6;margin-bottom:6px">
+          <div style="font-size:14px;font-weight:700">${esc(displayName)}</div>
+          <div style="font-size:12px;color:#8595AD">${esc(userMeta)}</div>
+        </div>
+        ${verComoCliente}
+        <button style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#334259" class="hv-soft">👤&nbsp;&nbsp;Mi cuenta</button>
+        <button style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#334259" class="hv-soft">⚙️&nbsp;&nbsp;Preferencias</button>
+        <button onclick="location.href='/admin/logout'" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#E5484D;font-weight:600" class="hv-red">↩&nbsp;&nbsp;Cerrar sesión</button>
+      </div>
+    </div>
+  </header>
+
+  <div style="flex:1;display:flex;align-items:stretch">
+    <!-- SIDEBAR -->
+    <nav class="sidebar-nav" style="width:236px;flex-shrink:0;background:#fff;border-right:1px solid #E4E9F1;padding:18px 14px;position:sticky;top:64px;height:calc(100vh - 64px);display:flex;flex-direction:column;gap:4px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9AA7BD;padding:6px 12px 8px">Menú</div>
+      ${navHtml}
+      <div style="flex:1"></div>
+      <div style="margin:0 6px;padding:14px;background:linear-gradient(155deg,#0F326A,#2E6FC0);border-radius:14px;color:#fff">
+        <div style="font-size:13px;font-weight:800;margin-bottom:4px">¿Necesitás algo?</div>
+        <div style="font-size:12.5px;color:rgba(255,255,255,.8);line-height:1.45;margin-bottom:10px">Tu consorcio está siendo atendido las 24 horas.</div>
+        <a href="${sugerenciaHref}" style="display:flex;align-items:center;justify-content:center;width:100%;height:36px;border-radius:9px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:13px">Enviar sugerencia</a>
+      </div>
+    </nav>
+
+    <!-- MAIN -->
+    <main style="flex:1;min-width:0;padding:26px 30px 90px;max-width:1180px;margin:0 auto;width:100%">
+      ${contenido}
+    </main>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+<div class="drawer-overlay" id="drawer-overlay" onclick="cerrarDrawerEvento()"></div>
+<div class="drawer-panel" id="drawer-panel"></div>
+${clientPickerHtml}
+<script>${CLIENT_JS}</script>
+</body>
+</html>`;
+}
+
+function selectorEdificioHtml(label, sub, tituloMenu, filas, hrefBase) {
+  return `
+    <div style="position:relative;margin-left:2px">
+      <button onclick="toggleMenu('menu-edificio')" style="display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border:1px solid #E1E7F1;border-radius:11px;background:#F7F9FC;cursor:pointer" class="hv-selbtn">
+        <span style="font-size:15px">🏢</span>
+        <span style="text-align:left;line-height:1.15">
+          <span style="display:block;font-size:14px;font-weight:700;color:#16233B">${esc(label)}</span>
+          <span style="display:block;font-size:11px;color:#8595AD">${esc(sub)}</span>
+        </span>
+        <span style="color:#8595AD;font-size:11px;margin-left:2px">▾</span>
+      </button>
+      <div id="menu-edificio" class="menu-pop" style="position:absolute;top:48px;left:0;width:300px;background:#fff;border:1px solid #E4E9F1;border-radius:14px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);padding:7px;z-index:50;animation:mPop .16s ease both">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8595AD;padding:8px 10px 6px">${esc(tituloMenu)}</div>
+        ${filas.map((f) => `
+          <a href="${hrefBase}?edificio=${encodeURIComponent(f.val)}" style="width:100%;display:flex;align-items:center;gap:11px;padding:10px;background:${f.activo ? '#F1F5FB' : 'transparent'};border-radius:10px;text-align:left" class="hv-soft">
+            <span style="width:38px;height:38px;border-radius:9px;background:${f.activo ? '#DCE9FA' : '#F1F5FB'};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🏢</span>
+            <span style="flex:1;min-width:0">
+              <span style="display:block;font-size:14px;font-weight:700;color:#16233B">${esc(f.label)}</span>
+              <span style="display:block;font-size:12px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(f.sub)}</span>
+            </span>
+            <span style="color:#2E6FC0;font-weight:800;font-size:15px">${f.activo ? '✓' : ''}</span>
+          </a>`).join('')}
+      </div>
+    </div>`;
+}
+
+/* ===================================================================
+ * LOGIN
  * =================================================================== */
 
 router.get('/login', (req, res) => {
   if (req.session && req.session.authed) return res.redirect('/admin');
   const err = req.query.error
-    ? `<div class="err">Usuario o contraseña incorrectos.</div>`
+    ? `<div style="background:#FDECEC;color:#B4232A;border:1px solid rgba(229,72,77,.35);padding:10px 12px;border-radius:10px;margin-bottom:16px;font-size:14px">Usuario o contraseña incorrectos.</div>`
     : '';
   res.send(`<!DOCTYPE html>
 <html lang="es-AR"><head>
@@ -1346,84 +1287,72 @@ router.get('/login', (req, res) => {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
-<style>${CSS}</style></head>
+<style>${CSS}
+.login-shell{min-height:100vh;display:grid;grid-template-columns:1.05fr 1fr}
+@media(max-width:900px){.login-shell{grid-template-columns:1fr}.login-brand{display:none!important}}
+</style></head>
 <body>
 <div class="login-shell">
-  <div class="login-brand">
-    <div class="top">
-      <div class="mark"><img src="${LOGO_URL}" alt="Bien Argentinos"></div>
+  <div class="login-brand" style="position:relative;background:linear-gradient(150deg,#0F326A 0%,#17408B 45%,#2E6FC0 100%);color:#fff;padding:56px 60px;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;min-height:100vh">
+    <div style="position:absolute;top:-120px;right:-120px;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(217,155,31,.28),transparent 70%)"></div>
+    <div style="position:absolute;bottom:-160px;left:-80px;width:380px;height:380px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 70%)"></div>
+    <div style="position:relative;display:flex;align-items:center;gap:16px">
+      <div style="width:128px;height:82px;background:#fff;border-radius:14px;padding:8px;box-shadow:0 8px 22px -8px rgba(0,0,0,.35);flex-shrink:0;display:flex;align-items:center;justify-content:center"><img src="${LOGO_URL}" alt="Bien Argentinos" style="max-width:100%;max-height:100%;object-fit:contain"></div>
       <div>
-        <div class="name">Marcos IA</div>
-        <div class="by">por Bien Argentinos</div>
+        <div style="font-weight:800;font-size:22px;letter-spacing:-.02em">Marcos IA</div>
+        <div style="font-size:12.5px;color:rgba(255,255,255,.72);font-weight:600">por Bien Argentinos</div>
       </div>
     </div>
-    <div>
-      <div class="status"><span class="dot"></span> Atención 24/7 activa</div>
-      <h1>Todo lo que pasó<br>en tu edificio,<br>mientras no estabas.</h1>
-      <p>Marcos atiende los WhatsApp y llamados de tu consorcio las 24 horas. Este panel es tu ventana: reclamos, urgencias, facturas y avisos, ordenados y al día.</p>
+    <div style="position:relative">
+      <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);padding:7px 14px;border-radius:999px;font-size:13px;font-weight:600;margin-bottom:26px">
+        <span style="width:8px;height:8px;border-radius:50%;background:#4ADE80;box-shadow:0 0 0 4px rgba(74,222,128,.25)"></span>
+        Atención 24/7 activa
+      </div>
+      <h1 style="font-size:40px;line-height:1.08;font-weight:800;letter-spacing:-.03em;margin:0 0 18px">Todo lo que pasó<br>en tu edificio,<br>mientras no estabas.</h1>
+      <p style="font-size:17px;line-height:1.55;color:rgba(255,255,255,.82);max-width:440px;margin:0">Marcos atiende los WhatsApp y llamados de tu consorcio las 24 horas. Este panel es tu ventana: reclamos, reservas, accesos y avisos, ordenados y al día.</p>
     </div>
-    <div style="display:flex;gap:26px;font-size:13px;color:rgba(255,255,255,.72)">
+    <div style="position:relative;display:flex;gap:26px;font-size:13px;color:rgba(255,255,255,.72)">
       <div><span style="display:block;font-size:22px;font-weight:800;color:#fff">24/7</span>sin horarios</div>
       <div><span style="display:block;font-size:22px;font-weight:800;color:#fff">CABA</span>y GBA</div>
     </div>
   </div>
-  <div class="login-form-wrap">
-    <form class="login-form" method="POST" action="/admin/login">
-      <div class="login-eyebrow">Panel de administración</div>
-      <h2>Ingresá a tu cuenta</h2>
-      <p class="sub">Usá el usuario y la contraseña de tu cuenta de administrador.</p>
+  <div style="display:flex;align-items:center;justify-content:center;padding:40px;min-height:100vh">
+    <form method="POST" action="/admin/login" style="width:100%;max-width:380px;animation:mUp .5s ease both">
+      <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#2E6FC0;margin-bottom:10px">Panel de administración</div>
+      <h2 style="font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px">Ingresá a tu cuenta</h2>
+      <p style="color:#64748B;font-size:15px;margin:0 0 28px">Usá el usuario y la contraseña de tu cuenta de administrador.</p>
       ${err}
-      <div class="field">
-        <label>Usuario</label>
-        <span class="ico-in">👤</span>
-        <input name="user" autocomplete="username" autofocus required placeholder="tu_usuario">
+      <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:7px">Usuario</label>
+      <div style="position:relative;margin-bottom:18px">
+        <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:15px">👤</span>
+        <input name="user" autocomplete="username" autofocus required placeholder="tu_usuario" class="inp" style="height:48px;padding-left:42px">
       </div>
-      <div class="field">
-        <label>Contraseña</label>
-        <span class="ico-in">🔒</span>
-        <input id="login-pass" name="pass" type="password" autocomplete="current-password" required placeholder="••••••••">
-        <button type="button" class="toggle-pass" onclick="togglePassVisibility()">Ver</button>
+      <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:7px">Contraseña</label>
+      <div style="position:relative;margin-bottom:16px">
+        <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:15px">🔒</span>
+        <input id="login-pass" name="pass" type="password" autocomplete="current-password" required placeholder="••••••••" class="inp" style="height:48px;padding-left:42px;padding-right:70px">
+        <button type="button" onclick="var i=document.getElementById('login-pass');var s=i.type==='password';i.type=s?'text':'password';this.textContent=s?'Ocultar':'Ver'" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);border:none;background:none;color:#64748B;font-size:13px;font-weight:600;cursor:pointer;padding:6px 8px">Ver</button>
       </div>
-      <div class="row-between">
-        <label class="remember"><input type="checkbox" name="recordar" checked> Recordar sesión</label>
-        <a href="#" class="forgot" onclick="event.preventDefault();toast('Próximamente vas a poder recuperarla acá.','ok')">¿Olvidaste tu contraseña?</a>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;font-size:13.5px">
+        <label style="display:flex;align-items:center;gap:7px;color:#16233B;font-weight:600"><input type="checkbox" name="recordar" checked style="width:16px;height:16px;accent-color:#2E6FC0"> Recordar sesión</label>
+        <a href="#" onclick="event.preventDefault()" style="color:#2E6FC0;font-weight:600">¿Olvidaste tu contraseña?</a>
       </div>
-      <button class="btn" type="submit">Ingresar al panel</button>
-      <p class="activate">¿Primera vez? <a href="#" onclick="event.preventDefault();toast('Próximamente vas a poder activar tu cuenta acá.','ok')">Activá tu cuenta</a></p>
+      <button type="submit" style="width:100%;height:48px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:15px;cursor:pointer" class="hv-primary">Ingresar al panel</button>
+      <p style="text-align:center;margin-top:18px;font-size:14px;color:#64748B">¿Primera vez? <a href="#" onclick="event.preventDefault()" style="color:#2E6FC0;font-weight:700">Activá tu cuenta</a></p>
     </form>
   </div>
 </div>
-<div id="toast" class="toast"></div>
-<script>
-function togglePassVisibility(){
-  var i=document.getElementById('login-pass');
-  var btn=document.querySelector('.toggle-pass');
-  if(!i)return;
-  var show=i.type==='password';
-  i.type=show?'text':'password';
-  if(btn)btn.textContent=show?'Ocultar':'Ver';
-}
-function toast(msg, kind){
-  var t=document.getElementById('toast');
-  if(!t)return;
-  t.textContent=msg;
-  t.className='toast show '+(kind||'ok');
-  setTimeout(function(){t.className='toast';},2600);
-}
-</script>
 </body></html>`);
 });
 
 router.post('/login', async (req, res) => {
   const { user, pass } = req.body || {};
-  // Dueño del sistema
   if (user === ADMIN_USER && pass === ADMIN_PASS) {
     req.session.authed = true;
     req.session.role = 'dueno';
     req.session.user = user;
     return req.session.save(() => res.redirect('/admin'));
   }
-  // Administrador de consorcio via .env (compatibilidad hacia atras)
   const consorcioCfg = CONSORCIO_USERS[user];
   if (consorcioCfg && consorcioCfg.pass === pass) {
     req.session.authed = true;
@@ -1432,7 +1361,6 @@ router.post('/login', async (req, res) => {
     req.session.edificios = consorcioCfg.edificios;
     return req.session.save(() => res.redirect('/admin'));
   }
-  // Administrador de consorcio via Sheets (tab "clientes")
   try {
     const { rows } = await readTab(TAB_CLIENTES);
     const clientes = rows.map(mapCliente);
@@ -1442,11 +1370,17 @@ router.post('/login', async (req, res) => {
       req.session.role = 'consorcio';
       req.session.user = user;
       req.session.edificios = match.edificios;
+      // Ultima conexion (para el banner de novedades): guarda la anterior
+      // en sesion y registra la actual en la planilla.
+      req.session.lastConn = match.ultimo_acceso || '';
+      try {
+        const plan = await findOrPlanColumn(TAB_CLIENTES, ['ultimo_acceso']);
+        if (plan.create) await ensureHeader(TAB_CLIENTES, plan.col, 'ultimo_acceso', false);
+        await writeCell(TAB_CLIENTES, plan.col, match._row, new Date().toLocaleString('es-AR'));
+      } catch (_) {}
       return req.session.save(() => res.redirect('/admin'));
     }
-  } catch (e) {
-    // Tab inexistente u otro error -> cae al mensaje de error de abajo
-  }
+  } catch (e) {}
   return res.redirect('/admin/login?error=1');
 });
 
@@ -1460,791 +1394,943 @@ router.get('/logout', (req, res) => {
 
 router.use(requireAuth);
 
-// GET /admin/api/topbar-edificios -- lista para el selector del header.
-// Dueño: todos los edificios + su cliente asignado. Cliente: solo los suyos.
-router.get('/api/topbar-edificios', async (req, res) => {
-  try {
-    const { rows: edRows } = await readTab(TAB_EDIFICIOS);
-    const edificios = edRows.map(mapEdificio);
-
-    if (esDueno(req)) {
-      const { rows: cliRows } = await readTab(TAB_CLIENTES);
-      const clientes = cliRows.map(mapCliente);
-      const lista = edificios.map((e) => {
-        const dueno = clientes.find((c) => c.edificios.includes(e.nombre));
-        return { nombre: e.nombre, cliente: dueno ? dueno.nombre : '', unidades: e.unidades };
-      });
-      return res.json({ edificios: lista, actual: req.session.filtroEdificioDueno || '' });
-    }
-
-    const propios = req.session.edificios || [];
-    const lista = edificios
-      .filter((e) => propios.includes(e.nombre))
-      .map((e) => ({ nombre: e.nombre, cliente: '', unidades: e.unidades }));
-    res.json({ edificios: lista, actual: req.session.edificioActivo || '' });
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});
-
-// GET /admin/set-filtro?edificio=Nombre (vacio = todos) -- solo dueño.
+// Selector de edificio (ambos roles).
 router.get('/set-filtro', (req, res) => {
   const edificio = req.query.edificio || '';
   if (esDueno(req)) {
     req.session.filtroEdificioDueno = edificio;
+  } else if (enPreview(req)) {
+    // en preview el selector cambia el edificio activo del preview
+    const propios = req.session.previewEdificios || [];
+    req.session.previewEdificioActivo = propios.includes(edificio) ? edificio : undefined;
   } else {
     const propios = req.session.edificios || [];
     if (!edificio || propios.includes(edificio)) {
       req.session.edificioActivo = edificio || undefined;
     }
   }
-  const volver = req.query.volver && String(req.query.volver).startsWith('/admin')
-    ? req.query.volver
-    : '/admin';
+  const volver = req.query.volver && String(req.query.volver).startsWith('/admin') ? req.query.volver : '/admin';
   res.redirect(volver);
 });
 
-/* ----------------- RESUMEN DEL DIA ----------------- */
+// Ver como cliente (solo dueño real).
+router.get('/preview', async (req, res) => {
+  if (!esDuenoReal(req)) return res.redirect('/admin');
+  const usuario = req.query.cliente || '';
+  try {
+    const { rows } = await readTab(TAB_CLIENTES);
+    const c = rows.map(mapCliente).find((x) => x.usuario === usuario);
+    if (c) {
+      req.session.previewOwner = c.usuario;
+      req.session.previewEdificios = c.edificios;
+    }
+  } catch (e) {}
+  res.redirect('/admin');
+});
+
+router.get('/preview-exit', (req, res) => {
+  delete req.session.previewOwner;
+  delete req.session.previewEdificios;
+  delete req.session.previewEdificioActivo;
+  res.redirect('/admin');
+});
+
+/* ===================================================================
+ * RESUMEN
+ * =================================================================== */
 
 router.get('/', async (req, res) => {
   try {
-    const dueno = esDueno(req);
-    const { rows } = await readTab(TAB_EVENTOS);
-    const todos = rows.map(mapEvento);
-    const eventos = filtrarPorEdificio(todos, req);
+    const d = await cargarDatos(req);
 
-    const hoy = eventos.filter((e) => esHoy(parseFecha(e.fecha)));
-    const urgentesHoy = hoy.filter((e) => e.urgencia === 'alta');
-    const mediaHoy = hoy.filter((e) => e.urgencia === 'media');
-
-    const saludo = dueno
-      ? `${horaSaludo()}, tomate unos mates 🧉`
-      : `${horaSaludo()}, ${esc(req.session.user)}`;
-
-    let cards;
-    let estadoEdificiosHtml = '';
-
-    if (dueno) {
-      const [{ rows: edRows }, { rows: cliRows }, { rows: solRows }] = await Promise.all([
-        readTab(TAB_EDIFICIOS),
-        readTab(TAB_CLIENTES),
-        readTab(TAB_SOLICITUDES),
-      ]);
-      const clientes = cliRows.map(mapCliente);
-      const solicitudesPendientes = solRows.filter((r) => !r.estado || r.estado === 'pendiente').length;
-
+    if (esDueno(req)) {
+      // ---------- RESUMEN DUEÑO ----------
       const filtro = req.session.filtroEdificioDueno;
-      const edificiosTodos = edRows.map(mapEdificio);
-      const edificiosVisibles = filtro ? edificiosTodos.filter((e) => e.nombre === filtro) : edificiosTodos;
+      const edVisibles = filtro ? d.edificios.filter((e) => e.nombre === filtro) : d.edificios;
+      const evVisibles = filtrarPorEdificio(d.eventos, req);
+      const nuevosHoy = evVisibles.filter((e) => esHoy(parseFecha(e.fecha)));
+      const urgAbiertas = evVisibles.filter((e) => e.urgencia === 'alta' && estadoNormalizado(e.estado) !== 'resuelto');
+      const solPend = d.solicitudes.filter((s) => !s.estado || s.estado === 'pendiente').length;
 
-      cards = `
-        <div class="cards">
-          <div class="card"><div class="k">🏢 Edificios activos</div><div class="v">${edificiosVisibles.length}</div></div>
-          <div class="card"><div class="k">🔔 Novedades hoy</div><div class="v">${hoy.length}</div></div>
-          <div class="card alta"><div class="k">🚨 Urgencias abiertas</div><div class="v">${urgentesHoy.length}</div></div>
-          <div class="card media"><div class="k">📋 Solicitudes pendientes</div><div class="v">${solicitudesPendientes}</div></div>
-          <div class="card"><div class="k">💳 Excedente facturable</div><div class="v">$0</div></div>
-        </div>
-        <p style="font-size:12px;color:var(--muted);margin:-4px 0 0">
-          Excedente facturable en $0 hasta que armemos Consumos (uso real vs. plan) — hoy es solo el hueco visual.
-        </p>`;
+      const kpis = [
+        { icon: '🏢', iconBg: '#EAF1FB', value: String(edVisibles.length), label: 'Edificios activos' },
+        { icon: '🔔', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: 'Novedades hoy' },
+        { icon: '🚨', iconBg: '#FDECEC', value: String(urgAbiertas.length), label: 'Urgencias abiertas' },
+        { icon: '📥', iconBg: '#FBF3DE', value: String(solPend), label: 'Solicitudes pendientes' },
+        { icon: '🧾', iconBg: '#E7F4EC', value: '$0', label: 'Excedente facturable' },
+      ];
 
-      const tarjetasEdificio = edificiosVisibles.map((e) => {
-        const clienteDe = clientes.find((c) => c.edificios.includes(e.nombre));
-        const eventosDe = hoy.filter((ev) => ev.edificio === e.nombre);
-        const urgDe = eventosDe.filter((ev) => ev.urgencia === 'alta').length;
-        const sub = [clienteDe ? clienteDe.nombre : 'Sin asignar', e.tipo, e.unidades ? `${e.unidades} un.` : '']
-          .filter(Boolean).join(' · ');
+      const kpiHtml = kpis.map((k) => `
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,59,.04)">
+          <span style="width:38px;height:38px;border-radius:11px;background:${k.iconBg};display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:11px">${k.icon}</span>
+          <div style="font-size:27px;font-weight:800;letter-spacing:-.03em;line-height:1">${k.value}</div>
+          <div style="font-size:13px;color:#64748B;font-weight:600;margin-top:4px">${k.label}</div>
+        </div>`).join('');
+
+      const cardsHtml = edVisibles.map((e) => {
+        const ev = d.eventos.filter((x) => x.edificio === e.nombre);
+        const nuevos = ev.filter((x) => esHoy(parseFecha(x.fecha))).length;
+        const urg = ev.filter((x) => x.urgencia === 'alta' && esHoy(parseFecha(x.fecha))).length;
+        const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
         return `
           <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/eventos')}"
-             class="card" style="text-decoration:none;color:inherit;display:block">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-              <div style="width:34px;height:34px;border-radius:9px;background:var(--bg);border:1px solid var(--line);
-                display:flex;align-items:center;justify-content:center;font-size:15px">🏢</div>
-              <span class="badge baja">Dentro del plan</span>
+            style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px;cursor:pointer" class="hv-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <span style="width:42px;height:42px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:19px">🏢</span>
+              <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:#E7F4EC;color:#1B7A43">Dentro del plan</span>
             </div>
-            <div style="font-weight:700;font-size:15px;margin-top:10px">${esc(e.nombre)}</div>
-            <div style="color:var(--muted);font-size:12.5px;margin-top:2px">${esc(sub)}</div>
-            <div style="display:flex;gap:14px;margin-top:10px;font-size:13px">
-              <span><b style="color:var(--brand2)">${eventosDe.length}</b> novedades</span>
-              <span><b style="color:${urgDe ? 'var(--bad-deep)' : 'var(--muted)'}">${urgDe}</b> urgencias</span>
+            <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">${esc(e.nombre)}</div>
+            <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px">${esc(cliente)} · ${esc(e.tipo || 'Edificio')}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
+            <div style="display:flex;gap:16px">
+              <span style="font-size:13px;color:#334259"><strong style="color:#2E6FC0;font-size:15px">${nuevos}</strong> novedades</span>
+              <span style="font-size:13px;color:#334259"><strong style="color:#C0392B;font-size:15px">${urg}</strong> urgencias</span>
             </div>
           </a>`;
       }).join('');
 
-      estadoEdificiosHtml = edificiosVisibles.length
-        ? `<h2>Estado por edificio</h2>
-           <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${tarjetasEdificio}</div>`
-        : '';
-    } else {
-      cards = `
-        <div class="cards">
-          <div class="card"><div class="k">Eventos hoy</div><div class="v">${hoy.length}</div></div>
-          <div class="card alta"><div class="k">Urgencias</div><div class="v">${urgentesHoy.length}</div></div>
-          <div class="card media"><div class="k">Prioridad media</div><div class="v">${mediaHoy.length}</div></div>
-          <div class="card"><div class="k">Eventos totales</div><div class="v">${eventos.length}</div></div>
+      const contenido = `
+        <div style="animation:mFade .3s ease both">
+          <div style="margin-bottom:20px">
+            <div style="font-size:13px;font-weight:700;color:#2E6FC0;margin-bottom:3px">${saludoHora()}, Daniel 👋</div>
+            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">Panel general · ${filtro ? esc(filtro) : 'todos los edificios'}</h1>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px">${kpiHtml}</div>
+          <div style="font-size:16px;font-weight:800;margin-bottom:14px">Estado por edificio</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">${cardsHtml}</div>
         </div>`;
+
+      return res.send(shell(req, d, 'resumen', contenido));
     }
 
-    const subtitulo = dueno
-      ? (req.session.filtroEdificioDueno
-          ? `Filtrando por ${esc(req.session.filtroEdificioDueno)}.`
-          : 'Panel general · todos los edificios')
-      : `Panel de ${esc((edificiosPermitidos(req) || []).join(', '))}`;
+    // ---------- RESUMEN CLIENTE ----------
+    const cur = d.curBuilding;
+    const evTodos = d.eventos.filter((e) => cur && e.edificio === cur.nombre);
+    const vistas = evTodos.map(vistaEvento);
+    const novedades = vistas.filter((v) => v.nuevo);
+    const cUrg = vistas.filter((v) => v.urgKey === 'alta' && v.estKey !== 'resuelto').length;
+    const cCurso = vistas.filter((v) => v.estKey === 'curso').length;
+    const cRes = vistas.filter((v) => v.estKey === 'resuelto').length;
+    const greetName = (d.clienteActual ? d.clienteActual.nombre : req.session.user).split(' ')[0];
+    const lastConn = req.session.lastConn || '—';
 
-    res.send(
-      page(
-        'resumen',
-        'Resumen',
-        `<h1>${saludo}</h1>
-         <p style="color:var(--muted);margin-top:-8px">${subtitulo}</p>
-         ${cards}
-         ${estadoEdificiosHtml}
-         <p style="margin-top:18px"><a class="btn ghost sm" href="/admin/eventos">Ver todos los eventos →</a></p>`,
-        req
-      )
-    );
+    const statCards = [
+      { icon: '🌙', iconBg: '#EAF1FB', value: String(novedades.length), label: 'Novedades nuevas', delta: 'nuevas', deltaColor: '#2E6FC0' },
+      { icon: '🚨', iconBg: '#FDECEC', value: String(cUrg), label: 'Urgencias abiertas', delta: cUrg ? 'atención' : 'ok', deltaColor: cUrg ? '#C0392B' : '#1B7A43' },
+      { icon: '⏳', iconBg: '#FBF3DE', value: String(cCurso), label: 'En curso', delta: 'en gestión', deltaColor: '#8A6410' },
+      { icon: '✅', iconBg: '#E7F4EC', value: String(cRes), label: 'Resueltos', delta: 'cerrados', deltaColor: '#1B7A43' },
+    ];
+
+    const statHtml = statCards.map((s) => `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(16,35,59,.04)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <span style="width:40px;height:40px;border-radius:11px;background:${s.iconBg};display:flex;align-items:center;justify-content:center;font-size:19px">${s.icon}</span>
+          <span style="font-size:12px;font-weight:700;color:${s.deltaColor}">${s.delta}</span>
+        </div>
+        <div style="font-size:32px;font-weight:800;letter-spacing:-.03em;line-height:1">${s.value}</div>
+        <div style="font-size:13.5px;color:#64748B;font-weight:600;margin-top:4px">${s.label}</div>
+      </div>`).join('');
+
+    // feed de novedades (o ultimos eventos si no hay nuevos hoy)
+    const feedVistas = (novedades.length ? novedades : vistas).slice(0, 4);
+    const idxOffset = 0;
+    const novHtml = feedVistas.map((v, i) => `
+      <button onclick="abrirDrawerEvento(${i})" style="width:100%;display:flex;align-items:flex-start;gap:13px;padding:15px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left" class="hv-row">
+        <span style="width:40px;height:40px;border-radius:11px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${v.catIcon}</span>
+        <span style="flex:1;min-width:0">
+          <span style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+            <span style="font-size:14.5px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
+            <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
+          </span>
+          <span style="display:block;font-size:13px;color:#64748B;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.detalle || v.titulo)}</span>
+          <span style="display:flex;align-items:center;gap:10px;margin-top:5px;font-size:12px;color:#9AA7BD">
+            <span>${v.canalIcon} ${esc(v.canal)}</span><span>·</span><span>${esc(v.vecino)}</span><span>·</span><span>${esc(v.when)}</span>
+          </span>
+        </span>
+        <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:${v.estBg};color:${v.estFg};flex-shrink:0;margin-top:2px">${v.estLabel}</span>
+      </button>`).join('');
+
+    // estado del edificio por tipo
+    const tipoBreak = Object.keys(CATEGORIAS_EVENTO).map((k) => ({
+      icon: CATEGORIAS_EVENTO[k].icon, label: CATEGORIAS_EVENTO[k].label,
+      count: vistas.filter((v) => v.catKey === k).length,
+    })).filter((t) => t.count > 0);
+    const tipoHtml = tipoBreak.length ? tipoBreak.map((t) => `
+      <div style="display:flex;align-items:center;gap:11px;padding:8px 0">
+        <span style="font-size:16px;width:24px;text-align:center">${t.icon}</span>
+        <span style="flex:1;font-size:14px;color:#334259;font-weight:600">${t.label}</span>
+        <span style="font-size:14px;font-weight:800;color:#16233B">${t.count}</span>
+      </div>`).join('') : '<div style="font-size:13px;color:#8595AD">Sin eventos registrados aún.</div>';
+
+    // costos en divisa desde facturas del edificio
+    let usdTotal = 0, eurTotal = 0;
+    try {
+      const { rows: facRows } = await readTab(TAB_ARCHIVOS);
+      facRows.map(mapFactura).filter((f) => cur && f.edificio === cur.nombre).forEach((f) => {
+        const n = parseFloat(String(f.monto).replace(/[^0-9.,]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+        if (f.moneda === 'USD') usdTotal += n;
+        if (f.moneda === 'EUR') eurTotal += n;
+      });
+    } catch (_) {}
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both">
+        <div style="margin-bottom:20px">
+          <div style="font-size:13px;font-weight:700;color:#2E6FC0;letter-spacing:.02em;margin-bottom:3px">Hola de nuevo, ${esc(greetName)} 👋</div>
+          <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">Resumen de ${esc(cur ? cur.nombre : '')}</h1>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;background:linear-gradient(120deg,#0F326A,#2E6FC0);border-radius:16px;padding:18px 22px;color:#fff;margin-bottom:22px;flex-wrap:wrap">
+          <div style="width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🌙</div>
+          <div style="flex:1;min-width:200px">
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">${novedades.length} novedad${novedades.length === 1 ? ' nueva' : 'es nuevas'}</div>
+            <div style="font-size:14px;color:rgba(255,255,255,.82)">Desde tu última conexión · ${esc(lastConn)}</div>
+          </div>
+          <a href="/admin/eventos" style="display:inline-flex;align-items:center;height:42px;padding:0 20px;border-radius:11px;background:#fff;color:#17408B;font-weight:700;font-size:14px" class="hv-blue">Ver todo →</a>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:26px">${statHtml}</div>
+        <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:20px" class="resgrid">
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #EEF1F6">
+              <div style="font-size:16px;font-weight:800">Novedades desde tu ausencia</div>
+              <div style="font-size:13px;color:#8595AD;font-weight:600">${novedades.length} nuevas</div>
+            </div>
+            ${novHtml || '<div style="padding:26px;text-align:center;font-size:13.5px;color:#8595AD">Sin novedades por ahora.</div>'}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
+              <div style="font-size:15px;font-weight:800;margin-bottom:14px">Estado del edificio</div>
+              ${tipoHtml}
+            </div>
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
+              <div style="font-size:15px;font-weight:800;margin-bottom:6px">Costos en divisa</div>
+              <div style="font-size:12.5px;color:#8595AD;margin-bottom:14px;line-height:1.4">Servicios facturados en moneda extranjera este mes</div>
+              <div style="display:flex;gap:10px">
+                <div style="flex:1;background:#E7F4EC;border-radius:12px;padding:12px 14px">
+                  <div style="font-size:11px;font-weight:800;color:#1B7A43;letter-spacing:.04em">USD</div>
+                  <div style="font-size:20px;font-weight:800;color:#14532D;letter-spacing:-.02em">USD ${Math.round(usdTotal)}</div>
+                </div>
+                <div style="flex:1;background:#E9EEFB;border-radius:12px;padding:12px 14px">
+                  <div style="font-size:11px;font-weight:800;color:#2C55A8;letter-spacing:.04em">EUR</div>
+                  <div style="font-size:20px;font-weight:800;color:#1E3A6B;letter-spacing:-.02em">EUR ${Math.round(eurTotal)}</div>
+                </div>
+              </div>
+              <a href="/admin/archivos" style="display:flex;align-items:center;justify-content:center;width:100%;margin-top:12px;height:38px;border:1px solid #E1E7F1;border-radius:10px;background:#F7F9FC;color:#334259;font-weight:700;font-size:13px" class="hv-soft">Ver comprobantes</a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <script>window.__EVENTOS__=${jsonEventos(feedVistas)};window.__ES_DUENO__=false;</script>`;
+
+    res.send(shell(req, d, 'resumen', contenido));
   } catch (e) {
-    res.status(500).send(page('resumen', 'Resumen', errorBox(e), req));
+    res.status(500).send(paginaError(e));
   }
 });
 
-function horaSaludo() {
+function saludoHora() {
   const h = new Date().getHours();
-  if (h < 12) return 'Buenos dias';
+  if (h < 12) return 'Buen día';
   if (h < 20) return 'Buenas tardes';
   return 'Buenas noches';
 }
 
-function truncate(s, n) {
-  s = String(s || '');
-  return s.length > n ? s.slice(0, n) + '…' : s;
+function jsonEventos(vistas) {
+  return JSON.stringify(vistas).replace(/</g, '\\u003c');
 }
 
-function tipoLabel(t) {
-  return {
-    texto: '💬 WhatsApp',
-    audio: '🎙️ Audio',
-    llamada: '📞 Llamada',
-    imagen: '🖼️ Imagen',
-  }[t] || '💬 Mensaje';
-}
-
-// Categorias visuales del boceto de diseño (TIPO en el prototipo). La tab
-// 'reportes' no guarda una categoria, asi que se deriva por palabras clave
-// del texto del problema.
-const CATEGORIAS_EVENTO = {
-  reclamo: { label: 'Reclamo', icon: '🔧', bg: '#FDECEC' },
-  reserva: { label: 'Reserva', icon: '📅', bg: '#EAF3EC' },
-  seguridad: { label: 'Seguridad', icon: '📹', bg: '#EDEEFB' },
-  mensaje: { label: 'Aviso', icon: '💬', bg: '#EAF1FB' },
-  mantenimiento: { label: 'Mantenimiento', icon: '🧰', bg: '#FBF3DE' },
-};
-
-function clasificarEvento(e) {
-  const txt = `${e.mensaje || ''} ${e.resumen || ''}`.toLowerCase();
-  if (/reserva|sum\b|quincho|salon|cumplea/.test(txt)) return 'reserva';
-  if (/camara|cámara|seguridad|cerradura|robo|alarma|acceso principal|magnetica|magnética/.test(txt)) return 'seguridad';
-  if (/service|mantenimiento|bomba de agua|limpieza de tanque|fumigaci/.test(txt)) return 'mantenimiento';
-  if (/aviso|informo|informó|corte programado|factura|recepcion de factura|recepción/.test(txt)) return 'mensaje';
-  if (/perdida|pérdida|corte|falla|roto|quemad|arreglo|reembolso|filtracion|filtración|no funciona|sin luz|sin señal|reclamo|humedad|gas/.test(txt)) return 'reclamo';
-  return 'reclamo';
-}
-
-// Canal como lo muestra el boceto: circulo verde para WhatsApp, telefono
-// para llamadas.
-function canalDe(e) {
-  if (e.tipo === 'llamada') return { icon: '📞', nombre: 'Llamado' };
-  if (e.tipo === 'audio') return { icon: '🟢', nombre: 'WhatsApp · audio' };
-  if (e.tipo === 'imagen') return { icon: '🟢', nombre: 'WhatsApp · imagen' };
-  return { icon: '🟢', nombre: 'WhatsApp' };
-}
-
-// Normaliza el estado libre que escribe Marcos a los 3 estados del boceto.
-function estadoNormalizado(estado) {
-  const s = String(estado || '').toLowerCase();
-  if (/resuel|cerrad|finaliz|completad/.test(s)) return { clase: 'resuelto', label: 'Resuelto' };
-  if (/proceso|curso|iniciado|coordinando|gestion|gestión|pendiente/.test(s)) return { clase: 'curso', label: 'En curso' };
-  return { clase: 'nuevo', label: 'Nuevo' };
-}
-
-/* ----------------- FEED DE EVENTOS ----------------- */
-
-router.get('/eventos', async (req, res) => {
-  try {
-    const { rows } = await readTab(TAB_EVENTOS);
-    let eventos = filtrarPorEdificio(rows.map(mapEvento), req);
-    eventos.sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
-
-    const edificios = [...new Set(eventos.map((e) => e.edificio).filter(Boolean))].sort();
-    const opcionesEdi = edificios.map((e) => `<option value="${esc(e)}">${esc(e)}</option>`).join('');
-
-    const hoy = eventos.filter((e) => esHoy(parseFecha(e.fecha)));
-    const urgentesHoy = hoy.filter((e) => e.urgencia === 'alta');
-    const filtroActivo = esDueno(req) && req.session.filtroEdificioDueno;
-
-    // El contador de arriba solo le sirve al administrador de consorcio, no
-    // al dueño del sistema (que ya tiene ese resumen en Resumen).
-    const stats = esDueno(req) ? '' : `
-      <div class="cards" style="margin-bottom:18px">
-        <div class="card"><div class="k">Novedades hoy</div><div class="v">${hoy.length}</div></div>
-        <div class="card alta"><div class="k">Urgencias hoy</div><div class="v">${urgentesHoy.length}</div></div>
-        <div class="card"><div class="k">Total en la lista</div><div class="v">${eventos.length}</div></div>
-      </div>`;
-
-    // Admins de consorcio no pueden dejar feedback (eso es para Daniel)
-    const feed = eventos.length
-      ? `<div class="feed">${eventos.map((e, i) => renderEventoFull(e, req, i)).join('')}</div>
-         <div id="no-results" class="empty" style="display:none">No hay eventos que coincidan con el filtro.</div>`
-      : `<div class="empty">Todavia no hay eventos registrados.</div>`;
-
-    const datosDrawer = eventos.map((e) => {
-      const cat = clasificarEvento(e);
-      const catInfo = CATEGORIAS_EVENTO[cat];
-      const canal = canalDe(e);
-      const est = estadoNormalizado(e.estado);
-      return {
-        row: e._row,
-        edificio: e.edificio, vecino: e.vecino, telefono: e.telefono,
-        fecha: fechaCorta(parseFecha(e.fecha)) || e.fecha,
-        canalIcon: canal.icon, canalNombre: canal.nombre,
-        urgencia: e.urgencia,
-        urgLabel: { alta: 'Urgente', media: 'Media', baja: 'Baja' }[e.urgencia] || e.urgencia,
-        estClase: est.clase, estLabel: est.label,
-        catLabel: catInfo.label, catIcon: catInfo.icon, catBg: catInfo.bg,
-        tecnico: e.tecnico,
-        mensaje: e.mensaje, notas: e.transcripcion || e.resumen,
-        feedback: e.feedback || '',
-      };
-    });
-    const jsonDrawer = JSON.stringify(datosDrawer).replace(/</g, '\\u003c');
-    const esDuenoFlag = esDueno(req) ? 'true' : 'false';
-
-    res.send(
-      page(
-        'eventos',
-        'Eventos',
-        `<h1>Feed de eventos${filtroActivo ? ` · ${esc(filtroActivo)}` : ''}</h1>
-         <p style="color:var(--muted);margin-top:-8px">Tocá un evento para ver el detalle completo.</p>
-         ${stats}
-         <div class="filters">
-           <label class="flt">Edificio
-             <select id="f-edificio" onchange="aplicarFiltros()">
-               <option value="">Todos</option>${opcionesEdi}
-             </select>
-           </label>
-           <label class="flt">Urgencia
-             <select id="f-urgencia" onchange="aplicarFiltros()">
-               <option value="">Todas</option>
-               <option value="alta">Alta</option>
-               <option value="media">Media</option>
-               <option value="baja">Baja</option>
-             </select>
-           </label>
-           <label class="flt">Buscar
-             <input id="f-texto" placeholder="vecino, texto..." oninput="aplicarFiltros()">
-           </label>
-         </div>
-         ${feed}
-         <div class="drawer-overlay" id="drawer-overlay" onclick="cerrarDrawerEvento()"></div>
-         <div class="drawer-panel" id="drawer-panel"></div>
-         <script>window.__EVENTOS__=${jsonDrawer};window.__ES_DUENO__=${esDuenoFlag};</script>`,
-        req
-      )
-    );
-  } catch (e) {
-    res.status(500).send(page('eventos', 'Eventos', errorBox(e), req));
-  }
-});
-
-function renderEventoFull(e, req, idx) {
-  const cat = clasificarEvento(e);
-  const catInfo = CATEGORIAS_EVENTO[cat];
-  const canal = canalDe(e);
-  const est = estadoNormalizado(e.estado);
-  const urgLabel = { alta: 'Urgente', media: 'Media', baja: 'Baja' }[e.urgencia] || e.urgencia;
-  const esNuevo = esHoy(parseFecha(e.fecha));
-
-  const titulo = truncate(e.mensaje || e.resumen || 'Evento', 80);
-  // El detalle de la fila muestra que hizo Marcos (la nota corta), como en
-  // el boceto -- el pedido completo ya esta en el titulo y en el drawer.
-  const detalle = truncate(e.resumen || e.transcripcion || '', 150);
-
-  return `<div class="event" data-edificio="${esc(e.edificio)}" data-urgencia="${esc(e.urgencia)}"
-    onclick="abrirDrawerEvento(${idx})" style="cursor:pointer">
-    ${esNuevo ? '<span class="nuevobar"></span>' : ''}
-    <div class="evico ${cat}">${catInfo.icon}</div>
-    <div class="evmain">
-      <span class="evtitle-row">
-        <span class="evtitle">${esc(titulo)}</span>
-        <span class="pill urg-${esc(e.urgencia)}">${esc(urgLabel)}</span>
-        <span class="pill bldg">🏢 ${esc(e.edificio)}</span>
-      </span>
-      ${detalle && detalle !== titulo ? `<span class="evdetalle">${esc(detalle)}</span>` : ''}
-      <span class="evmeta">
-        <span>${canal.icon} ${esc(canal.nombre)}</span><span>·</span><span>${esc(e.vecino)}</span><span>·</span><span>${esc(fechaCorta(parseFecha(e.fecha)) || e.fecha)}</span>
-        ${e.tecnico ? `<span>·</span><span class="mlink">🔧 ${esc(e.tecnico)}</span>` : ''}
-      </span>
-    </div>
-    <span class="pill est est-${est.clase}">${est.label}</span>
-  </div>`;
-}
-
-/* ----------------- FACTURAS / FOTOS ----------------- */
-
-router.get('/archivos', async (req, res) => {
-  try {
-    const { rows } = await readTab(TAB_ARCHIVOS);
-    let archivos = filtrarPorEdificio(rows.map(mapArchivo), req);
-    archivos = archivos.filter((a) => a.url || a.descripcion || a.monto);
-    archivos.sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
-
-    const body = archivos.length
-      ? `<div class="grid-files">${archivos.map(renderArchivo).join('')}</div>`
-      : `<div class="empty">No hay facturas ni fotos cargadas todavia.</div>`;
-
-    res.send(
-      page(
-        'archivos',
-        'Facturas/Fotos',
-        `<h1>Facturas y fotos</h1>
-         <p style="color:var(--muted);margin-top:-8px">Archivos que enviaron vecinos o proveedores.</p>
-         ${body}`,
-        req
-      )
-    );
-  } catch (e) {
-    res.status(500).send(page('archivos', 'Facturas/Fotos', errorBox(e), req));
-  }
-});
-
-function esImagen(url) {
-  return /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url || '');
-}
-
-function renderArchivo(a) {
-  const thumb = a.url && esImagen(a.url)
-    ? `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" alt="" loading="lazy"></a>`
-    : `<div class="ph">${a.url ? '📄' : '🗂️'}</div>`;
-
-  return `<div class="file">
-    <div class="thumb">${thumb}</div>
-    <div class="info">
-      <div class="t">${esc(a.descripcion || a.tipo || 'Archivo')}</div>
-      <div class="m">${esc(a.edificio)} · ${esc(a.enviado_por)}</div>
-      <div class="m">${esc(fechaCorta(parseFecha(a.fecha)) || a.fecha)}</div>
-      ${a.monto ? `<div class="m" style="color:var(--warn);font-weight:700">${esc(a.monto)}</div>` : ''}
-      ${a.url ? `<div style="margin-top:8px"><a class="btn ghost sm" href="${esc(a.url)}" target="_blank" rel="noopener">Abrir →</a></div>` : ''}
-    </div>
-  </div>`;
-}
-
-/* ----------------- EDIFICIOS (ver/editar) — solo dueño ----------------- */
-
-// Ya no esta en el menu (queda absorbido por /admin/clientes), pero sigue
-// siendo el destino real de los botones "Editar" de cada edificio.
-// Ficha de edicion de UN edificio a la vez -- no una tabla siempre-editable.
-// Evita el riesgo de tocar un campo sin querer al mirar la lista.
-router.get('/edificios', async (req, res) => {
-  if (!esDueno(req)) return res.redirect('/admin');
-
-  const row = Number(req.query.row);
-  const volver = req.query.volver && String(req.query.volver).startsWith('/admin/')
-    ? req.query.volver
-    : '/admin/clientes?vista=todos';
-
-  if (!row || isNaN(row)) return res.redirect('/admin/clientes?vista=todos');
-
-  try {
-    const { rows } = await readTab(TAB_EDIFICIOS);
-    const e = rows.map(mapEdificio).find((x) => x._row === row);
-
-    if (!e) {
-      return res.status(404).send(page('clientes', 'Editar edificio',
-        `<a href="${esc(volver)}" class="btn ghost sm" style="margin-bottom:18px">← Volver</a>
-         <div class="empty">No se encontró ese edificio.</div>`, req));
-    }
-
-    const estadosEncargado = ['activo', 'vacaciones', 'licencia', 'suspendido'];
-    const campo = (label, field, val, placeholder, ancho) =>
-      `<div><label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px">${esc(label)}</label>
-        <input data-field="${field}" value="${esc(val)}" placeholder="${esc(placeholder || '')}" style="width:${ancho || '100%'}"></div>`;
-
-    res.send(
-      page(
-        'clientes',
-        'Editar edificio',
-        `<a href="${esc(volver)}" class="btn ghost sm" style="margin-bottom:18px">← Volver</a>
-         <div class="ficha" data-form-edificio>
-           <div class="ficha-head">
-             <div class="ficha-icon">🏢</div>
-             <div class="ficha-data">
-               <h2>${esc(e.nombre)}</h2>
-               <div class="dir">${esc(e.direccion || e.nombre)}${e.zona ? ' · ' + esc(e.zona) : ''}</div>
-             </div>
-           </div>
-           <hr class="ficha-divider">
-           <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 14px">Datos generales</h3>
-           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px">
-             ${campo('Zona', 'zona', e.zona, 'Barrio, ciudad')}
-             ${campo('Unidades', 'unidades', e.unidades, '0')}
-             <div>
-               <label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px">Plan</label>
-               <select data-field="plan" style="width:100%">
-                 <option value="Base"${e.plan === 'Base' ? ' selected' : ''}>Base</option>
-                 <option value="Plus"${e.plan === 'Plus' ? ' selected' : ''}>Plus</option>
-               </select>
-             </div>
-             ${campo('Aliases', 'aliases', e.aliases, 'Separados por coma')}
-           </div>
-
-           <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 14px">Encargado y seguridad</h3>
-           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px">
-             ${campo('Encargado', 'encargado', e.encargado, 'Nombre')}
-             ${campo('Tel. encargado', 'tel_encargado', e.tel_encargado, 'Teléfono')}
-             <div>
-               <label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px">Estado del encargado</label>
-               <select data-field="encargado_estado" style="width:100%">
-                 ${estadosEncargado.map((s) => `<option value="${s}"${e.encargado_estado === s ? ' selected' : ''}>${s}</option>`).join('')}
-               </select>
-             </div>
-             ${campo('Suplente / limpieza', 'encargado_suplente', e.encargado_suplente, 'Si cubre a alguien')}
-             ${campo('Tel. seguridad', 'tel_seguridad', e.tel_seguridad, 'Si el edificio tiene')}
-           </div>
-
-           <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 14px">Administrador</h3>
-           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px">
-             ${campo('Administrador', 'administrador', e.administrador, 'Nombre')}
-             ${campo('Tel. administrador', 'telefonos', e.telefonos, 'Teléfono')}
-           </div>
-
-           <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 14px">Notas</h3>
-           <div style="margin-bottom:8px">
-             <textarea data-field="notas" placeholder="Notas especiales" style="width:100%">${esc(e.notas)}</textarea>
-           </div>
-           <p style="font-size:12px;color:var(--muted);margin:0 0 20px">
-             Estado del encargado, suplente y teléfono de seguridad son opcionales — Marcos los va completando
-             a medida que se contacta con propietarios y vecinos.
-           </p>
-           <button class="btn" onclick="guardarEdificio(this, ${e._row})">Guardar cambios</button>
-         </div>`,
-        req
-      )
-    );
-  } catch (e) {
-    res.status(500).send(page('clientes', 'Editar edificio', errorBox(e), req));
-  }
-});
-
-/* ----------------- CLIENTES (alta de administradores) — solo dueño ----------------- */
-
-function iniciales(nombre) {
-  return String(nombre || '?').trim().charAt(0).toUpperCase();
-}
-
-/** Formulario compartido de alta de edificio -- lo usan tanto el dueño
- * (desde la ficha de un cliente) como el propio administrador de consorcio
- * (desde Mi Edificio), ya que es quien tiene los datos reales. */
-function formNuevoEdificioHtml(clienteUsuario) {
-  return `
-    <div class="sug-form" id="form-nuevo-edificio" style="display:none;margin-top:16px">
-      <h3>Agregar edificio</h3>
-      <div class="tablewrap" style="border:none;box-shadow:none;background:none">
-        <table style="width:100%"><tbody>
-          <tr><td style="width:170px;color:var(--muted);font-size:13px">Nombre del consorcio</td>
-            <td><input id="ed-nombre" placeholder="Ej: Av. Corrientes 3000"></td></tr>
-          <tr><td style="color:var(--muted);font-size:13px">Dirección</td>
-            <td><input id="ed-direccion" placeholder="Calle y número"></td></tr>
-          <tr><td style="color:var(--muted);font-size:13px">Zona</td>
-            <td><input id="ed-zona" placeholder="Barrio, ciudad"></td></tr>
-          <tr><td style="color:var(--muted);font-size:13px">Unidades</td>
-            <td><input id="ed-unidades" type="number" placeholder="0" style="width:110px"></td></tr>
-          <tr><td style="color:var(--muted);font-size:13px">Encargado</td>
-            <td><input id="ed-encargado" placeholder="Nombre"></td></tr>
-          <tr><td style="color:var(--muted);font-size:13px">Tel. encargado</td>
-            <td><input id="ed-tel-encargado" placeholder="Teléfono"></td></tr>
-          <tr><td style="color:var(--muted);font-size:13px">Tel. seguridad <span style="color:var(--muted2);font-weight:400">(opcional)</span></td>
-            <td><input id="ed-tel-seguridad" placeholder="Si el edificio tiene"></td></tr>
-          <tr><td style="color:var(--muted);font-size:13px">Plan contratado</td>
-            <td>
-              <div style="display:inline-flex;gap:8px">
-                <button type="button" class="btn ghost sm" data-plan="Base" onclick="elegirPlanEdificio(this)">Base</button>
-                <button type="button" class="btn ghost sm" data-plan="Plus" onclick="elegirPlanEdificio(this)">Plus</button>
-              </div>
-              <input type="hidden" id="ed-plan" value="Base">
-            </td></tr>
-        </tbody></table>
-      </div>
-      <p style="font-size:12px;color:var(--muted);margin:10px 0 0">
-        El teléfono de seguridad, el estado del encargado (activo/vacaciones/licencia) y su suplente se pueden
-        cargar más adelante -- Marcos los va completando con el tiempo.
-      </p>
-      <div style="margin-top:14px;display:flex;gap:8px">
-        <button class="btn ghost sm" onclick="ocultarFormEdificio()">Cancelar</button>
-        <button class="btn sm" onclick="confirmarAgregarEdificio('${escJs(clienteUsuario || '')}')">Agregar edificio</button>
-      </div>
-    </div>`;
-}
-
-function planTagsDe(edificiosDelCliente) {
-  const counts = {};
-  edificiosDelCliente.forEach((e) => { counts[e.plan] = (counts[e.plan] || 0) + 1; });
-  return Object.keys(counts)
-    .map((p) => `<span class="badge tipo">${counts[p]} ${esc(p)}</span>`)
-    .join(' ');
-}
-
-function edificioIconRow(e, clienteLabel, volverA) {
-  return `<div class="ed-row">
-    <div class="ico">🏢</div>
-    <div class="grow">
-      <div class="nom">${esc(e.nombre)}</div>
-      <div class="sub">${esc(e.direccion || e.nombre)}</div>
-    </div>
-    ${clienteLabel ? `<div class="col"><div class="k">Cliente</div><div class="v">${esc(clienteLabel)}</div></div>` : ''}
-    <div class="col"><div class="k">Unidades</div><div class="v">${esc(e.unidades || '—')}</div></div>
-    <div class="col"><div class="k">Encargado</div><div class="v">${esc(e.encargado || '—')}</div></div>
-    <span class="badge tipo">Plan ${esc(e.plan || 'Base')}</span>
-    <button class="btn ghost sm" onclick="location.href='/admin/edificios?row=${e._row}&volver=${encodeURIComponent(volverA || '/admin/clientes?vista=todos')}'">Editar</button>
-  </div>`;
-}
-
-router.get('/clientes', async (req, res) => {
-  if (!esDueno(req)) return res.redirect('/admin');
-
-  try {
-    const [{ rows: clienteRows }, { rows: edRows }] = await Promise.all([
-      readTab(TAB_CLIENTES),
-      readTab(TAB_EDIFICIOS),
-    ]);
-    const clientes = clienteRows.map(mapCliente);
-    const edificios = edRows.map(mapEdificio);
-    const edificiosDisponibles = edificios.map((e) => e.nombre).filter(Boolean);
-
-    const vista = req.query.vista === 'todos' ? 'todos' : 'cliente';
-    const clienteSel = req.query.cliente
-      ? clientes.find((c) => c.usuario === req.query.cliente)
-      : null;
-
-    const toggle = `<div class="cli-toggle">
-      <a href="/admin/clientes" class="${vista === 'cliente' ? 'active' : ''}">Por cliente</a>
-      <a href="/admin/clientes?vista=todos" class="${vista === 'todos' ? 'active' : ''}">Todos los edificios</a>
-    </div>`;
-
-    let body;
-
-    if (vista === 'todos') {
-      // ---------- TODOS LOS EDIFICIOS (tabla plana) ----------
-      const filas = edificios.length
-        ? edificios.map((e) => {
-            const dueno = clientes.find((c) => c.edificios.includes(e.nombre));
-            return edificioIconRow(e, dueno ? dueno.nombre : 'Sin asignar', '/admin/clientes?vista=todos');
-          }).join('')
-        : `<div class="empty">No hay edificios cargados.</div>`;
-
-      body = `
-        <div class="cli-head-row"><div><h1 style="margin:0">Clientes y edificios</h1>
-        <p style="color:var(--muted);margin:4px 0 0">Entrá por administrador para ver y editar sus edificios, o mirá todos juntos.</p></div>${toggle}</div>
-        <div class="tablewrap">${filas}</div>`;
-    } else if (clienteSel) {
-      // ---------- DETALLE DE UN CLIENTE (drill-down) ----------
-      const misEdificios = edificios.filter((e) => clienteSel.edificios.includes(e.nombre));
-      const totalUnidades = misEdificios.reduce((acc, e) => acc + (Number(e.unidades) || 0), 0);
-
-      const volverACliente = `/admin/clientes?cliente=${encodeURIComponent(clienteSel.usuario)}`;
-      const filas = misEdificios.length
-        ? misEdificios.map((e) => edificioIconRow(e, null, volverACliente)).join('')
-        : `<div class="empty">Este cliente todavía no tiene edificios asignados.</div>`;
-
-      body = `
-        <a href="/admin/clientes" class="btn ghost sm" style="margin-bottom:18px">← Clientes</a>
-        <div class="cli-banner">
-          <div class="top">
-            <div class="cli-avatar">${esc(iniciales(clienteSel.nombre))}</div>
-            <div>
-              <div class="nom">${esc(clienteSel.nombre)}</div>
-              <div class="sub">${misEdificios.length} edificio${misEdificios.length === 1 ? '' : 's'}${totalUnidades ? ` · ${totalUnidades} unidades` : ''}</div>
-            </div>
-          </div>
-          <button class="btn" onclick="mostrarFormEdificio()">+ Agregar edificio</button>
-        </div>
-        <div class="tablewrap">${filas}</div>
-        ${formNuevoEdificioHtml(clienteSel.usuario)}`;
-    } else {
-      // ---------- GRID "POR CLIENTE" ----------
-      const cards = clientes.map((c) => {
-        const misEdificios = edificios.filter((e) => c.edificios.includes(e.nombre));
-        const totalUnidades = misEdificios.reduce((acc, e) => acc + (Number(e.unidades) || 0), 0);
-        const excede = false; // placeholder hasta que armemos Consumos/excedente
-        return `<a href="/admin/clientes?cliente=${encodeURIComponent(c.usuario)}" class="cli-card" style="text-decoration:none;color:inherit">
-          <div class="top">
-            <div class="cli-avatar">${esc(iniciales(c.nombre))}</div>
-            <div>
-              <div class="nom">${esc(c.nombre)}</div>
-              <div class="sub">${misEdificios.length} edificio${misEdificios.length === 1 ? '' : 's'}${totalUnidades ? ` · ${totalUnidades} un.` : ''}</div>
-            </div>
-          </div>
-          <div class="foot">
-            ${planTagsDe(misEdificios) || '<span class="badge tipo">Sin edificios</span>'}
-            <span class="badge ${excede ? 'alta' : 'baja'}">${excede ? 'Excede plan' : 'Al día'}</span>
-          </div>
-        </a>`;
-      }).join('');
-
-      body = `
-        <div class="cli-head-row"><div><h1 style="margin:0">Clientes y edificios</h1>
-        <p style="color:var(--muted);margin:4px 0 0">Entrá por administrador para ver y editar sus edificios, o mirá todos juntos.</p></div>${toggle}</div>
-        <div class="cli-grid">
-          ${cards}
-          <a href="#" onclick="event.preventDefault();document.getElementById('form-nuevo-cliente').scrollIntoView({behavior:'smooth'})" class="cli-add-card">+ Agregar cliente</a>
-        </div>`;
-    }
-
-
-    const formAgregarCliente = (vista === 'cliente' && !clienteSel)
-      ? `<div class="sug-form" id="form-nuevo-cliente" style="margin-top:28px">
-           <h3>Agregar cliente</h3>
-           <div class="tablewrap" style="border:none;box-shadow:none;background:none">
-             <table style="width:100%">
-               <tbody>
-                 <tr>
-                   <td style="width:160px;color:var(--muted);font-size:13px">Nombre / razón social</td>
-                   <td><input id="cli-nombre" placeholder="Amato Propiedades"></td>
-                 </tr>
-                 <tr>
-                   <td style="color:var(--muted);font-size:13px">Usuario</td>
-                   <td><input id="cli-usuario" placeholder="amato_admin"></td>
-                 </tr>
-                 <tr>
-                   <td style="color:var(--muted);font-size:13px">Contraseña</td>
-                   <td><input id="cli-pass" type="text" placeholder="clave temporal"></td>
-                 </tr>
-                 <tr>
-                   <td style="color:var(--muted);font-size:13px">Email</td>
-                   <td><input id="cli-email" type="email" placeholder="contacto@ejemplo.com"></td>
-                 </tr>
-               </tbody>
-             </table>
-           </div>
-           <div style="margin-top:14px">
-             <button class="btn" onclick="agregarCliente(this)">Agregar cliente</button>
-           </div>
-         </div>
-         <p style="font-size:12.5px;color:var(--muted);margin-top:16px">
-           Nota: la contraseña se guarda en texto plano en Sheets por ahora — vamos a reemplazar esto
-           por un sistema de activación con contraseña propia (hasheada) en el siguiente paso.
-         </p>`
-      : '';
-
-    res.send(
-      page(
-        'clientes',
-        'Clientes',
-        `${body}${formAgregarCliente}`,
-        req
-      )
-    );
-  } catch (e) {
-    res.status(500).send(page('clientes', 'Clientes', errorBox(e), req));
-  }
-});
-
-router.post('/api/clientes', async (req, res) => {
-  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
-  try {
-    const { nombre, usuario, pass, email, edificios, plan } = req.body || {};
-    if (!nombre || !usuario || !pass) {
-      return res.status(400).json({ error: 'Nombre, usuario y contraseña son obligatorios' });
-    }
-    const { rows } = await readTab(TAB_CLIENTES);
-    const existe = rows.map(mapCliente).some((c) => c.usuario === usuario);
-    if (existe) return res.status(400).json({ error: 'Ese usuario ya existe' });
-
-    await appendRow(TAB_CLIENTES, {
-      nombre,
-      usuario,
-      contrasena: pass,
-      email: email || '',
-      edificios: Array.isArray(edificios) ? edificios.join(', ') : (edificios || ''),
-      plan: plan || 'Base',
-      activo: 'si',
-    });
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});
-
-// POST /admin/api/cliente-editar { row, edificios, plan, activo }
-// Solo actualiza estos 3 campos -- no toca nombre/usuario/contrasena/email.
-// POST /admin/api/edificio-nuevo { nombre, direccion, unidades, clienteUsuario }
-// Crea un edificio nuevo y lo asigna a un cliente existente (agrega su
-// nombre a la lista de edificios de ese cliente en la tab clientes).
-router.post('/api/edificio-nuevo', async (req, res) => {
-  const dueno = esDueno(req);
-  const esConsorcio = req.session && req.session.role === 'consorcio';
-  if (!dueno && !esConsorcio) return res.status(403).json({ error: 'Sin permiso' });
-
-  try {
-    const { nombre, direccion, zona, unidades, encargado, tel_encargado, tel_seguridad, plan } = req.body || {};
-    if (!nombre) return res.status(400).json({ error: 'Falta el nombre del edificio' });
-
-    // El cliente solo puede agregarse edificios a si mismo; el dueño puede
-    // asignarselo a cualquiera indicando clienteUsuario en el body.
-    const clienteUsuario = dueno ? req.body.clienteUsuario : req.session.user;
-
-    const { rows: edRows } = await readTab(TAB_EDIFICIOS);
-    const yaExiste = edRows.map(mapEdificio).some(
-      (e) => e.nombre.toLowerCase() === String(nombre).toLowerCase()
-    );
-    if (yaExiste) return res.status(400).json({ error: 'Ya existe un edificio con ese nombre' });
-
-    await appendRow(TAB_EDIFICIOS, {
-      edificio: nombre,
-      direccion: direccion || '',
-      zona: zona || '',
-      unidades: unidades || '',
-      encargado: encargado || '',
-      telefono_encargado: tel_encargado || '',
-      telefono_seguridad: tel_seguridad || '',
-      plan: plan || 'Base',
-    });
-
-    if (clienteUsuario) {
-      const { rows: cliRows } = await readTab(TAB_CLIENTES);
-      const clientes = cliRows.map(mapCliente);
-      const cliente = clientes.find((c) => c.usuario === clienteUsuario);
-      if (cliente) {
-        const nuevaLista = [...cliente.edificios, nombre].join(', ');
-        const col = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
-        if (col.create) await ensureHeader(TAB_CLIENTES, col.col, 'edificios', false);
-        await writeCell(TAB_CLIENTES, col.col, cliente._row, nuevaLista);
-      }
-    }
-
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});
-
-function errorBox(e) {
-  return `<div class="empty">
-    <p>Ups, no pude leer los datos de Google Sheets.</p>
-    <p style="font-size:13px;color:var(--bad)">${esc(e && e.message ? e.message : e)}</p>
-    <p style="font-size:13px">Revisa GOOGLE_SHEET_ID, las credenciales y los nombres de las pestanias.</p>
-  </div>`;
+function paginaError(e) {
+  return `<!DOCTYPE html><html lang="es-AR"><head><meta charset="utf-8"><style>${CSS}</style></head>
+  <body><div style="max-width:520px;margin:80px auto;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:28px;text-align:center">
+  <div style="font-size:17px;font-weight:800;margin-bottom:8px">Ups, no pude leer los datos</div>
+  <div style="font-size:13.5px;color:#C0392B;margin-bottom:8px">${esc(e && e.message ? e.message : e)}</div>
+  <div style="font-size:13px;color:#64748B">Revisá GOOGLE_SHEET_ID, las credenciales y los nombres de las pestañas.</div>
+  </div></body></html>`;
 }
 
 /* ===================================================================
- * API (POST) - feedback y edicion de edificios
+ * EVENTOS
  * =================================================================== */
 
-/**
- * Encuentra la columna (letra) de un encabezado dado en una pestania,
- * buscando por cualquiera de las claves candidatas. Si no existe la
- * columna, devuelve null (y se podra crear al final).
- */
+router.get('/eventos', async (req, res) => {
+  try {
+    const d = await cargarDatos(req);
+    const dueno = esDueno(req);
+    const evFiltrados = filtrarPorEdificio(d.eventos, req)
+      .slice()
+      .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
+    const vistas = evFiltrados.map(vistaEvento);
+
+    const filas = vistas.length
+      ? vistas.map((v, i) => filaEvento(v, i, dueno)).join('')
+      : '<div style="padding:30px;text-align:center;font-size:13.5px;color:#8595AD">Todavía no hay eventos registrados.</div>';
+
+    let encabezado, chips = '';
+    if (dueno) {
+      const filtro = req.session.filtroEdificioDueno;
+      encabezado = `
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Eventos · ${filtro ? esc(filtro) : 'Todos los edificios'}</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Feed de todos los consorcios. Usá el filtro de arriba para acotar por edificio.</p>`;
+    } else {
+      const cN = vistas.filter((v) => v.nuevo).length;
+      const cU = vistas.filter((v) => v.urgKey === 'alta').length;
+      const cA = vistas.filter((v) => v.estKey !== 'resuelto').length;
+      encabezado = `
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Eventos</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Todo lo que Marcos gestionó en ${esc(d.curBuilding ? d.curBuilding.nombre : '')}. Tocá un caso para ver el detalle.</p>`;
+      const chip = (modo, label, count, activo) => `
+        <button data-chip onclick="filtrarEventos('${modo}',this)" style="height:38px;padding:0 16px;border:1px solid ${activo ? '#17408B' : '#E1E7F1'};border-radius:999px;background:${activo ? '#17408B' : '#fff'};color:${activo ? '#fff' : '#475569'};font-weight:700;font-size:13.5px;cursor:pointer;display:flex;align-items:center;gap:7px" class="hv-selbtn">
+          ${label}<span style="font-size:12px;opacity:.75">${count}</span>
+        </button>`;
+      chips = `
+        <div style="display:flex;gap:9px;margin-bottom:18px;flex-wrap:wrap">
+          ${chip('todos', 'Todos', vistas.length, true)}
+          ${chip('nuevos', 'Nuevos', cN, false)}
+          ${chip('urgentes', 'Urgentes', cU, false)}
+          ${chip('abiertos', 'Sin resolver', cA, false)}
+        </div>`;
+    }
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both">
+        ${encabezado}
+        ${chips}
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden">${filas}</div>
+      </div>
+      <script>window.__EVENTOS__=${jsonEventos(vistas)};window.__ES_DUENO__=${dueno ? 'true' : 'false'};</script>`;
+
+    res.send(shell(req, d, 'eventos', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+/* ===================================================================
+ * MI EDIFICIO (cliente)
+ * =================================================================== */
+
+router.get('/mi-edificio', async (req, res) => {
+  if (esDueno(req)) return res.redirect('/admin/clientes');
+  try {
+    const d = await cargarDatos(req);
+    const cur = d.curBuilding;
+    if (!cur) {
+      return res.send(shell(req, d, 'edificio', '<div style="padding:30px;text-align:center;color:#8595AD">No hay edificio asignado a tu cuenta.</div>'));
+    }
+
+    const pendientes = d.solicitudes.filter((s) =>
+      (!s.estado || s.estado === 'pendiente') && String(s.edificio || '').includes(cur.nombre)
+    );
+    const pendHtml = pendientes.length ? `
+      <div style="background:#FBF3DE;border:1px solid #F0DCA6;border-radius:14px;padding:14px 18px;margin-bottom:20px">
+        <div style="font-size:14px;font-weight:800;color:#8A6410;margin-bottom:8px">⏳ Cambios pendientes de aprobación (${pendientes.length})</div>
+        ${pendientes.map((p) => `
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#7A5A12;padding:3px 0">
+            <span style="font-weight:700">${esc(FICHA_LABELS[p.campo] || p.campo)}:</span>
+            <span style="text-decoration:line-through;opacity:.65">${esc(p.valor_actual || '—')}</span>
+            <span>→</span>
+            <span style="font-weight:700">${esc(p.valor_nuevo || '')}</span>
+          </div>`).join('')}
+      </div>` : '';
+
+    const pendCampos = new Set(pendientes.map((p) => p.campo));
+    const fichaRows = [
+      { campo: 'nombre', icon: '🏢', label: 'Consorcio', value: cur.nombre, edit: true },
+      { campo: 'direccion', icon: '📍', label: 'Dirección', value: cur.direccion ? `${cur.direccion}${cur.zona ? ', ' + cur.zona : ''}` : (cur.zona || '—'), edit: true },
+      { campo: 'administrador', icon: '👔', label: 'Administrador', value: cur.administrador || '—', edit: false },
+      { campo: 'telefonos', icon: '📞', label: 'Tel. administración', value: cur.telefonos || '—', edit: true },
+      { campo: 'encargado', icon: '🧑‍🔧', label: 'Encargado', value: cur.encargado || '—', edit: true },
+      { campo: 'tel_encargado', icon: '📱', label: 'Tel. encargado', value: cur.tel_encargado || '—', edit: true },
+      { campo: 'cuit', icon: '🧾', label: 'CUIT', value: cur.cuit || '—', edit: false },
+      { campo: 'unidades', icon: '🚪', label: 'Unidades', value: cur.unidades ? `${cur.unidades} departamentos` : '—', edit: false },
+      { campo: 'horario_sum', icon: '🎉', label: 'Horario SUM', value: cur.horario_sum || '—', edit: true },
+      { campo: 'cocheras', icon: '🚗', label: 'Cocheras', value: cur.cocheras || '—', edit: true },
+    ];
+
+    const fichaHtml = fichaRows.map((r) => `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 17px;display:flex;align-items:center;gap:12px">
+        <span style="width:40px;height:40px;border-radius:11px;background:#F1F5FB;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${r.icon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:700;color:#8595AD;letter-spacing:.02em;text-transform:uppercase">${r.label}</div>
+          <div style="font-size:15.5px;font-weight:700;color:#16233B;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.value)}</div>
+        </div>
+        ${pendCampos.has(r.campo) ? '<span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:#FBF3DE;color:#8A6410;flex-shrink:0">Pendiente</span>' : ''}
+        ${r.edit ? `<button onclick="abrirSolicitud('${escJs(r.campo)}','${escJs(r.label)}','${escJs(r.value === '—' ? '' : r.value)}','${escJs(cur.nombre)}')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-softb">Solicitar cambio</button>` : ''}
+      </div>`).join('');
+
+    const modalSolicitud = `
+      <div id="modal-solicitud" class="modal-overlay" onclick="cerrarModal('modal-solicitud')">
+        <div class="modal-box" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Solicitar cambio</div>
+            <div id="req-label" style="font-size:19px;font-weight:800;letter-spacing:-.01em"></div>
+          </div>
+          <div style="padding:20px 24px">
+            <div style="font-size:13px;font-weight:700;color:#8595AD;margin-bottom:6px">Valor actual</div>
+            <div id="req-current" style="background:#F1F5FB;border:1px solid #E4EBF5;border-radius:11px;padding:12px 14px;font-size:15px;font-weight:600;color:#5A6B85;margin-bottom:18px"></div>
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nuevo valor</div>
+            <input id="req-nuevo" placeholder="Escribí el valor correcto" class="inp" style="margin-bottom:16px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Motivo <span style="font-weight:500;color:#9AA7BD">(opcional)</span></div>
+            <textarea id="req-motivo" placeholder="Ej: El encargado cambió el mes pasado." class="inp"></textarea>
+            <div style="display:flex;align-items:center;gap:9px;background:#FBF3DE;border-radius:10px;padding:10px 13px;margin-top:16px;font-size:12.5px;color:#8A6410;line-height:1.4">
+              <span style="font-size:15px">🔒</span>
+              <span>Tu pedido queda <strong>pendiente</strong>. Tu administrador lo revisa y recién ahí se aplica. Nada se cambia solo.</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-solicitud')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="enviarSolicitud(this)" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Enviar solicitud</button>
+          </div>
+        </div>
+      </div>`;
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Mi Edificio</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Ficha de ${esc(cur.nombre)}. Esta información es de consulta: si algo está desactualizado, tocá <strong style="color:#334259">Solicitar cambio</strong> y tu administrador lo revisa.</p>
+        ${pendHtml}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">${fichaHtml}</div>
+      </div>
+      ${modalSolicitud}`;
+
+    res.send(shell(req, d, 'edificio', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+/* ===================================================================
+ * FACTURAS / FOTOS
+ * =================================================================== */
+
+router.get('/archivos', async (req, res) => {
+  try {
+    const d = await cargarDatos(req);
+    const dueno = esDueno(req);
+    const { rows } = await readTab(TAB_ARCHIVOS);
+    const facturas = filtrarPorEdificio(rows.map(mapFactura), req)
+      .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
+
+    const monStyle = (m) => (m === 'USD' ? { bg: '#E7F4EC', fg: '#1B7A43' } : m === 'EUR' ? { bg: '#E9EEFB', fg: '#2C55A8' } : { bg: '#EEF2F8', fg: '#5A6B85' });
+    const cards = facturas.map((f) => {
+      const mon = monStyle(f.moneda);
+      const pagada = /pagad/i.test(f.estado);
+      const thumbBg = f.tipo === 'Foto' ? 'linear-gradient(135deg,#E7F4EC,#D5EADD)' : 'linear-gradient(135deg,#EAF1FB,#DCE9FA)';
+      const abrir = f.url && /^https?:/i.test(f.url) ? `onclick="window.open('${escJs(f.url)}','_blank')" style="cursor:pointer"` : '';
+      return `
+        <div ${abrir ? abrir.replace('style="cursor:pointer"', '') : ''} style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden${abrir ? ';cursor:pointer' : ''}">
+          <div style="height:120px;background:${thumbBg};display:flex;align-items:center;justify-content:center;position:relative">
+            <span style="font-size:40px">${f.tipo === 'Foto' ? '🖼️' : '🧾'}</span>
+            <span style="position:absolute;top:10px;left:10px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.9);color:#334259">${f.tipo}</span>
+            <span style="position:absolute;top:10px;right:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:${mon.bg};color:${mon.fg}">${f.moneda}</span>
+          </div>
+          <div style="padding:14px 16px">
+            ${dueno ? `<span style="display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EEF2F8;color:#5A6B85;margin-bottom:8px">🏢 ${esc(f.edificio)}</span>` : ''}
+            <div style="font-size:15px;font-weight:700;margin-bottom:2px">${esc(truncate(f.concepto, 60))}</div>
+            <div style="font-size:13px;color:#8595AD;margin-bottom:12px">${esc(f.proveedor)} · ${esc(fechaCorta(parseFecha(f.fecha)) || f.fecha)}</div>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font-size:19px;font-weight:800;letter-spacing:-.02em">${esc(f.monto || '—')}</span>
+              <span style="font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'}">${esc(f.estado || 'Pendiente')}</span>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    const filtroDueno = req.session.filtroEdificioDueno;
+    const contenido = `
+      <div style="animation:mFade .3s ease both">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Facturas y Fotos${dueno ? ` · ${filtroDueno ? esc(filtroDueno) : 'Todos los edificios'}` : ''}</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">${dueno ? 'Comprobantes y archivos de todos los consorcios. Usá el filtro de arriba para acotar por edificio.' : 'Comprobantes y archivos que vecinos y proveedores enviaron por WhatsApp, ordenados por Marcos.'}</p>
+        ${facturas.length
+          ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">${cards}</div>`
+          : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Este edificio todavía no tiene comprobantes cargados.</div>'}
+      </div>`;
+
+    res.send(shell(req, d, 'facturas', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+/* ===================================================================
+ * EXPENSAS (cliente)
+ * =================================================================== */
+
+router.get('/expensas', async (req, res) => {
+  if (esDueno(req)) return res.redirect('/admin');
+  try {
+    const d = await cargarDatos(req);
+    const cur = d.curBuilding;
+    const { rows } = await readTab(TAB_EXPENSAS);
+    const expensas = rows.map(mapExpensa)
+      .filter((x) => cur && x.edificio === cur.nombre && x.estado !== 'eliminada')
+      .sort((a, b) => b._row - a._row);
+
+    const tipoExp = (f) => (f === 'link'
+      ? { icon: '🔗', bg: '#E9EEFB', fg: '#2C55A8', label: 'Link web' }
+      : f === 'imagen'
+        ? { icon: '🖼️', bg: '#E7F4EC', fg: '#1B7A43', label: 'Imagen' }
+        : { icon: '📄', bg: '#FDECEC', fg: '#C0392B', label: 'PDF' });
+
+    const listHtml = expensas.length ? `
+      <div style="display:flex;flex-direction:column;gap:12px">
+        ${expensas.map((x) => {
+          const t = tipoExp(x.formato);
+          const copiable = x.url || x.nombre;
+          return `
+          <div style="display:flex;align-items:center;gap:15px;background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 18px;flex-wrap:wrap">
+            <span style="width:46px;height:46px;border-radius:12px;background:${t.bg};display:flex;align-items:center;justify-content:center;font-size:21px;flex-shrink:0">${t.icon}</span>
+            <div style="flex:1;min-width:170px">
+              <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+                <span style="font-size:15.5px;font-weight:800">${esc(x.periodo)}</span>
+                <span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:${t.bg};color:${t.fg}">${t.label}</span>
+              </div>
+              <div style="font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px">${esc(x.url || x.nombre || '')}</div>
+            </div>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ Marcos puede compartirla</span>
+            <div style="display:flex;gap:8px">
+              <button onclick="copiarExpensa('${escJs(copiable)}')" style="height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-soft">🔗 Copiar</button>
+              <button onclick="quitarExpensa(this,${x._row})" style="height:36px;padding:0 13px;border:1px solid #EEDCDC;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-red">Quitar</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`
+      : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Todavía no publicaste expensas para este edificio.</div>';
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both;max-width:820px">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Expensas</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Subí las expensas del mes de ${esc(cur ? cur.nombre : '')}. <strong style="color:#334259">Marcos queda habilitado para compartirlas</strong> con los vecinos que las pidan por WhatsApp, o para enviarlas cuando vos se lo indiques.</p>
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:26px">
+          <div style="font-size:15px;font-weight:800;margin-bottom:14px">Publicar nueva expensa</div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+            <div style="flex:1;min-width:130px">
+              <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Mes</div>
+              <input id="exp-mes" class="inp" style="height:44px" value="${esc(new Date().toLocaleString('es-AR', { month: 'long' }))}">
+            </div>
+            <div style="width:110px">
+              <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Año</div>
+              <input id="exp-anio" class="inp" style="height:44px" value="${new Date().getFullYear()}">
+            </div>
+          </div>
+          <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Formato</div>
+          <div style="display:flex;gap:9px;margin-bottom:16px;flex-wrap:wrap">
+            <button data-exp-btn onclick="elegirFormatoExp(this,'pdf')" style="height:40px;padding:0 16px;border:1px solid #17408B;border-radius:10px;background:#17408B;color:#fff;font-weight:700;font-size:13.5px;cursor:pointer">📄 PDF</button>
+            <button data-exp-btn onclick="elegirFormatoExp(this,'imagen')" style="height:40px;padding:0 16px;border:1px solid #DDE3EE;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13.5px;cursor:pointer">🖼️ Imagen</button>
+            <button data-exp-btn onclick="elegirFormatoExp(this,'link')" style="height:40px;padding:0 16px;border:1px solid #DDE3EE;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13.5px;cursor:pointer">🔗 Link web</button>
+          </div>
+          <div id="exp-link-wrap" style="display:none">
+            <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Dirección web</div>
+            <input id="exp-url" placeholder="https://..." class="inp" style="margin-bottom:16px">
+          </div>
+          <div id="exp-file-wrap" onclick="pickExpFile()" style="display:flex;align-items:center;gap:13px;border:1.5px dashed #C9D5E8;border-radius:12px;padding:16px;background:#F7F9FC;cursor:pointer;margin-bottom:16px" class="hv-bluedash">
+            <span style="width:44px;height:44px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📎</span>
+            <div style="flex:1">
+              <div id="exp-file-nombre" style="font-size:14.5px;font-weight:700;color:#334259">Elegí el archivo</div>
+              <div id="exp-file-sub" style="font-size:12.5px;color:#8595AD">Tocá para seleccionar el PDF o la imagen de las expensas</div>
+            </div>
+            <input id="exp-file-input" type="file" accept=".pdf,image/*" style="display:none" onchange="expFileElegido(this)">
+          </div>
+          <button onclick="publicarExpensa(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">Publicar para Marcos</button>
+        </div>
+        <div style="font-size:15px;font-weight:800;margin-bottom:12px">Expensas publicadas</div>
+        ${listHtml}
+      </div>`;
+
+    res.send(shell(req, d, 'expensas', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+/* ===================================================================
+ * SUGERENCIAS (cliente)
+ * =================================================================== */
+
+router.get('/sugerencias', async (req, res) => {
+  if (esDueno(req)) return res.redirect('/admin/solicitudes');
+  try {
+    const d = await cargarDatos(req);
+    const usuario = enPreview(req) ? req.session.previewOwner : req.session.user;
+    const propias = d.sugerencias.filter((s) => String(s.usuario || '').trim() === usuario).reverse();
+
+    const stStyle = (s) => {
+      const respondida = !!(s.respuesta || s.respuesta_admin) || s.estado === 'respondida';
+      return respondida
+        ? { label: 'Respondida', bg: '#E7F4EC', fg: '#1B7A43' }
+        : { label: 'En revisión', bg: '#FBF3DE', fg: '#8A6410' };
+    };
+
+    const histHtml = propias.length ? propias.map((s) => {
+      const st = stStyle(s);
+      const respuesta = s.respuesta || s.respuesta_admin || '';
+      return `
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:2px">
+            <div style="font-size:14.5px;color:#16233B;line-height:1.5;flex:1">${esc(s.texto || s.sugerencia || '')}</div>
+            <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:${st.bg};color:${st.fg};flex-shrink:0">${st.label}</span>
+          </div>
+          <div style="font-size:12px;color:#9AA7BD;margin-bottom:10px">Enviada el ${esc(s.fecha || '')}</div>
+          ${respuesta ? `
+            <div style="display:flex;gap:10px;background:#F1F5FB;border-radius:11px;padding:12px 14px">
+              <span style="width:28px;height:28px;border-radius:50%;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex-shrink:0">D</span>
+              <div>
+                <div style="font-size:12px;font-weight:700;color:#2E6FC0;margin-bottom:2px">Respuesta del administrador</div>
+                <div style="font-size:13.5px;color:#334259;line-height:1.5">${esc(respuesta)}</div>
+              </div>
+            </div>` : ''}
+        </div>`;
+    }).join('') : '<div style="text-align:center;padding:30px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Todavía no enviaste ninguna sugerencia.</div>';
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both;max-width:720px">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Sugerencias</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">¿Se te ocurre algo para mejorar la atención de tu edificio? Escribile a tu administrador. Te responde por acá.</p>
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px;margin-bottom:22px">
+          <textarea id="sug-input" placeholder="Ej: Sería útil recibir un aviso antes de los cortes de agua programados..." class="inp" style="min-height:96px"></textarea>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+            <span style="font-size:13px;color:#9AA7BD">Sobre ${esc(d.curBuilding ? d.curBuilding.nombre : '')}</span>
+            <button onclick="enviarSugerencia(this)" style="height:42px;padding:0 22px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Enviar sugerencia</button>
+          </div>
+        </div>
+        <div style="font-size:14px;font-weight:800;color:#334259;margin-bottom:12px">Historial</div>
+        <div style="display:flex;flex-direction:column;gap:12px">${histHtml}</div>
+      </div>`;
+
+    res.send(shell(req, d, 'sugerencias', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+/* ===================================================================
+ * CONSUMOS (dueño) — estructura del prototipo con los datos reales que
+ * existen hoy (eventos gestionados). Mensajes/minutos llegan cuando el
+ * motor de Marcos empiece a loguear consumo.
+ * =================================================================== */
+
+router.get('/consumos', async (req, res) => {
+  if (!esDueno(req)) return res.redirect('/admin');
+  try {
+    const d = await cargarDatos(req);
+    const cards = d.edificios.map((e) => {
+      const ev = d.eventos.filter((x) => x.edificio === e.nombre).length;
+      const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
+      const plan = PLAN_STYLE(e.plan);
+      return `
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px;margin-bottom:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+            <div>
+              <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">${esc(e.nombre)}</div>
+              <div style="font-size:12.5px;color:#8595AD">${esc(cliente)} · ${esc(e.tipo || 'Edificio')}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''} · Plan ${esc(e.plan)}</div>
+            </div>
+            <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:#E7F4EC;color:#1B7A43">Dentro del plan</span>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px;color:#334259;padding:8px 0;border-top:1px solid #F1F4F9;margin-top:8px">
+            <span>🧾 Eventos gestionados</span>
+            <span style="font-weight:800">${ev}</span>
+          </div>
+        </div>`;
+    }).join('');
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Consumos y facturación</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Uso real de cada edificio contra su plan contratado. Los que exceden el plan base generan un excedente facturable.</p>
+        <div style="display:flex;align-items:center;gap:16px;background:#101F32;border-radius:16px;padding:18px 22px;color:#fff;margin-bottom:22px;flex-wrap:wrap">
+          <div style="flex:1;min-width:160px">
+            <div style="font-size:13px;color:rgba(255,255,255,.7);font-weight:600">Excedente facturable del mes</div>
+            <div style="font-size:28px;font-weight:800;letter-spacing:-.02em">$0</div>
+          </div>
+          <div style="border-left:1px solid rgba(255,255,255,.15);padding-left:20px">
+            <div style="font-size:13px;color:rgba(255,255,255,.7);font-weight:600">Edificios que exceden</div>
+            <div style="font-size:28px;font-weight:800">0</div>
+          </div>
+        </div>
+        ${cards}
+      </div>`;
+
+    res.send(shell(req, d, 'consumos', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+/* ===================================================================
+ * CLIENTES Y EDIFICIOS (dueño)
+ * =================================================================== */
+
+router.get('/clientes', async (req, res) => {
+  if (!esDueno(req)) return res.redirect('/admin');
+  try {
+    const d = await cargarDatos(req);
+    const vista = req.query.vista === 'todos' ? 'todos' : 'cliente';
+    const clienteSel = req.query.cliente ? d.clientes.find((c) => c.usuario === req.query.cliente) : null;
+
+    const tabBtn = (activo) => activo
+      ? 'border:1px solid #17408B;background:#17408B;color:#fff'
+      : 'border:1px solid #E1E7F1;background:#fff;color:#475569';
+
+    const encabezado = `
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px">
+        <div>
+          <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Clientes y edificios</h1>
+          <p style="color:#64748B;font-size:15px;margin:0">Entrá por administrador para ver y editar sus edificios, o mirá todos juntos.</p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <a href="/admin/clientes" style="display:inline-flex;align-items:center;height:38px;padding:0 15px;${tabBtn(vista === 'cliente')};border-radius:10px;font-weight:700;font-size:13.5px">Por cliente</a>
+          <a href="/admin/clientes?vista=todos" style="display:inline-flex;align-items:center;height:38px;padding:0 15px;${tabBtn(vista === 'todos')};border-radius:10px;font-weight:700;font-size:13.5px">Todos los edificios</a>
+        </div>
+      </div>`;
+
+    const filaEdificioHtml = (e, mostrarCliente) => {
+      const plan = PLAN_STYLE(e.plan);
+      const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
+      return `
+        <div style="display:flex;align-items:center;gap:16px;background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 18px;flex-wrap:wrap">
+          <span style="width:44px;height:44px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🏢</span>
+          <div style="min-width:170px;flex:1">
+            <div style="font-size:15.5px;font-weight:800">${esc(e.nombre)}</div>
+            <div style="font-size:12.5px;color:#8595AD">${esc(e.direccion || e.nombre)}${e.zona ? ' · ' + esc(e.zona) : ''}</div>
+          </div>
+          ${mostrarCliente ? `
+          <div style="min-width:130px">
+            <div style="font-size:11px;color:#8595AD;font-weight:700;text-transform:uppercase">Cliente</div>
+            <div style="font-size:13.5px;font-weight:700">${esc(cliente)}</div>
+          </div>` : ''}
+          <div style="min-width:90px">
+            <div style="font-size:11px;color:#8595AD;font-weight:700;text-transform:uppercase">Unidades</div>
+            <div style="font-size:13.5px;font-weight:700">${esc(e.unidades || '—')}</div>
+          </div>
+          <div style="min-width:130px">
+            <div style="font-size:11px;color:#8595AD;font-weight:700;text-transform:uppercase">Encargado</div>
+            <div style="font-size:13.5px;font-weight:700">${esc(e.encargado || '—')}</div>
+          </div>
+          <span style="font-size:12px;font-weight:800;padding:5px 12px;border-radius:999px;background:${plan.bg};color:${plan.fg}">Plan ${esc(e.plan)}</span>
+          <button onclick="abrirEditar(${e._row},'${escJs(e.nombre)}','${escJs(e.encargado)}','${escJs(e.plan)}')" style="height:38px;padding:0 16px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Editar</button>
+        </div>`;
+    };
+
+    let cuerpo = '';
+    if (vista === 'todos') {
+      cuerpo = `<div style="display:flex;flex-direction:column;gap:12px">${d.edificios.map((e) => filaEdificioHtml(e, true)).join('')}</div>`;
+    } else if (clienteSel) {
+      const mis = d.edificios.filter((e) => clienteSel.edificios.includes(e.nombre));
+      const unidades = mis.reduce((a, e) => a + (Number(e.unidades) || 0), 0);
+      cuerpo = `
+        <a href="/admin/clientes" style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border:1px solid #E1E7F1;border-radius:9px;background:#fff;color:#5A6B85;font-weight:700;font-size:13px;margin-bottom:16px" class="hv-soft">← Clientes</a>
+        <div style="display:flex;align-items:center;gap:14px;background:linear-gradient(120deg,#0F326A,#2E6FC0);border-radius:16px;padding:18px 22px;color:#fff;margin-bottom:18px;flex-wrap:wrap">
+          <span style="width:52px;height:52px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;flex-shrink:0">${esc(clienteSel.nombre.charAt(0).toUpperCase())}</span>
+          <div style="flex:1;min-width:180px">
+            <div style="font-size:20px;font-weight:800;letter-spacing:-.01em">${esc(clienteSel.nombre)}</div>
+            <div style="font-size:13.5px;color:rgba(255,255,255,.82)">${mis.length} edificio${mis.length === 1 ? '' : 's'}${unidades ? ' · ' + unidades + ' unidades' : ''}</div>
+          </div>
+          <button onclick="abrirModal('modal-edificio')" style="height:40px;padding:0 18px;border:none;border-radius:11px;background:#fff;color:#17408B;font-weight:700;font-size:14px;cursor:pointer">+ Agregar edificio</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          ${mis.length ? mis.map((e) => filaEdificioHtml(e, false)).join('') : '<div style="text-align:center;padding:30px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Este cliente todavía no tiene edificios asignados.</div>'}
+        </div>`;
+    } else {
+      const cards = d.clientes.map((c) => {
+        const mis = d.edificios.filter((e) => c.edificios.includes(e.nombre));
+        const unidades = mis.reduce((a, e) => a + (Number(e.unidades) || 0), 0);
+        const plus = mis.filter((e) => e.plan === 'Plus').length;
+        const base = mis.length - plus;
+        const planMix = ((plus ? plus + ' Plus' : '') + (plus && base ? ' · ' : '') + (base ? base + ' Base' : '')) || 'Sin edificios';
+        return `
+          <a href="/admin/clientes?cliente=${encodeURIComponent(c.usuario)}" style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px" class="hv-card">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+              <span style="width:46px;height:46px;border-radius:12px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;flex-shrink:0">${esc(c.nombre.charAt(0).toUpperCase())}</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:16px;font-weight:800;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.nombre)}</div>
+                <div style="font-size:12.5px;color:#8595AD">${mis.length} edificios · ${unidades} un.</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font-size:12.5px;font-weight:700;color:#5A6B85;background:#EEF2F8;padding:4px 11px;border-radius:999px">${esc(planMix)}</span>
+              <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:#E7F4EC;color:#1B7A43">Al día</span>
+            </div>
+          </a>`;
+      }).join('');
+      cuerpo = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:16px">${cards}</div>
+        <button onclick="abrirModal('modal-cliente')" style="height:44px;padding:0 20px;border:1.5px dashed #C9D5E8;border-radius:12px;background:#F7F9FC;color:#2E6FC0;font-weight:700;font-size:14px;cursor:pointer" class="hv-bluedash">+ Agregar cliente</button>`;
+    }
+
+    const modalCliente = `
+      <div id="modal-cliente" class="modal-overlay" onclick="cerrarModal('modal-cliente')">
+        <div class="modal-box" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Nuevo cliente</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Alta de administrador</div>
+          </div>
+          <div style="padding:20px 24px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del administrador</div>
+            <input id="cli-nombre" placeholder="Ej: González Administraciones" class="inp" style="margin-bottom:16px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Usuario de acceso</div>
+            <input id="cli-usuario" placeholder="gonzalez_admin" class="inp" style="margin-bottom:16px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Contraseña temporal</div>
+            <input id="cli-pass" placeholder="clave temporal" class="inp" style="margin-bottom:16px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email <span style="font-weight:500;color:#9AA7BD">(opcional)</span></div>
+            <input id="cli-email" placeholder="contacto@administrador.com" class="inp">
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-cliente')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="crearCliente(this)" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Crear cliente</button>
+          </div>
+        </div>
+      </div>`;
+
+    const modalEdificio = clienteSel ? `
+      <div id="modal-edificio" class="modal-overlay" onclick="cerrarModal('modal-edificio')">
+        <div class="modal-box" style="width:480px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Nuevo edificio · ${esc(clienteSel.nombre)}</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Alta de consorcio</div>
+          </div>
+          <div style="padding:20px 24px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del consorcio</div>
+            <input id="ed-nombre" placeholder="Ej: Av. Corrientes 3000" class="inp" style="margin-bottom:14px">
+            <div style="display:flex;gap:12px;margin-bottom:14px">
+              <div style="flex:1.5">
+                <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Dirección</div>
+                <input id="ed-direccion" placeholder="Calle y número" class="inp">
+              </div>
+              <div style="width:100px">
+                <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Unidades</div>
+                <input id="ed-unidades" placeholder="0" class="inp">
+              </div>
+            </div>
+            <div style="display:flex;gap:12px;margin-bottom:16px">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Zona</div>
+                <input id="ed-zona" placeholder="Barrio, ciudad" class="inp">
+              </div>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Encargado</div>
+                <input id="ed-encargado" placeholder="Nombre" class="inp">
+              </div>
+            </div>
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Plan contratado</div>
+            <div style="display:flex;gap:9px">
+              <button data-plan-btn onclick="elegirPlanNuevo(this,'Base')" style="flex:1;height:44px;border:1.5px solid #2E6FC0;border-radius:11px;background:#EAF1FB;color:#17408B;font-weight:700;font-size:14px;cursor:pointer">Base</button>
+              <button data-plan-btn onclick="elegirPlanNuevo(this,'Plus')" style="flex:1;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;background:#fff;color:#64748B;font-weight:700;font-size:14px;cursor:pointer">Plus</button>
+            </div>
+            <input type="hidden" id="ed-plan" value="Base">
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-edificio')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="crearEdificio(this,'${escJs(clienteSel.usuario)}')" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Agregar edificio</button>
+          </div>
+        </div>
+      </div>` : '';
+
+    const modalEditar = `
+      <div id="modal-editar" class="modal-overlay" onclick="cerrarModal('modal-editar')">
+        <div class="modal-box" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Editar ficha · directo</div>
+            <div id="edit-bname" style="font-size:19px;font-weight:800;letter-spacing:-.01em"></div>
+          </div>
+          <div style="padding:20px 24px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del consorcio</div>
+            <input id="edit-nombre" class="inp" style="margin-bottom:16px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Encargado</div>
+            <input id="edit-encargado" class="inp" style="margin-bottom:16px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Plan contratado</div>
+            <div style="display:flex;gap:9px">
+              <button data-editplan-btn="Base" onclick="elegirPlanEditar(this,'Base')" style="flex:1;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;background:#fff;color:#64748B;font-weight:700;font-size:14px;cursor:pointer">Base</button>
+              <button data-editplan-btn="Plus" onclick="elegirPlanEditar(this,'Plus')" style="flex:1;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;background:#fff;color:#64748B;font-weight:700;font-size:14px;cursor:pointer">Plus</button>
+            </div>
+            <input type="hidden" id="edit-plan" value="Base">
+            <div style="display:flex;align-items:flex-start;gap:9px;background:#EAF1FB;border-radius:10px;padding:10px 13px;margin-top:16px;font-size:12.5px;color:#2C55A8;line-height:1.4">
+              <span style="font-size:15px">⚡</span>
+              <span>Como dueño, este cambio se escribe <strong>directo</strong> en la planilla, sin pasar por aprobación.</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-editar')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarEditar(this)" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Guardar cambios</button>
+          </div>
+        </div>
+      </div>`;
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both">${encabezado}${cuerpo}</div>
+      ${modalCliente}${modalEdificio}${modalEditar}`;
+
+    res.send(shell(req, d, 'edificios', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+// Ruta legacy: la edicion es via modal en /admin/clientes.
+router.get('/edificios', (req, res) => res.redirect('/admin/clientes?vista=todos'));
+
+/* ===================================================================
+ * SOLICITUDES (dueño)
+ * =================================================================== */
+
+router.get('/solicitudes', async (req, res) => {
+  if (!esDueno(req)) return res.redirect('/admin/sugerencias');
+  try {
+    const d = await cargarDatos(req);
+    const pend = d.solicitudes.filter((s) => !s.estado || s.estado === 'pendiente').reverse();
+    const sugPend = d.sugerencias.filter((s) => (!s.estado || s.estado === 'pendiente') && !(s.respuesta || s.respuesta_admin)).reverse();
+
+    const clienteDe = (usuario) => (d.clientes.find((c) => c.usuario === usuario) || {}).nombre || usuario || '';
+
+    const solHtml = pend.length ? pend.map((s) => `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 ${esc(s.edificio || '')}</span>
+          <span style="font-size:13px;color:#8595AD">${esc(clienteDe(s.usuario))} · ${esc(s.fecha || '')}</span>
+        </div>
+        <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">${esc(FICHA_LABELS[s.campo] || s.campo || '')}</div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <span style="font-size:14.5px;color:#94A3B8;text-decoration:line-through">${esc(s.valor_actual || '—')}</span>
+          <span style="color:#2E6FC0;font-weight:800">→</span>
+          <span style="font-size:14.5px;font-weight:800;color:#16233B">${esc(s.valor_nuevo || '')}</span>
+        </div>
+        ${s.motivo ? `<div style="font-size:13px;color:#5A6B85;background:#F7F9FC;border-radius:9px;padding:9px 12px;margin-bottom:14px">💬 ${esc(s.motivo)}</div>` : ''}
+        <div style="display:flex;gap:10px">
+          <button onclick="aprobarSolicitud(this,${s._row})" style="height:40px;padding:0 20px;border:none;border-radius:10px;background:#16A34A;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-green">✓ Aprobar y aplicar</button>
+          <button onclick="rechazarSolicitud(this,${s._row})" style="height:40px;padding:0 18px;border:1px solid #E3B4B0;border-radius:10px;background:#fff;color:#C0392B;font-weight:700;font-size:14px;cursor:pointer" class="hv-red">Rechazar</button>
+        </div>
+      </div>`).join('') : '<div style="text-align:center;padding:26px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px;margin-bottom:28px">No hay pedidos de cambio pendientes.</div>';
+
+    const sugHtml = sugPend.length ? sugPend.map((s) => `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 ${esc(s.edificio || '')}</span>
+          <span style="font-size:13px;color:#8595AD">${esc(clienteDe(s.usuario))} · ${esc(s.fecha || '')}</span>
+        </div>
+        <div style="font-size:14.5px;color:#16233B;line-height:1.5;margin-bottom:12px">${esc(s.texto || s.sugerencia || '')}</div>
+        <div style="display:flex;gap:10px;align-items:flex-end">
+          <input placeholder="Escribí tu respuesta al cliente..." class="inp" style="flex:1;height:44px">
+          <button onclick="responderSugerencia(this,${s._row})" style="height:44px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer;flex-shrink:0" class="hv-primary">Responder</button>
+        </div>
+      </div>`).join('') : '<div style="text-align:center;padding:26px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">No hay sugerencias sin responder.</div>';
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both;max-width:820px">
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Solicitudes</h1>
+        <p style="color:#64748B;font-size:15px;margin:0 0 22px">Pedidos de cambio y sugerencias que mandaron tus clientes. Nada se aplica hasta que vos lo aprobás.</p>
+        <div style="font-size:15px;font-weight:800;margin-bottom:12px;display:flex;align-items:center;gap:8px">📥 Pedidos de cambio <span style="font-size:12px;font-weight:700;color:#8595AD">(${pend.length})</span></div>
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:28px">${solHtml}</div>
+        <div style="font-size:15px;font-weight:800;margin-bottom:12px;display:flex;align-items:center;gap:8px">💡 Sugerencias para responder</div>
+        <div style="display:flex;flex-direction:column;gap:12px">${sugHtml}</div>
+      </div>`;
+
+    res.send(shell(req, d, 'solicitudes', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+/* ===================================================================
+ * ESCRITURA EN SHEETS (helpers)
+ * =================================================================== */
+
 async function findOrPlanColumn(tabName, candidateKeys) {
   const { rawHeaders, headers } = await readTab(tabName);
   for (let i = 0; i < headers.length; i++) {
@@ -2252,7 +2338,6 @@ async function findOrPlanColumn(tabName, candidateKeys) {
       return { col: columnLetter(i + 1), index: i, rawHeaders, headers };
     }
   }
-  // No existe -> proponer crearla al final
   return {
     col: columnLetter((rawHeaders ? rawHeaders.length : 0) + 1),
     index: rawHeaders ? rawHeaders.length : 0,
@@ -2284,94 +2369,13 @@ async function writeCell(tabName, col, row, value) {
 
 async function ensureHeader(tabName, col, name, headerExists) {
   if (headerExists) return;
-  // Escribir el encabezado en la fila 1 si la columna era nueva.
   await writeCell(tabName, col, 1, name);
 }
 
-// POST /admin/api/feedback  { row, nota }
-router.post('/api/feedback', async (req, res) => {
-  try {
-    const { row, nota } = req.body || {};
-    if (!row || isNaN(Number(row))) {
-      return res.status(400).json({ error: 'Fila invalida' });
-    }
-    const plan = await findOrPlanColumn(TAB_EVENTOS, [
-      'feedback',
-      'nota_admin',
-      'aprendizaje',
-      'comentario_admin',
-    ]);
-    if (plan.create) {
-      await ensureHeader(TAB_EVENTOS, plan.col, 'feedback', false);
-    }
-    await writeCell(TAB_EVENTOS, plan.col, Number(row), nota || '');
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});
-
-// POST /admin/api/edificio  { row, encargado, tel_encargado, ... }
-const EDIFICIO_FIELDS = {
-  administrador: ['admin_nombre', 'administrador', 'admin'],
-  telefonos: ['admin_telefono', 'telefonos', 'contactos', 'numeros'],
-  notas: ['notas_especiales', 'notas', 'observaciones', 'comentarios'],
-  aliases: ['aliases', 'alias', 'otros_nombres'],
-  unidades: ['unidades', 'unidad', 'departamentos'],
-  plan: ['plan'],
-  zona: ['zona', 'barrio'],
-  encargado: ['encargado', 'portero', 'sereno'],
-  tel_encargado: ['telefono_encargado', 'tel_encargado', 'celular_encargado'],
-  encargado_estado: ['encargado_estado', 'estado_encargado'],
-  encargado_suplente: ['encargado_suplente', 'suplente', 'personal_limpieza'],
-  tel_seguridad: ['telefono_seguridad', 'tel_seguridad', 'seguridad'],
-};
-
-router.post('/api/edificio', async (req, res) => {
-  try {
-    const body = req.body || {};
-    const row = Number(body.row);
-    if (!row || isNaN(row)) {
-      return res.status(400).json({ error: 'Fila invalida' });
-    }
-
-    // Releer headers una sola vez.
-    const { rawHeaders, headers } = await readTab(TAB_EDIFICIOS);
-    let workingHeaders = headers.slice();
-
-    for (const field of Object.keys(EDIFICIO_FIELDS)) {
-      if (body[field] === undefined) continue;
-      const candidates = EDIFICIO_FIELDS[field];
-      let idx = workingHeaders.findIndex((h) => candidates.includes(h));
-      let exists = idx >= 0;
-      let col;
-      if (exists) {
-        col = columnLetter(idx + 1);
-      } else {
-        col = columnLetter(workingHeaders.length + 1);
-        await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
-        workingHeaders.push(candidates[0]);
-      }
-      await writeCell(TAB_EDIFICIOS, col, row, body[field]);
-    }
-
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});
-
-/* ===================================================================
- * HELPER: append row to a sheet tab, creating headers if tab is empty
- * =================================================================== */
-
-/** Crea la pestania si todavia no existe en el spreadsheet. */
 async function ensureSheetExists(tabName) {
   const sheets = await getSheetsClient();
   const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
-  const existe = (meta.data.sheets || []).some(
-    (s) => s.properties && s.properties.title === tabName
-  );
+  const existe = (meta.data.sheets || []).some((s) => s.properties && s.properties.title === tabName);
   if (existe) return;
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: SHEET_ID,
@@ -2381,9 +2385,6 @@ async function ensureSheetExists(tabName) {
 
 async function appendRow(tabName, rowData) {
   const sheets = await getSheetsClient();
-
-  // Leer headers existentes. Si la pestania no existe, values.get tira error
-  // -> la creamos primero (values.append NO crea pestanias solas).
   let res;
   try {
     res = await sheets.spreadsheets.values.get({
@@ -2394,11 +2395,8 @@ async function appendRow(tabName, rowData) {
     await ensureSheetExists(tabName);
     res = null;
   }
-
   const existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
-
   if (existingHeaders.length === 0) {
-    // Create header row first
     const headers = Object.keys(rowData);
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
@@ -2408,15 +2406,11 @@ async function appendRow(tabName, rowData) {
     });
     return;
   }
-
-  // Append values in header order
   const values = existingHeaders.map((h) => {
     const key = normalizeKey(h);
-    // try to find matching key in rowData
     const match = Object.keys(rowData).find((k) => normalizeKey(k) === key || k === h);
     return match !== undefined ? rowData[match] : '';
   });
-
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
     range: `${tabName}!A1`,
@@ -2426,232 +2420,127 @@ async function appendRow(tabName, rowData) {
 }
 
 /* ===================================================================
- * RUTA: MI EDIFICIO (solo admin de consorcio)
+ * APIs (POST)
  * =================================================================== */
 
-router.get('/mi-edificio', async (req, res) => {
-  if (esDueno(req)) return res.redirect('/admin/edificios');
-
-  const permitidos = edificiosPermitidos(req) || [];
-
+// Nota de feedback del dueño sobre un evento (Marcos aprende).
+router.post('/api/feedback', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
   try {
-    const { rows } = await readTab(TAB_EDIFICIOS);
-    const todos = rows.map(mapEdificio);
+    const { row, nota } = req.body || {};
+    if (!row || isNaN(Number(row))) return res.status(400).json({ error: 'Fila invalida' });
+    const plan = await findOrPlanColumn(TAB_EVENTOS, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']);
+    if (plan.create) await ensureHeader(TAB_EVENTOS, plan.col, 'feedback', false);
+    await writeCell(TAB_EVENTOS, plan.col, Number(row), nota || '');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
 
-    // Filtramos los edificios de este usuario
-    const misEdificios = filtrarPorEdificio(todos, req, 'nombre');
+// Edicion directa de la ficha de un edificio (dueño, modal).
+const EDIFICIO_FIELDS = {
+  nombre: ['edificio', 'nombre', 'consorcio'],
+  direccion: ['direccion', 'domicilio'],
+  zona: ['zona', 'barrio'],
+  encargado: ['encargado', 'portero', 'sereno'],
+  tel_encargado: ['telefono_encargado', 'tel_encargado', 'celular_encargado'],
+  encargado_estado: ['encargado_estado', 'estado_encargado'],
+  encargado_suplente: ['encargado_suplente', 'suplente', 'personal_limpieza'],
+  tel_seguridad: ['telefono_seguridad', 'tel_seguridad', 'seguridad'],
+  administrador: ['admin_nombre', 'administrador', 'admin'],
+  telefonos: ['admin_telefono', 'telefonos', 'contactos', 'numeros'],
+  cuit: ['cuit'],
+  horario_sum: ['horario_sum', 'sum'],
+  cocheras: ['cocheras', 'cochera'],
+  notas: ['notas_especiales', 'notas', 'observaciones', 'comentarios'],
+  aliases: ['aliases', 'alias', 'otros_nombres'],
+  unidades: ['unidades', 'unidad', 'departamentos'],
+  plan: ['plan'],
+};
 
-    if (misEdificios.length === 0) {
-      return res.send(page('mi-edificio', 'Mi Edificio',
-        `<h1>Mi Edificio</h1><div class="empty">No se encontraron datos para: ${esc(permitidos.join(', '))}</div>`, req));
+router.post('/api/edificio', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const body = req.body || {};
+    const row = Number(body.row);
+    if (!row || isNaN(row)) return res.status(400).json({ error: 'Fila invalida' });
+    const { headers } = await readTab(TAB_EDIFICIOS);
+    let workingHeaders = headers.slice();
+    for (const field of Object.keys(EDIFICIO_FIELDS)) {
+      if (body[field] === undefined) continue;
+      const candidates = EDIFICIO_FIELDS[field];
+      let idx = workingHeaders.findIndex((h) => candidates.includes(h));
+      let col;
+      if (idx >= 0) col = columnLetter(idx + 1);
+      else {
+        col = columnLetter(workingHeaders.length + 1);
+        await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
+        workingHeaders.push(candidates[0]);
+      }
+      await writeCell(TAB_EDIFICIOS, col, row, body[field]);
     }
-
-    const fichas = misEdificios.map((e) => {
-      const campos = [
-        { label: 'Tipo', field: 'tipo', val: e.tipo, editable: false },
-        { label: 'Administrador', field: 'administrador', val: e.administrador, editable: true },
-        { label: 'Teléfono admin', field: 'telefonos', val: e.telefonos, editable: true },
-        { label: 'Notas especiales', field: 'notas', val: e.notas, editable: true },
-        { label: 'Aliases', field: 'aliases', val: e.aliases, editable: false },
-      ];
-
-      const chipsHtml = campos
-        .filter((c) => c.val)
-        .map((c) => `<div class="chip"><b>${esc(c.label)}:</b> ${esc(c.val)}</div>`)
-        .join('');
-
-      const editablesHtml = campos
-        .filter((c) => c.editable)
-        .map((c) => `
-          <tr>
-            <td style="width:160px;color:var(--muted);font-size:13px">${esc(c.label)}</td>
-            <td>${esc(c.val || '—')}</td>
-            <td style="width:120px">
-              <button class="btn ghost sm" onclick="solicitarCambio(this,'${escJs(c.field)}','${escJs(c.val || '')}')">
-                ✏️ Solicitar cambio
-              </button>
-            </td>
-          </tr>`)
-        .join('');
-
-      return `
-        <div class="ficha">
-          <div class="ficha-head">
-            <div class="ficha-icon">🏢</div>
-            <div class="ficha-data">
-              <h2>${esc(e.nombre)}</h2>
-              <div class="dir">${esc(e.nombre)}${e.tipo ? ' · ' + esc(e.tipo) : ''}</div>
-              <div class="ficha-chips">${chipsHtml || '<span style="color:var(--muted);font-size:13px">Sin datos cargados</span>'}</div>
-            </div>
-          </div>
-          <hr class="ficha-divider">
-          <h3 style="font-size:15px;margin:0 0 10px">Solicitar cambio de datos</h3>
-          <p style="color:var(--muted);font-size:13px;margin:0 0 12px">
-            Los cambios pasan por revisión del administrador del sistema antes de aplicarse.
-          </p>
-          <div class="tablewrap">
-            <table><tbody>${editablesHtml}</tbody></table>
-          </div>
-        </div>`;
-    }).join('');
-
-    res.send(page('mi-edificio', 'Mi Edificio',
-      `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-         <div><h1 style="margin-bottom:2px">Mi Edificio</h1>
-         <p style="color:var(--muted);margin-top:0">Datos del consorcio que administra Marcos IA.</p></div>
-         <button class="btn" onclick="mostrarFormEdificio()">+ Agregar edificio</button>
-       </div>
-       ${fichas}
-       ${formNuevoEdificioHtml(req.session.user)}`, req));
+    res.json({ ok: true });
   } catch (e) {
-    res.status(500).send(page('mi-edificio', 'Mi Edificio', errorBox(e), req));
+    res.status(500).json({ error: e.message || String(e) });
   }
 });
 
-/* ===================================================================
- * RUTA: SUGERENCIAS (admin de consorcio envía; dueño ve y responde)
- * =================================================================== */
-
-router.get('/sugerencias', async (req, res) => {
-  if (esDueno(req)) return res.redirect('/admin/solicitudes');
-
-  const usuario = req.session.user;
-  const permitidos = edificiosPermitidos(req) || [];
-
+// Alta de cliente (dueño). Los edificios se asignan despues, desde la ficha.
+router.post('/api/clientes', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
   try {
-    const { rows } = await readTab(TAB_SUGERENCIAS);
-    const misSugs = rows.filter((r) => {
-      const u = String(r.usuario || r.user || '').trim();
-      return u === usuario;
+    const { nombre, usuario, pass, email } = req.body || {};
+    if (!nombre || !usuario || !pass) return res.status(400).json({ error: 'Nombre, usuario y contraseña son obligatorios' });
+    const { rows } = await readTab(TAB_CLIENTES);
+    if (rows.map(mapCliente).some((c) => c.usuario === usuario)) return res.status(400).json({ error: 'Ese usuario ya existe' });
+    await appendRow(TAB_CLIENTES, {
+      nombre, usuario, contrasena: pass, email: email || '',
+      edificios: '', activo: 'si',
     });
-
-    const listHtml = misSugs.length
-      ? misSugs.slice().reverse().map((r) => {
-          const estado = String(r.estado || 'pendiente').toLowerCase();
-          const respuesta = r.respuesta || r.respuesta_admin || '';
-          return `
-            <div class="sug-item">
-              <div class="sug-meta">
-                <span class="badge ${estado}">${esc(estado)}</span>
-                <span>${esc(r.fecha || '')}</span>
-              </div>
-              <div class="sug-texto">${esc(r.texto || r.sugerencia || r.contenido || '')}</div>
-              ${respuesta ? `<div class="sug-resp"><b>Respuesta:</b> ${esc(respuesta)}</div>` : ''}
-            </div>`;
-        }).join('')
-      : `<div class="empty">Todavía no enviaste ninguna sugerencia.</div>`;
-
-    res.send(page('sugerencias', 'Sugerencias',
-      `<h1>Sugerencias</h1>
-       <p style="color:var(--muted);margin-top:-8px">Mandanos tus ideas para mejorar el servicio o algo que quieras que Marcos aprenda.</p>
-       <div class="sug-form">
-         <h3>Nueva sugerencia</h3>
-         <textarea id="sug-input" rows="4" placeholder="Escribí tu sugerencia, consulta o cosa que quieras que Marcos haga diferente..."></textarea>
-         <div style="margin-top:10px">
-           <button class="btn" onclick="enviarSugerencia(this)">Enviar sugerencia</button>
-         </div>
-       </div>
-       <h2>Mis sugerencias anteriores</h2>
-       <div class="sug-list">${listHtml}</div>`, req));
+    res.json({ ok: true });
   } catch (e) {
-    res.status(500).send(page('sugerencias', 'Sugerencias', errorBox(e), req));
+    res.status(500).json({ error: e.message || String(e) });
   }
 });
 
-/* ===================================================================
- * RUTA: SOLICITUDES (solo dueño — ve sugerencias + solicitudes de cambio)
- * =================================================================== */
-
-router.get('/solicitudes', async (req, res) => {
-  if (!esDueno(req)) return res.redirect('/admin');
-
+// Alta de edificio (dueño desde la ficha del cliente, o el propio cliente).
+router.post('/api/edificio-nuevo', async (req, res) => {
+  const dueno = esDueno(req);
+  const esConsorcio = vistaCliente(req);
+  if (!dueno && !esConsorcio) return res.status(403).json({ error: 'Sin permiso' });
+  if (!dueno && bloquearSiPreview(req, res)) return;
   try {
-    const [resSugs, resSols] = await Promise.all([
-      readTab(TAB_SUGERENCIAS),
-      readTab(TAB_SOLICITUDES),
-    ]);
-
-    const sugs = [...resSugs.rows].reverse();
-    const sols = [...resSols.rows].reverse();
-
-    const pendientesSugs = sugs.filter((r) => !r.estado || r.estado === 'pendiente').length;
-    const pendientesSols = sols.filter((r) => !r.estado || r.estado === 'pendiente').length;
-
-    const sugsHtml = sugs.length
-      ? sugs.map((r, i) => {
-          const row = resSugs.rows.length - i; // aproximado
-          const realRow = r._row;
-          const estado = String(r.estado || 'pendiente').toLowerCase();
-          const respuesta = r.respuesta || r.respuesta_admin || '';
-          const isPendiente = estado === 'pendiente';
-          return `
-            <div class="sug-item">
-              <div class="sug-meta">
-                <span class="badge ${estado}">${esc(estado)}</span>
-                <b>${esc(r.usuario || r.user || '?')}</b>
-                <span>${esc(r.edificio || '')}</span>
-                <span>${esc(r.fecha || '')}</span>
-              </div>
-              <div class="sug-texto">${esc(r.texto || r.sugerencia || r.contenido || '')}</div>
-              ${respuesta ? `<div class="sug-resp"><b>Tu respuesta:</b> ${esc(respuesta)}</div>` : ''}
-              ${isPendiente ? `
-                <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-                  <button class="btn sm" onclick="responderSugerencia(this,${realRow})">Responder</button>
-                </div>` : ''}
-            </div>`;
-        }).join('')
-      : `<div class="empty">No hay sugerencias todavía.</div>`;
-
-    const solsHtml = sols.length
-      ? sols.map((r) => {
-          const realRow = r._row;
-          const estado = String(r.estado || 'pendiente').toLowerCase();
-          const isPendiente = estado === 'pendiente';
-          return `
-            <div class="sug-item">
-              <div class="sug-meta">
-                <span class="badge ${estado}">${esc(estado)}</span>
-                <b>${esc(r.usuario || '?')}</b>
-                <span>${esc(r.edificio || '')}</span>
-                <span class="sol-campo">${esc(r.campo || '')}</span>
-                <span>${esc(r.fecha || '')}</span>
-              </div>
-              <div class="sol-diff">
-                <span class="old">${esc(r.valor_actual || '—')}</span>
-                <span class="arr">→</span>
-                <span class="new">${esc(r.valor_nuevo || '')}</span>
-              </div>
-              ${r.motivo_rechazo ? `<div class="sug-resp" style="border-color:var(--bad)"><b>Rechazo:</b> ${esc(r.motivo_rechazo)}</div>` : ''}
-              ${isPendiente ? `
-                <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-                  <button class="btn sm" onclick="aprobarSolicitud(this,${realRow})">✅ Aprobar y aplicar</button>
-                  <button class="btn ghost sm" onclick="rechazarSolicitud(this,${realRow})">❌ Rechazar</button>
-                </div>` : ''}
-            </div>`;
-        }).join('')
-      : `<div class="empty">No hay solicitudes de cambio todavía.</div>`;
-
-    const badgePend = (n) => n > 0 ? `<span class="badge pendiente" style="margin-left:8px">${n} pendiente${n > 1 ? 's' : ''}</span>` : '';
-
-    res.send(page('solicitudes', 'Solicitudes',
-      `<h1>Solicitudes y sugerencias</h1>
-       <p style="color:var(--muted);margin-top:-8px">Lo que enviaron los administradores de consorcio para tu revisión.</p>
-       <h2>Solicitudes de cambio de datos ${badgePend(pendientesSols)}</h2>
-       <p style="color:var(--muted);font-size:13px">Cambios que el admin quiere hacer en la ficha de su edificio. Aprobá para que se apliquen.</p>
-       <div class="sug-list" style="margin-bottom:32px">${solsHtml}</div>
-       <h2>Sugerencias ${badgePend(pendientesSugs)}</h2>
-       <p style="color:var(--muted);font-size:13px">Ideas o pedidos que enviaron los administradores. Podés responderles directamente.</p>
-       <div class="sug-list">${sugsHtml}</div>`, req));
+    const { nombre, direccion, zona, unidades, encargado, plan } = req.body || {};
+    if (!nombre) return res.status(400).json({ error: 'Falta el nombre del consorcio' });
+    const clienteUsuario = dueno ? req.body.clienteUsuario : req.session.user;
+    const { rows: edRows } = await readTab(TAB_EDIFICIOS);
+    if (edRows.map(mapEdificio).some((e) => e.nombre.toLowerCase() === String(nombre).toLowerCase())) {
+      return res.status(400).json({ error: 'Ya existe un edificio con ese nombre' });
+    }
+    await appendRow(TAB_EDIFICIOS, {
+      edificio: nombre, direccion: direccion || '', zona: zona || '',
+      unidades: unidades || '', encargado: encargado || '', plan: plan || 'Base',
+    });
+    if (clienteUsuario) {
+      const { rows: cliRows } = await readTab(TAB_CLIENTES);
+      const cliente = cliRows.map(mapCliente).find((c) => c.usuario === clienteUsuario);
+      if (cliente) {
+        const nuevaLista = [...cliente.edificios, nombre].join(', ');
+        const col = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
+        if (col.create) await ensureHeader(TAB_CLIENTES, col.col, 'edificios', false);
+        await writeCell(TAB_CLIENTES, col.col, cliente._row, nuevaLista);
+      }
+    }
+    res.json({ ok: true });
   } catch (e) {
-    res.status(500).send(page('solicitudes', 'Solicitudes', errorBox(e), req));
+    res.status(500).json({ error: e.message || String(e) });
   }
 });
 
-/* ===================================================================
- * API: SUGERENCIA (POST)
- * =================================================================== */
-
+// Sugerencia del cliente.
 router.post('/api/sugerencia', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
   try {
     const { texto } = req.body || {};
     if (!texto || !texto.trim()) return res.status(400).json({ error: 'Texto vacío' });
@@ -2659,12 +2548,8 @@ router.post('/api/sugerencia', async (req, res) => {
     const edificios = (edificiosPermitidos(req) || []).join(', ');
     await appendRow(TAB_SUGERENCIAS, {
       fecha: new Date().toLocaleString('es-AR'),
-      usuario,
-      edificio: edificios,
-      texto: texto.trim(),
-      sugerencia: texto.trim(),
-      estado: 'pendiente',
-      respuesta: '',
+      usuario, edificio: edificios,
+      texto: texto.trim(), estado: 'pendiente', respuesta: '',
     });
     res.json({ ok: true });
   } catch (e) {
@@ -2672,25 +2557,20 @@ router.post('/api/sugerencia', async (req, res) => {
   }
 });
 
-/* ===================================================================
- * API: SOLICITAR CAMBIO (POST — admin de consorcio)
- * =================================================================== */
-
+// Pedido de cambio del cliente (queda pendiente).
 router.post('/api/solicitar-cambio', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
   try {
-    const { campo, valorActual, valorNuevo } = req.body || {};
+    const { campo, valorActual, valorNuevo, motivo, edificio } = req.body || {};
     if (!campo || !valorNuevo) return res.status(400).json({ error: 'Datos incompletos' });
     const usuario = req.session.user;
-    const edificios = (edificiosPermitidos(req) || []).join(', ');
+    const permitidos = edificiosPermitidos(req) || [];
+    const ed = edificio && permitidos.includes(edificio) ? edificio : (permitidos[0] || '');
     await appendRow(TAB_SOLICITUDES, {
       fecha: new Date().toLocaleString('es-AR'),
-      usuario,
-      edificio: edificios,
-      campo,
-      valor_actual: valorActual || '',
-      valor_nuevo: valorNuevo,
-      estado: 'pendiente',
-      motivo_rechazo: '',
+      usuario, edificio: ed, campo,
+      valor_actual: valorActual || '', valor_nuevo: valorNuevo,
+      motivo: motivo || '', estado: 'pendiente', motivo_rechazo: '',
     });
     res.json({ ok: true });
   } catch (e) {
@@ -2698,95 +2578,111 @@ router.post('/api/solicitar-cambio', async (req, res) => {
   }
 });
 
-/* ===================================================================
- * API: APROBAR SOLICITUD (POST — dueño)
- * Aplica el cambio en la tab Edificios y marca la solicitud como 'aplicada'
- * =================================================================== */
-
+// Aprobar solicitud (dueño): aplica el cambio en la tab edificios.
 router.post('/api/aprobar-solicitud', async (req, res) => {
   if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
   try {
     const { row } = req.body || {};
     if (!row) return res.status(400).json({ error: 'Fila inválida' });
-
-    // Leer la solicitud
-    const { rows, headers } = await readTab(TAB_SOLICITUDES);
+    const { rows } = await readTab(TAB_SOLICITUDES);
     const solicitud = rows.find((r) => r._row === Number(row));
     if (!solicitud) return res.status(404).json({ error: 'Solicitud no encontrada' });
-
     const { edificio, campo, valor_nuevo } = solicitud;
-
-    // Buscar el edificio en la tab Edificios
     const { rows: edRows, headers: edHeaders } = await readTab(TAB_EDIFICIOS);
     const edRow = edRows.find((r) =>
-      String(r.edificio || r.nombre || '').toLowerCase().includes(
-        String(edificio || '').toLowerCase().split(',')[0].trim().toLowerCase()
-      )
+      String(r.edificio || r.nombre || '').toLowerCase().includes(String(edificio || '').toLowerCase().split(',')[0].trim().toLowerCase())
     );
-
     if (edRow && campo) {
       const candidates = EDIFICIO_FIELDS[campo] || [campo];
       let colIdx = edHeaders.findIndex((h) => candidates.includes(h));
-      if (colIdx >= 0) {
-        await writeCell(TAB_EDIFICIOS, columnLetter(colIdx + 1), edRow._row, valor_nuevo);
+      let col;
+      if (colIdx >= 0) col = columnLetter(colIdx + 1);
+      else {
+        col = columnLetter(edHeaders.length + 1);
+        await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
       }
+      await writeCell(TAB_EDIFICIOS, col, edRow._row, valor_nuevo);
     }
-
-    // Marcar solicitud como aplicada
     const planEstado = await findOrPlanColumn(TAB_SOLICITUDES, ['estado']);
     if (planEstado.create) await ensureHeader(TAB_SOLICITUDES, planEstado.col, 'estado', false);
     await writeCell(TAB_SOLICITUDES, planEstado.col, Number(row), 'aplicada');
-
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
 });
-
-/* ===================================================================
- * API: RECHAZAR SOLICITUD (POST — dueño)
- * =================================================================== */
 
 router.post('/api/rechazar-solicitud', async (req, res) => {
   if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
   try {
     const { row, motivo } = req.body || {};
     if (!row) return res.status(400).json({ error: 'Fila inválida' });
-
     const planEstado = await findOrPlanColumn(TAB_SOLICITUDES, ['estado']);
     if (planEstado.create) await ensureHeader(TAB_SOLICITUDES, planEstado.col, 'estado', false);
     await writeCell(TAB_SOLICITUDES, planEstado.col, Number(row), 'rechazada');
-
     if (motivo) {
       const planMotivo = await findOrPlanColumn(TAB_SOLICITUDES, ['motivo_rechazo']);
       if (planMotivo.create) await ensureHeader(TAB_SOLICITUDES, planMotivo.col, 'motivo_rechazo', false);
       await writeCell(TAB_SOLICITUDES, planMotivo.col, Number(row), motivo);
     }
-
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
 });
 
-/* ===================================================================
- * API: RESPONDER SUGERENCIA (POST — dueño)
- * =================================================================== */
-
 router.post('/api/responder-sugerencia', async (req, res) => {
   if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
   try {
     const { row, respuesta } = req.body || {};
     if (!row || !respuesta) return res.status(400).json({ error: 'Datos incompletos' });
-
     const planResp = await findOrPlanColumn(TAB_SUGERENCIAS, ['respuesta', 'respuesta_admin']);
     if (planResp.create) await ensureHeader(TAB_SUGERENCIAS, planResp.col, 'respuesta', false);
     await writeCell(TAB_SUGERENCIAS, planResp.col, Number(row), respuesta);
-
     const planEstado = await findOrPlanColumn(TAB_SUGERENCIAS, ['estado']);
     if (planEstado.create) await ensureHeader(TAB_SUGERENCIAS, planEstado.col, 'estado', false);
     await writeCell(TAB_SUGERENCIAS, planEstado.col, Number(row), 'respondida');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
 
+// Publicar expensa (cliente). El archivo en si no se sube todavia: se
+// registra nombre/periodo/link para que Marcos sepa que existe y pueda
+// compartir el link. El almacenamiento de PDFs es trabajo del motor.
+router.post('/api/expensa', async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { mes, anio, formato, url, nombre } = req.body || {};
+    if (!mes || !anio) return res.status(400).json({ error: 'Falta el período' });
+    const permitidos = edificiosPermitidos(req) || [];
+    const edificio = permitidos[0] || '';
+    await appendRow(TAB_EXPENSAS, {
+      fecha: new Date().toLocaleString('es-AR'),
+      edificio,
+      periodo: `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}`,
+      formato: formato || 'pdf',
+      nombre: nombre || '',
+      url: url || '',
+      estado: 'publicada',
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/expensa-quitar', async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+    const plan = await findOrPlanColumn(TAB_EXPENSAS, ['estado']);
+    if (plan.create) await ensureHeader(TAB_EXPENSAS, plan.col, 'estado', false);
+    await writeCell(TAB_EXPENSAS, plan.col, Number(row), 'eliminada');
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });

@@ -100,7 +100,9 @@ Datos: leer/escribir sobre las pestañas del Sheets (abajo).
 - Sin imágenes propietarias más allá del logo del cliente.
 
 ## Files
-- `Panel Consorcio.dc.html` — el diseño completo (template + lógica del prototipo). Abrilo en el navegador para explorarlo.
+- **`PORTING.md`** — ⭐ LEER PRIMERO. Reglas estrictas para reproducir el panel idéntico + leyenda de íconos/colores + qué está prohibido cambiar.
+- **`Panel Consorcio (standalone).html`** — el diseño autónomo (un solo archivo, sin dependencias). Abrilo en el navegador para verlo idéntico e inspeccionar cada elemento con DevTools (estilos inline exactos).
+- `Panel Consorcio.dc.html` — el diseño completo (template + lógica del prototipo). Fuente de verdad del markup y los estilos.
 - `support.js` — runtime del Design Component (solo para que el prototipo corra; NO va a producción).
 - `image-slot.js` — componente del placeholder de logo (solo prototipo).
 - `screenshots/` — capturas de referencia de las pantallas (vista cliente: `01–07-panel`; vista dueño: `01–07-dueno`).
