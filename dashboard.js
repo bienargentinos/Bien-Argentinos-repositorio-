@@ -1909,6 +1909,16 @@ router.get('/mi-edificio', async (req, res) => {
     const label = (t) => `<div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">${t}</div>`;
     const inputEditable = (campo, valor, placeholder) =>
       `<input data-me="${campo}" value="${esc(valor)}" placeholder="${esc(placeholder || '')}" class="inp" style="height:44px">`;
+    // Fila con cuadrito de ícono, igual al patrón de fichaRows del boceto,
+    // para que los campos editables se vean como el resto de las tarjetas.
+    const fieldRow = (icon, campo, valor, labelTxt, placeholder) => `
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="width:40px;height:40px;border-radius:11px;background:#F1F5FB;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${icon}</span>
+        <div style="flex:1;min-width:0">
+          ${label(labelTxt)}
+          ${inputEditable(campo, valor, placeholder)}
+        </div>
+      </div>`;
 
     // ---- ENCARGADO (estado + horario) ----
     const estados = [
@@ -1938,10 +1948,10 @@ router.get('/mi-edificio', async (req, res) => {
         <div style="font-size:16px;font-weight:800;margin-bottom:4px">🧑‍🔧 Encargado</div>
         <p style="font-size:13px;color:#8595AD;margin:0 0 16px">Marcos usa estos datos para saber si puede contar con el encargado cuando surge un evento.</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">
-          <div>${label('Nombre del encargado')}${inputEditable('encargado', cur.encargado, 'Nombre y apellido')}</div>
-          <div>${label('Tel. encargado')}${inputEditable('tel_encargado', cur.tel_encargado, 'Teléfono')}</div>
-          <div>${label('Encargado suplente / limpieza')}${inputEditable('encargado_suplente', cur.encargado_suplente, 'Quién lo cubre')}</div>
-          <div>${label('Tel. suplente')}${inputEditable('tel_suplente', cur.tel_suplente, 'Teléfono')}</div>
+          ${fieldRow('🧑‍🔧', 'encargado', cur.encargado, 'Nombre del encargado', 'Nombre y apellido')}
+          ${fieldRow('📞', 'tel_encargado', cur.tel_encargado, 'Tel. encargado', 'Teléfono')}
+          ${fieldRow('🧑‍🔧', 'encargado_suplente', cur.encargado_suplente, 'Encargado suplente / limpieza', 'Quién lo cubre')}
+          ${fieldRow('📞', 'tel_suplente', cur.tel_suplente, 'Tel. suplente', 'Teléfono')}
         </div>
         <div style="margin-top:16px">
           ${label('Estado del encargado')}
@@ -1963,16 +1973,17 @@ router.get('/mi-edificio', async (req, res) => {
         <div style="font-size:16px;font-weight:800;margin-bottom:4px">🏢 Datos del edificio</div>
         <p style="font-size:13px;color:#8595AD;margin:0 0 16px">Estos datos los editás vos y se guardan al instante — no necesitan aprobación.</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="fichagrid">
-          <div>${label('Dirección')}${inputEditable('direccion', cur.direccion, 'Calle y número (legal)')}</div>
-          <div>${label('Zona / barrio')}${inputEditable('zona', cur.zona, 'Barrio, ciudad')}</div>
-          <div style="grid-column:1/-1">${label('Alias / doble dirección')}${inputEditable('aliases', cur.aliases, 'Ej: Ortiz 1486 (como lo conocen los vecinos)')}
-            <div style="font-size:12px;color:#9AA7BD;margin-top:6px">Si el edificio figura con una altura legal pero los vecinos lo nombran distinto, cargá acá los dos. Marcos reconoce cualquiera de las dos.</div>
+          ${fieldRow('📍', 'direccion', cur.direccion, 'Dirección', 'Calle y número (legal)')}
+          ${fieldRow('🗺️', 'zona', cur.zona, 'Zona / barrio', 'Barrio, ciudad')}
+          <div style="grid-column:1/-1">
+            ${fieldRow('🏷️', 'aliases', cur.aliases, 'Alias / doble dirección', 'Ej: Ortiz 1486 (como lo conocen los vecinos)')}
+            <div style="font-size:12px;color:#9AA7BD;margin-top:6px;margin-left:52px">Si el edificio figura con una altura legal pero los vecinos lo nombran distinto, cargá acá los dos. Marcos reconoce cualquiera de las dos.</div>
           </div>
-          <div>${label('CUIT del edificio')}${inputEditable('cuit', cur.cuit, '30-XXXXXXXX-X')}</div>
-          <div>${label('Unidades funcionales')}${inputEditable('unidades', cur.unidades, 'Cantidad')}</div>
-          <div>${label('Horario del SUM')}${inputEditable('horario_sum', cur.horario_sum, 'Ej: 10 a 24hs · seña $15.000')}</div>
-          <div>${label('Cocheras')}${inputEditable('cocheras', cur.cocheras, 'Ej: 22 fijas + 4 de cortesía')}</div>
-          <div>${label('Tel. seguridad de la entrada')}${inputEditable('tel_seguridad', cur.tel_seguridad, 'Si el edificio tiene')}</div>
+          ${fieldRow('🧾', 'cuit', cur.cuit, 'CUIT del edificio', '30-XXXXXXXX-X')}
+          ${fieldRow('🏠', 'unidades', cur.unidades, 'Unidades funcionales', 'Cantidad')}
+          ${fieldRow('📅', 'horario_sum', cur.horario_sum, 'Horario del SUM', 'Ej: 10 a 24hs · seña $15.000')}
+          ${fieldRow('🚗', 'cocheras', cur.cocheras, 'Cocheras', 'Ej: 22 fijas + 4 de cortesía')}
+          ${fieldRow('📞', 'tel_seguridad', cur.tel_seguridad, 'Tel. seguridad de la entrada', 'Si el edificio tiene')}
         </div>
       </div>`;
 
