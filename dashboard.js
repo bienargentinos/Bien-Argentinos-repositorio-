@@ -2869,7 +2869,7 @@ async function appendRow(tabName, rowData) {
     await ensureSheetExists(tabName);
     res = null;
   }
-  const existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
+  let existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
   if (existingHeaders.length === 0) {
     const headers = Object.keys(rowData);
     await sheets.spreadsheets.values.append({
@@ -2879,6 +2879,16 @@ async function appendRow(tabName, rowData) {
       requestBody: { values: [headers, headers.map((k) => rowData[k] || '')] },
     });
     return;
+  }
+  // Si `rowData` trae una clave sin columna existente que la matchee, se
+  // crea la columna en vez de perder el dato en silencio (bug real: un
+  // proveedor se guardaba sin "cliente" si esa columna no existía todavía).
+  const sinMatch = Object.keys(rowData).filter((k) =>
+    !existingHeaders.some((h) => normalizeKey(h) === normalizeKey(k) || k === h));
+  for (const k of sinMatch) {
+    const col = columnLetter(existingHeaders.length + 1);
+    await ensureHeader(tabName, col, k, false);
+    existingHeaders = existingHeaders.concat([k]);
   }
   const values = existingHeaders.map((h) => {
     const key = normalizeKey(h);
