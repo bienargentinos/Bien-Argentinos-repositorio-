@@ -1782,8 +1782,18 @@ router.get('/', async (req, res) => {
           <div style="font-size:13px;color:#64748B;font-weight:600;margin-top:4px">${k.label}</div>
         </div>`).join('');
 
-      // feed de novedades de TODOS los edificios (o últimos eventos si no hay nuevos hoy)
-      const feedVistas = (novedadesPropios.length ? novedadesPropios : vistasPropios).slice(0, 6);
+      // Feed de novedades de TODOS los edificios. Si no hay nada de hoy,
+      // no alcanza con "los N más recientes en general": si un edificio
+      // tuvo más actividad histórica, tapa a los demás en el corte. Por
+      // eso se toman los más recientes DE CADA edificio y recién ahí se
+      // combina y ordena, para que el panorama muestre a todos.
+      const feedVistas = novedadesPropios.length
+        ? novedadesPropios.slice(0, 8)
+        : d.propios
+          .flatMap((e) => evPropios.filter((x) => x.edificio === e.nombre).slice(0, 3))
+          .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0))
+          .slice(0, 8)
+          .map(vistaEvento);
       const novHtml = feedVistas.map((v, i) => `
         <button onclick="abrirDrawerEvento(${i})" style="width:100%;display:flex;align-items:flex-start;gap:13px;padding:15px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left" class="hv-row">
           <span style="width:40px;height:40px;border-radius:11px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${v.catIcon}</span>
