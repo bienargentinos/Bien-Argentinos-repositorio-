@@ -381,6 +381,12 @@ function esHoy(date) {
   );
 }
 
+function esDe24Horas(date) {
+  if (!date) return false;
+  const hace24hs = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return date >= hace24hs;
+}
+
 // Considera "nuevo" a cualquier evento de los ultimos 7 dias.
 // Esto evita que los contadores/badges den 0 cuando no hay eventos HOY.
 function esReciente(date) {
@@ -707,6 +713,7 @@ function abrirDrawerEvento(idx){
   var overlay=document.getElementById('drawer-overlay');
   if(!panel||!overlay)return;
   var esDueno=!!window.__ES_DUENO__;
+  var resolverBtn = datos.estKey !== 'resuelto' ? '<button onclick="marcarEventoResuelto(this, '+datos.row+')" style="flex:1.2;height:44px;border:none;border-radius:11px;background:#16A34A;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-green">Confirmar Resuelto</button>' : '';
   var titulo=datos.titulo||'Evento';
   var fbHtml='';
   if(esDueno){
@@ -757,7 +764,8 @@ function abrirDrawerEvento(idx){
       fbHtml+
       '<div style="display:flex;gap:10px;margin-top:22px">'+
         '<button onclick="cerrarDrawerEvento()" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cerrar</button>'+
-        (esDueno?'':'<button onclick="location.href=\\'/admin/sugerencias\\'" style="flex:1;height:44px;border:none;border-radius:11px;background:#17408B;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-navy">Comentar a mi admin</button>')+
+        resolverBtn+
+        (esDueno?'':'<button onclick="location.href=\'/admin/sugerencias\'" style="flex:1;height:44px;border:none;border-radius:11px;background:#17408B;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-navy">Comentar a mi admin</button>')+
       '</div>'+
     '</div>';
   overlay.classList.add('open');
@@ -811,6 +819,24 @@ async function guardarFeedbackDrawer(btn,row){
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Nota guardada. Marcos va a aprender de esto.','ok');
     if(_drawerActual)_drawerActual.feedback=nota;
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+async function marcarEventoResuelto(btn,row){
+  if(!confirm('¿Estás seguro de marcar este caso como Resuelto?')) return;
+  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
+  try{
+    var r=await fetch('/admin/api/evento-resolver',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({row:row})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Caso marcado como Resuelto con éxito.','ok');
+    if(_drawerActual) {
+      _drawerActual.estKey='resuelto';
+      _drawerActual.estLabel='Resuelto';
+      _drawerActual.estBg='#E7F4EC';
+      _drawerActual.estFg='#1B7A43';
+    }
+    setTimeout(function(){ location.reload(); }, 1200);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
@@ -1227,14 +1253,15 @@ async function cargarDatos(req) {
  * VISTA DE EVENTO (fila del feed + datos del drawer)
  * =================================================================== */
 
-function vistaEvento(e) {
+function vistaEvento(e, filterFn) {
   const cat = clasificarEvento(e);
   const catInfo = CATEGORIAS_EVENTO[cat];
   const canal = canalDe(e);
   const urg = URG_STYLE[e.urgencia] || URG_STYLE.baja;
   const estKey = estadoNormalizado(e.estado);
   const est = EST_STYLE[estKey];
-  const nuevo = esHoy(parseFecha(e.fecha));
+  const fn = filterFn || esDe24Horas;
+  const nuevo = fn(parseFecha(e.fecha));
   return {
     row: e._row,
     titulo: truncate(e.mensaje || e.notas || 'Evento', 80),
@@ -1376,7 +1403,7 @@ function shell(req, d, activeKey, contenido) {
   const userMeta = dueno ? `Dueño del sistema · ${d.edificios.length} edificios` : `Administrador · ${d.propios.length} edificio${d.propios.length === 1 ? '' : 's'}`;
 
   // --- nav ---
-  const nuevosCliente = filtrarPorEdificio(d.eventos, req).filter((e) => esReciente(parseFecha(e.fecha))).length;
+  const nuevosCliente = filtrarPorEdificio(d.eventos, req).filter((e) => estadoNormalizado(e.estado) !== 'resuelto').length;
   const solPend = d.solicitudes.filter((s) => !s.estado || s.estado === 'pendiente').length;
   const navCliente = [
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
@@ -1387,7 +1414,7 @@ function shell(req, d, activeKey, contenido) {
     { key: 'expensas', icon: '📑', label: 'Expensas', href: '/admin/expensas' },
     { key: 'sugerencias', icon: '💡', label: 'Sugerencias', href: '/admin/sugerencias' },
   ];
-  const nuevosDueno = d.eventos.filter((e) => esReciente(parseFecha(e.fecha))).length;
+  const nuevosDueno = d.eventos.filter((e) => estadoNormalizado(e.estado) !== 'resuelto').length;
   const navDueno = [
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
     { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosDueno },
@@ -1724,13 +1751,18 @@ router.get('/', async (req, res) => {
       const filtro = req.session.filtroEdificioDueno;
       const edVisibles = filtro ? d.edificios.filter((e) => e.nombre === filtro) : d.edificios;
       const evVisibles = filtrarPorEdificio(d.eventos, req);
-      const nuevosHoy = evVisibles.filter((e) => esReciente(parseFecha(e.fecha)));
+      
+      const usarReciente = !!filtro;
+      const filterFn = usarReciente ? esReciente : esDe24Horas;
+      const labelPeriodo = usarReciente ? 'Últimos 7 días' : 'Últimas 24 hs';
+
+      const nuevosHoy = evVisibles.filter((e) => filterFn(parseFecha(e.fecha)));
       const urgAbiertas = evVisibles.filter((e) => e.urgencia === 'alta' && estadoNormalizado(e.estado) !== 'resuelto');
       const solPend = d.solicitudes.filter((s) => !s.estado || s.estado === 'pendiente').length;
 
       const kpis = [
         { icon: '🏢', iconBg: '#EAF1FB', value: String(edVisibles.length), label: 'Edificios activos' },
-        { icon: '🔔', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: 'Últimos 7 días' },
+        { icon: '🔔', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: labelPeriodo },
         { icon: '🚨', iconBg: '#FDECEC', value: String(urgAbiertas.length), label: 'Urgencias abiertas' },
         { icon: '📥', iconBg: '#FBF3DE', value: String(solPend), label: 'Solicitudes pendientes' },
         { icon: '🧾', iconBg: '#E7F4EC', value: '$0', label: 'Excedente facturable' },
@@ -1745,7 +1777,8 @@ router.get('/', async (req, res) => {
 
       const cardsHtml = edVisibles.map((e) => {
         const ev = d.eventos.filter((x) => x.edificio === e.nombre);
-        const nuevos = ev.filter((x) => esReciente(parseFecha(x.fecha))).length;
+        // En el listado general de todos los edificios, mostramos novedades de 24 hs
+        const nuevos = ev.filter((x) => esDe24Horas(parseFecha(x.fecha))).length;
         const urg = ev.filter((x) => x.urgencia === 'alta' && estadoNormalizado(x.estado) !== 'resuelto').length;
         const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
         return `
@@ -1758,7 +1791,7 @@ router.get('/', async (req, res) => {
             <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">${esc(e.nombre)}</div>
             <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px">${esc(cliente)} · ${esc(e.tipo || 'Edificio')}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
             <div style="display:flex;gap:16px">
-              <span style="font-size:13px;color:#334259"><strong style="color:#2E6FC0;font-size:15px">${nuevos}</strong> novedades</span>
+              <span style="font-size:13px;color:#334259"><strong style="color:#2E6FC0;font-size:15px">${nuevos}</strong> novedades 24h</span>
               <span style="font-size:13px;color:#334259"><strong style="color:#C0392B;font-size:15px">${urg}</strong> urgencias</span>
             </div>
           </a>`;
@@ -1786,13 +1819,16 @@ router.get('/', async (req, res) => {
         .filter((e) => d.propios.some((b) => b.nombre === e.edificio))
         .slice()
         .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
-      const vistasPropios = evPropios.map(vistaEvento);
+      
+      // En panorama general, mostramos eventos de 24 horas
+      const vistasPropios = evPropios.map((x) => vistaEvento(x, esDe24Horas));
       const novedadesPropios = vistasPropios.filter((v) => v.nuevo);
-      const nuevosHoy = evPropios.filter((e) => esReciente(parseFecha(e.fecha)));
+      const nuevosHoy = evPropios.filter((e) => esDe24Horas(parseFecha(e.fecha)));
       const urgAbiertas = evPropios.filter((e) => e.urgencia === 'alta' && estadoNormalizado(e.estado) !== 'resuelto');
+      
       const kpis = [
         { icon: '🏢', iconBg: '#EAF1FB', value: String(d.propios.length), label: 'Tus edificios' },
-        { icon: '🌙', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: 'Últimos 7 días' },
+        { icon: '🌙', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: 'Últimas 24 hs' },
         { icon: '🚨', iconBg: '#FDECEC', value: String(urgAbiertas.length), label: 'Urgencias abiertas' },
       ];
       const kpiHtml = kpis.map((k) => `
@@ -1813,7 +1849,7 @@ router.get('/', async (req, res) => {
           .flatMap((e) => evPropios.filter((x) => x.edificio === e.nombre).slice(0, 3))
           .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0))
           .slice(0, 8)
-          .map(vistaEvento);
+          .map((x) => vistaEvento(x, esDe24Horas));
       const novHtml = feedVistas.map((v, i) => `
         <button onclick="abrirDrawerEvento(${i})" style="width:100%;display:flex;align-items:flex-start;gap:13px;padding:15px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left" class="hv-row">
           <span style="width:40px;height:40px;border-radius:11px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${v.catIcon}</span>
@@ -1833,7 +1869,7 @@ router.get('/', async (req, res) => {
 
       const cardsHtml = d.propios.map((e) => {
         const ev = d.eventos.filter((x) => x.edificio === e.nombre);
-        const nuevos = ev.filter((x) => esReciente(parseFecha(x.fecha))).length;
+        const nuevos = ev.filter((x) => esDe24Horas(parseFecha(x.fecha))).length;
         const urg = ev.filter((x) => x.urgencia === 'alta' && estadoNormalizado(x.estado) !== 'resuelto').length;
         return `
           <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}"
@@ -1845,7 +1881,7 @@ router.get('/', async (req, res) => {
             <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">${esc(e.nombre)}</div>
             <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px">${esc(e.direccion || e.nombre)}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
             <div style="display:flex;gap:16px">
-              <span style="font-size:13px;color:#334259"><strong style="color:#2E6FC0;font-size:15px">${nuevos}</strong> novedades hoy</span>
+              <span style="font-size:13px;color:#334259"><strong style="color:#2E6FC0;font-size:15px">${nuevos}</strong> novedades 24h</span>
             </div>
           </a>`;
       }).join('');
@@ -1881,16 +1917,20 @@ router.get('/', async (req, res) => {
     // ---------- RESUMEN CLIENTE · UN EDIFICIO ----------
     const cur = d.curBuilding;
     const evTodos = d.eventos.filter((e) => cur && e.edificio === cur.nombre);
-    const vistas = evTodos.map(vistaEvento);
+    
+    // Al entrar a un edificio especifico, mostramos ultimos 7 dias
+    const vistas = evTodos.map((x) => vistaEvento(x, esReciente));
     const novedades = vistas.filter((v) => v.nuevo);
     const cUrg = vistas.filter((v) => v.urgKey === 'alta' && v.estKey !== 'resuelto').length;
     const cCurso = vistas.filter((v) => v.estKey === 'curso').length;
     const cRes = vistas.filter((v) => v.estKey === 'resuelto').length;
+    const cSinResolver = vistas.filter((v) => v.estKey !== 'resuelto').length;
+    
     const greetName = (d.clienteActual ? d.clienteActual.nombre : req.session.user).split(' ')[0];
     const lastConn = req.session.lastConn || '—';
 
     const statCards = [
-      { icon: '🌙', iconBg: '#EAF1FB', value: String(novedades.length), label: 'Novedades nuevas', delta: 'nuevas', deltaColor: '#2E6FC0' },
+      { icon: '🌙', iconBg: '#EAF1FB', value: String(cSinResolver), label: 'Sin resolver', delta: 'pendientes', deltaColor: '#2E6FC0' },
       { icon: '🚨', iconBg: '#FDECEC', value: String(cUrg), label: 'Urgencias abiertas', delta: cUrg ? 'atención' : 'ok', deltaColor: cUrg ? '#C0392B' : '#1B7A43' },
       { icon: '⏳', iconBg: '#FBF3DE', value: String(cCurso), label: 'En curso', delta: 'en gestión', deltaColor: '#8A6410' },
       { icon: '✅', iconBg: '#E7F4EC', value: String(cRes), label: 'Resueltos', delta: 'cerrados', deltaColor: '#1B7A43' },
@@ -2033,7 +2073,12 @@ router.get('/eventos', async (req, res) => {
     const evFiltrados = filtrarPorEdificio(d.eventos, req)
       .slice()
       .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
-    const vistas = evFiltrados.map(vistaEvento);
+
+    // Si se filtra un edificio, mostramos ultimos 7 dias. De lo contrario, ultimas 24 hs
+    const filtroActivo = dueno ? req.session.filtroEdificioDueno : req.session.edificioActivo;
+    const filterFn = filtroActivo ? esReciente : esDe24Horas;
+
+    const vistas = evFiltrados.map((x) => vistaEvento(x, filterFn));
 
     const filas = vistas.length
       ? vistas.map((v, i) => filaEvento(v, i, dueno)).join('')
@@ -3062,6 +3107,35 @@ router.post('/api/feedback', async (req, res) => {
     const plan = await findOrPlanColumn(TAB_EVENTOS, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']);
     if (plan.create) await ensureHeader(TAB_EVENTOS, plan.col, 'feedback', false);
     await writeCell(TAB_EVENTOS, plan.col, Number(row), nota || '');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Marcar evento como resuelto (dueño o cliente del consorcio).
+router.post('/api/evento-resolver', async (req, res) => {
+  try {
+    const { row } = req.body || {};
+    if (!row || isNaN(Number(row))) return res.status(400).json({ error: 'Fila invalida' });
+    
+    const d = await cargarDatos(req);
+    const rowNum = Number(row);
+    const ev = d.eventos.find((e) => e._row === rowNum);
+    if (!ev) return res.status(404).json({ error: 'Evento no encontrado' });
+    
+    // Verificar permisos
+    if (!esDueno(req)) {
+      const permitidos = edificiosPermitidos(req);
+      if (!permitidos || !permitidos.includes(ev.edificio)) {
+        return res.status(403).json({ error: 'Sin permiso para este edificio' });
+      }
+    }
+    
+    const plan = await findOrPlanColumn(TAB_EVENTOS, ['estado', 'status']);
+    if (plan.create) await ensureHeader(TAB_EVENTOS, plan.col, 'estado', false);
+    
+    await writeCell(TAB_EVENTOS, plan.col, rowNum, 'resuelto');
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
