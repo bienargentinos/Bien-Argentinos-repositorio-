@@ -350,14 +350,24 @@ function horarioTexto(str) {
 
 function parseFecha(str) {
   if (!str) return null;
-  const d = new Date(str);
-  if (!isNaN(d.getTime())) return d;
-  const m = String(str).match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})[ ,T]*(\d{1,2})?:?(\d{1,2})?/);
+  const s = String(str).trim();
+
+  // Formato Marcos: "26/4/2026, 2:54:45" o "26/4/2026, 2:54:45\u00a0a.\u00a0m."
+  // Tambien soporta: "5/7/2026" sin hora
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:[,\s]+(?:(\d{1,2}):(\d{2})(?::(\d{2}))?)?)?/);
   if (m) {
     const yr = m[3].length === 2 ? '20' + m[3] : m[3];
-    const dd = new Date(Number(yr), Number(m[2]) - 1, Number(m[1]), Number(m[4] || 0), Number(m[5] || 0));
+    const dd = new Date(
+      Number(yr), Number(m[2]) - 1, Number(m[1]),
+      Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0)
+    );
     if (!isNaN(dd.getTime())) return dd;
   }
+
+  // Fallback ISO u otros formatos que JS entiende nativamente
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d;
+
   return null;
 }
 
@@ -369,6 +379,16 @@ function esHoy(date) {
     date.getMonth() === now.getMonth() &&
     date.getDate() === now.getDate()
   );
+}
+
+// Considera "nuevo" a cualquier evento de los ultimos 7 dias.
+// Esto evita que los contadores/badges den 0 cuando no hay eventos HOY.
+function esReciente(date) {
+  if (!date) return false;
+  const hace7dias = new Date();
+  hace7dias.setDate(hace7dias.getDate() - 7);
+  hace7dias.setHours(0, 0, 0, 0);
+  return date >= hace7dias;
 }
 
 function fechaCorta(date) {
@@ -1356,7 +1376,7 @@ function shell(req, d, activeKey, contenido) {
   const userMeta = dueno ? `Dueño del sistema · ${d.edificios.length} edificios` : `Administrador · ${d.propios.length} edificio${d.propios.length === 1 ? '' : 's'}`;
 
   // --- nav ---
-  const nuevosCliente = filtrarPorEdificio(d.eventos, req).filter((e) => esHoy(parseFecha(e.fecha))).length;
+  const nuevosCliente = filtrarPorEdificio(d.eventos, req).filter((e) => esReciente(parseFecha(e.fecha))).length;
   const solPend = d.solicitudes.filter((s) => !s.estado || s.estado === 'pendiente').length;
   const navCliente = [
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
@@ -1367,7 +1387,7 @@ function shell(req, d, activeKey, contenido) {
     { key: 'expensas', icon: '📑', label: 'Expensas', href: '/admin/expensas' },
     { key: 'sugerencias', icon: '💡', label: 'Sugerencias', href: '/admin/sugerencias' },
   ];
-  const nuevosDueno = d.eventos.filter((e) => esHoy(parseFecha(e.fecha))).length;
+  const nuevosDueno = d.eventos.filter((e) => esReciente(parseFecha(e.fecha))).length;
   const navDueno = [
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
     { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosDueno },
@@ -1704,13 +1724,13 @@ router.get('/', async (req, res) => {
       const filtro = req.session.filtroEdificioDueno;
       const edVisibles = filtro ? d.edificios.filter((e) => e.nombre === filtro) : d.edificios;
       const evVisibles = filtrarPorEdificio(d.eventos, req);
-      const nuevosHoy = evVisibles.filter((e) => esHoy(parseFecha(e.fecha)));
+      const nuevosHoy = evVisibles.filter((e) => esReciente(parseFecha(e.fecha)));
       const urgAbiertas = evVisibles.filter((e) => e.urgencia === 'alta' && estadoNormalizado(e.estado) !== 'resuelto');
       const solPend = d.solicitudes.filter((s) => !s.estado || s.estado === 'pendiente').length;
 
       const kpis = [
         { icon: '🏢', iconBg: '#EAF1FB', value: String(edVisibles.length), label: 'Edificios activos' },
-        { icon: '🔔', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: 'Novedades hoy' },
+        { icon: '🔔', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: 'Últimos 7 días' },
         { icon: '🚨', iconBg: '#FDECEC', value: String(urgAbiertas.length), label: 'Urgencias abiertas' },
         { icon: '📥', iconBg: '#FBF3DE', value: String(solPend), label: 'Solicitudes pendientes' },
         { icon: '🧾', iconBg: '#E7F4EC', value: '$0', label: 'Excedente facturable' },
@@ -1725,8 +1745,8 @@ router.get('/', async (req, res) => {
 
       const cardsHtml = edVisibles.map((e) => {
         const ev = d.eventos.filter((x) => x.edificio === e.nombre);
-        const nuevos = ev.filter((x) => esHoy(parseFecha(x.fecha))).length;
-        const urg = ev.filter((x) => x.urgencia === 'alta' && esHoy(parseFecha(x.fecha))).length;
+        const nuevos = ev.filter((x) => esReciente(parseFecha(x.fecha))).length;
+        const urg = ev.filter((x) => x.urgencia === 'alta' && estadoNormalizado(x.estado) !== 'resuelto').length;
         const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
         return `
           <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/eventos')}"
@@ -1768,11 +1788,11 @@ router.get('/', async (req, res) => {
         .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
       const vistasPropios = evPropios.map(vistaEvento);
       const novedadesPropios = vistasPropios.filter((v) => v.nuevo);
-      const nuevosHoy = evPropios.filter((e) => esHoy(parseFecha(e.fecha)));
+      const nuevosHoy = evPropios.filter((e) => esReciente(parseFecha(e.fecha)));
       const urgAbiertas = evPropios.filter((e) => e.urgencia === 'alta' && estadoNormalizado(e.estado) !== 'resuelto');
       const kpis = [
         { icon: '🏢', iconBg: '#EAF1FB', value: String(d.propios.length), label: 'Tus edificios' },
-        { icon: '🌙', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: 'Novedades hoy' },
+        { icon: '🌙', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: 'Últimos 7 días' },
         { icon: '🚨', iconBg: '#FDECEC', value: String(urgAbiertas.length), label: 'Urgencias abiertas' },
       ];
       const kpiHtml = kpis.map((k) => `
@@ -1813,7 +1833,7 @@ router.get('/', async (req, res) => {
 
       const cardsHtml = d.propios.map((e) => {
         const ev = d.eventos.filter((x) => x.edificio === e.nombre);
-        const nuevos = ev.filter((x) => esHoy(parseFecha(x.fecha))).length;
+        const nuevos = ev.filter((x) => esReciente(parseFecha(x.fecha))).length;
         const urg = ev.filter((x) => x.urgencia === 'alta' && estadoNormalizado(x.estado) !== 'resuelto').length;
         return `
           <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}"
