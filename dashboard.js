@@ -809,9 +809,7 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 .dark-theme .ev-resuelto:hover { background:#0B3D23 !important; }
 
 /* Badges específicos (Planes, Urgencias, etc con óvalos de fondo claro) */
-html.dark-theme body .dark-theme span[style*="border-radius:999px"],
-.dark-theme .hv-card span[style*="border-radius:999px"],
-.dark-theme div[style*="background"] span[style*="border-radius:999px"] { 
+.dark-theme.dark-theme.dark-theme span[style*="border-radius:999px"] { 
     color:#0B132B !important; 
 }
 
