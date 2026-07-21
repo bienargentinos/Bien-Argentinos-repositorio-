@@ -61,12 +61,12 @@ const CREDENTIALS_FILE =
   'gen-lang-client-0735429936-bba6999e5e60.json';
 
 // Pestanias reales que usa Marcos (sheets.js), en minuscula.
-const TAB_EVENTOS = process.env.SHEET_TAB_EVENTOS || 'reportes';
-const TAB_EDIFICIOS = process.env.SHEET_TAB_EDIFICIOS || 'edificios';
+const TAB_EVENTOS = process.env.SHEET_TAB_EVENTOS || 'EVENTOS';
+const TAB_EDIFICIOS = process.env.SHEET_TAB_EDIFICIOS || 'EDIFICIOS';
 const TAB_ARCHIVOS = process.env.SHEET_TAB_ARCHIVOS || 'facturas';
 const TAB_SUGERENCIAS = process.env.SHEET_TAB_SUGERENCIAS || 'sugerencias';
 const TAB_SOLICITUDES = process.env.SHEET_TAB_SOLICITUDES || 'solicitudes';
-const TAB_CLIENTES = process.env.SHEET_TAB_CLIENTES || 'clientes';
+const TAB_CLIENTES = process.env.SHEET_TAB_CLIENTES || 'CLIENTES';
 const TAB_EXPENSAS = process.env.SHEET_TAB_EXPENSAS || 'expensas';
 const TAB_PROVEEDORES = process.env.SHEET_TAB_PROVEEDORES || 'proveedores';
 const TAB_ASIGNACIONES = process.env.SHEET_TAB_ASIGNACIONES || 'proveedor_asignaciones';
@@ -195,9 +195,11 @@ function mapEvento(r) {
     edificio: pick(r, ['edificio', 'consorcio', 'building', 'direccion'], 'Sin edificio'),
     vecino: pick(r, ['vecino', 'nombre', 'remitente', 'contacto', 'usuario'], 'Vecino'),
     telefono: pick(r, ['telefono', 'numero', 'phone', 'celular', 'whatsapp']),
+    depto: pick(r, ['depto', 'departamento']),
+    unidad: pick(r, ['unidad', 'unidad_funcional']),
     tipo,
     mensaje: pick(r, ['problema', 'mensaje', 'texto', 'consulta', 'detalle', 'descripcion', 'contenido']),
-    notas: pick(r, ['notas_ia', 'transcripcion', 'resumen', 'sintesis', 'respuesta_marcos']),
+    notas: pick(r, ['notas', 'notas_ia', 'transcripcion', 'resumen', 'sintesis', 'respuesta_marcos']),
     urgencia,
     estado: pick(r, ['estado', 'status']),
     tecnico: pick(r, ['tecnico', 'proveedor', 'rubro']),
