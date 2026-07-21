@@ -808,11 +808,8 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 .dark-theme .ev-resuelto { background:#062C19 !important; border-left:4px solid #22C55E !important; }
 .dark-theme .ev-resuelto:hover { background:#0B3D23 !important; }
 
-/* Badges específicos (Planes, Urgencias) */
-.dark-theme span[style*="background:#E7F4EC"], .dark-theme span[style*="background: #E7F4EC"] { background:#062C19 !important; color:#22C55E !important; }
-.dark-theme span[style*="background:#FDECEC"], .dark-theme span[style*="background: #FDECEC"] { background:#3B1219 !important; color:#EF4444 !important; }
-.dark-theme span[style*="background:#EEF2F8"], .dark-theme span[style*="background: #EEF2F8"] { background:#1E2C4F !important; color:#94A3B8 !important; }
-.dark-theme span[style*="background:#EDE9FB"], .dark-theme span[style*="background: #EDE9FB"] { background:#2E1065 !important; color:#A78BFA !important; }
+/* Badges específicos (Planes, Urgencias, etc con óvalos de fondo claro) */
+.dark-theme span[style*="border-radius:999px"] { color:#0B132B !important; }
 
 /* Textos Generales */
 .dark-theme h1, .dark-theme h2, .dark-theme h3, .dark-theme h4 { color:#FFFFFF !important; }
