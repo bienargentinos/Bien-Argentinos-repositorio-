@@ -809,7 +809,11 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 .dark-theme .ev-resuelto:hover { background:#0B3D23 !important; }
 
 /* Badges específicos (Planes, Urgencias, etc con óvalos de fondo claro) */
-.dark-theme span[style*="border-radius:999px"] { color:#0B132B !important; }
+html.dark-theme body .dark-theme span[style*="border-radius:999px"],
+.dark-theme .hv-card span[style*="border-radius:999px"],
+.dark-theme div[style*="background"] span[style*="border-radius:999px"] { 
+    color:#0B132B !important; 
+}
 
 /* Textos Generales */
 .dark-theme h1, .dark-theme h2, .dark-theme h3, .dark-theme h4 { color:#FFFFFF !important; }
