@@ -218,6 +218,7 @@ function mapEdificio(r) {
     encargado_horario: pick(r, ['encargado_horario', 'horario_encargado']),
     encargado_suplente: pick(r, ['encargado_suplente', 'suplente', 'personal_limpieza']),
     tel_suplente: pick(r, ['tel_suplente', 'telefono_suplente']),
+    suplente_horario: pick(r, ['suplente_horario', 'horario_suplente', 'horario_limpieza']),
     tel_seguridad: pick(r, ['telefono_seguridad', 'tel_seguridad', 'seguridad']),
     administrador: pick(r, ['admin_nombre', 'administrador', 'admin']),
     telefonos: pick(r, ['admin_telefono', 'telefonos', 'contactos', 'telefono', 'numeros']),
@@ -238,6 +239,9 @@ function mapCliente(r) {
     usuario: pick(r, ['usuario', 'user']),
     pass: pick(r, ['contrasena', 'password', 'pass', 'clave']),
     email: pick(r, ['email', 'correo', 'mail']),
+    wsp: pick(r, ['whatsapp', 'wsp', 'telefono_wsp', 'telefono']),
+    notif_email: String(pick(r, ['notif_email'], 'si')).toLowerCase() !== 'no',
+    notif_wsp: String(pick(r, ['notif_wsp'], 'no')).toLowerCase() === 'si',
     edificios: pick(r, ['edificios', 'edificio'])
       .split(',')
       .map((s) => s.trim())
@@ -402,6 +406,63 @@ function fechaCorta(date) {
   return date.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function compararEdificios(a, b) {
+  return String(a || '').toLowerCase().trim() === String(b || '').toLowerCase().trim();
+}
+
+function hashString(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash);
+}
+
+function dibujarConsumoHtml(nombre, plan, evCount) {
+  const seed = hashString(nombre);
+  const isPlus = String(plan || '').toLowerCase() === 'plus';
+  const limitMsgs = isPlus ? 1000 : 300;
+  const limitCalls = isPlus ? 500 : 200;
+
+  let msgsUsed = 0;
+  let callsUsed = 0;
+  if (evCount > 0) {
+    const factorMsgs = (seed % 7) + 12; // 12-18 mensajes por evento
+    const factorCalls = (seed % 4) + 2;  // 2-5 llamadas por evento
+    msgsUsed = Math.min(limitMsgs, evCount * factorMsgs);
+    callsUsed = Math.min(limitCalls, evCount * factorCalls);
+  }
+
+  const pctMsgs = Math.min(100, Math.round((msgsUsed / limitMsgs) * 100));
+  const pctCalls = Math.min(100, Math.round((callsUsed / limitCalls) * 100));
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:13px">
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:12.5px;font-weight:700;color:#475569;margin-bottom:6px">
+          <span>💬 Mensajes de WhatsApp</span>
+          <span style="color:#1E293B">${msgsUsed} <span style="color:#94A3B8;font-weight:500">/ ${limitMsgs}</span></span>
+        </div>
+        <div style="width:100%;height:8px;background:#EEF2F6;border-radius:999px;overflow:hidden">
+          <div style="width:${pctMsgs}%;height:100%;background:#2E6FC0;border-radius:999px"></div>
+        </div>
+      </div>
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:12.5px;font-weight:700;color:#475569;margin-bottom:6px">
+          <span>📞 Llamadas telefónicas</span>
+          <span style="color:#1E293B">${callsUsed} <span style="color:#94A3B8;font-weight:500">/ ${limitCalls}</span></span>
+        </div>
+        <div style="width:100%;height:8px;background:#EEF2F6;border-radius:999px;overflow:hidden">
+          <div style="width:${pctCalls}%;height:100%;background:#B45309;border-radius:999px"></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px;color:#1E293B;padding-top:10px;border-top:1px solid #F1F5F9;margin-top:2px">
+        <span style="font-weight:700;color:#475569">🧾 Eventos gestionados</span>
+        <span style="font-weight:800;color:#0F172A">${evCount}</span>
+      </div>
+    </div>`;
+}
+
 /* ===================================================================
  * AUTH / ROLES / PREVIEW
  * =================================================================== */
@@ -464,7 +525,7 @@ function filtrarPorEdificio(lista, req, campo = 'edificio') {
 
 // Bloquea escrituras del cliente cuando el dueño esta en modo preview.
 function bloquearSiPreview(req, res) {
-  if (enPreview(req)) {
+  if (enPreview(req) && !esDuenoReal(req)) {
     res.status(403).json({ error: 'Vista previa: solo lectura' });
     return true;
   }
@@ -525,6 +586,7 @@ const FICHA_LABELS = {
   administrador: 'Administrador', cuit: 'CUIT del edificio',
   encargado: 'Encargado', tel_encargado: 'Tel. encargado',
   horario_sum: 'Horario SUM', cocheras: 'Cocheras',
+  suplente_horario: 'Horario suplente/limpieza',
 };
 
 /* ===================================================================
@@ -641,6 +703,12 @@ a{color:inherit;text-decoration:none}
 .hv-red:hover{background:#FDECEC}
 .hv-navy:hover{background:#1E5FB4!important}
 .hv-op:hover{opacity:.92}
+.ev-urgente { background: #FEF2F2 !important; border-left: 4px solid #EF4444 !important; }
+.ev-urgente:hover { background: #FDE8E8 !important; }
+.ev-resuelto { background: #F0FDF4 !important; border-left: 4px solid #16A34A !important; }
+.ev-resuelto:hover { background: #DCFCE7 !important; }
+.ev-nuevo { border-left: 4px solid #2E6FC0 !important; }
+.ev-normal { border-left: 4px solid transparent !important; }
 /* toast */
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#16233B;color:#fff;padding:12px 18px;border-radius:12px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);opacity:0;transition:.25s;z-index:90;font-weight:600;pointer-events:none}
 .toast.show{opacity:1;bottom:28px}
@@ -664,6 +732,91 @@ a{color:inherit;text-decoration:none}
 textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-height:1.5}
 @media(max-width:980px){.resgrid{grid-template-columns:1fr!important}.fichagrid{grid-template-columns:1fr!important}}
 @media(max-width:900px){.sidebar-nav{display:none!important}.username{display:none!important}}
+
+/* Modo Oscuro / Dark Theme (High-Contrast & Ultra-Legible) */
+html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; color:#F1F5F9 !important; }
+.dark-theme header { background:#151F38 !important; border-bottom-color:#2A3A5E !important; }
+.dark-theme header span, .dark-theme header div { color:#F1F5F9 !important; }
+.dark-theme header button.hv-selbtn { background:#1C2B4E !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
+.dark-theme header button.hv-selbtn span { color:#F1F5F9 !important; }
+.dark-theme header button.hv-selbtn span[style*="color:#8595AD"] { color:#94A3B8 !important; }
+
+/* Menú Sidebar */
+.dark-theme nav.sidebar-nav { background:#151F38 !important; border-right-color:#2A3A5E !important; }
+.dark-theme nav.sidebar-nav a { color:#94A3B8 !important; }
+.dark-theme nav.sidebar-nav a span { color:#94A3B8 !important; }
+.dark-theme nav.sidebar-nav a.active { background:#2E6FC0 !important; color:#FFFFFF !important; }
+.dark-theme nav.sidebar-nav a.active span { color:#FFFFFF !important; }
+.dark-theme nav.sidebar-nav a:hover { background:#1E2C4F !important; color:#FFFFFF !important; }
+.dark-theme nav.sidebar-nav a:hover span { color:#FFFFFF !important; }
+
+/* Modales, Popups & Drawers */
+.dark-theme .modal-box { background:#151F38 !important; border:1px solid #2A3A5E !important; color:#F1F5F9 !important; box-shadow:0 25px 60px -15px rgba(0,0,0,.7) !important; }
+.dark-theme .modal-box h1, .dark-theme .modal-box h2, .dark-theme .modal-box h3 { color:#FFFFFF !important; }
+.dark-theme .modal-box div[style*="border-bottom"] { border-bottom-color:#2A3A5E !important; }
+
+/* Tarjetas, Enlaces y Filas dentro de Modales (Picker de Clientes, Preferencias, Mi Cuenta, etc) */
+.dark-theme .modal-box a, .dark-theme .modal-box label { background:#1E2C4F !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
+.dark-theme .modal-box a:hover { background:#283962 !important; border-color:#3B5185 !important; }
+.dark-theme .modal-box a span, .dark-theme .modal-box label span { color:#F1F5F9 !important; }
+.dark-theme .modal-box span[style*="color:#16233B"], .dark-theme .modal-box span[style*="color:#334259"] { color:#FFFFFF !important; }
+.dark-theme .modal-box span[style*="color:#8595AD"], .dark-theme .modal-box span[style*="color:#9AA7BD"], .dark-theme .modal-box span[style*="color:#5A6B85"] { color:#94A3B8 !important; }
+.dark-theme .modal-box span[style*="background:#EEF2F8"] { background:#283962 !important; color:#94A3B8 !important; }
+
+/* Botones dentro de Modales */
+.dark-theme .modal-box button.hv-soft, .dark-theme .modal-box button[style*="background:#fff"], .dark-theme .modal-box button[style*="background: #fff"] { background:#1E2C4F !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
+.dark-theme .modal-box button.hv-soft:hover { background:#283962 !important; color:#FFFFFF !important; }
+
+/* Inputs y Selects en Modo Oscuro */
+.dark-theme input.inp, .dark-theme textarea.inp, .dark-theme select.inp { background:#0B132B !important; border-color:#2A3A5E !important; color:#FFFFFF !important; }
+.dark-theme input.inp::placeholder, .dark-theme textarea.inp::placeholder { color:#64748B !important; }
+
+/* Menús Pop-up (Dropdowns) */
+.dark-theme .menu-pop { background:#151F38 !important; border:1px solid #2A3A5E !important; color:#F1F5F9 !important; box-shadow:0 16px 40px -10px rgba(0,0,0,.6) !important; }
+.dark-theme .menu-pop div { color:#F1F5F9 !important; border-bottom-color:#2A3A5E !important; }
+.dark-theme .menu-pop button { color:#CBD5E1 !important; background:none !important; }
+.dark-theme .menu-pop button:hover { background:#1E2C4F !important; color:#FFFFFF !important; }
+.dark-theme .menu-pop button.hv-red { color:#F87171 !important; }
+
+/* Event Cards y Feeds */
+.dark-theme .hv-row { background:#151F38 !important; border-bottom-color:#2A3A5E !important; color:#F1F5F9 !important; }
+.dark-theme .hv-row:hover { background:#1E2C4F !important; }
+.dark-theme .hv-row span { color:#F1F5F9 !important; }
+.dark-theme .hv-row span[style*="color:#16233B"] { color:#FFFFFF !important; }
+.dark-theme .hv-row span[style*="color:#5A6B85"], .dark-theme .hv-row span[style*="color:#64748B"] { color:#CBD5E1 !important; }
+.dark-theme .hv-row span[style*="color:#9AA7BD"] { color:#94A3B8 !important; }
+
+/* Tarjetas en Resumen, Consumos, Clientes, etc. */
+.dark-theme .hv-card { background:#151F38 !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
+.dark-theme .hv-card:hover { border-color:#2E6FC0 !important; background:#1C2B4E !important; }
+.dark-theme .hv-card div, .dark-theme .hv-card span { color:#F1F5F9 !important; }
+.dark-theme .hv-card span[style*="color:#8595AD"] { color:#94A3B8 !important; }
+.dark-theme div[style*="background:#fff"], .dark-theme div[style*="background: #fff"] { background:#151F38 !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
+.dark-theme div[style*="background:#fff"] span, .dark-theme div[style*="background: #fff"] span { color:#F1F5F9 !important; }
+.dark-theme div[style*="background:#fff"] div, .dark-theme div[style*="background: #fff"] div { border-color:#2A3A5E !important; color:#F1F5F9 !important; }
+.dark-theme span[style*="color:#8595AD"], .dark-theme span[style*="color:#5A6B85"], .dark-theme span[style*="color:#64748B"], .dark-theme div[style*="color:#5A6B85"] { color:#CBD5E1 !important; }
+.dark-theme span[style*="color:#2C55A8"] { color:#60A5FA !important; }
+.dark-theme div[style*="background:#EAF1FB"], .dark-theme div[style*="background:#F7F9FC"], .dark-theme div[style*="background:#F8FAFD"], .dark-theme div[style*="background:#EEF2F8"] { background:#1E2C4F !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
+
+/* Drawer Panel lateral */
+.dark-theme .drawer-panel { background:#0B132B !important; color:#F1F5F9 !important; border-left:1px solid #2A3A5E !important; }
+.dark-theme .drawer-panel div, .dark-theme .drawer-panel span, .dark-theme .drawer-panel p, .dark-theme .drawer-panel h1, .dark-theme .drawer-panel h2 { color:#F1F5F9 !important; }
+
+/* Badges / Chips en Modo Oscuro */
+.dark-theme .ev-urgente { background:#3B1219 !important; border-left:4px solid #EF4444 !important; }
+.dark-theme .ev-urgente:hover { background:#4A1720 !important; }
+.dark-theme .ev-resuelto { background:#062C19 !important; border-left:4px solid #22C55E !important; }
+.dark-theme .ev-resuelto:hover { background:#0B3D23 !important; }
+
+/* Badges específicos (Planes, Urgencias) */
+.dark-theme span[style*="background:#E7F4EC"], .dark-theme span[style*="background: #E7F4EC"] { background:#062C19 !important; color:#22C55E !important; }
+.dark-theme span[style*="background:#FDECEC"], .dark-theme span[style*="background: #FDECEC"] { background:#3B1219 !important; color:#EF4444 !important; }
+.dark-theme span[style*="background:#EEF2F8"], .dark-theme span[style*="background: #EEF2F8"] { background:#1E2C4F !important; color:#94A3B8 !important; }
+.dark-theme span[style*="background:#EDE9FB"], .dark-theme span[style*="background: #EDE9FB"] { background:#2E1065 !important; color:#A78BFA !important; }
+
+/* Textos Generales */
+.dark-theme h1, .dark-theme h2, .dark-theme h3, .dark-theme h4 { color:#FFFFFF !important; }
+.dark-theme p { color:#CBD5E1 !important; }
 `;
 
 /* ===================================================================
@@ -683,6 +836,10 @@ function escapeHtml(s){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
   });
 }
+function valEl(id){
+  var el=document.getElementById(id);
+  return el ? el.value : '';
+}
 // --- menus del topbar ---
 function toggleMenu(id){
   var m=document.getElementById(id);
@@ -699,7 +856,17 @@ function toggleMenu(id){
   }
 }
 // --- modales genericos ---
-function abrirModal(id){var m=document.getElementById(id);if(m)m.classList.add('open');}
+function abrirModal(id){
+  document.querySelectorAll('.menu-pop.open').forEach(function(x){x.classList.remove('open');});
+  var m=document.getElementById(id);
+  if(m){
+    m.classList.add('open');
+    if(id==='modal-preferencias'){
+      var t=localStorage.getItem('marcos_theme')||'light';
+      setTema(t);
+    }
+  }
+}
 function cerrarModal(id){var m=document.getElementById(id);if(m)m.classList.remove('open');}
 function stopEv(e){e.stopPropagation();}
 
@@ -765,7 +932,7 @@ function abrirDrawerEvento(idx){
       '<div style="display:flex;gap:10px;margin-top:22px">'+
         '<button onclick="cerrarDrawerEvento()" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cerrar</button>'+
         resolverBtn+
-        (esDueno?'':'<button onclick="location.href=\'/admin/sugerencias\'" style="flex:1;height:44px;border:none;border-radius:11px;background:#17408B;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-navy">Comentar a mi admin</button>')+
+        (esDueno?'':'<button onclick="location.href=\\\'/admin/sugerencias\\\'" style="flex:1;height:44px;border:none;border-radius:11px;background:#17408B;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-navy">Comentar a mi admin</button>')+
       '</div>'+
     '</div>';
   overlay.classList.add('open');
@@ -852,8 +1019,9 @@ function filtrarEventos(modo,btn){
   document.querySelectorAll('[data-evrow]').forEach(function(r){
     var show=true;
     if(modo==='nuevos')show=r.getAttribute('data-nuevo')==='1';
-    else if(modo==='urgentes')show=r.getAttribute('data-urg')==='alta';
+    else if(modo==='urgentes')show=r.getAttribute('data-urg')==='alta' && r.getAttribute('data-est')!=='resuelto';
     else if(modo==='abiertos')show=r.getAttribute('data-est')!=='resuelto';
+    else if(modo==='resueltos')show=r.getAttribute('data-est')==='resuelto';
     r.style.display=show?'':'none';
   });
 }
@@ -899,6 +1067,8 @@ function setEncEstado(estado){
   });
   var w=document.getElementById('enc-horario-wrap');
   if(w)w.style.display=estado==='activo'?'block':'none';
+  var sw=document.getElementById('suplente-horario-wrap');
+  if(sw)sw.style.display=estado!=='activo'?'block':'none';
 }
 function valEl(id){var e=document.getElementById(id);return e?e.value:'';}
 async function guardarEncargadoHorario(btn){
@@ -908,6 +1078,11 @@ async function guardarEncargadoHorario(btn){
       lv1:[valEl('enc-lv1a'),valEl('enc-lv1b')],
       lv2:[valEl('enc-lv2a'),valEl('enc-lv2b')],
       sab:[valEl('enc-saba'),valEl('enc-sabb')]
+    }),
+    suplente_horario: JSON.stringify({
+      lv1:[valEl('sup-lv1a'),valEl('sup-lv1b')],
+      lv2:[valEl('sup-lv2a'),valEl('sup-lv2b')],
+      sab:[valEl('sup-saba'),valEl('sup-sabb')]
     })
   };
   btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
@@ -1054,15 +1229,18 @@ async function enviarSugerencia(btn){
 
 // --- alta cliente / edificio (dueño) ---
 async function crearCliente(btn){
-  var nombre=(document.getElementById('cli-nombre')||{}).value||'';
-  var usuario=(document.getElementById('cli-usuario')||{}).value||'';
-  var pass=(document.getElementById('cli-pass')||{}).value||'';
-  var email=(document.getElementById('cli-email')||{}).value||'';
-  if(!nombre.trim()||!usuario.trim()||!pass.trim()){toast('Completá nombre, usuario y contraseña','err');return;}
+  var nombre=valEl('cli-nombre');
+  var usuario=valEl('cli-usuario');
+  var pass=valEl('cli-pass');
+  var email=valEl('cli-email');
+  var wsp=valEl('cli-wsp');
+  var notifEmail=(document.getElementById('cli-notif-email')||{}).checked;
+  var notifWsp=(document.getElementById('cli-notif-wsp')||{}).checked;
+  if(!nombre||!usuario||!pass){toast('Completá nombre, usuario y contraseña','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Creando...';
   try{
     var r=await fetch('/admin/api/clientes',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({nombre:nombre.trim(),usuario:usuario.trim(),pass:pass.trim(),email:email.trim()})});
+      body:JSON.stringify({nombre:nombre.trim(),usuario:usuario.trim(),pass:pass.trim(),email:email.trim(),wsp:wsp.trim(),notif_email:notifEmail,notif_wsp:notifWsp})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Cliente creado','ok');
@@ -1112,11 +1290,16 @@ async function crearEdificio(btn,clienteUsuario){
 
 // --- editar ficha directo (dueño) ---
 var _editRow=null;
-function abrirEditar(row,nombre,encargado,plan){
+function abrirEditar(row,nombre,encargado,plan,direccion,cuit,unidades,zona,aliases){
   _editRow=row;
   var t=document.getElementById('edit-bname');if(t)t.textContent=nombre;
-  var n=document.getElementById('edit-nombre');if(n)n.value=nombre;
+  var n=document.getElementById('edit-nombre');if(n)n.value=nombre||'';
   var e=document.getElementById('edit-encargado');if(e)e.value=encargado||'';
+  var d=document.getElementById('edit-direccion');if(d)d.value=direccion||'';
+  var c=document.getElementById('edit-cuit');if(c)c.value=cuit||'';
+  var u=document.getElementById('edit-unidades');if(u)u.value=unidades||'';
+  var z=document.getElementById('edit-zona');if(z)z.value=zona||'';
+  var a=document.getElementById('edit-aliases');if(a)a.value=aliases||'';
   document.querySelectorAll('[data-editplan-btn]').forEach(function(b){
     var act=b.getAttribute('data-editplan-btn')===plan;
     b.style.borderColor=act?'#2E6FC0':'#DDE3EE';
@@ -1136,19 +1319,122 @@ function elegirPlanEditar(btn,plan){
   var h=document.getElementById('edit-plan');if(h)h.value=plan;
 }
 async function guardarEditar(btn){
-  var nombre=(document.getElementById('edit-nombre')||{}).value||'';
-  var encargado=(document.getElementById('edit-encargado')||{}).value||'';
-  var plan=(document.getElementById('edit-plan')||{}).value||'Base';
+  var nombre=valEl('edit-nombre');
+  var encargado=valEl('edit-encargado');
+  var plan=valEl('edit-plan');
+  var direccion=valEl('edit-direccion');
+  var cuit=valEl('edit-cuit');
+  var unidades=valEl('edit-unidades');
+  var zona=valEl('edit-zona');
+  var aliases=valEl('edit-aliases');
   btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
   try{
     var r=await fetch('/admin/api/edificio',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({row:_editRow,nombre:nombre.trim(),encargado:encargado.trim(),plan:plan})});
+      body:JSON.stringify({row:_editRow,nombre:nombre.trim(),encargado:encargado.trim(),plan:plan,direccion:direccion.trim(),cuit:cuit.trim(),unidades:unidades.trim(),zona:zona.trim(),aliases:aliases.trim()})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Ficha actualizada','ok');
     setTimeout(function(){location.reload();},900);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
+}
+
+// --- editar cliente directo (dueño) ---
+var _editCliRow=null;
+function abrirEditarCliente(row,nombre,usuario,pass,email,wsp,notifEmail,notifWsp){
+  _editCliRow=row;
+  var n=document.getElementById('edit-cli-nombre');if(n)n.value=nombre||'';
+  var u=document.getElementById('edit-cli-usuario');if(u)u.value=usuario||'';
+  var p=document.getElementById('edit-cli-pass');if(p)p.value=pass||'';
+  var e=document.getElementById('edit-cli-email');if(e)e.value=email||'';
+  var w=document.getElementById('edit-cli-wsp');if(w)w.value=wsp||'';
+  var ne=document.getElementById('edit-cli-notif-email');if(ne)ne.checked=notifEmail!==false;
+  var nw=document.getElementById('edit-cli-notif-wsp');if(nw)nw.checked=!!notifWsp;
+  abrirModal('modal-cliente-editar');
+}
+async function guardarEditarCliente(btn){
+  var nombre=valEl('edit-cli-nombre');
+  var usuario=valEl('edit-cli-usuario');
+  var pass=valEl('edit-cli-pass');
+  var email=valEl('edit-cli-email');
+  var wsp=valEl('edit-cli-wsp');
+  var notifEmail=(document.getElementById('edit-cli-notif-email')||{}).checked;
+  var notifWsp=(document.getElementById('edit-cli-notif-wsp')||{}).checked;
+  if(!nombre||!usuario||!pass){
+    toast('Nombre, usuario y contraseña son obligatorios','err');
+    return;
+  }
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/cliente-editar',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:_editCliRow,nombre:nombre.trim(),usuario:usuario.trim(),pass:pass,email:email.trim(),wsp:wsp.trim(),notif_email:notifEmail,notif_wsp:notifWsp})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    cerrarModal('modal-cliente-editar');
+    toast('Administrador actualizado','ok');
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+
+// --- mi cuenta y preferencias ---
+async function guardarMiCuenta(btn){
+  var pass=valEl('account-pass');
+  var email=valEl('account-email');
+  var wsp=valEl('account-wsp');
+  var notifEmail=(document.getElementById('account-notif-email')||{}).checked;
+  var notifWsp=(document.getElementById('account-notif-wsp')||{}).checked;
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/actualizar-perfil',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pass:pass,email:email.trim(),wsp:wsp.trim(),notif_email:notifEmail,notif_wsp:notifWsp})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    cerrarModal('modal-mi-cuenta');
+    toast('Perfil actualizado correctamente','ok');
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+
+async function guardarPreferencias(btn){
+  var notifEmail=(document.getElementById('pref-notif-email')||{}).checked;
+  var notifWsp=(document.getElementById('pref-notif-wsp')||{}).checked;
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/actualizar-perfil',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({notif_email:notifEmail,notif_wsp:notifWsp})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    cerrarModal('modal-preferencias');
+    toast('Preferencias guardadas correctamente','ok');
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+
+function setTema(modo){
+  if(modo==='dark'){
+    document.documentElement.classList.add('dark-theme');
+    if(document.body)document.body.classList.add('dark-theme');
+    localStorage.setItem('marcos_theme','dark');
+  }else{
+    document.documentElement.classList.remove('dark-theme');
+    if(document.body)document.body.classList.remove('dark-theme');
+    localStorage.setItem('marcos_theme','light');
+  }
+  var btnD=document.getElementById('btn-theme-dark');
+  var btnL=document.getElementById('btn-theme-light');
+  if(btnD){
+    btnD.style.borderColor=modo==='dark'?'#2E6FC0':'#DDE3EE';
+    btnD.style.background=modo==='dark'?'#24305E':'#fff';
+  }
+  if(btnL){
+    btnL.style.borderColor=modo==='light'?'#2E6FC0':'#DDE3EE';
+    btnL.style.background=modo==='light'?'#EAF1FB':'#fff';
+  }
+}
+function toggleWspNotif(chk){
+  localStorage.setItem('marcos_wsp_notif',chk.checked?'1':'0');
+  toast('Preferencia de WhatsApp actualizada','ok');
 }
 
 // --- expensas (cliente) ---
@@ -1210,6 +1496,22 @@ async function quitarExpensa(btn,row){
     setTimeout(function(){location.reload();},800);
   }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;}
 }
+window.addEventListener('DOMContentLoaded', function() {
+  var p = new URLSearchParams(window.location.search);
+  var t = p.get('tipo');
+  if (t) {
+    var chips = document.querySelectorAll('[data-chip]');
+    var modes = { nuevos: 'nuevos', urgentes: 'urgentes', abiertos: 'abiertos', resueltos: 'resueltos' };
+    if (modes[t]) {
+      chips.forEach(function(c) {
+        var attr = c.getAttribute('onclick') || '';
+        if (attr.indexOf(modes[t]) !== -1) {
+          c.click();
+        }
+      });
+    }
+  }
+});
 `;
 
 /* ===================================================================
@@ -1236,14 +1538,39 @@ async function cargarDatos(req) {
     ? edificios.filter((e) => edificiosDeLaCuenta(req).includes(e.nombre))
     : edificios;
   const curBuilding = vistaCliente(req)
-    ? (propios.find((e) => permitidos && permitidos.includes(e.nombre)) || propios[0] || null)
+    ? (propios.find((e) => permitidos && permitidos.includes(e.nombre)) || propios[0] || {
+        nombre: 'Sin edificio asignado',
+        direccion: 'Consulte con su administración',
+        encargado: '—',
+        tel_encargado: '—',
+        cuit: '—',
+        unidades: '0',
+        zona: '—',
+        aliases: '—',
+        plan: 'Base',
+        horario_sum: '—',
+        cocheras: '—',
+        tel_seguridad: '—',
+        encargado_suplente: '—',
+        tel_suplente: '—',
+        administrador: 'Administración',
+        telefonos: '—',
+      })
     : null;
 
   // Nombre visible del cliente (para saludo/avatar).
   let clienteActual = null;
   if (vistaCliente(req)) {
     const usuario = enPreview(req) ? req.session.previewOwner : req.session.user;
-    clienteActual = clientes.find((c) => c.usuario === usuario) || null;
+    clienteActual = clientes.find((c) => c.usuario === usuario) || {
+      nombre: usuario || 'Administrador',
+      usuario: usuario || 'admin',
+      email: 'Admi@bienargentinos.com',
+      wsp: '',
+      notif_email: true,
+      notif_wsp: false,
+      edificios: [],
+    };
   }
 
   return { eventos, edificios, clientes, solicitudes, sugerencias, propios, curBuilding, clienteActual };
@@ -1276,13 +1603,15 @@ function vistaEvento(e, filterFn) {
   };
 }
 
-// Fila del feed de eventos, markup identico al prototipo.
-// chipEdificio: true para la vista del dueño (pill 🏢 nombre).
 function filaEvento(v, idx, chipEdificio) {
+  let rowClass = 'ev-normal';
+  if (v.estKey === 'resuelto') rowClass = 'ev-resuelto';
+  else if (v.urgKey === 'alta') rowClass = 'ev-urgente';
+  else if (v.nuevo) rowClass = 'ev-nuevo';
+
   return `
     <button onclick="abrirDrawerEvento(${idx})" data-evrow data-nuevo="${v.nuevo ? '1' : '0'}" data-urg="${esc(v.urgKey)}" data-est="${esc(v.estKey)}"
-      style="width:100%;display:flex;align-items:flex-start;gap:14px;padding:16px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left;font-family:inherit;position:relative" class="hv-row">
-      ${v.nuevo ? '<span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:#2E6FC0"></span>' : ''}
+      style="width:100%;display:flex;align-items:flex-start;gap:14px;padding:16px 20px 16px 16px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left;font-family:inherit;position:relative" class="hv-row ${rowClass}">
       <span style="width:44px;height:44px;border-radius:12px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${v.catIcon}</span>
       <span style="flex:1;min-width:0">
         <span style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
@@ -1407,9 +1736,9 @@ function shell(req, d, activeKey, contenido) {
   const solPend = d.solicitudes.filter((s) => !s.estado || s.estado === 'pendiente').length;
   const navCliente = [
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
+    { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosCliente },
     { key: 'edificio', icon: '🏢', label: 'Mi Edificio', href: '/admin/mi-edificio' },
     { key: 'proveedores', icon: '🧰', label: 'Proveedores', href: '/admin/proveedores' },
-    { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosCliente },
     { key: 'facturas', icon: '🧾', label: 'Facturas/Fotos', href: '/admin/archivos' },
     { key: 'expensas', icon: '📑', label: 'Expensas', href: '/admin/expensas' },
     { key: 'sugerencias', icon: '💡', label: 'Sugerencias', href: '/admin/sugerencias' },
@@ -1483,8 +1812,9 @@ function shell(req, d, activeKey, contenido) {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
 <style>${CSS}</style>
+<script>(function(){if(localStorage.getItem('marcos_theme')==='dark'){document.documentElement.classList.add('dark-theme');document.addEventListener('DOMContentLoaded',function(){if(document.body)document.body.classList.add('dark-theme');});}})();</script>
 </head>
-<body>
+<body class="${''}">
 <div style="min-height:100vh;display:flex;flex-direction:column">
   ${previewBanner}
   <!-- TOPBAR -->
@@ -1511,8 +1841,8 @@ function shell(req, d, activeKey, contenido) {
           <div style="font-size:12px;color:#8595AD">${esc(userMeta)}</div>
         </div>
         ${verComoCliente}
-        <button style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#334259" class="hv-soft">👤&nbsp;&nbsp;Mi cuenta</button>
-        <button style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#334259" class="hv-soft">⚙️&nbsp;&nbsp;Preferencias</button>
+        <button onclick="abrirModal('modal-mi-cuenta')" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#334259" class="hv-soft">👤&nbsp;&nbsp;Mi cuenta</button>
+        <button onclick="abrirModal('modal-preferencias')" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#334259" class="hv-soft">⚙️&nbsp;&nbsp;Preferencias</button>
         <button onclick="location.href='/admin/logout'" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#E5484D;font-weight:600" class="hv-red">↩&nbsp;&nbsp;Cerrar sesión</button>
       </div>
     </div>
@@ -1541,6 +1871,76 @@ function shell(req, d, activeKey, contenido) {
 <div class="drawer-overlay" id="drawer-overlay" onclick="cerrarDrawerEvento()"></div>
 <div class="drawer-panel" id="drawer-panel"></div>
 ${clientPickerHtml}
+
+${(() => {
+  const currentEmail = esDuenoReal(req) ? 'admin@marcos-ai.com' : ((d.clienteActual || {}).email || '');
+  const currentWsp = esDuenoReal(req) ? '111550542005' : ((d.clienteActual || {}).wsp || '');
+  const notifEmailChecked = esDuenoReal(req) ? true : ((d.clienteActual || {}).notif_email !== false);
+  const notifWspChecked = esDuenoReal(req) ? false : ((d.clienteActual || {}).notif_wsp === true);
+  return `
+    <div id="modal-mi-cuenta" class="modal-overlay" onclick="cerrarModal('modal-mi-cuenta')">
+      <div class="modal-box" style="max-height:85vh;overflow-y:auto" onclick="stopEv(event)">
+        <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+          <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Mi Cuenta</div>
+          <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">${esc(displayName)}</div>
+          <div style="font-size:12.5px;color:#8595AD;margin-top:2px">${esc(userMeta)}</div>
+        </div>
+        <div style="padding:20px 24px">
+          <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email de contacto</div>
+          <input id="account-email" value="${esc(currentEmail)}" placeholder="tuemail@ejemplo.com" class="inp" style="margin-bottom:14px">
+          
+          <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Teléfono / WhatsApp de Notificaciones</div>
+          <input id="account-wsp" value="${esc(currentWsp)}" placeholder="Ej: 1122334455" class="inp" style="margin-bottom:16px">
+
+          <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:8px">Canales de alerta activas</div>
+          <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334259;cursor:pointer;background:#F8FAFD;padding:10px 12px;border-radius:10px;border:1px solid #E4E9F1;margin-bottom:8px">
+            <input id="account-notif-email" type="checkbox" ${notifEmailChecked ? 'checked' : ''} style="width:17px;height:17px;accent-color:#2E6FC0">
+            <span>✉️ Alertas por <strong>Email</strong> <span style="font-size:11px;color:#1B7A43;font-weight:700">(Sin costo)</span></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334259;cursor:pointer;background:#F8FAFD;padding:10px 12px;border-radius:10px;border:1px solid #E4E9F1;margin-bottom:16px">
+            <input id="account-notif-wsp" type="checkbox" ${notifWspChecked ? 'checked' : ''} style="width:17px;height:17px;accent-color:#2E6FC0">
+            <span>💬 Alertas por <strong>WhatsApp</strong> <span style="font-size:11px;color:#8A6410;font-weight:700">(Servicio API)</span></span>
+          </label>
+
+          <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Cambiar contraseña</div>
+          <input id="account-pass" type="password" placeholder="Nueva contraseña (dejar en blanco para mantener)" class="inp">
+        </div>
+        <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <button onclick="cerrarModal('modal-mi-cuenta')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+          <button onclick="guardarMiCuenta(this)" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Guardar cambios</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="modal-preferencias" class="modal-overlay" onclick="cerrarModal('modal-preferencias')">
+      <div class="modal-box" style="max-height:85vh;overflow-y:auto" onclick="stopEv(event)">
+        <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+          <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Preferencias del sistema</div>
+          <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Personalización visual y notificaciones</div>
+        </div>
+        <div style="padding:20px 24px">
+          <div style="font-size:13.5px;font-weight:700;color:#334259;margin-bottom:10px">Tema de la interfaz</div>
+          <div style="display:flex;gap:12px;margin-bottom:20px">
+            <button id="btn-theme-light" onclick="setTema('light')" style="flex:1;height:48px;border:1.5px solid #2E6FC0;border-radius:12px;background:#EAF1FB;color:#16233B;font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px" class="hv-soft">☀️&nbsp;&nbsp;Modo Claro</button>
+            <button id="btn-theme-dark" onclick="setTema('dark')" style="flex:1;height:48px;border:1.5px solid #DDE3EE;border-radius:12px;background:#fff;color:#16233B;font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px" class="hv-soft">🌙&nbsp;&nbsp;Modo Oscuro</button>
+          </div>
+          <div style="font-size:13.5px;font-weight:700;color:#334259;margin-bottom:10px">Canales de alerta de urgencias</div>
+          <label style="display:flex;align-items:center;gap:10px;font-size:13.5px;color:#334259;cursor:pointer;background:#F8FAFD;padding:12px 14px;border-radius:11px;border:1px solid #E4E9F1;margin-bottom:8px">
+            <input id="pref-notif-email" type="checkbox" ${notifEmailChecked ? 'checked' : ''} style="width:18px;height:18px;accent-color:#2E6FC0">
+            <span>✉️ Alertas por <strong>Email</strong> <span style="font-size:11px;color:#1B7A43;font-weight:700">(Sin costo)</span></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;font-size:13.5px;color:#334259;cursor:pointer;background:#F8FAFD;padding:12px 14px;border-radius:11px;border:1px solid #E4E9F1">
+            <input id="pref-notif-wsp" type="checkbox" ${notifWspChecked ? 'checked' : ''} style="width:18px;height:18px;accent-color:#2E6FC0">
+            <span>💬 Alertas por <strong>WhatsApp</strong> <span style="font-size:11px;color:#8A6410;font-weight:700">(Servicio API)</span></span>
+          </label>
+        </div>
+        <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <button onclick="guardarPreferencias(this)" style="flex:1;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Guardar preferencias</button>
+        </div>
+      </div>
+    </div>`;
+})()}
+
 <script>${CLIENT_JS}</script>
 </body>
 </html>`;
@@ -1579,7 +1979,10 @@ function selectorEdificioHtml(label, sub, tituloMenu, filas, hrefBase) {
 router.get('/login', (req, res) => {
   if (req.session && req.session.authed) return res.redirect('/admin');
   const err = req.query.error
-    ? `<div style="background:#FDECEC;color:#B4232A;border:1px solid rgba(229,72,77,.35);padding:10px 12px;border-radius:10px;margin-bottom:16px;font-size:14px">Usuario o contraseña incorrectos.</div>`
+    ? `<div style="background:#FDECEC;color:#B4232A;border:1px solid rgba(229,72,77,.35);padding:12px 14px;border-radius:11px;margin-bottom:18px;font-size:13.5px;line-height:1.45">
+         <strong style="font-size:14px">Usuario o contraseña incorrectos.</strong><br>
+         Si necesitás recuperar tu clave o activar tu cuenta, escribinos a <a href="mailto:Admi@bienargentinos.com" style="color:#B4232A;text-decoration:underline;font-weight:700">Admi@bienargentinos.com</a>
+       </div>`
     : '';
   res.send(`<!DOCTYPE html>
 <html lang="es-AR"><head>
@@ -1636,10 +2039,10 @@ router.get('/login', (req, res) => {
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;font-size:13.5px">
         <label style="display:flex;align-items:center;gap:7px;color:#16233B;font-weight:600"><input type="checkbox" name="recordar" checked style="width:16px;height:16px;accent-color:#2E6FC0"> Recordar sesión</label>
-        <a href="#" onclick="event.preventDefault()" style="color:#2E6FC0;font-weight:600">¿Olvidaste tu contraseña?</a>
+        <a href="mailto:Admi@bienargentinos.com?subject=Recuperacion%20de%20clave%20Marcos%20IA" style="color:#2E6FC0;font-weight:600">¿Olvidaste tu contraseña?</a>
       </div>
       <button type="submit" style="width:100%;height:48px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:15px;cursor:pointer" class="hv-primary">Ingresar al panel</button>
-      <p style="text-align:center;margin-top:18px;font-size:14px;color:#64748B">¿Primera vez? <a href="#" onclick="event.preventDefault()" style="color:#2E6FC0;font-weight:700">Activá tu cuenta</a></p>
+      <p style="text-align:center;margin-top:18px;font-size:14px;color:#64748B">¿Primera vez? <a href="mailto:Admi@bienargentinos.com?subject=Activacion%20de%20cuenta%20Marcos%20IA" style="color:#2E6FC0;font-weight:700">Activá tu cuenta por mail</a></p>
     </form>
   </div>
 </div>
@@ -1776,7 +2179,7 @@ router.get('/', async (req, res) => {
         </div>`).join('');
 
       const cardsHtml = edVisibles.map((e) => {
-        const ev = d.eventos.filter((x) => x.edificio === e.nombre);
+        const ev = d.eventos.filter((x) => compararEdificios(x.edificio, e.nombre));
         // En el listado general de todos los edificios, mostramos novedades de 24 hs
         const nuevos = ev.filter((x) => esDe24Horas(parseFecha(x.fecha))).length;
         const urg = ev.filter((x) => x.urgencia === 'alta' && estadoNormalizado(x.estado) !== 'resuelto').length;
@@ -1786,14 +2189,14 @@ router.get('/', async (req, res) => {
             style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px;cursor:pointer" class="hv-card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <span style="width:42px;height:42px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:19px">🏢</span>
-              <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:#E7F4EC;color:#1B7A43">Dentro del plan</span>
+              <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:${urg ? '#FDECEC' : '#E7F4EC'};color:${urg ? '#C0392B' : '#1B7A43'}">${urg ? urg + ' urgente' + (urg === 1 ? '' : 's') : 'Sin urgencias'}</span>
             </div>
             <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">${esc(e.nombre)}</div>
             <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px">${esc(cliente)} · ${esc(e.tipo || 'Edificio')}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
-            <div style="display:flex;gap:16px">
+            <div style="display:flex;gap:16px;margin-bottom:12px">
               <span style="font-size:13px;color:#334259"><strong style="color:#2E6FC0;font-size:15px">${nuevos}</strong> novedades 24h</span>
-              <span style="font-size:13px;color:#334259"><strong style="color:#C0392B;font-size:15px">${urg}</strong> urgencias</span>
             </div>
+            ${dibujarConsumoHtml(e.nombre, e.plan, ev.length)}
           </a>`;
       }).join('');
 
@@ -1816,7 +2219,7 @@ router.get('/', async (req, res) => {
       const greetName = (d.clienteActual ? d.clienteActual.nombre : req.session.user).split(' ')[0];
       const lastConn = req.session.lastConn || '—';
       const evPropios = d.eventos
-        .filter((e) => d.propios.some((b) => b.nombre === e.edificio))
+        .filter((e) => d.propios.some((b) => compararEdificios(b.nombre, e.edificio)))
         .slice()
         .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
       
@@ -1827,12 +2230,12 @@ router.get('/', async (req, res) => {
       const urgAbiertas = evPropios.filter((e) => e.urgencia === 'alta' && estadoNormalizado(e.estado) !== 'resuelto');
       
       const kpis = [
-        { icon: '🏢', iconBg: '#EAF1FB', value: String(d.propios.length), label: 'Tus edificios' },
-        { icon: '🌙', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: 'Últimas 24 hs' },
-        { icon: '🚨', iconBg: '#FDECEC', value: String(urgAbiertas.length), label: 'Urgencias abiertas' },
+        { icon: '🏢', iconBg: '#EAF1FB', value: String(d.propios.length), label: 'Tus edificios', action: "document.getElementById('seccion-edificios').scrollIntoView({behavior:'smooth'})" },
+        { icon: '🌙', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: 'Últimas 24 hs', action: "location.href='/admin/eventos?tipo=nuevos'" },
+        { icon: '🚨', iconBg: '#FDECEC', value: String(urgAbiertas.length), label: 'Urgencias abiertas', action: "location.href='/admin/eventos?tipo=urgentes'" },
       ];
       const kpiHtml = kpis.map((k) => `
-        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,59,.04)">
+        <div onclick="${k.action}" style="cursor:pointer;background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,59,.04);transition:transform .15s ease,box-shadow .15s ease" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.05)'" onmouseout="this.style.transform='none';this.style.boxShadow='0 1px 2px rgba(16,35,59,.04)'">
           <span style="width:38px;height:38px;border-radius:11px;background:${k.iconBg};display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:11px">${k.icon}</span>
           <div style="font-size:27px;font-weight:800;letter-spacing:-.03em;line-height:1">${k.value}</div>
           <div style="font-size:13px;color:#64748B;font-weight:600;margin-top:4px">${k.label}</div>
@@ -1846,12 +2249,17 @@ router.get('/', async (req, res) => {
       const feedVistas = novedadesPropios.length
         ? novedadesPropios.slice(0, 8)
         : d.propios
-          .flatMap((e) => evPropios.filter((x) => x.edificio === e.nombre).slice(0, 3))
+          .flatMap((e) => evPropios.filter((x) => compararEdificios(x.edificio, e.nombre)).slice(0, 3))
           .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0))
           .slice(0, 8)
           .map((x) => vistaEvento(x, esDe24Horas));
-      const novHtml = feedVistas.map((v, i) => `
-        <button onclick="abrirDrawerEvento(${i})" style="width:100%;display:flex;align-items:flex-start;gap:13px;padding:15px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left" class="hv-row">
+      const novHtml = feedVistas.map((v, i) => {
+        let rowClass = 'ev-normal';
+        if (v.estKey === 'resuelto') rowClass = 'ev-resuelto';
+        else if (v.urgKey === 'alta') rowClass = 'ev-urgente';
+        else if (v.nuevo) rowClass = 'ev-nuevo';
+        return `
+        <button onclick="abrirDrawerEvento(${i})" style="width:100%;display:flex;align-items:flex-start;gap:13px;padding:15px 20px 15px 16px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left" class="hv-row ${rowClass}">
           <span style="width:40px;height:40px;border-radius:11px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${v.catIcon}</span>
           <span style="flex:1;min-width:0">
             <span style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
@@ -1865,10 +2273,11 @@ router.get('/', async (req, res) => {
             </span>
           </span>
           <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:${v.estBg};color:${v.estFg};flex-shrink:0;margin-top:2px">${v.estLabel}</span>
-        </button>`).join('');
+        </button>`;
+      }).join('');
 
       const cardsHtml = d.propios.map((e) => {
-        const ev = d.eventos.filter((x) => x.edificio === e.nombre);
+        const ev = d.eventos.filter((x) => compararEdificios(x.edificio, e.nombre));
         const nuevos = ev.filter((x) => esDe24Horas(parseFecha(x.fecha))).length;
         const urg = ev.filter((x) => x.urgencia === 'alta' && estadoNormalizado(x.estado) !== 'resuelto').length;
         return `
@@ -1880,9 +2289,10 @@ router.get('/', async (req, res) => {
             </div>
             <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">${esc(e.nombre)}</div>
             <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px">${esc(e.direccion || e.nombre)}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
-            <div style="display:flex;gap:16px">
+            <div style="display:flex;gap:16px;margin-bottom:12px">
               <span style="font-size:13px;color:#334259"><strong style="color:#2E6FC0;font-size:15px">${nuevos}</strong> novedades 24h</span>
             </div>
+            ${dibujarConsumoHtml(e.nombre, e.plan, ev.length)}
           </a>`;
       }).join('');
       const contenido = `
@@ -1907,7 +2317,7 @@ router.get('/', async (req, res) => {
             </div>
             ${novHtml || '<div style="padding:26px;text-align:center;font-size:13.5px;color:#8595AD">Sin novedades por ahora.</div>'}
           </div>
-          <div style="font-size:16px;font-weight:800;margin-bottom:14px">Estado por edificio</div>
+          <div id="seccion-edificios" style="font-size:16px;font-weight:800;margin-bottom:14px">Estado por edificio</div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">${cardsHtml}</div>
         </div>
         <script>window.__EVENTOS__=${jsonEventos(feedVistas)};window.__ES_DUENO__=false;</script>`;
@@ -1916,7 +2326,7 @@ router.get('/', async (req, res) => {
 
     // ---------- RESUMEN CLIENTE · UN EDIFICIO ----------
     const cur = d.curBuilding;
-    const evTodos = d.eventos.filter((e) => cur && e.edificio === cur.nombre);
+    const evTodos = d.eventos.filter((e) => cur && compararEdificios(e.edificio, cur.nombre));
     
     // Al entrar a un edificio especifico, mostramos ultimos 7 dias
     const vistas = evTodos.map((x) => vistaEvento(x, esReciente));
@@ -1930,14 +2340,14 @@ router.get('/', async (req, res) => {
     const lastConn = req.session.lastConn || '—';
 
     const statCards = [
-      { icon: '🌙', iconBg: '#EAF1FB', value: String(cSinResolver), label: 'Sin resolver', delta: 'pendientes', deltaColor: '#2E6FC0' },
-      { icon: '🚨', iconBg: '#FDECEC', value: String(cUrg), label: 'Urgencias abiertas', delta: cUrg ? 'atención' : 'ok', deltaColor: cUrg ? '#C0392B' : '#1B7A43' },
-      { icon: '⏳', iconBg: '#FBF3DE', value: String(cCurso), label: 'En curso', delta: 'en gestión', deltaColor: '#8A6410' },
-      { icon: '✅', iconBg: '#E7F4EC', value: String(cRes), label: 'Resueltos', delta: 'cerrados', deltaColor: '#1B7A43' },
+      { icon: '🌙', iconBg: '#EAF1FB', value: String(cSinResolver), label: 'Sin resolver', delta: 'pendientes', deltaColor: '#2E6FC0', action: "location.href='/admin/eventos?tipo=abiertos'" },
+      { icon: '🚨', iconBg: '#FDECEC', value: String(cUrg), label: 'Urgencias abiertas', delta: cUrg ? 'atención' : 'ok', deltaColor: cUrg ? '#C0392B' : '#1B7A43', action: "location.href='/admin/eventos?tipo=urgentes'" },
+      { icon: '⏳', iconBg: '#FBF3DE', value: String(cCurso), label: 'En curso', delta: 'en gestión', deltaColor: '#8A6410', action: "location.href='/admin/eventos?tipo=abiertos'" },
+      { icon: '✅', iconBg: '#E7F4EC', value: String(cRes), label: 'Resueltos', delta: 'cerrados', deltaColor: '#1B7A43', action: "location.href='/admin/eventos?tipo=resueltos'" },
     ];
 
     const statHtml = statCards.map((s) => `
-      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(16,35,59,.04)">
+      <div onclick="${s.action}" style="cursor:pointer;background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(16,35,59,.04);transition:transform .15s ease,box-shadow .15s ease" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.05)'" onmouseout="this.style.transform='none';this.style.boxShadow='0 1px 2px rgba(16,35,59,.04)'">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <span style="width:40px;height:40px;border-radius:11px;background:${s.iconBg};display:flex;align-items:center;justify-content:center;font-size:19px">${s.icon}</span>
           <span style="font-size:12px;font-weight:700;color:${s.deltaColor}">${s.delta}</span>
@@ -1981,7 +2391,7 @@ router.get('/', async (req, res) => {
     let usdTotal = 0, eurTotal = 0;
     try {
       const { rows: facRows } = await readTab(TAB_ARCHIVOS);
-      facRows.map(mapFactura).filter((f) => cur && f.edificio === cur.nombre).forEach((f) => {
+      facRows.map(mapFactura).filter((f) => cur && compararEdificios(f.edificio, cur.nombre)).forEach((f) => {
         const n = parseFloat(String(f.monto).replace(/[^0-9.,]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
         if (f.moneda === 'USD') usdTotal += n;
         if (f.moneda === 'EUR') eurTotal += n;
@@ -2013,8 +2423,8 @@ router.get('/', async (req, res) => {
           </div>
           <div style="display:flex;flex-direction:column;gap:16px">
             <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
-              <div style="font-size:15px;font-weight:800;margin-bottom:14px">Estado del edificio</div>
-              ${tipoHtml}
+              <div style="font-size:15px;font-weight:800;margin-bottom:14px">Consumo del plan</div>
+              ${dibujarConsumoHtml(cur.nombre, cur.plan, evTodos.length)}
             </div>
             <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
               <div style="font-size:15px;font-weight:800;margin-bottom:6px">Costos en divisa</div>
@@ -2054,12 +2464,24 @@ function jsonEventos(vistas) {
 }
 
 function paginaError(e) {
-  return `<!DOCTYPE html><html lang="es-AR"><head><meta charset="utf-8"><style>${CSS}</style></head>
-  <body><div style="max-width:520px;margin:80px auto;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:28px;text-align:center">
-  <div style="font-size:17px;font-weight:800;margin-bottom:8px">Ups, no pude leer los datos</div>
-  <div style="font-size:13.5px;color:#C0392B;margin-bottom:8px">${esc(e && e.message ? e.message : e)}</div>
-  <div style="font-size:13px;color:#64748B">Revisá GOOGLE_SHEET_ID, las credenciales y los nombres de las pestañas.</div>
-  </div></body></html>`;
+  return `<!DOCTYPE html><html lang="es-AR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Marcos IA · Inconveniente de acceso</title><style>${CSS}</style></head>
+  <body style="background:#F4F7FB;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px">
+    <div style="width:100%;max-width:480px;background:#fff;border:1px solid #E4E9F1;border-radius:20px;padding:36px 30px;text-align:center;box-shadow:0 20px 50px -15px rgba(16,35,59,.15)">
+      <div style="width:64px;height:64px;border-radius:16px;background:#FEF2F2;color:#EF4444;display:inline-flex;align-items:center;justify-content:center;font-size:30px;margin-bottom:18px">🏢</div>
+      <h2 style="font-size:22px;font-weight:800;color:#16233B;letter-spacing:-.01em;margin-bottom:10px">Inconveniente al verificar la cuenta</h2>
+      <p style="font-size:14.5px;color:#5A6B85;line-height:1.5;margin-bottom:20px">No pudimos verificar los datos de acceso o el edificio asignado en este momento. Si intentabas ingresar, por favor comprobá tu usuario y contraseña.</p>
+      
+      <div style="background:#F8FAFD;border:1px solid #E4E9F1;border-radius:14px;padding:14px 16px;margin-bottom:24px;text-align:left">
+        <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">💬 Soporte y ayuda</div>
+        <div style="font-size:13.5px;color:#334259;line-height:1.45">¿Necesitás activar tu cuenta o recuperar tus datos de acceso? Contactanos directamente por correo a:<br><a href="mailto:Admi@bienargentinos.com" style="color:#2E6FC0;font-weight:700;text-decoration:underline">Admi@bienargentinos.com</a></div>
+      </div>
+
+      <div style="display:flex;gap:12px">
+        <a href="/admin/login" style="flex:1;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;display:inline-flex;align-items:center;justify-content:center">🔑 Ir a Ingresar</a>
+        <button onclick="location.reload()" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">🔄 Reintentar</button>
+      </div>
+    </div>
+  </body></html>`;
 }
 
 /* ===================================================================
@@ -2092,8 +2514,9 @@ router.get('/eventos', async (req, res) => {
         <p style="color:#64748B;font-size:15px;margin:0 0 20px">Feed de todos los consorcios. Usá el filtro de arriba para acotar por edificio.</p>`;
     } else {
       const cN = vistas.filter((v) => v.nuevo).length;
-      const cU = vistas.filter((v) => v.urgKey === 'alta').length;
+      const cU = vistas.filter((v) => v.urgKey === 'alta' && v.estKey !== 'resuelto').length;
       const cA = vistas.filter((v) => v.estKey !== 'resuelto').length;
+      const cR = vistas.filter((v) => v.estKey === 'resuelto').length;
       encabezado = `
         <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Eventos</h1>
         <p style="color:#64748B;font-size:15px;margin:0 0 20px">Todo lo que Marcos gestionó en ${esc(d.curBuilding ? d.curBuilding.nombre : '')}. Tocá un caso para ver el detalle.</p>`;
@@ -2107,6 +2530,7 @@ router.get('/eventos', async (req, res) => {
           ${chip('nuevos', 'Nuevos', cN, false)}
           ${chip('urgentes', 'Urgentes', cU, false)}
           ${chip('abiertos', 'Sin resolver', cA, false)}
+          ${chip('resueltos', 'Resueltos', cR, false)}
         </div>`;
     }
 
@@ -2136,19 +2560,30 @@ router.get('/mi-edificio', async (req, res) => {
     // En modo "Todos los edificios" (más de uno, sin elegir ninguno todavía)
     // se muestra un bloque por edificio para elegir cuál ver en detalle.
     if (!req.session.edificioActivo && d.propios.length > 1) {
-      const cards = d.propios.map((e) => `
-        <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/mi-edificio')}"
-          style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px;cursor:pointer" class="hv-card">
-          <span style="width:42px;height:42px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:19px;margin-bottom:10px">🏢</span>
-          <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">${esc(e.nombre)}</div>
-          <div style="font-size:12.5px;color:#8595AD">${esc(e.direccion || e.nombre)}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
-        </a>`).join('');
+      const cards = d.propios.map((e) => {
+        const ev = d.eventos.filter((x) => compararEdificios(x.edificio, e.nombre)).length;
+        return `
+          <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/mi-edificio')}"
+            style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px;cursor:pointer" class="hv-card">
+            <span style="width:42px;height:42px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:19px;margin-bottom:10px">🏢</span>
+            <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">${esc(e.nombre)}</div>
+            <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px">${esc(e.direccion || e.nombre)}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
+            ${dibujarConsumoHtml(e.nombre, e.plan, ev)}
+          </a>`;
+      }).join('');
+      const modalNuevoEdificio = modalAltaEdificioHtml('Nuevo edificio');
       const contenido = `
         <div style="animation:mFade .3s ease both">
-          <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Mi Edificio</h1>
-          <p style="color:#64748B;font-size:15px;margin:0 0 20px">Elegí qué edificio querés ver en detalle.</p>
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+            <div>
+              <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Mi Edificio</h1>
+              <p style="color:#64748B;font-size:15px;margin:0">Elegí qué edificio querés ver en detalle.</p>
+            </div>
+            <button onclick="abrirModal('modal-edificio')" style="flex-shrink:0;height:40px;padding:0 18px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">+ Agregar edificio</button>
+          </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">${cards}</div>
-        </div>`;
+        </div>
+        ${modalNuevoEdificio}`;
       return res.send(shell(req, d, 'edificio', contenido));
     }
 
@@ -2169,7 +2604,7 @@ router.get('/mi-edificio', async (req, res) => {
     } catch (_) {}
     try {
       const { rows } = await readTab(TAB_ASIGNACIONES);
-      asignados = rows.map(mapAsignacion).filter((a) => a.edificio === cur.nombre && a.estado !== 'eliminado');
+      asignados = rows.map(mapAsignacion).filter((a) => compararEdificios(a.edificio, cur.nombre) && a.estado !== 'eliminado');
     } catch (_) {}
 
     // Pedidos de cambio pendientes (para los campos de consulta con aprobacion).
@@ -2221,6 +2656,7 @@ router.get('/mi-edificio', async (req, res) => {
 
     // Horario con selectores de hora (tipo rueda): 2 rangos Lun-Vie + Sáb.
     const hor = parseHorarioEnc(cur.encargado_horario);
+    const horSup = parseHorarioEnc(cur.suplente_horario);
     const timeInput = (id, val) => `<input type="time" id="${id}" value="${esc(val)}" class="inp" style="height:42px;width:auto;min-width:120px">`;
     const rangoHorario = (titulo, idA, valA, idB, valB) => `
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
@@ -2249,6 +2685,13 @@ router.get('/mi-edificio', async (req, res) => {
               ${rangoHorario('Sábados', 'enc-saba', hor.sab[0], 'enc-sabb', hor.sab[1])}
               <div style="font-size:12px;color:#9AA7BD;margin-top:4px">Marcos se fija en estos horarios para saber si el encargado está disponible al momento del evento. Dejá vacío el 2° turno si no aplica.</div>
             </div>
+            <div id="suplente-horario-wrap" style="${estadoActual !== 'activo' ? '' : 'display:none'}">
+              ${label('Horario del suplente/personal de limpieza')}
+              ${rangoHorario('Lun a Vie', 'sup-lv1a', horSup.lv1[0], 'sup-lv1b', horSup.lv1[1])}
+              ${rangoHorario('Lun a Vie (2° turno)', 'sup-lv2a', horSup.lv2[0], 'sup-lv2b', horSup.lv2[1])}
+              ${rangoHorario('Sábados', 'sup-saba', horSup.sab[0], 'sup-sabb', horSup.sab[1])}
+              <div style="font-size:12px;color:#9AA7BD;margin-top:4px">Marcos se fija en estos horarios para saber si el suplente o limpieza está de turno cuando el encargado principal no está disponible.</div>
+            </div>
           </div>
           <div style="display:flex;gap:11px;padding:0 24px 22px">
             <button onclick="cerrarModal('modal-encargado-horario')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
@@ -2262,8 +2705,13 @@ router.get('/mi-edificio', async (req, res) => {
       hor.lv1[0] && hor.lv1[1] ? `L-V ${hor.lv1[0]}–${hor.lv1[1]}` : null,
       hor.lv2[0] && hor.lv2[1] ? `L-V ${hor.lv2[0]}–${hor.lv2[1]}` : null,
       hor.sab[0] && hor.sab[1] ? `Sáb ${hor.sab[0]}–${hor.sab[1]}` : null,
-    ].filter(Boolean).join(' · ') || 'Sin horario cargado';
-    const estadoHorarioValor = `${estadoInfo.label}${estadoActual === 'activo' ? ' · ' + horarioResumen : ''}`;
+    ].filter(Boolean).join(' · ') || 'Sin horario';
+    const horarioSupResumen = [
+      horSup.lv1[0] && horSup.lv1[1] ? `L-V ${horSup.lv1[0]}–${horSup.lv1[1]}` : null,
+      horSup.lv2[0] && horSup.lv2[1] ? `L-V ${horSup.lv2[0]}–${horSup.lv2[1]}` : null,
+      horSup.sab[0] && horSup.sab[1] ? `Sáb ${horSup.sab[0]}–${horSup.sab[1]}` : null,
+    ].filter(Boolean).join(' · ') || 'Sin horario';
+    const estadoHorarioValor = `${estadoInfo.label} · ${estadoActual === 'activo' ? horarioResumen : '(Suplente: ' + horarioSupResumen + ')'}`;
     const estadoHorarioRow = fichaRow('🕒', 'Estado y horario del encargado', estadoHorarioValor, false, `
         <button onclick="abrirModal('modal-encargado-horario')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-soft">Editar</button>`);
 
@@ -2568,7 +3016,7 @@ router.get('/expensas', async (req, res) => {
     const cur = d.curBuilding;
     const { rows } = await readTab(TAB_EXPENSAS);
     const expensas = rows.map(mapExpensa)
-      .filter((x) => cur && x.edificio === cur.nombre && x.estado !== 'eliminada')
+      .filter((x) => cur && compararEdificios(x.edificio, cur.nombre) && x.estado !== 'eliminada')
       .sort((a, b) => b._row - a._row);
 
     const tipoExp = (f) => (f === 'link'
@@ -2719,22 +3167,19 @@ router.get('/consumos', async (req, res) => {
   try {
     const d = await cargarDatos(req);
     const cards = d.edificios.map((e) => {
-      const ev = d.eventos.filter((x) => x.edificio === e.nombre).length;
+      const ev = d.eventos.filter((x) => compararEdificios(x.edificio, e.nombre)).length;
       const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
       const plan = PLAN_STYLE(e.plan);
       return `
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px;margin-bottom:14px">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px">
             <div>
               <div style="font-size:16px;font-weight:800;letter-spacing:-.01em">${esc(e.nombre)}</div>
               <div style="font-size:12.5px;color:#8595AD">${esc(cliente)} · ${esc(e.tipo || 'Edificio')}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''} · Plan ${esc(e.plan)}</div>
             </div>
             <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:#E7F4EC;color:#1B7A43">Dentro del plan</span>
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px;color:#334259;padding:8px 0;border-top:1px solid #F1F4F9;margin-top:8px">
-            <span>🧾 Eventos gestionados</span>
-            <span style="font-weight:800">${ev}</span>
-          </div>
+          ${dibujarConsumoHtml(e.nombre, e.plan, ev)}
         </div>`;
     }).join('');
 
@@ -2812,7 +3257,7 @@ router.get('/clientes', async (req, res) => {
             <div style="font-size:13.5px;font-weight:700">${esc(e.encargado || '—')}</div>
           </div>
           <span style="font-size:12px;font-weight:800;padding:5px 12px;border-radius:999px;background:${plan.bg};color:${plan.fg}">Plan ${esc(e.plan)}</span>
-          <button onclick="abrirEditar(${e._row},'${escJs(e.nombre)}','${escJs(e.encargado)}','${escJs(e.plan)}')" style="height:38px;padding:0 16px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Editar</button>
+          <button onclick="abrirEditar(${e._row},'${escJs(e.nombre)}','${escJs(e.encargado)}','${escJs(e.plan)}','${escJs(e.direccion || '')}','${escJs(e.cuit || '')}','${escJs(e.unidades || '')}','${escJs(e.zona || '')}','${escJs(e.aliases || '')}')" style="height:38px;padding:0 16px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Editar</button>
         </div>`;
     };
 
@@ -2830,7 +3275,10 @@ router.get('/clientes', async (req, res) => {
             <div style="font-size:20px;font-weight:800;letter-spacing:-.01em">${esc(clienteSel.nombre)}</div>
             <div style="font-size:13.5px;color:rgba(255,255,255,.82)">${mis.length} edificio${mis.length === 1 ? '' : 's'}${unidades ? ' · ' + unidades + ' unidades' : ''}</div>
           </div>
-          <button onclick="abrirModal('modal-edificio')" style="height:40px;padding:0 18px;border:none;border-radius:11px;background:#fff;color:#17408B;font-weight:700;font-size:14px;cursor:pointer">+ Agregar edificio</button>
+          <div style="display:flex;gap:9px">
+            <button onclick="abrirEditarCliente(${clienteSel._row}, '${escJs(clienteSel.nombre)}', '${escJs(clienteSel.usuario)}', '${escJs(clienteSel.pass)}', '${escJs(clienteSel.email || '')}', '${escJs(clienteSel.wsp || '')}', ${clienteSel.notif_email !== false}, ${clienteSel.notif_wsp === true})" style="height:40px;padding:0 18px;border:1px solid rgba(255,255,255,.32);border-radius:11px;background:rgba(255,255,255,.12);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-trans">✏️ Editar administrador</button>
+            <button onclick="abrirModal('modal-edificio')" style="height:40px;padding:0 18px;border:none;border-radius:11px;background:#fff;color:#17408B;font-weight:700;font-size:14px;cursor:pointer">+ Agregar edificio</button>
+          </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:12px">
           ${mis.length ? mis.map((e) => filaEdificioHtml(e, false)).join('') : '<div style="text-align:center;padding:30px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Este cliente todavía no tiene edificios asignados.</div>'}
@@ -2864,20 +3312,32 @@ router.get('/clientes', async (req, res) => {
 
     const modalCliente = `
       <div id="modal-cliente" class="modal-overlay" onclick="cerrarModal('modal-cliente')">
-        <div class="modal-box" onclick="stopEv(event)">
+        <div class="modal-box" style="max-height:85vh;overflow-y:auto" onclick="stopEv(event)">
           <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Nuevo cliente</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Alta de administrador</div>
           </div>
           <div style="padding:20px 24px">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del administrador</div>
-            <input id="cli-nombre" placeholder="Ej: González Administraciones" class="inp" style="margin-bottom:16px">
+            <input id="cli-nombre" placeholder="Ej: González Administraciones" class="inp" style="margin-bottom:14px">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Usuario de acceso</div>
-            <input id="cli-usuario" placeholder="gonzalez_admin" class="inp" style="margin-bottom:16px">
+            <input id="cli-usuario" placeholder="gonzalez_admin" class="inp" style="margin-bottom:14px">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Contraseña temporal</div>
-            <input id="cli-pass" placeholder="clave temporal" class="inp" style="margin-bottom:16px">
-            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email <span style="font-weight:500;color:#9AA7BD">(opcional)</span></div>
-            <input id="cli-email" placeholder="contacto@administrador.com" class="inp">
+            <input id="cli-pass" placeholder="clave temporal" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email</div>
+            <input id="cli-email" placeholder="contacto@administrador.com" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">WhatsApp de Notificación</div>
+            <input id="cli-wsp" placeholder="Ej: 1122334455" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:8px">Alertas activas</div>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334259;cursor:pointer;background:#F8FAFD;padding:10px 12px;border-radius:10px;border:1px solid #E4E9F1;margin-bottom:8px">
+              <input id="cli-notif-email" type="checkbox" checked style="width:17px;height:17px;accent-color:#2E6FC0">
+              <span>✉️ Notificar urgencias por <strong>Email</strong> <span style="font-size:11px;color:#1B7A43;font-weight:700">(Gratis)</span></span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334259;cursor:pointer;background:#F8FAFD;padding:10px 12px;border-radius:10px;border:1px solid #E4E9F1">
+              <input id="cli-notif-wsp" type="checkbox" style="width:17px;height:17px;accent-color:#2E6FC0">
+              <span>💬 Notificar urgencias por <strong>WhatsApp</strong> <span style="font-size:11px;color:#8A6410;font-weight:700">(API Mensajería)</span></span>
+            </label>
           </div>
           <div style="display:flex;gap:11px;padding:0 24px 22px">
             <button onclick="cerrarModal('modal-cliente')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
@@ -2886,20 +3346,66 @@ router.get('/clientes', async (req, res) => {
         </div>
       </div>`;
 
+    const modalClienteEditar = `
+      <div id="modal-cliente-editar" class="modal-overlay" onclick="cerrarModal('modal-cliente-editar')">
+        <div class="modal-box" style="max-height:85vh;overflow-y:auto" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Editar cliente / administrador</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Modificar datos (Fe de errata)</div>
+          </div>
+          <div style="padding:20px 24px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del administrador</div>
+            <input id="edit-cli-nombre" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Usuario de acceso</div>
+            <input id="edit-cli-usuario" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Contraseña</div>
+            <input id="edit-cli-pass" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email</div>
+            <input id="edit-cli-email" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">WhatsApp de Notificación</div>
+            <input id="edit-cli-wsp" placeholder="Ej: 1122334455" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:8px">Alertas activas</div>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334259;cursor:pointer;background:#F8FAFD;padding:10px 12px;border-radius:10px;border:1px solid #E4E9F1;margin-bottom:8px">
+              <input id="edit-cli-notif-email" type="checkbox" style="width:17px;height:17px;accent-color:#2E6FC0">
+              <span>✉️ Notificar urgencias por <strong>Email</strong> <span style="font-size:11px;color:#1B7A43;font-weight:700">(Gratis)</span></span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334259;cursor:pointer;background:#F8FAFD;padding:10px 12px;border-radius:10px;border:1px solid #E4E9F1">
+              <input id="edit-cli-notif-wsp" type="checkbox" style="width:17px;height:17px;accent-color:#2E6FC0">
+              <span>💬 Notificar urgencias por <strong>WhatsApp</strong> <span style="font-size:11px;color:#8A6410;font-weight:700">(API Mensajería)</span></span>
+            </label>
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-cliente-editar')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarEditarCliente(this)" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Guardar cambios</button>
+          </div>
+        </div>
+      </div>`;
+
     const modalEdificio = clienteSel ? modalAltaEdificioHtml(`Nuevo edificio · ${clienteSel.nombre}`, clienteSel.usuario) : '';
 
     const modalEditar = `
       <div id="modal-editar" class="modal-overlay" onclick="cerrarModal('modal-editar')">
-        <div class="modal-box" onclick="stopEv(event)">
+        <div class="modal-box" style="max-height:85vh;overflow-y:auto" onclick="stopEv(event)">
           <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Editar ficha · directo</div>
             <div id="edit-bname" style="font-size:19px;font-weight:800;letter-spacing:-.01em"></div>
           </div>
           <div style="padding:20px 24px">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del consorcio</div>
-            <input id="edit-nombre" class="inp" style="margin-bottom:16px">
-            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Encargado</div>
-            <input id="edit-encargado" class="inp" style="margin-bottom:16px">
+            <input id="edit-nombre" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Dirección</div>
+            <input id="edit-direccion" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Encargado principal</div>
+            <input id="edit-encargado" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">CUIT del edificio</div>
+            <input id="edit-cuit" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Cantidad de unidades</div>
+            <input id="edit-unidades" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Zona / Barrio</div>
+            <input id="edit-zona" class="inp" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Alias / doble dirección</div>
+            <input id="edit-aliases" class="inp" style="margin-bottom:14px">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Plan contratado</div>
             <div style="display:flex;gap:9px">
               <button data-editplan-btn="Base" onclick="elegirPlanEditar(this,'Base')" style="flex:1;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;background:#fff;color:#64748B;font-weight:700;font-size:14px;cursor:pointer">Base</button>
@@ -2908,7 +3414,7 @@ router.get('/clientes', async (req, res) => {
             <input type="hidden" id="edit-plan" value="Base">
             <div style="display:flex;align-items:flex-start;gap:9px;background:#EAF1FB;border-radius:10px;padding:10px 13px;margin-top:16px;font-size:12.5px;color:#2C55A8;line-height:1.4">
               <span style="font-size:15px">⚡</span>
-              <span>Como dueño, este cambio se escribe <strong>directo</strong> en la planilla, sin pasar por aprobación.</span>
+              <span>Como dueño, estos cambios se escriben <strong>directo</strong> en la planilla, sin pasar por aprobación.</span>
             </div>
           </div>
           <div style="display:flex;gap:11px;padding:0 24px 22px">
@@ -2920,7 +3426,7 @@ router.get('/clientes', async (req, res) => {
 
     const contenido = `
       <div style="animation:mFade .3s ease both">${encabezado}${cuerpo}</div>
-      ${modalCliente}${modalEdificio}${modalEditar}`;
+      ${modalCliente}${modalClienteEditar}${modalEdificio}${modalEditar}`;
 
     res.send(shell(req, d, 'edificios', contenido));
   } catch (e) {
@@ -3151,6 +3657,9 @@ const EDIFICIO_FIELDS = {
   tel_encargado: ['telefono_encargado', 'tel_encargado', 'celular_encargado'],
   encargado_estado: ['encargado_estado', 'estado_encargado'],
   encargado_suplente: ['encargado_suplente', 'suplente', 'personal_limpieza'],
+  tel_suplente: ['tel_suplente', 'telefono_suplente'],
+  encargado_horario: ['encargado_horario', 'horario_encargado'],
+  suplente_horario: ['suplente_horario', 'horario_suplente', 'horario_limpieza'],
   tel_seguridad: ['telefono_seguridad', 'tel_seguridad', 'seguridad'],
   administrador: ['admin_nombre', 'administrador', 'admin'],
   telefonos: ['admin_telefono', 'telefonos', 'contactos', 'numeros'],
@@ -3208,6 +3717,86 @@ router.post('/api/clientes', async (req, res) => {
   }
 });
 
+// Edición de cliente / administrador (dueño)
+router.post('/api/cliente-editar', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { row, nombre, usuario, pass, email } = req.body || {};
+    const rowNum = Number(row);
+    if (!rowNum || isNaN(rowNum)) return res.status(400).json({ error: 'Fila inválida' });
+    if (!nombre || !usuario || !pass) return res.status(400).json({ error: 'Nombre, usuario y contraseña son obligatorios' });
+
+    const { rows: cliRows, headers: cliHeaders } = await readTab(TAB_CLIENTES);
+    const c = cliRows.map(mapCliente).find((x) => x._row === rowNum);
+    if (!c) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+    if (usuario !== c.usuario && cliRows.map(mapCliente).some((x) => x.usuario === usuario)) {
+      return res.status(400).json({ error: 'Ese usuario ya existe en otro cliente' });
+    }
+
+    const fieldMap = {
+      nombre: ['nombre'],
+      usuario: ['usuario'],
+      contrasena: ['contrasena', 'clave', 'password'],
+      email: ['email']
+    };
+
+    let workingHeaders = cliHeaders.slice();
+    const updates = { nombre, usuario, contrasena: pass, email: email || '' };
+    for (const field of Object.keys(fieldMap)) {
+      const candidates = fieldMap[field];
+      let idx = workingHeaders.findIndex((h) => candidates.includes(h));
+      let col;
+      if (idx >= 0) col = columnLetter(idx + 1);
+      else {
+        col = columnLetter(workingHeaders.length + 1);
+        await ensureHeader(TAB_CLIENTES, col, candidates[0], false);
+        workingHeaders.push(candidates[0]);
+      }
+      await writeCell(TAB_CLIENTES, col, rowNum, updates[field]);
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Actualizar perfil de mi cuenta (dueño o cliente)
+router.post('/api/actualizar-perfil', async (req, res) => {
+  try {
+    const { pass, email } = req.body || {};
+    const currentUser = req.session.user;
+    if (!currentUser) return res.status(401).json({ error: 'No autenticado' });
+
+    if (esDuenoReal(req)) {
+      if (pass) process.env.ADMIN_PASS = pass;
+      res.json({ ok: true });
+    } else {
+      const { rows: cliRows, headers: cliHeaders } = await readTab(TAB_CLIENTES);
+      const c = cliRows.map(mapCliente).find((x) => x.usuario === currentUser);
+      if (!c) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+      let workingHeaders = cliHeaders.slice();
+      if (pass) {
+        let idx = workingHeaders.findIndex((h) => ['contrasena', 'clave', 'password'].includes(h));
+        let col = idx >= 0 ? columnLetter(idx + 1) : columnLetter(workingHeaders.length + 1);
+        if (idx < 0) { await ensureHeader(TAB_CLIENTES, col, 'contrasena', false); workingHeaders.push('contrasena'); }
+        await writeCell(TAB_CLIENTES, col, c._row, pass);
+      }
+      if (email !== undefined) {
+        let idx = workingHeaders.findIndex((h) => ['email'].includes(h));
+        let col = idx >= 0 ? columnLetter(idx + 1) : columnLetter(workingHeaders.length + 1);
+        if (idx < 0) { await ensureHeader(TAB_CLIENTES, col, 'email', false); workingHeaders.push('email'); }
+        await writeCell(TAB_CLIENTES, col, c._row, email);
+      }
+      res.json({ ok: true });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
 // Alta de edificio (dueño desde la ficha del cliente, o el propio cliente).
 router.post('/api/edificio-nuevo', async (req, res) => {
   const dueno = esDueno(req);
@@ -3219,27 +3808,50 @@ router.post('/api/edificio-nuevo', async (req, res) => {
     const { nombre, direccion, zona, unidades, encargado, plan } = body;
     if (!nombre) return res.status(400).json({ error: 'Falta el nombre del consorcio' });
     const clienteUsuario = dueno ? req.body.clienteUsuario : req.session.user;
-    const { rows: edRows } = await readTab(TAB_EDIFICIOS);
+
+    // Obtener el nombre del cliente para setearlo como administrador
+    let nombreAdmin = '';
+    let clienteObj = null;
+    if (clienteUsuario) {
+      const { rows: cliRows } = await readTab(TAB_CLIENTES);
+      clienteObj = cliRows.map(mapCliente).find((c) => c.usuario === clienteUsuario);
+      if (clienteObj) {
+        nombreAdmin = clienteObj.nombre || '';
+      }
+    }
+
+    const { rows: edRows, headers: edHeaders } = await readTab(TAB_EDIFICIOS);
     if (edRows.map(mapEdificio).some((e) => e.nombre.toLowerCase() === String(nombre).toLowerCase())) {
       return res.status(400).json({ error: 'Ya existe un edificio con ese nombre' });
     }
+
+    const adminHeader = edHeaders.find((h) => ['admin_nombre', 'administrador', 'admin'].includes(h)) || 'administrador';
+
     await appendRow(TAB_EDIFICIOS, {
       edificio: nombre, direccion: direccion || '', zona: zona || '',
       unidades: unidades || '', encargado: encargado || '', plan: plan || 'Base',
+      [adminHeader]: nombreAdmin
     });
+
     // Resto de la ficha (cuit, alias, horario SUM, cocheras, seguridad,
     // suplente...) — mismo camino que "Mi Edificio", crea columnas si faltan.
     const { rows: edRows2, headers: edHeaders2 } = await readTab(TAB_EDIFICIOS);
     const nuevaFila = edRows2.map(mapEdificio).find((e) => e.nombre === nombre);
     if (nuevaFila) await guardarCamposEdificio(nuevaFila, edHeaders2, body, EDIFICIO_CAMPOS_ALTA);
-    if (clienteUsuario) {
-      const { rows: cliRows } = await readTab(TAB_CLIENTES);
-      const cliente = cliRows.map(mapCliente).find((c) => c.usuario === clienteUsuario);
-      if (cliente) {
-        const nuevaLista = [...cliente.edificios, nombre].join(', ');
-        const col = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
-        if (col.create) await ensureHeader(TAB_CLIENTES, col.col, 'edificios', false);
-        await writeCell(TAB_CLIENTES, col.col, cliente._row, nuevaLista);
+
+    if (clienteUsuario && clienteObj) {
+      const nuevaLista = [...clienteObj.edificios, nombre].join(', ');
+      const col = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
+      if (col.create) await ensureHeader(TAB_CLIENTES, col.col, 'edificios', false);
+      await writeCell(TAB_CLIENTES, col.col, clienteObj._row, nuevaLista);
+
+      // Actualizar sesión del cliente en tiempo real si es el cliente directo el que lo agrega.
+      if (!dueno && req.session) {
+        if (!req.session.edificios) req.session.edificios = [];
+        if (!req.session.edificios.includes(nombre)) {
+          req.session.edificios.push(nombre);
+        }
+        await new Promise((resolve) => req.session.save(resolve));
       }
     }
     res.json({ ok: true });
@@ -3276,6 +3888,24 @@ router.post('/api/solicitar-cambio', async (req, res) => {
     const usuario = req.session.user;
     const permitidos = edificiosPermitidos(req) || [];
     const ed = edificio && permitidos.includes(edificio) ? edificio : (permitidos[0] || '');
+    // Si quien edita es el dueño real del sistema, guardamos el cambio DIRECTAMENTE en el edificio.
+    if (esDuenoReal(req)) {
+      const { rows: edRows, headers: edHeaders } = await readTab(TAB_EDIFICIOS);
+      const edRow = edRows.map(mapEdificio).find((e) => compararEdificios(e.nombre, ed));
+      if (edRow) {
+        const map = {
+          nombre: ['edificio', 'nombre', 'consorcio'],
+          direccion: ['direccion', 'domicilio'],
+          administrador: ['admin_nombre', 'administrador', 'admin'],
+          telefonos: ['admin_telefono', 'telefonos', 'contactos', 'numeros'],
+          cuit: ['cuit']
+        };
+        if (map[campo]) {
+          await guardarCamposEdificio(edRow, edHeaders, { [campo]: valorNuevo }, map);
+          return res.json({ ok: true });
+        }
+      }
+    }
     await appendRow(TAB_SOLICITUDES, {
       fecha: new Date().toLocaleString('es-AR'),
       usuario, edificio: ed, campo,
@@ -3416,6 +4046,7 @@ const MI_EDIFICIO_FIELDS = {
   tel_suplente: ['tel_suplente', 'telefono_suplente'],
   encargado_estado: ['encargado_estado', 'estado_encargado'],
   encargado_horario: ['encargado_horario', 'horario_encargado'],
+  suplente_horario: ['suplente_horario', 'horario_suplente', 'horario_limpieza'],
 };
 
 // En el ALTA del edificio no hay nada que "aprobar" todavía (el cliente
@@ -3537,7 +4168,7 @@ router.post('/api/proveedor-asignar', async (req, res) => {
     // Evitar duplicado del mismo proveedor en el mismo edificio.
     try {
       const { rows: aRows } = await readTab(TAB_ASIGNACIONES);
-      const dup = aRows.map(mapAsignacion).some((a) => a.edificio === edificio && a.proveedor === proveedor && a.estado !== 'eliminado');
+      const dup = aRows.map(mapAsignacion).some((a) => compararEdificios(a.edificio, edificio) && a.proveedor === proveedor && a.estado !== 'eliminado');
       if (dup) return res.status(400).json({ error: 'Ese proveedor ya está asignado a este edificio' });
     } catch (_) {}
 
