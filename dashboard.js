@@ -420,20 +420,15 @@ function hashString(str) {
   return Math.abs(hash);
 }
 
-function dibujarConsumoHtml(nombre, plan, evCount) {
-  const seed = hashString(nombre);
+function dibujarConsumoHtml(nombre, plan, eventos) {
   const isPlus = String(plan || '').toLowerCase() === 'plus';
   const limitMsgs = isPlus ? 1000 : 300;
   const limitCalls = isPlus ? 500 : 200;
 
-  let msgsUsed = 0;
-  let callsUsed = 0;
-  if (evCount > 0) {
-    const factorMsgs = (seed % 7) + 12; // 12-18 mensajes por evento
-    const factorCalls = (seed % 4) + 2;  // 2-5 llamadas por evento
-    msgsUsed = Math.min(limitMsgs, evCount * factorMsgs);
-    callsUsed = Math.min(limitCalls, evCount * factorCalls);
-  }
+  // Conteo real por tipo de canal
+  const arr = Array.isArray(eventos) ? eventos : [];
+  const msgsUsed = Math.min(limitMsgs, arr.filter((e) => e.tipo !== 'llamada').length);
+  const callsUsed = Math.min(limitCalls, arr.filter((e) => e.tipo === 'llamada').length);
 
   const pctMsgs = Math.min(100, Math.round((msgsUsed / limitMsgs) * 100));
   const pctCalls = Math.min(100, Math.round((callsUsed / limitCalls) * 100));
@@ -2197,7 +2192,7 @@ router.get('/', async (req, res) => {
             <div style="display:flex;gap:16px;margin-bottom:12px">
               <span style="font-size:13px;color:#334259"><strong style="color:#2E6FC0;font-size:15px">${nuevos}</strong> novedades 24h</span>
             </div>
-            ${dibujarConsumoHtml(e.nombre, e.plan, ev.length)}
+            ${dibujarConsumoHtml(e.nombre, e.plan, ev)}
           </a>`;
       }).join('');
 
@@ -2293,7 +2288,7 @@ router.get('/', async (req, res) => {
             <div style="display:flex;gap:16px;margin-bottom:12px">
               <span style="font-size:13px;color:#334259"><strong style="color:#2E6FC0;font-size:15px">${nuevos}</strong> novedades 24h</span>
             </div>
-            ${dibujarConsumoHtml(e.nombre, e.plan, ev.length)}
+            ${dibujarConsumoHtml(e.nombre, e.plan, ev)}
           </a>`;
       }).join('');
       const contenido = `
@@ -2425,7 +2420,7 @@ router.get('/', async (req, res) => {
           <div style="display:flex;flex-direction:column;gap:16px">
             <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
               <div style="font-size:15px;font-weight:800;margin-bottom:14px">Consumo del plan</div>
-              ${dibujarConsumoHtml(cur.nombre, cur.plan, evTodos.length)}
+              ${dibujarConsumoHtml(cur.nombre, cur.plan, evTodos)}
             </div>
             <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
               <div style="font-size:15px;font-weight:800;margin-bottom:6px">Costos en divisa</div>
