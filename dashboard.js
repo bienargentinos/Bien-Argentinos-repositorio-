@@ -192,6 +192,7 @@ function mapEvento(r) {
   return {
     _row: r._row,
     fecha: pick(r, ['fecha', 'fecha_hora', 'timestamp', 'fecha_y_hora', 'hora']),
+    hora_fin: pick(r, ['hora_fin', 'hora_finalizacion', 'fin', 'fecha_fin', 'hora_cierre']),
     edificio: pick(r, ['edificio', 'consorcio', 'building', 'direccion'], 'Sin edificio'),
     vecino: pick(r, ['vecino', 'nombre', 'remitente', 'contacto', 'usuario'], 'Vecino'),
     telefono: pick(r, ['telefono', 'numero', 'phone', 'celular', 'whatsapp']),
@@ -200,6 +201,8 @@ function mapEvento(r) {
     tipo,
     mensaje: pick(r, ['problema', 'mensaje', 'texto', 'consulta', 'detalle', 'descripcion', 'contenido']),
     notas: pick(r, ['notas', 'notas_ia', 'transcripcion', 'resumen', 'sintesis', 'respuesta_marcos']),
+    transcripcion: pick(r, ['transcripcion', 'transcripcion_vecino', 'texto_audio']),
+    audio_url: pick(r, ['audio_url', 'url_audio', 'nota_voz', 'audio']),
     urgencia,
     estado: pick(r, ['estado', 'status']),
     tecnico: pick(r, ['tecnico', 'proveedor', 'rubro']),
@@ -900,12 +903,20 @@ function abrirDrawerEvento(idx){
       '</div>'+
     '</div>'+
     '<div style="padding:22px 24px">'+
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">'+
-        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Canal</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">'+escapeHtml(datos.canalIcon)+' '+escapeHtml(datos.canal)+'</div></div>'+
-        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Vecino</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
-        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Cuándo</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">'+escapeHtml(datos.when||'')+'</div></div>'+
-        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Edificio</div><div style="font-size:14.5px;font-weight:700;margin-top:2px">'+escapeHtml(datos.edificio||'')+'</div></div>'+
+      // ── Grilla de datos del vecino ──
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'+
+        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Vecino</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
+        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Teléfono</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.telefono||'—')+'</div></div>'+
+        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Depto / Unidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+((datos.depto||datos.unidad)?(escapeHtml(datos.depto||'')+( datos.depto&&datos.unidad?' · ':'')+escapeHtml(datos.unidad||'')):'—')+'</div></div>'+
+        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Edificio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.edificio||'—')+'</div></div>'+
+        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Canal</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+escapeHtml(datos.canalIcon)+' '+escapeHtml(datos.canal)+'</div></div>'+
+        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Hora inicio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.when||'—')+'</div></div>'+
+        (datos.hora_fin ? '<div style="background:#E7F4EC;border:1px solid #C3E6D0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#1B7A43;text-transform:uppercase;letter-spacing:.04em">✅ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#14532D">'+escapeHtml(datos.hora_fin)+'</div></div>' : '<div style="background:#FBF3DE;border:1px solid #E8D9A0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#8A6410;text-transform:uppercase;letter-spacing:.04em">⏳ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#8A6410">Sin registrar</div></div>')+
       '</div>'+
+      // ── Audio del vecino (si hay) ──
+      (datos.audio_url ? '<div style="background:#F1F5FB;border:1px solid #D8E5F6;border-radius:12px;padding:13px 16px;margin-bottom:16px"><div style="font-size:12px;font-weight:800;color:#334259;margin-bottom:8px">🎙️ Nota de voz del vecino</div><audio controls style="width:100%;border-radius:8px" src="'+escapeHtml(datos.audio_url)+'"></audio></div>' : '')+
+      (datos.transcripcion && !datos.audio_url ? '<div style="background:#F1F5FB;border:1px solid #D8E5F6;border-radius:12px;padding:13px 16px;margin-bottom:16px"><div style="font-size:12px;font-weight:800;color:#334259;margin-bottom:6px">🎙️ Transcripción del audio</div><div style="font-size:13.5px;color:#334259;line-height:1.55;white-space:pre-wrap">'+escapeHtml(datos.transcripcion)+'</div></div>' : '')+
+      // ── Atendió ──
       '<div style="display:flex;align-items:center;gap:11px;background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 14px;margin-bottom:18px">'+
         '<span style="width:36px;height:36px;border-radius:50%;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">M</span>'+
         '<div style="flex:1"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.03em">Atendió</div><div style="font-size:14.5px;font-weight:700;color:#16233B">Marcos</div></div>'+
@@ -928,7 +939,7 @@ function abrirDrawerEvento(idx){
       '<div style="display:flex;gap:10px;margin-top:22px">'+
         '<button onclick="cerrarDrawerEvento()" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cerrar</button>'+
         resolverBtn+
-        (esDueno?'':'<button onclick="location.href=\\\'/admin/sugerencias\\\'" style="flex:1;height:44px;border:none;border-radius:11px;background:#17408B;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-navy">Comentar a mi admin</button>')+
+        (esDueno?'':'<button onclick="location.href=\'/admin/sugerencias\'" style="flex:1;height:44px;border:none;border-radius:11px;background:#17408B;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-navy">Comentar a mi admin</button>')+
       '</div>'+
     '</div>';
   overlay.classList.add('open');
@@ -1594,8 +1605,13 @@ function vistaEvento(e, filterFn) {
     estKey, estLabel: est.label, estBg: est.bg, estFg: est.fg,
     canalIcon: canal.icon, canal: canal.nombre,
     vecino: e.vecino, telefono: e.telefono, edificio: e.edificio,
+    depto: e.depto, unidad: e.unidad,
     when: fechaCorta(parseFecha(e.fecha)) || e.fecha,
-    mensaje: e.mensaje, notas: e.notas, feedback: e.feedback, nuevo,
+    hora_fin: e.hora_fin || '',
+    mensaje: e.mensaje, notas: e.notas,
+    transcripcion: e.transcripcion || '',
+    audio_url: e.audio_url || '',
+    feedback: e.feedback, nuevo,
   };
 }
 
