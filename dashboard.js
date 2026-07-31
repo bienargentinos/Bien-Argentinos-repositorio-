@@ -2763,7 +2763,9 @@ function abrirModalStaffItem(fieldKey, idx, edNombre) {
   });
   if (!ed && window.__CUR_BUILDING__) {
     ed = window.__CUR_BUILDING__;
-    if (!edNombre && ed) edNombre = ed.nombre;
+  }
+  if (ed) {
+    edNombre = ed.nombre;
   }
   var edRow = ed ? (ed._row || ed.row) : 0;
 
@@ -4985,8 +4987,8 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
 
         ${renderStaffCards(cur.encargado, cur.tel_encargado, 'encargado', '🧑‍🔧', 'Encargados Titulares', cur.nombre, cur._row)}
-        ${renderStaffCards(cur.encargado_suplente, cur.tel_suplente, 'suplente', '🧹 Encargados Suplentes y Personal de Limpieza', cur.nombre, cur._row)}
-        ${renderStaffCards(cur.tel_seguridad, '', 'seguridad', '🛡️ Personal de Portería y Seguridad Entrada', cur.nombre, cur._row)}
+        ${renderStaffCards(cur.encargado_suplente, cur.tel_suplente, 'suplente', '🧹', 'Encargados Suplentes y Personal de Limpieza', cur.nombre, cur._row)}
+        ${renderStaffCards(cur.tel_seguridad, '', 'seguridad', '🛡️', 'Personal de Portería y Seguridad Entrada', cur.nombre, cur._row)}
       </div>`;
 
     const bloqueEspaciosHtml = `
