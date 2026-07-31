@@ -2682,26 +2682,63 @@ async function guardarEditar(btn){
 // --- gestión multi-personal (encargados, suplentes, seguridad) ---
 function formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb) {
   var partes = [];
-  if (lv1a && lv1b) partes.push('L-V ' + lv1a + '–' + lv1b);
-  if (lv2a && lv2b) partes.push('L-V ' + lv2a + '–' + lv2b);
-  if (saba && sabb) partes.push('Sáb ' + saba + '–' + sabb);
+  function padTime(t) {
+    if (!t) return '';
+    var p = t.trim().split(':');
+    if (p.length === 2) {
+      var h = p[0].length === 1 ? '0' + p[0] : p[0];
+      var m = p[1].length === 1 ? '0' + p[1] : p[1];
+      return h + ':' + m;
+    }
+    return t.trim();
+  }
+  var l1a = padTime(lv1a), l1b = padTime(lv1b);
+  var l2a = padTime(lv2a), l2b = padTime(lv2b);
+  var sa = padTime(saba), sb = padTime(sabb);
+
+  if (l1a && l1b) partes.push('L-V ' + l1a + '-' + l1b);
+  if (l2a && l2b) partes.push('L-V ' + l2a + '-' + l2b);
+  if (sa && sb) partes.push('Sáb ' + sa + '-' + sb);
   return partes.join(' · ') || 'Sin horario';
 }
 
 function parseHorario3Lineas(str) {
   var res = { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
   if (!str || str === 'Sin horario') return res;
-  var partes = String(str).split('·').map(function(s){ return s.trim(); });
+
+  function padTime(t) {
+    if (!t) return '';
+    var p = t.trim().split(':');
+    if (p.length === 2) {
+      var h = p[0].length === 1 ? '0' + p[0] : p[0];
+      var m = p[1].length === 1 ? '0' + p[1] : p[1];
+      return h + ':' + m;
+    }
+    return t.trim();
+  }
+
+  var partes = String(str).split(/·|\\n|,/).map(function(s){ return s.trim(); }).filter(Boolean);
   partes.forEach(function(p) {
-    var matchLv = p.match(new RegExp('L-V\\s*([0-9]{1,2}:[0-9]{2})\\s*–\\s*([0-9]{1,2}:[0-9]{2})', 'i'));
+    var matchLv = p.match(/(?:L-V|Lun|Viernes|Lunes)\\s*([0-9]{1,2}:[0-9]{2})\\s*(?:[-–—]|a|hasta)\\s*([0-9]{1,2}:[0-9]{2})/i);
     if (matchLv) {
-      if (!res.lv1[0]) { res.lv1 = [matchLv[1], matchLv[2]]; }
-      else { res.lv2 = [matchLv[1], matchLv[2]]; }
+      var t1 = padTime(matchLv[1]);
+      var t2 = padTime(matchLv[2]);
+      if (!res.lv1[0]) { res.lv1 = [t1, t2]; }
+      else { res.lv2 = [t1, t2]; }
       return;
     }
-    var matchSab = p.match(new RegExp('Sáb\\s*([0-9]{1,2}:[0-9]{2})\\s*–\\s*([0-9]{1,2}:[0-9]{2})', 'i'));
+    var matchSab = p.match(/(?:Sáb|Sabado|Sábado)\\s*([0-9]{1,2}:[0-9]{2})\\s*(?:[-–—]|a|hasta)\\s*([0-9]{1,2}:[0-9]{2})/i);
     if (matchSab) {
-      res.sab = [matchSab[1], matchSab[2]];
+      res.sab = [padTime(matchSab[1]), padTime(matchSab[2])];
+      return;
+    }
+    var matchTimes = p.match(/([0-9]{1,2}:[0-9]{2})\\s*(?:[-–—]|a|hasta)\\s*([0-9]{1,2}:[0-9]{2})/i);
+    if (matchTimes) {
+      var t1f = padTime(matchTimes[1]);
+      var t2f = padTime(matchTimes[2]);
+      if (!res.lv1[0]) { res.lv1 = [t1f, t2f]; }
+      else if (!res.lv2[0]) { res.lv2 = [t1f, t2f]; }
+      else { res.sab = [t1f, t2f]; }
     }
   });
   return res;
