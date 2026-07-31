@@ -5271,7 +5271,8 @@ router.get('/mi-edificio', async (req, res) => {
       ${modalConsejoNuevoHtml}
       ${modalConsejoEditarHtml}
       ${modalStaffEditHtml}
-      ${modalPlanesAcHtml(planesList, d.propios)}`;
+      ${modalPlanesAcHtml(planesList, d.propios)}
+      <script>window.__CUR_BUILDING__=${JSON.stringify(cur)};window.__EDIFICIOS__=${JSON.stringify(d.propios)};window.__ES_DUENO__=false;</script>`;
 
     res.send(shell(req, d, 'edificio', contenido));
   } catch (e) {
