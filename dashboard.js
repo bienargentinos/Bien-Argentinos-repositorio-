@@ -1748,7 +1748,7 @@ function obtenerAudiosEvento(datos) {
   }
 
   if (datos.audio_url) {
-    String(datos.audio_url).split(/,|\n|;|\|/).forEach(addAudio);
+    String(datos.audio_url).split(new RegExp('[,\\n;|\\|]')).forEach(addAudio);
   }
 
   if (datos.audios_lista && Array.isArray(datos.audios_lista)) {
@@ -1756,7 +1756,7 @@ function obtenerAudiosEvento(datos) {
   }
 
   var rawAll = (datos.historial_chat || '') + ' ' + (datos.notas_ia || '') + ' ' + (datos.notas || '') + ' ' + (datos.transcripcion || '');
-  var matches = String(rawAll).match(/(\/root\/marcos[^\s"\),]+\.(ogg|mp3|wav|m4a|aac)|\/archivos[^\s"\),]+\.(ogg|mp3|wav|m4a|aac)|https?:\/\/[^\s"\),]+\.(ogg|mp3|wav|m4a|aac))/gi);
+  var matches = String(rawAll).match(new RegExp('(\\/root\\/marcos[^\\s"\\)]+\\.(ogg|mp3|wav|m4a|aac)|\\/archivos[^\\s"\\)]+\\.(ogg|mp3|wav|m4a|aac)|https?:\\/\\/[^\\s"\\)]+\\.(ogg|mp3|wav|m4a|aac))', 'gi'));
   if (matches) {
     matches.forEach(addAudio);
   }
@@ -1776,7 +1776,7 @@ function descargarTodosLosAudiosEvento() {
     setTimeout(function() {
       var a = document.createElement('a');
       a.href = url;
-      a.download = 'audio-' + (idx + 1) + '-' + (d.edificio || '').replace(/[^a-z0-9]+/gi, '-') + '.ogg';
+      a.download = 'audio-' + (idx + 1) + '-' + (d.edificio || '').replace(new RegExp('[^a-z0-9]+', 'gi'), '-') + '.ogg';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -2693,13 +2693,13 @@ function parseHorario3Lineas(str) {
   if (!str || str === 'Sin horario') return res;
   var partes = String(str).split('·').map(function(s){ return s.trim(); });
   partes.forEach(function(p) {
-    var matchLv = p.match(/L-V\s*([0-9]{1,2}:[0-9]{2})\s*–\s*([0-9]{1,2}:[0-9]{2})/i);
+    var matchLv = p.match(new RegExp('L-V\\s*([0-9]{1,2}:[0-9]{2})\\s*–\\s*([0-9]{1,2}:[0-9]{2})', 'i'));
     if (matchLv) {
       if (!res.lv1[0]) { res.lv1 = [matchLv[1], matchLv[2]]; }
       else { res.lv2 = [matchLv[1], matchLv[2]]; }
       return;
     }
-    var matchSab = p.match(/Sáb\s*([0-9]{1,2}:[0-9]{2})\s*–\s*([0-9]{1,2}:[0-9]{2})/i);
+    var matchSab = p.match(new RegExp('Sáb\\s*([0-9]{1,2}:[0-9]{2})\\s*–\\s*([0-9]{1,2}:[0-9]{2})', 'i'));
     if (matchSab) {
       res.sab = [matchSab[1], matchSab[2]];
     }
@@ -2709,8 +2709,8 @@ function parseHorario3Lineas(str) {
 
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
-  var rawNames = String(namesStr || '').split(/,|\n|;|\|/).map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(/,|\n|;|\|/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawNames = String(namesStr || '').split(new RegExp('[,\\n;|\\|]')).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawTels = String(telsStr || '').split(new RegExp('[,\\n;|\\|]')).map(function(s){ return s.trim(); }).filter(Boolean);
   var len = Math.max(rawNames.length, rawTels.length);
   var res = [];
 
@@ -2720,17 +2720,17 @@ function parseStaffClient(namesStr, telsStr) {
     var estado = 'activo';
     var horario = '';
 
-    var matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
+    var matchMeta = str.match(new RegExp('\\\\[(activo|licencia|vacaciones)?\\\\s*\\\\|?\\\\s*([^\\\\]*)\\\\]', 'i'));
     if (matchMeta) {
       if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
       if (matchMeta[2]) horario = matchMeta[2].trim();
-      str = str.replace(/\[[^\]]*\]/g, '').trim();
+      str = str.replace(new RegExp('\\\\[[^\\\\]]*\\\\]', 'g'), '').trim();
     }
 
-    var matchTel = str.match(/\(([^)]+)\)/);
+    var matchTel = str.match(new RegExp('\\\\(([^)]+)\\\\)'));
     if (matchTel && (!tel || tel === '—')) {
       tel = matchTel[1].trim();
-      str = str.replace(/\([^)]+\)/g, '').trim();
+      str = str.replace(new RegExp('\\\\([^)]+\\\\)', 'g'), '').trim();
     }
 
     res.push({
