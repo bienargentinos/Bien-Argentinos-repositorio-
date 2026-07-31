@@ -2709,8 +2709,8 @@ function parseHorario3Lineas(str) {
 
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
-  var rawNames = String(namesStr || '').split(new RegExp('[,\\n;]')).map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(new RegExp('[,\\n;]')).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawNames = String(namesStr || '').split(/[,\\n;]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawTels = String(telsStr || '').split(/[,\\n;]/).map(function(s){ return s.trim(); }).filter(Boolean);
   var res = [];
 
   for (var i = 0; i < rawNames.length; i++) {
@@ -2719,9 +2719,9 @@ function parseStaffClient(namesStr, telsStr) {
     var estado = 'activo';
     var horario = '';
 
-    var isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
+    var isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
     if (isScheduleFragment && res.length > 0) {
-      var cleanHor = str.replace(/\[[^\]]*\]/g, '').replace(/\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
+      var cleanHor = str.replace(/\\[[^\\]]*\\]/g, '').replace(/\\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
       if (cleanHor) {
         res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
           ? cleanHor
@@ -2730,20 +2730,20 @@ function parseStaffClient(namesStr, telsStr) {
       continue;
     }
 
-    var matchMeta = str.match(new RegExp('\\\\[(activo|licencia|vacaciones)?\\\\s*\\\\|?\\\\s*([^\\\\]*)\\\\]', 'i'));
+    var matchMeta = str.match(/\\[(activo|licencia|vacaciones)?\\s*\\|?\\s*([^\\]]*)\\]/i);
     if (matchMeta) {
       if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
       if (matchMeta[2]) horario = matchMeta[2].trim();
-      str = str.replace(new RegExp('\\\\[[^\\\\]]*\\\\]', 'g'), '').trim();
+      str = str.replace(/\\[[^\\]]*\\]/g, '').trim();
     }
 
-    var matchTel = str.match(new RegExp('\\\\(([^)]+)\\\\)'));
+    var matchTel = str.match(/\\(([^)]+)\\)/);
     if (matchTel && (!tel || tel === '—')) {
       tel = matchTel[1].trim();
-      str = str.replace(new RegExp('\\\\([^)]+\\\\)', 'g'), '').trim();
+      str = str.replace(/\\([^)]+\\)/g, '').trim();
     }
 
-    str = str.replace(/\[|\]/g, '').trim();
+    str = str.replace(/\\[|\\]/g, '').trim();
 
     if (str || tel !== '—') {
       res.push({
