@@ -70,6 +70,11 @@ const TAB_CLIENTES = process.env.SHEET_TAB_CLIENTES || 'CLIENTES';
 const TAB_EXPENSAS = process.env.SHEET_TAB_EXPENSAS || 'expensas';
 const TAB_PROVEEDORES = process.env.SHEET_TAB_PROVEEDORES || 'proveedores';
 const TAB_ASIGNACIONES = process.env.SHEET_TAB_ASIGNACIONES || 'proveedor_asignaciones';
+const TAB_COLABORADORES = process.env.SHEET_TAB_COLABORADORES || 'colaboradores';
+const TAB_CONFIG_PLANES = process.env.SHEET_TAB_CONFIG_PLANES || 'configuracion_planes';
+const TAB_CONSEJO = process.env.SHEET_TAB_CONSEJO || 'consejo';
+const TAB_SUSCRIPCIONES_PLANES = process.env.SHEET_TAB_SUSCRIPCIONES_PLANES || 'suscripciones_planes';
+const TAB_SUSCRIPCIONES_BANCO = process.env.SHEET_TAB_SUSCRIPCIONES_BANCO || 'suscripciones_banco';
 
 /* ===================================================================
  * SESSION
@@ -207,6 +212,7 @@ function mapEvento(r) {
     estado: pick(r, ['estado', 'status']),
     tecnico: pick(r, ['tecnico', 'proveedor', 'rubro']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
+    historial_chat: pick(r, ['historial_chat', 'historial', 'chat_log', 'conversacion']),
   };
 }
 
@@ -253,6 +259,113 @@ function mapCliente(r) {
       .filter(Boolean),
     activo: String(pick(r, ['activo'], 'si')).toLowerCase() !== 'no',
     ultimo_acceso: pick(r, ['ultimo_acceso']),
+  };
+}
+
+function mapColaborador(r) {
+  return {
+    _row: r._row,
+    nombre: pick(r, ['nombre', 'name'], 'Sin nombre'),
+    usuario: pick(r, ['usuario', 'user']),
+    pass: pick(r, ['contrasena', 'password', 'pass', 'clave']),
+    email: pick(r, ['email', 'mail']),
+    rol: pick(r, ['rol', 'role'], 'colaborador'),
+    activo: String(pick(r, ['activo'], 'si')).toLowerCase() !== 'no',
+    fecha_alta: pick(r, ['fecha_alta', 'timestamp'], new Date().toLocaleDateString('es-AR'))
+  };
+}
+
+async function obtenerConfiguracionPlanes() {
+  try {
+    const { rows } = await readTab(TAB_CONFIG_PLANES);
+    if (rows && rows.length > 0) {
+      const r = rows[0];
+      return {
+        base_msgs: Number(pick(r, ['base_msgs', 'mensajes_base'], 300)) || 300,
+        plus_msgs: Number(pick(r, ['plus_msgs', 'mensajes_plus'], 1000)) || 1000,
+        base_calls: Number(pick(r, ['base_calls', 'llamadas_base'], 200)) || 200,
+        plus_calls: Number(pick(r, ['plus_calls', 'llamadas_plus'], 500)) || 500,
+        base_edificios: Number(pick(r, ['base_edificios', 'edificios_base'], 5)) || 5,
+        plus_edificios: Number(pick(r, ['plus_edificios', 'edificios_plus'], 20)) || 20,
+        ia_admin_activa: String(pick(r, ['ia_admin_activa', 'ia_activa'], 'si')).toLowerCase() !== 'no'
+      };
+    }
+  } catch (e) {}
+  return {
+    base_msgs: 300,
+    plus_msgs: 1000,
+    base_calls: 200,
+    plus_calls: 500,
+    base_edificios: 5,
+    plus_edificios: 20,
+    ia_admin_activa: true
+  };
+}
+
+async function obtenerPlanesSuscripcion() {
+  const defaultPlanes = [
+    { _row: null, nombre: 'Free / Prueba 30 Días', precio: '0', moneda: 'ARS', edificios: '1', mensajes: '100', llamadas: '50', servicios: 'Atención 24/7 IA, Gestión de Reclamos, 1 Edificio activo', estado: 'activo' },
+    { _row: null, nombre: 'Plan Base', precio: '15000', moneda: 'ARS', edificios: '1', mensajes: '300', llamadas: '200', servicios: 'Atención 24/7 IA, Panel Completo AC, Múltiples proveedores', estado: 'activo' },
+    { _row: null, nombre: 'Plan Plus (Corporativo 5)', precio: '35000', moneda: 'ARS', edificios: '5', mensajes: '1000', llamadas: '500', servicios: 'Atención 24/7 IA, Urgencias prioritarias, Facturas y Fotos, Bolsón de 5 Edificios', estado: 'activo' },
+    { _row: null, nombre: 'Plan Premium (Corporativo 20)', precio: '60000', moneda: 'ARS', edificios: '20', mensajes: '3000', llamadas: '1500', servicios: 'Atención 24/7 IA ilimitada, Soporte dedicado, Auditoría de expensas, Bolsón de 20 Edificios', estado: 'activo' }
+  ];
+
+  try {
+    const { rows } = await readTab(TAB_SUSCRIPCIONES_PLANES);
+    const sheetRows = (rows || []).map((r) => ({
+      _row: r._row,
+      nombre: pick(r, ['nombre', 'plan'], 'Plan sin nombre'),
+      precio: pick(r, ['precio', 'monto', 'importe'], '0'),
+      moneda: pick(r, ['moneda'], 'ARS'),
+      edificios: pick(r, ['edificios', 'edificios_incluidos'], '1'),
+      mensajes: pick(r, ['mensajes', 'mensajes_incluidos'], '300'),
+      llamadas: pick(r, ['llamadas', 'llamadas_incluidas'], '200'),
+      servicios: pick(r, ['servicios', 'caracteristicas', 'servicios_incluidos'], ''),
+      estado: pick(r, ['estado'], 'activo')
+    }));
+
+    if (sheetRows.length === 0) {
+      return defaultPlanes;
+    }
+
+    const activeSheetPlanes = sheetRows.filter((r) => r.estado !== 'eliminado');
+    const sheetPlanNames = new Set(sheetRows.map(r => String(r.nombre || '').toLowerCase().trim()));
+    const missingDefaults = defaultPlanes.filter(p => !sheetPlanNames.has(String(p.nombre || '').toLowerCase().trim()));
+
+    const resultado = [...activeSheetPlanes, ...missingDefaults];
+    return resultado.length > 0 ? resultado : defaultPlanes;
+  } catch (e) {
+    return defaultPlanes;
+  }
+}
+
+async function obtenerDatosBancarios() {
+  try {
+    const { rows } = await readTab(TAB_SUSCRIPCIONES_BANCO);
+    if (rows && rows.length > 0) {
+      const r = rows[0];
+      return {
+        _row: r._row,
+        titular: pick(r, ['titular', 'razon_social', 'nombre'], 'Bien Argentinos S.A.'),
+        cuit: pick(r, ['cuit', 'cuil'], '30-71654321-9'),
+        banco: pick(r, ['banco', 'entidad'], 'Banco Galicia'),
+        cbu: pick(r, ['cbu', 'cvu'], '0070123420000012345678'),
+        alias: pick(r, ['alias'], 'MARCOS.AI.PAGOS'),
+        tipo: pick(r, ['tipo', 'tipo_cuenta'], 'Cuenta Corriente en Pesos'),
+        notas: pick(r, ['notas', 'instrucciones'], 'Enviar el comprobante de transferencia al WhatsApp de atención con el nombre de tu administración.')
+      };
+    }
+  } catch (e) {}
+
+  return {
+    _row: null,
+    titular: 'Bien Argentinos S.A.',
+    cuit: '30-71654321-9',
+    banco: 'Banco Galicia',
+    cbu: '0070123420000012345678',
+    alias: 'MARCOS.AI.PAGOS',
+    tipo: 'Cuenta Corriente en Pesos',
+    notas: 'Enviar el comprobante de transferencia al WhatsApp de atención con el nombre de tu administración.'
   };
 }
 
@@ -309,6 +422,8 @@ function mapProveedor(r) {
 // edificio). Denormaliza nombre/telefono/rubro para que Marcos lea esta tab
 // sola (edificio + rubro -> proveedor ordenado por prioridad).
 function mapAsignacion(r) {
+  const estRaw = String(pick(r, ['estado'], '')).toLowerCase().trim();
+  const estado = estRaw === 'eliminado' ? 'eliminado' : (estRaw || 'activo');
   return {
     _row: r._row,
     cliente: pick(r, ['cliente', 'usuario', 'owner']),
@@ -317,7 +432,24 @@ function mapAsignacion(r) {
     rubro: pick(r, ['rubro', 'especialidad'], 'Otro'),
     telefono: pick(r, ['telefono', 'tel']),
     prioridad: pick(r, ['prioridad'], 'primera'),
-    estado: pick(r, ['estado'], 'activo'),
+    estado: estado,
+  };
+}
+
+function mapConsejo(r) {
+  const estRaw = String(pick(r, ['estado'], '')).toLowerCase().trim();
+  const estado = estRaw === 'eliminado' ? 'eliminado' : (estRaw || 'activo');
+  return {
+    _row: r._row,
+    cliente: pick(r, ['cliente', 'usuario', 'owner']),
+    edificio: pick(r, ['edificio', 'consorcio']),
+    nombre: pick(r, ['nombre', 'miembro', 'integrante']),
+    cargo: pick(r, ['cargo', 'rol', 'puesto'], 'Integrante'),
+    unidad: pick(r, ['unidad', 'depto', 'piso']),
+    telefono: pick(r, ['telefono', 'tel', 'celular']),
+    email: pick(r, ['email', 'mail']),
+    notas: pick(r, ['notas', 'observaciones']),
+    estado: estado,
   };
 }
 
@@ -326,7 +458,9 @@ const RUBROS_PROVEEDOR = ['Plomero', 'Gasista', 'Electricista', 'Ascensores', 'C
 const PRIORIDADES = [
   { key: 'primera', label: '1ra opción', bg: '#E7F4EC', fg: '#1B7A43' },
   { key: 'segunda', label: '2da opción', bg: '#EAF1FB', fg: '#2C55A8' },
-  { key: 'urgencias', label: 'Solo urgencias', bg: '#FBF3DE', fg: '#8A6410' },
+  { key: 'urgencia', label: 'Solo Urgencias', bg: '#FEF2F2', fg: '#991B1B' },
+  { key: 'primera_urgencia', label: '1ra Opción + Urgencias', bg: '#DCFCE7', fg: '#166534' },
+  { key: 'segunda_urgencia', label: '2da Opción + Urgencias', bg: '#FEF3C7', fg: '#92400E' },
 ];
 
 // Serializa/parsea el horario del encargado. Guardado como JSON en la celda
@@ -411,8 +545,32 @@ function fechaCorta(date) {
   return date.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function normalizeKey(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function normalizeEdificio(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/['"’`]/g, '')
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function compararEdificios(a, b) {
-  return String(a || '').toLowerCase().trim() === String(b || '').toLowerCase().trim();
+  const na = normalizeEdificio(a);
+  const nb = normalizeEdificio(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.length >= 4 && nb.length >= 4 && (na.includes(nb) || nb.includes(na))) return true;
+  return false;
 }
 
 function hashString(str) {
@@ -423,10 +581,12 @@ function hashString(str) {
   return Math.abs(hash);
 }
 
-function dibujarConsumoHtml(nombre, plan, eventos) {
-  const isPlus = String(plan || '').toLowerCase() === 'plus';
-  const limitMsgs = isPlus ? 1000 : 300;
-  const limitCalls = isPlus ? 500 : 200;
+function dibujarConsumoHtml(nombre, plan, eventos, opts = {}) {
+  const planSt = PLAN_STYLE(plan);
+  const isPlus = String(plan || '').toLowerCase().includes('plus');
+  const isPremium = String(plan || '').toLowerCase().includes('premium');
+  const limitMsgs = isPremium ? 3000 : (isPlus ? 1000 : 300);
+  const limitCalls = isPremium ? 1500 : (isPlus ? 500 : 200);
 
   // Conteo real por tipo de canal
   const arr = Array.isArray(eventos) ? eventos : [];
@@ -436,29 +596,37 @@ function dibujarConsumoHtml(nombre, plan, eventos) {
   const pctMsgs = Math.min(100, Math.round((msgsUsed / limitMsgs) * 100));
   const pctCalls = Math.min(100, Math.round((callsUsed / limitCalls) * 100));
 
+  const planNombreVisible = plan || 'Base';
+
   return `
-    <div style="display:flex;flex-direction:column;gap:13px">
+    <div style="display:flex;flex-direction:column;gap:13px" class="box-consumo-plan">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:2px;flex-wrap:wrap">
+        <span class="plan-badge ${getPlanClass(planNombreVisible)}">Plan: ${esc(planNombreVisible)}</span>
+        ${opts.esAc ? `
+        <button onclick="abrirModalPlanesAc('${escJs(nombre)}')" style="font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:8px;border:1px solid #DCE4F0;background:#fff;color:#2E6FC0;cursor:pointer" class="hv-soft">💳 Cambiar plan</button>
+        ` : ''}
+      </div>
       <div>
-        <div style="display:flex;align-items:center;justify-content:space-between;font-size:12.5px;font-weight:700;color:#475569;margin-bottom:6px">
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:12.5px;font-weight:700;color:#475569;margin-bottom:6px" class="txt-consumo-label">
           <span>💬 Mensajes de WhatsApp</span>
-          <span style="color:#1E293B">${msgsUsed} <span style="color:#94A3B8;font-weight:500">/ ${limitMsgs}</span></span>
+          <span style="color:#1E293B" class="txt-consumo-num">${msgsUsed} <span style="color:#94A3B8;font-weight:500">/ ${limitMsgs}</span></span>
         </div>
-        <div style="width:100%;height:8px;background:#EEF2F6;border-radius:999px;overflow:hidden">
+        <div style="width:100%;height:8px;background:#EEF2F6;border-radius:999px;overflow:hidden" class="bar-consumo-track">
           <div style="width:${pctMsgs}%;height:100%;background:#2E6FC0;border-radius:999px"></div>
         </div>
       </div>
       <div>
-        <div style="display:flex;align-items:center;justify-content:space-between;font-size:12.5px;font-weight:700;color:#475569;margin-bottom:6px">
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:12.5px;font-weight:700;color:#475569;margin-bottom:6px" class="txt-consumo-label">
           <span>📞 Llamadas telefónicas</span>
-          <span style="color:#1E293B">${callsUsed} <span style="color:#94A3B8;font-weight:500">/ ${limitCalls}</span></span>
+          <span style="color:#1E293B" class="txt-consumo-num">${callsUsed} <span style="color:#94A3B8;font-weight:500">/ ${limitCalls}</span></span>
         </div>
-        <div style="width:100%;height:8px;background:#EEF2F6;border-radius:999px;overflow:hidden">
+        <div style="width:100%;height:8px;background:#EEF2F6;border-radius:999px;overflow:hidden" class="bar-consumo-track">
           <div style="width:${pctCalls}%;height:100%;background:#B45309;border-radius:999px"></div>
         </div>
       </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px;color:#1E293B;padding-top:10px;border-top:1px solid #F1F5F9;margin-top:2px">
-        <span style="font-weight:700;color:#475569">🧾 Eventos gestionados</span>
-        <span style="font-weight:800;color:#0F172A">${evCount}</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px;color:#1E293B;padding-top:10px;border-top:1px solid #F1F5F9;margin-top:2px" class="div-consumo-border">
+        <span style="font-weight:700;color:#475569" class="txt-consumo-label">🧾 Eventos gestionados</span>
+        <span style="font-weight:800;color:#0F172A" class="txt-consumo-num">${arr.length}</span>
       </div>
     </div>`;
 }
@@ -576,9 +744,30 @@ function estadoNormalizado(estado) {
   return 'nuevo';
 }
 
-const PLAN_STYLE = (p) => (p === 'Plus'
-  ? { bg: '#EDE9FB', fg: '#6D28D9' }
-  : { bg: '#EEF2F8', fg: '#5A6B85' });
+const PLAN_STYLE = (p) => {
+  const norm = String(p || '').toLowerCase();
+  if (norm.includes('plus')) return { bg: '#EDE9FB', fg: '#6D28D9' };
+  if (norm.includes('premium')) return { bg: '#FEF3C7', fg: '#B45309' };
+  if (norm.includes('free') || norm.includes('prueba')) return { bg: '#F3F4F6', fg: '#4B5563' };
+  return { bg: '#EAF1FB', fg: '#17408B' };
+};
+
+function getPlanClass(planName) {
+  const norm = String(planName || '').toLowerCase();
+  if (norm.includes('plus')) return 'plan-plus';
+  if (norm.includes('premium')) return 'plan-premium';
+  if (norm.includes('free') || norm.includes('prueba')) return 'plan-free';
+  return 'plan-base';
+}
+
+function getRubroClass(r) {
+  const norm = String(r || '').toLowerCase().trim();
+  if (['plomero', 'gasista', 'electricista', 'ascensores', 'cerrajero', 'pintor', 'limpieza', 'seguridad', 'otro'].includes(norm)) {
+    return 'rubro-' + norm;
+  }
+  return 'rubro-otro';
+}
+
 
 // Etiquetas de campos de la ficha (para solicitudes de cambio).
 const FICHA_LABELS = {
@@ -586,7 +775,7 @@ const FICHA_LABELS = {
   administrador: 'Administrador', cuit: 'CUIT del edificio',
   encargado: 'Encargado', tel_encargado: 'Tel. encargado',
   horario_sum: 'Horario SUM', cocheras: 'Cocheras',
-  suplente_horario: 'Horario suplente/limpieza',
+  suplente_horario: 'Horario suplente/limpieza', plan: 'Plan Contratado',
 };
 
 /* ===================================================================
@@ -602,9 +791,13 @@ function esc(str) {
     .replace(/'/g, '&#39;');
 }
 
-// esc() + neutraliza saltos de linea (para onclick="fn('...')").
+// esc() + neutraliza saltos de linea y escapa comillas simples de forma segura (para onclick="fn('...')").
 function escJs(str) {
-  return esc(str).replace(/\r\n|\r|\n/g, ' ');
+  return String(str == null ? '' : str)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;')
+    .replace(/\r\n|\r|\n/g, ' ');
 }
 
 function truncate(s, n) {
@@ -615,7 +808,13 @@ function truncate(s, n) {
 // Modal de alta de edificio, compartido entre "Clientes y edificios" (dueño)
 // y "Mi Edificio" (cliente) — completo, para que el edificio quede armado
 // desde el alta y no como una ficha vacía para llenar después.
-function modalAltaEdificioHtml(eyebrow, clienteUsuario) {
+function modalAltaEdificioHtml(eyebrow, clienteUsuario, planesList) {
+  const list = (planesList && planesList.length) ? planesList : [
+    { nombre: 'Plan Base', precio: '15000' },
+    { nombre: 'Plan Plus', precio: '35000' }
+  ];
+  const optionsHtml = list.map((p) => `<option value="${esc(p.nombre)}">${esc(p.nombre)}${Number(p.precio) > 0 ? ' ($' + Number(p.precio).toLocaleString('es-AR') + '/mes)' : ''}</option>`).join('');
+
   const campo = (id, labelTxt, placeholder, extra) => `
     <div${extra || ''}>
       <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">${labelTxt}</div>
@@ -654,11 +853,9 @@ function modalAltaEdificioHtml(eyebrow, clienteUsuario) {
               ${campo('ed-tel-suplente', 'Tel. suplente', 'Teléfono', ' style="flex:1"')}
             </div>
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Plan contratado</div>
-            <div style="display:flex;gap:9px">
-              <button data-plan-btn onclick="elegirPlanNuevo(this,'Base')" style="flex:1;height:44px;border:1.5px solid #2E6FC0;border-radius:11px;background:#EAF1FB;color:#17408B;font-weight:700;font-size:14px;cursor:pointer">Base</button>
-              <button data-plan-btn onclick="elegirPlanNuevo(this,'Plus')" style="flex:1;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;background:#fff;color:#64748B;font-weight:700;font-size:14px;cursor:pointer">Plus</button>
-            </div>
-            <input type="hidden" id="ed-plan" value="Base">
+            <select id="ed-plan" class="inp">
+              ${optionsHtml}
+            </select>
           </div>
           <div style="display:flex;gap:11px;padding:0 24px 22px">
             <button onclick="cerrarModal('modal-edificio')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
@@ -666,6 +863,103 @@ function modalAltaEdificioHtml(eyebrow, clienteUsuario) {
           </div>
         </div>
       </div>`;
+}
+
+function modalPlanesAcHtml(planesList, propiosEdificios) {
+  const planes = (planesList && planesList.length) ? planesList : [
+    { nombre: 'Free / Prueba 30 Días', precio: '0', moneda: 'ARS', edificios: '1', mensajes: '100', llamadas: '50', servicios: 'Atención 24/7 IA, Gestión de Reclamos, 1 Edificio activo' },
+    { nombre: 'Plan Base', precio: '15000', moneda: 'ARS', edificios: '1', mensajes: '300', llamadas: '200', servicios: 'Atención 24/7 IA, Panel Completo AC, Múltiples proveedores' },
+    { nombre: 'Plan Plus (Corporativo 5)', precio: '35000', moneda: 'ARS', edificios: '5', mensajes: '1000', llamadas: '500', servicios: 'Atención 24/7 IA, Urgencias prioritarias, Facturas y Fotos, Bolsón de 5 Edificios' },
+    { nombre: 'Plan Premium (Corporativo 20)', precio: '60000', moneda: 'ARS', edificios: '20', mensajes: '3000', llamadas: '1500', servicios: 'Atención 24/7 IA ilimitada, Soporte dedicado, Auditoría de expensas, Bolsón de 20 Edificios' }
+  ];
+
+  const edificiosJsonStr = escJs(JSON.stringify((propiosEdificios || []).map(x => ({ nombre: x.nombre, direccion: x.direccion, plan: x.plan }))));
+
+  const cardsHtml = planes.map((p) => {
+    const pStyle = PLAN_STYLE(p.nombre);
+    const precioFmt = Number(p.precio) > 0 ? (p.moneda === 'USD' ? 'USD $' + p.precio : '$' + Number(p.precio).toLocaleString('es-AR')) : 'GRATIS / PRUEBA 30 DÍAS';
+    const esCorporativo = Number(p.edificios) > 1;
+    const cantEdificios = esCorporativo ? `Paquete Corporativo (${p.edificios} Edificios)` : 'Por Edificio Individual';
+    const servList = (p.servicios || '').split(/,|\n/).map((s) => s.trim()).filter(Boolean);
+    const servHtml = servList.map((s) => `<div style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#334259;margin-bottom:5px"><span style="color:#22C55E">✓</span> ${esc(s)}</div>`).join('');
+
+    const botonSolicitudHtml = esCorporativo
+      ? `<button onclick="abrirSolicitudCorporativa('${escJs(p.nombre)}', ${Number(p.edificios) || 5}, '${edificiosJsonStr}')" style="width:100%;height:40px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">🏢 Solicitar Paquete Corporativo (${p.edificios} Edificios)</button>`
+      : `<button onclick="solicitarPlanCat('${escJs(p.nombre)}', 'este')" style="width:100%;height:40px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">Solicitar para este edificio</button>`;
+
+    return `
+      <div style="background:#fff;border:1.5px solid #E7ECF3;border-radius:16px;padding:20px;display:flex;flex-direction:column;box-shadow:0 4px 12px rgba(16,35,59,.04)" class="hv-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <span class="plan-badge ${getPlanClass(p.nombre)}">${esc(p.nombre)}</span>
+          <span style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#EAF1FB;padding:3px 9px;border-radius:999px">${esc(cantEdificios)}</span>
+        </div>
+        <div style="font-size:24px;font-weight:800;letter-spacing:-.02em;color:#16233B;margin-bottom:4px">${precioFmt}</div>
+        <div style="font-size:12px;color:#8595AD;margin-bottom:14px">Hasta ${esc(p.mensajes)} msgs 24/7 · ${esc(p.llamadas)} llamadas/mes</div>
+        
+        <div style="font-size:12.5px;font-weight:700;color:#16233B;margin-bottom:6px">Servicios del plan:</div>
+        <div style="flex:1;margin-bottom:16px">${servHtml}</div>
+
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:auto;padding-top:12px;border-top:1px solid #EEF2F8">
+          ${botonSolicitudHtml}
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div id="modal-planes-ac" class="modal-overlay" onclick="cerrarModal('modal-planes-ac')">
+      <div class="modal-box" style="width:720px;max-width:94vw;max-height:88vh;overflow-y:auto" onclick="stopEv(event)">
+        <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Catálogo de Planes y Suscripciones</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">💳 Solicitar Cambio de Plan</div>
+          </div>
+          <button onclick="cerrarModal('modal-planes-ac')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#8595AD">✕</button>
+        </div>
+        <div style="padding:22px">
+          <p style="font-size:13.5px;color:#64748B;margin:0 0 18px">Elegí el plan que mejor se adapte a tus edificios. Podés solicitar un plan para un edificio en particular o un paquete corporativo para administrar todos tus consorcios juntos.</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">${cardsHtml}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL DE ASIGNACION DE EDIFICIOS POR CHECKBOXES PARA PAQUETES CORPORATIVOS -->
+    <div id="modal-solicitud-corporativa" class="modal-overlay" onclick="cerrarModal('modal-solicitud-corporativa')">
+      <div class="modal-box" style="width:580px;max-width:94vw;max-height:88vh;overflow-y:auto" onclick="stopEv(event)">
+        <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Paquete Corporativo</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em" id="corp-modal-titulo">🏛️ Seleccioná los Edificios del Paquete</div>
+          </div>
+          <button onclick="cerrarModal('modal-solicitud-corporativa')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#8595AD">✕</button>
+        </div>
+        <div style="padding:22px">
+          <div style="background:#EAF1FB;border:1px solid #C9D5E8;border-radius:14px;padding:14px 16px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div>
+              <div style="font-size:12px;font-weight:800;color:#17408B;text-transform:uppercase;letter-spacing:.04em">Cupos del Plan</div>
+              <div style="font-size:16px;font-weight:800;color:#0F326A" id="corp-plan-nombre">Plan Plus (5 Edificios)</div>
+            </div>
+            <div style="text-align:right">
+              <span style="font-size:12px;font-weight:700;color:#5A6B85">Asignados:</span>
+              <span style="font-size:18px;font-weight:800;color:#2E6FC0;margin-left:4px" id="corp-counter">0 / 5</span>
+            </div>
+          </div>
+
+          <p style="font-size:13.5px;color:#64748B;margin:0 0 14px">Tildá los edificios que estarán cubiertos por este paquete corporativo. Los edificios que queden sin tildar permanecerán en su Plan Individual por separado.</p>
+
+          <div id="corp-edificios-checklist" style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;max-height:300px;overflow-y:auto;padding-right:4px">
+            <!-- Lista de edificios del cliente con checkboxes -->
+          </div>
+
+          <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Observaciones / Nota al administrador (opcional)</div>
+          <textarea id="corp-motivo" class="inp" style="height:70px;margin-bottom:18px" placeholder="Ej: Solicitamos pasar nuestros consorcios principales al paquete corporativo..."></textarea>
+
+          <div style="display:flex;gap:12px">
+            <button onclick="cerrarModal('modal-solicitud-corporativa')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="enviarSolicitudCorporativa(this)" style="flex:1.4;height:44px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">🚀 Enviar Solicitud de Paquete</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
 }
 
 /* ===================================================================
@@ -730,8 +1024,83 @@ a{color:inherit;text-decoration:none}
 .inp{width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;color:#16233B;outline:none;background:#F8FAFD}
 .inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)}
 textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-height:1.5}
-@media(max-width:980px){.resgrid{grid-template-columns:1fr!important}.fichagrid{grid-template-columns:1fr!important}}
-@media(max-width:900px){.sidebar-nav{display:none!important}.username{display:none!important}}
+/* Responsive Mobile Adjustments & Mobile Navigation Bar */
+.mobile-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 62px;
+  background: #ffffff;
+  border-top: 1px solid #E4E9F1;
+  z-index: 55;
+  box-shadow: 0 -4px 20px rgba(16, 35, 59, 0.12);
+  justify-content: space-around;
+  align-items: center;
+  padding: 0 4px;
+}
+.mobile-bottom-nav a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  height: 100%;
+  color: #64748B;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+  gap: 3px;
+  transition: color 0.15s ease;
+}
+.mobile-bottom-nav a .nav-icon {
+  font-size: 19px;
+  line-height: 1;
+}
+.mobile-bottom-nav a.active {
+  color: #2E6FC0;
+}
+.dark-theme .mobile-bottom-nav {
+  background: #151F38 !important;
+  border-top-color: #2A3A5E !important;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4) !important;
+}
+.dark-theme .mobile-bottom-nav a {
+  color: #94A3B8 !important;
+}
+.dark-theme .mobile-bottom-nav a.active {
+  color: #38BDF8 !important;
+}
+
+@media (max-width: 980px) {
+  .resgrid, .fichagrid { grid-template-columns: 1fr !important; }
+}
+
+@media (max-width: 900px) {
+  .sidebar-nav { display: none !important; }
+  .username { display: none !important; }
+  .mobile-bottom-nav { display: flex !important; }
+  main { padding: 18px 14px 90px !important; }
+  header { padding: 0 12px !important; gap: 8px !important; }
+  header button.hv-selbtn { max-width: 170px !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
+  div[style*="grid-template-columns:1.55fr 1fr"],
+  div[style*="grid-template-columns:1fr 1fr"],
+  div[style*="grid-template-columns: 1.55fr 1fr"],
+  div[style*="grid-template-columns: 1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+  .modal-overlay { padding: 12px !important; }
+  .modal-box { width: 100% !important; max-width: 96vw !important; margin: 0 auto !important; border-radius: 16px !important; }
+}
+
+@media (max-width: 600px) {
+  h1 { font-size: 22px !important; }
+  h2 { font-size: 20px !important; }
+  header { height: 58px !important; }
+  .login-shell { padding: 20px 12px !important; display: flex !important; align-items: center !important; justify-content: center !important; }
+  form[action="/admin/login"] { width: 100% !important; max-width: 100% !important; padding: 20px 16px !important; }
+}
 
 /* Modo Oscuro / Dark Theme (High-Contrast & Ultra-Legible) */
 html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; color:#F1F5F9 !important; }
@@ -739,7 +1108,6 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 .dark-theme header span, .dark-theme header div { color:#F1F5F9 !important; }
 .dark-theme header button.hv-selbtn { background:#1C2B4E !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
 .dark-theme header button.hv-selbtn span { color:#F1F5F9 !important; }
-.dark-theme header button.hv-selbtn span[style*="color:#8595AD"] { color:#94A3B8 !important; }
 
 /* Menú Sidebar */
 .dark-theme nav.sidebar-nav { background:#151F38 !important; border-right-color:#2A3A5E !important; }
@@ -755,22 +1123,6 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 .dark-theme .modal-box h1, .dark-theme .modal-box h2, .dark-theme .modal-box h3 { color:#FFFFFF !important; }
 .dark-theme .modal-box div[style*="border-bottom"] { border-bottom-color:#2A3A5E !important; }
 
-/* Tarjetas, Enlaces y Filas dentro de Modales (Picker de Clientes, Preferencias, Mi Cuenta, etc) */
-.dark-theme .modal-box a, .dark-theme .modal-box label { background:#1E2C4F !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
-.dark-theme .modal-box a:hover { background:#283962 !important; border-color:#3B5185 !important; }
-.dark-theme .modal-box a span, .dark-theme .modal-box label span { color:#F1F5F9 !important; }
-.dark-theme .modal-box span[style*="color:#16233B"], .dark-theme .modal-box span[style*="color:#334259"] { color:#FFFFFF !important; }
-.dark-theme .modal-box span[style*="color:#8595AD"], .dark-theme .modal-box span[style*="color:#9AA7BD"], .dark-theme .modal-box span[style*="color:#5A6B85"] { color:#94A3B8 !important; }
-.dark-theme .modal-box span[style*="background:#EEF2F8"] { background:#283962 !important; color:#94A3B8 !important; }
-
-/* Botones dentro de Modales */
-.dark-theme .modal-box button.hv-soft, .dark-theme .modal-box button[style*="background:#fff"], .dark-theme .modal-box button[style*="background: #fff"] { background:#1E2C4F !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
-.dark-theme .modal-box button.hv-soft:hover { background:#283962 !important; color:#FFFFFF !important; }
-
-/* Inputs y Selects en Modo Oscuro */
-.dark-theme input.inp, .dark-theme textarea.inp, .dark-theme select.inp { background:#0B132B !important; border-color:#2A3A5E !important; color:#FFFFFF !important; }
-.dark-theme input.inp::placeholder, .dark-theme textarea.inp::placeholder { color:#64748B !important; }
-
 /* Menús Pop-up (Dropdowns) */
 .dark-theme .menu-pop { background:#151F38 !important; border:1px solid #2A3A5E !important; color:#F1F5F9 !important; box-shadow:0 16px 40px -10px rgba(0,0,0,.6) !important; }
 .dark-theme .menu-pop div { color:#F1F5F9 !important; border-bottom-color:#2A3A5E !important; }
@@ -778,29 +1130,277 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 .dark-theme .menu-pop button:hover { background:#1E2C4F !important; color:#FFFFFF !important; }
 .dark-theme .menu-pop button.hv-red { color:#F87171 !important; }
 
+/* Universal: Elementos con Fondo Claro en Modo Oscuro (a, button, div, span, card) */
+.dark-theme .hv-card,
+.dark-theme .hv-white,
+.dark-theme .hv-soft,
+.dark-theme .hv-softb,
+.dark-theme .hv-selbtn,
+.dark-theme .hv-blue,
+.dark-theme .hv-bluedash,
+.dark-theme [style*="background:#fff"],
+.dark-theme [style*="background: #fff"],
+.dark-theme [style*="background:#FFF"],
+.dark-theme [style*="background: #FFF"],
+.dark-theme [style*="background:#ffffff"],
+.dark-theme [style*="background: #ffffff"],
+.dark-theme [style*="background:white"],
+.dark-theme [style*="background: white"],
+.dark-theme [style*="background:rgb(255, 255, 255)"],
+.dark-theme [style*="background: rgb(255, 255, 255)"],
+.dark-theme [style*="background-color:#fff"],
+.dark-theme [style*="background-color: #fff"],
+.dark-theme [style*="background-color:#ffffff"],
+.dark-theme [style*="background-color: #ffffff"],
+.dark-theme [style*="background-color:white"],
+.dark-theme [style*="background-color: white"],
+.dark-theme [style*="background-color:rgb(255, 255, 255)"],
+.dark-theme [style*="background-color: rgb(255, 255, 255)"] {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+}
+
+.dark-theme [style*="background:#F7F9FC"],
+.dark-theme [style*="background: #F7F9FC"],
+.dark-theme [style*="background:#F8FAFD"],
+.dark-theme [style*="background: #F8FAFD"],
+.dark-theme [style*="background:#F1F5FB"],
+.dark-theme [style*="background: #F1F5FB"],
+.dark-theme [style*="background:#EEF2F8"],
+.dark-theme [style*="background: #EEF2F8"],
+.dark-theme [style*="background:#EAF1FB"],
+.dark-theme [style*="background: #EAF1FB"],
+.dark-theme [style*="background: rgb(247, 249, 252)"],
+.dark-theme [style*="background: rgb(248, 250, 253)"],
+.dark-theme [style*="background: rgb(241, 245, 251)"],
+.dark-theme [style*="background: rgb(238, 242, 248)"],
+.dark-theme [style*="background: rgb(234, 241, 251)"] {
+  background: #1E2C4F !important;
+  border-color: #2A3A5E !important;
+}
+
+/* Universal: Textos oscuros en Modo Oscuro -> Texto Blanco / Gris Claro */
+.dark-theme [style*="color:#16233B"],
+.dark-theme [style*="color: #16233B"],
+.dark-theme [style*="color:#334259"],
+.dark-theme [style*="color: #334259"],
+.dark-theme [style*="color:#475569"],
+.dark-theme [style*="color: #475569"],
+.dark-theme [style*="color:#64748B"],
+.dark-theme [style*="color: #64748B"],
+.dark-theme [style*="color:#5A6B85"],
+.dark-theme [style*="color: #5A6B85"],
+.dark-theme [style*="color:#8595AD"],
+.dark-theme [style*="color: #8595AD"] {
+  color: #CBD5E1 !important;
+}
+
+/* Universal: Hover para Botones, Enlaces, Filas y Tarjetas en Modo Oscuro (Previene que se pasen a blanco o modo claro) */
+.dark-theme button:hover,
+.dark-theme a:hover,
+.dark-theme div[onclick]:hover,
+.dark-theme div[style*="cursor:pointer"]:hover,
+.dark-theme div[style*="cursor: pointer"]:hover,
+.dark-theme a[style*="cursor:pointer"]:hover,
+.dark-theme a[style*="cursor: pointer"]:hover,
+.dark-theme .hv-card:hover,
+.dark-theme div.hv-card:hover,
+.dark-theme a.hv-card:hover,
+.dark-theme .hv-white:hover,
+.dark-theme .hv-soft:hover,
+.dark-theme button.hv-soft:hover,
+.dark-theme a.hv-soft:hover,
+.dark-theme .hv-softb:hover,
+.dark-theme .hv-selbtn:hover,
+.dark-theme .hv-blue:hover,
+.dark-theme a.hv-blue:hover,
+.dark-theme .hv-bluedash:hover,
+.dark-theme .hv-row:hover {
+  background: #1C2B4E !important;
+  border-color: #2E6FC0 !important;
+  color: #FFFFFF !important;
+}
+
+/* Preservar legibilidad de Badges, Chips y Pills al hacer Hover en Tarjetas/Botones en Modo Oscuro */
+.dark-theme *:hover span[style*="background:#E7F4EC"],
+.dark-theme *:hover span[style*="background: #E7F4EC"],
+.dark-theme *:hover .status-active,
+.dark-theme *:hover .prio-primera,
+.dark-theme *:hover .ev-resuelto {
+  background: #062C19 !important;
+  color: #4ADE80 !important;
+  border-color: #14532D !important;
+}
+
+.dark-theme *:hover span[style*="background:#FBF3DE"],
+.dark-theme *:hover span[style*="background: #FBF3DE"],
+.dark-theme *:hover span[style*="background:#FEF3C7"],
+.dark-theme *:hover span[style*="background: #FEF3C7"],
+.dark-theme *:hover .rubro-gasista,
+.dark-theme *:hover .rubro-electricista {
+  background: #2A2415 !important;
+  color: #FDE047 !important;
+  border-color: #594D1A !important;
+}
+
+.dark-theme *:hover span[style*="background:#FDECEC"],
+.dark-theme *:hover span[style*="background: #FDECEC"],
+.dark-theme *:hover span[style*="background:#FEF2F2"],
+.dark-theme *:hover span[style*="background: #FEF2F2"],
+.dark-theme *:hover .status-inactive,
+.dark-theme *:hover .prio-urgencia,
+.dark-theme *:hover .ev-urgente {
+  background: #3B1219 !important;
+  color: #FCA5A5 !important;
+  border-color: #7F1D1D !important;
+}
+
+.dark-theme *:hover span[style*="background:#EEF2F8"],
+.dark-theme *:hover span[style*="background: #EEF2F8"],
+.dark-theme *:hover span[style*="background:#EAF1FB"],
+.dark-theme *:hover span[style*="background: #EAF1FB"],
+.dark-theme *:hover .plan-base,
+.dark-theme *:hover .rubro-plomero {
+  background: #1C2B4E !important;
+  color: #38BDF8 !important;
+  border-color: #2E6FC0 !important;
+}
+
+.dark-theme .hv-red:hover {
+  background: #7F1D1D !important;
+  color: #FCA5A5 !important;
+}
+
+/* Recuadro Dorado para tarjeta de Plan Contratado en Ficha e Identidad */
+.box-gold-border {
+  border: 2px solid #F59E0B !important;
+  box-shadow: 0 0 12px rgba(245,158,11,.25) !important;
+}
+.dark-theme .box-gold-border {
+  background: #151F38 !important;
+  border: 2px solid #F59E0B !important;
+  box-shadow: 0 0 14px rgba(245,158,11,.3) !important;
+}
+
+/* Legibilidad de Métricas de Consumo del Plan en Modo Oscuro */
+.dark-theme .txt-consumo-label,
+.dark-theme .txt-consumo-label span {
+  color: #CBD5E1 !important;
+}
+.dark-theme .txt-consumo-num,
+.dark-theme .txt-consumo-num span:first-child {
+  color: #FFFFFF !important;
+}
+.dark-theme .txt-consumo-num span {
+  color: #94A3B8 !important;
+}
+.dark-theme .bar-consumo-track {
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+.dark-theme .div-consumo-border {
+  border-top-color: rgba(255, 255, 255, 0.12) !important;
+  color: #FFFFFF !important;
+}
+
+/* Cajas de Divisas (USD / EUR) en Modo Oscuro */
+.dark-theme .box-usd,
+.dark-theme div[class*="box-usd"] {
+  background: #092B19 !important;
+  border: 1px solid #14532D !important;
+}
+.dark-theme .box-usd *,
+.dark-theme div[class*="box-usd"] * {
+  color: #4ADE80 !important;
+}
+
+.dark-theme .box-eur,
+.dark-theme div[class*="box-eur"] {
+  background: #0F2942 !important;
+  border: 1px solid #1E40AF !important;
+}
+.dark-theme .box-eur *,
+.dark-theme div[class*="box-eur"] * {
+  color: #60A5FA !important;
+}
+
+.dark-theme div[style*="background:#FBF3DE"],
+.dark-theme div[style*="background: #FBF3DE"] {
+  background: #2A2415 !important;
+  border-color: #594D1A !important;
+  color: #FDE047 !important;
+}
+.dark-theme div[style*="background:#FBF3DE"] *,
+.dark-theme div[style*="background: #FBF3DE"] * {
+  color: #FDE047 !important;
+}
+
+/* OVERLAYS / BACKDROPS: Proteger overlay contra :hover azul sólido en Modo Oscuro */
+.drawer-overlay,
+.modal-overlay,
+#drawer-overlay,
+.dark-theme .drawer-overlay,
+.dark-theme .modal-overlay,
+.dark-theme #drawer-overlay,
+.dark-theme .drawer-overlay:hover,
+.dark-theme .modal-overlay:hover,
+.dark-theme #drawer-overlay:hover,
+.dark-theme div[onclick].drawer-overlay:hover,
+.dark-theme div[onclick].modal-overlay:hover,
+.dark-theme div[style*="cursor"].drawer-overlay:hover,
+.dark-theme div[style*="cursor"].modal-overlay:hover {
+  background: rgba(11, 19, 43, 0.70) !important;
+  backdrop-filter: blur(3px) !important;
+  -webkit-backdrop-filter: blur(3px) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
 /* Event Cards y Feeds */
 .dark-theme .hv-row { background:#151F38 !important; border-bottom-color:#2A3A5E !important; color:#F1F5F9 !important; }
-.dark-theme .hv-row:hover { background:#1E2C4F !important; }
-.dark-theme .hv-row span { color:#F1F5F9 !important; }
+.dark-theme .hv-row span:not([style*="background"]) { color:#F1F5F9 !important; }
 .dark-theme .hv-row span[style*="color:#16233B"] { color:#FFFFFF !important; }
 .dark-theme .hv-row span[style*="color:#5A6B85"], .dark-theme .hv-row span[style*="color:#64748B"] { color:#CBD5E1 !important; }
 .dark-theme .hv-row span[style*="color:#9AA7BD"] { color:#94A3B8 !important; }
 
-/* Tarjetas en Resumen, Consumos, Clientes, etc. */
-.dark-theme .hv-card { background:#151F38 !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
-.dark-theme .hv-card:hover { border-color:#2E6FC0 !important; background:#1C2B4E !important; }
-.dark-theme .hv-card div, .dark-theme .hv-card span { color:#F1F5F9 !important; }
-.dark-theme .hv-card span[style*="color:#8595AD"] { color:#94A3B8 !important; }
-.dark-theme div[style*="background:#fff"], .dark-theme div[style*="background: #fff"] { background:#151F38 !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
-.dark-theme div[style*="background:#fff"] span, .dark-theme div[style*="background: #fff"] span { color:#F1F5F9 !important; }
-.dark-theme div[style*="background:#fff"] div, .dark-theme div[style*="background: #fff"] div { border-color:#2A3A5E !important; color:#F1F5F9 !important; }
-.dark-theme span[style*="color:#8595AD"], .dark-theme span[style*="color:#5A6B85"], .dark-theme span[style*="color:#64748B"], .dark-theme div[style*="color:#5A6B85"] { color:#CBD5E1 !important; }
-.dark-theme span[style*="color:#2C55A8"] { color:#60A5FA !important; }
-.dark-theme div[style*="background:#EAF1FB"], .dark-theme div[style*="background:#F7F9FC"], .dark-theme div[style*="background:#F8FAFD"], .dark-theme div[style*="background:#EEF2F8"] { background:#1E2C4F !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
+/* Drawer Panel lateral de eventos */
+.drawer-grid-card { background:#fff; border:1px solid #E7ECF3; border-radius:12px; padding:11px 13px; }
+.drawer-notes-box { background:linear-gradient(120deg,#EAF1FB,#F3F7FD); border:1px solid #D8E5F6; border-radius:12px; padding:14px 16px; font-size:14.5px; color:#1E3A6B; line-height:1.6; white-space:pre-wrap; }
+.drawer-audio-box { background:#F1F5FB; border:1px solid #D8E5F6; border-radius:12px; padding:13px 16px; margin-bottom:16px; }
+.drawer-atendio-box { display:flex; align-items:center; gap:11px; background:#fff; border:1px solid #E7ECF3; border-radius:12px; padding:11px 14px; margin-bottom:18px; }
 
-/* Drawer Panel lateral */
 .dark-theme .drawer-panel { background:#0B132B !important; color:#F1F5F9 !important; border-left:1px solid #2A3A5E !important; }
-.dark-theme .drawer-panel div, .dark-theme .drawer-panel span, .dark-theme .drawer-panel p, .dark-theme .drawer-panel h1, .dark-theme .drawer-panel h2 { color:#F1F5F9 !important; }
+.dark-theme .drawer-panel div, .dark-theme .drawer-panel p, .dark-theme .drawer-panel h1, .dark-theme .drawer-panel h2 { color:#F1F5F9 !important; }
+.dark-theme .drawer-panel span:not([style*="background"]) { color:#F1F5F9 !important; }
+.dark-theme .drawer-header-box { background:#151F38 !important; border-bottom:1px solid #2A3A5E !important; }
+.dark-theme .drawer-header-box div[style*="color:#5A6B85"] { color:#94A3B8 !important; }
+.dark-theme .drawer-header-box div[style*="color:#16233B"] { color:#FFFFFF !important; }
+.dark-theme .drawer-close-btn { background:#1C2B4E !important; color:#FFFFFF !important; border:1px solid #2A3A5E !important; }
+.dark-theme .drawer-icon-box { background:#1C2B4E !important; border:1px solid #2A3A5E !important; color:#FFFFFF !important; }
+.dark-theme .drawer-grid-card { background:#1C2B4E !important; border-color:#2A3A5E !important; }
+.dark-theme .drawer-grid-card div { color:#F1F5F9 !important; }
+.dark-theme .drawer-grid-card div:first-child { color:#94A3B8 !important; }
+.dark-theme .drawer-notes-box { background:#162447 !important; border-color:#2A3A5E !important; color:#E2E8F0 !important; }
+.dark-theme .drawer-audio-box { background:#13203E !important; border-color:#23355C !important; color:#CBD5E1 !important; }
+.dark-theme .drawer-atendio-box { background:#1C2B4E !important; border-color:#2A3A5E !important; }
+.dark-theme .drawer-atendio-box div { color:#F1F5F9 !important; }
+.dark-theme .drawer-panel div[style*="background:#FBF3DE"] { background:#2E2510 !important; border-color:#523E10 !important; }
+.dark-theme .drawer-panel div[style*="background:#FBF3DE"] * { color:#FDE68A !important; }
+.dark-theme .drawer-panel div[style*="background:#E7F4EC"] { background:#0B331A !important; border-color:#165B30 !important; }
+.dark-theme .drawer-panel div[style*="background:#E7F4EC"] * { color:#A7F3D0 !important; }
+.dark-theme .drawer-panel div[style*="background:#F1F5FB"] { background:#13203E !important; border-color:#23355C !important; }
+.dark-theme .drawer-panel div[style*="background:#F1F5FB"] * { color:#CBD5E1 !important; }
+.dark-theme .drawer-panel button[style*="background:#fff"],
+.dark-theme .drawer-panel button[style*="background: #fff"] { background:#1C2B4E !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
+.dark-theme .drawer-panel .chat-box { background:#0D1929 !important; border-color:#1E2D4A !important; }
+.dark-theme .drawer-panel .chat-bubble { border-color:#2A3A5E !important; }
+.dark-theme .drawer-panel .chat-bubble[style*="background:#DCF8C6"],
+.dark-theme .drawer-panel .chat-bubble[style*="background: #DCF8C6"] { background:#005C4B !important; color:#E9EDEF !important; }
+.dark-theme .drawer-panel .chat-bubble[style*="background:#FFFFFF"],
+.dark-theme .drawer-panel .chat-bubble[style*="background: #FFFFFF"] { background:#202C33 !important; color:#E9EDEF !important; }
+.dark-theme .drawer-panel .chat-bubble[style*="background:#FEF3C7"],
+.dark-theme .drawer-panel .chat-bubble[style*="background: #FEF3C7"] { background:#78350F !important; color:#FEF3C7 !important; border-color:#92400E !important; }
+.dark-theme .drawer-panel .chat-bubble[style*="background:#EDE9FE"],
+.dark-theme .drawer-panel .chat-bubble[style*="background: #EDE9FE"] { background:#4C1D95 !important; color:#EDE9FE !important; border-color:#5B21B6 !important; }
 
 /* Badges / Chips en Modo Oscuro */
 .dark-theme .ev-urgente { background:#3B1219 !important; border-left:4px solid #EF4444 !important; }
@@ -808,14 +1408,262 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 .dark-theme .ev-resuelto { background:#062C19 !important; border-left:4px solid #22C55E !important; }
 .dark-theme .ev-resuelto:hover { background:#0B3D23 !important; }
 
-/* Badges específicos (Planes, Urgencias, etc con óvalos de fondo claro) */
-.dark-theme.dark-theme.dark-theme span[style*="border-radius:999px"] { 
-    color:#0B132B !important; 
+/* Inputs, Textareas, Selects y Placeholders en Modo Oscuro (High Contrast) */
+.dark-theme .inp,
+.dark-theme input,
+.dark-theme select,
+.dark-theme textarea,
+.dark-theme input.inp,
+.dark-theme select.inp,
+.dark-theme textarea.inp {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #FFFFFF !important;
+}
+
+.dark-theme .inp:focus,
+.dark-theme input:focus,
+.dark-theme select:focus,
+.dark-theme textarea:focus {
+  background: #151F38 !important;
+  border-color: #2E6FC0 !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 0 0 3px rgba(46,111,192,.3) !important;
+}
+
+.dark-theme select option {
+  background: #151F38 !important;
+  color: #FFFFFF !important;
+}
+
+.dark-theme input::placeholder,
+.dark-theme textarea::placeholder,
+.dark-theme .inp::placeholder {
+  color: #94A3B8 !important;
+  opacity: 1 !important;
 }
 
 /* Textos Generales */
 .dark-theme h1, .dark-theme h2, .dark-theme h3, .dark-theme h4 { color:#FFFFFF !important; }
 .dark-theme p { color:#CBD5E1 !important; }
+
+/* Protected Badges & Buttons for Light & Dark Theme (prevent contrast/visibility issues) */
+
+/* 1. Status Badge */
+.status-badge {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 999px;
+  display: inline-block;
+}
+.status-active { background: #E7F4EC; color: #1B7A43; }
+.status-inactive { background: #FDECEC; color: #C0392B; }
+.dark-theme .status-active { background: #062C19 !important; color: #4ADE80 !important; }
+.dark-theme .status-inactive { background: #450A0A !important; color: #F87171 !important; }
+
+/* 2. Plan Badges */
+.plan-badge {
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-block;
+}
+.plan-base { background: #EAF1FB; color: #17408B; }
+.plan-plus { background: #EDE9FB; color: #6D28D9; }
+.plan-premium { background: #FEF3C7; color: #B45309; }
+.plan-free { background: #F3F4F6; color: #4B5563; }
+.dark-theme .plan-base { background: #1C2B4E !important; color: #38BDF8 !important; }
+.dark-theme .plan-plus { background: #2D224D !important; color: #A78BFA !important; }
+.dark-theme .plan-premium { background: #451A03 !important; color: #F59E0B !important; }
+.dark-theme .plan-free { background: #1E293B !important; color: #94A3B8 !important; }
+
+/* 3. Rubro Badges */
+.rubro-badge {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 5px 11px;
+  border-radius: 999px;
+  min-width: 92px;
+  text-align: center;
+  display: inline-block;
+}
+.rubro-plomero { background: #EAF1FB; color: #2E6FC0; }
+.rubro-gasista { background: #FBF3DE; color: #8A6410; }
+.rubro-electricista { background: #FDF3D6; color: #B25E00; }
+.rubro-ascensores { background: #EDEEFB; color: #5B48B9; }
+.rubro-cerrajero { background: #EEF2F8; color: #475569; }
+.rubro-pintor { background: #E6F6F6; color: #0891B2; }
+.rubro-limpieza { background: #FDF2F8; color: #DB2777; }
+.rubro-seguridad { background: #ECFDF5; color: #059669; }
+.rubro-otro { background: #EEF2F8; color: #475569; }
+
+.dark-theme .rubro-plomero { background: #1C2B4E !important; color: #38BDF8 !important; }
+.dark-theme .rubro-gasista { background: #2A2415 !important; color: #FDE047 !important; }
+.dark-theme .rubro-electricista { background: #2D2310 !important; color: #F59E0B !important; }
+.dark-theme .rubro-ascensores { background: #201D4B !important; color: #A78BFA !important; }
+.dark-theme .rubro-cerrajero { background: #1E293B !important; color: #94A3B8 !important; }
+.dark-theme .rubro-pintor { background: #152E35 !important; color: #22D3EE !important; }
+.dark-theme .rubro-limpieza { background: #35152A !important; color: #F472B6 !important; }
+.dark-theme .rubro-seguridad { background: #062F1E !important; color: #34D399 !important; }
+.dark-theme .rubro-otro { background: #1E293B !important; color: #94A3B8 !important; }
+
+/* 4. Priority Badges */
+.prio-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-block;
+}
+.prio-primera { background: #E7F4EC; color: #1B7A43; }
+.prio-segunda { background: #EAF1FB; color: #2C55A8; }
+.prio-urgencia { background: #FEF2F2; color: #991B1B; }
+.prio-primera_urgencia { background: #DCFCE7; color: #166534; }
+.prio-segunda_urgencia { background: #FEF3C7; color: #92400E; }
+
+.dark-theme .prio-primera { background: #062C19 !important; color: #4ADE80 !important; }
+.dark-theme .prio-segunda { background: #1C2B4E !important; color: #38BDF8 !important; }
+.dark-theme .prio-urgencia { background: #450A0A !important; color: #F87171 !important; }
+.dark-theme .prio-primera_urgencia { background: #062F1E !important; color: #34D399 !important; }
+.dark-theme .prio-segunda_urgencia { background: #451A03 !important; color: #F59E0B !important; }
+
+/* 5. Cargo Badges */
+.cargo-badge {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-block;
+}
+.cargo-presidente { background: #EAF1FB; color: #2E6FC0; }
+.cargo-vicepresidente { background: #EAF1FB; color: #2E6FC0; }
+.cargo-vocal { background: #EEF2F8; color: #475569; }
+.cargo-suplente { background: #EEF2F8; color: #475569; }
+.cargo-propietariointeresado { background: #FDF3D6; color: #B25E00; }
+
+.dark-theme .cargo-presidente { background: #1C2B4E !important; color: #38BDF8 !important; }
+.dark-theme .cargo-vicepresidente { background: #1C2B4E !important; color: #38BDF8 !important; }
+.dark-theme .cargo-vocal { background: #1E293B !important; color: #94A3B8 !important; }
+.dark-theme .cargo-suplente { background: #1E293B !important; color: #94A3B8 !important; }
+.dark-theme .cargo-propietariointeresado { background: #2D2310 !important; color: #F59E0B !important; }
+
+/* 6. Standardized Buttons */
+.btn-edit {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #DCE4F0;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #2E6FC0;
+  font-weight: 700;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-edit-sm {
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid #DCE4F0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #2E6FC0;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-remove {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #EEDCDC;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #C0392B;
+  font-weight: 700;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-remove-sm {
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid #EEDCDC;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #C0392B;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-edit-plan {
+  flex: 1;
+  height: 38px;
+  border: 1px solid #DCE4F0;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #2E6FC0;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-remove-plan {
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid #FDECEC;
+  border-radius: 10px;
+  background: #FDECEC;
+  color: #C0392B;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dark-theme .btn-edit,
+.dark-theme .btn-edit-sm,
+.dark-theme .btn-edit-plan {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #38BDF8 !important;
+}
+.dark-theme .btn-edit:hover,
+.dark-theme .btn-edit-sm:hover,
+.dark-theme .btn-edit-plan:hover {
+  background: #2E6FC0 !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .btn-remove,
+.dark-theme .btn-remove-sm,
+.dark-theme .btn-remove-plan {
+  background: #2D1A1E !important;
+  border-color: #4C1D24 !important;
+  color: #F87171 !important;
+}
+.dark-theme .btn-remove:hover,
+.dark-theme .btn-remove-sm:hover,
+.dark-theme .btn-remove-plan:hover {
+  background: #EF4444 !important;
+  color: #FFFFFF !important;
+}
+
+/* 7. ARS Box in dark theme */
+.dark-theme .box-ars,
+.dark-theme div[class*="box-ars"] {
+  background: #0F2942 !important;
+  border: 1px solid #1E40AF !important;
+}
+.dark-theme .box-ars *,
+.dark-theme div[class*="box-ars"] * {
+  color: #60A5FA !important;
+}
+
 `;
 
 /* ===================================================================
@@ -871,6 +1719,71 @@ function stopEv(e){e.stopPropagation();}
 
 // --- drawer de evento ---
 var _drawerActual=null;
+
+function normalizarUrlAudio(pathOrUrl) {
+  if (!pathOrUrl) return '';
+  var u = String(pathOrUrl).trim();
+  if (u.indexOf('/almacenamiento/') !== -1) {
+    u = '/archivos/' + u.substring(u.indexOf('/almacenamiento/') + 16);
+  }
+  if (u.indexOf('http://') === 0 || u.indexOf('https://') === 0) {
+    return u;
+  }
+  if (u.charAt(0) !== '/') u = '/' + u;
+  return window.location.origin + u;
+}
+
+function obtenerAudiosEvento(datos) {
+  if (!datos) return [];
+  var audios = [];
+  var seen = new Set();
+
+  function addAudio(urlStr) {
+    if (!urlStr) return;
+    var norm = normalizarUrlAudio(urlStr);
+    if (norm && !seen.has(norm)) {
+      seen.add(norm);
+      audios.push(norm);
+    }
+  }
+
+  if (datos.audio_url) {
+    String(datos.audio_url).split(/,|\n|;|\|/).forEach(addAudio);
+  }
+
+  if (datos.audios_lista && Array.isArray(datos.audios_lista)) {
+    datos.audios_lista.forEach(addAudio);
+  }
+
+  var rawAll = (datos.historial_chat || '') + ' ' + (datos.notas_ia || '') + ' ' + (datos.notas || '') + ' ' + (datos.transcripcion || '');
+  var matches = String(rawAll).match(/(\/root\/marcos[^\s"\),]+\.(ogg|mp3|wav|m4a|aac)|\/archivos[^\s"\),]+\.(ogg|mp3|wav|m4a|aac)|https?:\/\/[^\s"\),]+\.(ogg|mp3|wav|m4a|aac))/gi);
+  if (matches) {
+    matches.forEach(addAudio);
+  }
+
+  return audios;
+}
+
+function descargarTodosLosAudiosEvento() {
+  var d = _drawerActual;
+  if (!d) return;
+  var audios = obtenerAudiosEvento(d);
+  if (!audios.length) {
+    toast('No hay audios para descargar', 'err');
+    return;
+  }
+  audios.forEach(function(url, idx) {
+    setTimeout(function() {
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'audio-' + (idx + 1) + '-' + (d.edificio || '').replace(/[^a-z0-9]+/gi, '-') + '.ogg';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }, idx * 450);
+  });
+}
+
 function abrirDrawerEvento(idx){
   var datos=(window.__EVENTOS__||[])[idx];
   if(!datos)return;
@@ -890,14 +1803,14 @@ function abrirDrawerEvento(idx){
       '</div></div>';
   }
   panel.innerHTML=
-    '<div style="background:'+escapeHtml(datos.catBg)+';padding:22px 24px 20px;position:relative">'+
-      '<button onclick="cerrarDrawerEvento()" style="position:absolute;top:16px;right:16px;width:34px;height:34px;border:none;border-radius:9px;background:rgba(255,255,255,.7);cursor:pointer;font-size:17px" class="hv-white">✕</button>'+
+    '<div style="background:'+escapeHtml(datos.catBg)+';padding:22px 24px 20px;position:relative" class="drawer-header-box">'+
+      '<button onclick="cerrarDrawerEvento()" style="position:absolute;top:16px;right:16px;width:34px;height:34px;border:none;border-radius:9px;background:rgba(255,255,255,.7);cursor:pointer;font-size:17px" class="drawer-close-btn">✕</button>'+
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
         '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:'+escapeHtml(datos.urgBg)+';color:'+escapeHtml(datos.urgFg)+'">'+escapeHtml(datos.urgLabel)+'</span>'+
         '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:'+escapeHtml(datos.estBg)+';color:'+escapeHtml(datos.estFg)+'">'+escapeHtml(datos.estLabel)+'</span>'+
       '</div>'+
       '<div style="display:flex;align-items:center;gap:13px">'+
-        '<span style="width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;font-size:26px">'+escapeHtml(datos.catIcon)+'</span>'+
+        '<span style="width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;font-size:26px" class="drawer-icon-box">'+escapeHtml(datos.catIcon)+'</span>'+
         '<div><div style="font-size:12px;font-weight:700;color:#5A6B85;text-transform:uppercase;letter-spacing:.04em">'+escapeHtml(datos.catLabel)+'</div>'+
         '<div style="font-size:20px;font-weight:800;letter-spacing:-.02em;color:#16233B;line-height:1.2">'+escapeHtml(titulo)+'</div></div>'+
       '</div>'+
@@ -905,60 +1818,188 @@ function abrirDrawerEvento(idx){
     '<div style="padding:22px 24px">'+
       // ── Grilla de datos del vecino ──
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'+
-        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Vecino</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
-        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Teléfono</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.telefono||'—')+'</div></div>'+
-        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Depto / Unidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+((datos.depto||datos.unidad)?(escapeHtml(datos.depto||'')+( datos.depto&&datos.unidad?' · ':'')+escapeHtml(datos.unidad||'')):'—')+'</div></div>'+
-        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Edificio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.edificio||'—')+'</div></div>'+
-        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Canal</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+escapeHtml(datos.canalIcon)+' '+escapeHtml(datos.canal)+'</div></div>'+
-        '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 13px"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Hora inicio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.when||'—')+'</div></div>'+
+        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Vecino</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
+        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Teléfono</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.telefono||'—')+'</div></div>'+
+        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Depto / Unidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+((datos.depto||datos.unidad)?(escapeHtml(datos.depto||'')+( datos.depto&&datos.unidad?' · ':'')+escapeHtml(datos.unidad||'')):'—')+'</div></div>'+
+        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Edificio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.edificio||'—')+'</div></div>'+
+        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Canal</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+escapeHtml(datos.canalIcon)+' '+escapeHtml(datos.canal)+'</div></div>'+
+        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Hora inicio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.when||'—')+'</div></div>'+
         (datos.hora_fin ? '<div style="background:#E7F4EC;border:1px solid #C3E6D0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#1B7A43;text-transform:uppercase;letter-spacing:.04em">✅ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#14532D">'+escapeHtml(datos.hora_fin)+'</div></div>' : '<div style="background:#FBF3DE;border:1px solid #E8D9A0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#8A6410;text-transform:uppercase;letter-spacing:.04em">⏳ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#8A6410">Sin registrar</div></div>')+
       '</div>'+
-      // ── Audio del vecino (si hay) ──
-      (datos.audio_url ? '<div style="background:#F1F5FB;border:1px solid #D8E5F6;border-radius:12px;padding:13px 16px;margin-bottom:16px"><div style="font-size:12px;font-weight:800;color:#334259;margin-bottom:8px">🎙️ Nota de voz del vecino</div><audio controls style="width:100%;border-radius:8px" src="'+escapeHtml(datos.audio_url)+'"></audio></div>' : '')+
-      (datos.transcripcion && !datos.audio_url ? '<div style="background:#F1F5FB;border:1px solid #D8E5F6;border-radius:12px;padding:13px 16px;margin-bottom:16px"><div style="font-size:12px;font-weight:800;color:#334259;margin-bottom:6px">🎙️ Transcripción del audio</div><div style="font-size:13.5px;color:#334259;line-height:1.55;white-space:pre-wrap">'+escapeHtml(datos.transcripcion)+'</div></div>' : '')+
+      // ── Audios del vecino (Muestra TODOS los audios del evento) ──
+      (function(){
+        var audios = obtenerAudiosEvento(datos);
+        if (!audios.length) {
+          if (datos.transcripcion) {
+            return '<div class="drawer-audio-box"><div style="font-size:12px;font-weight:800;color:#334259;margin-bottom:6px">🎙️ Transcripción del audio</div><div style="font-size:13.5px;color:#334259;line-height:1.55;white-space:pre-wrap">'+escapeHtml(datos.transcripcion)+'</div></div>';
+          }
+          return '';
+        }
+
+        var dias = datos.audioDiasRestantes;
+        var expirado = (dias !== null && dias !== undefined && dias <= 0);
+        if (expirado) {
+          return '<div style="background:#FBF3DE;border:1px solid #E8D9A0;border-radius:12px;padding:13px 16px;margin-bottom:16px">'+
+            '<div style="font-size:12px;font-weight:800;color:#8A6410;margin-bottom:4px">🎙️ Notas de voz del vecino (' + audios.length + ')</div>'+
+            '<div style="font-size:13px;color:#8A6410">⏳ Audios eliminados por política de retención de 30 días.</div>'+
+            '</div>';
+        }
+
+        var badge = (dias !== null && dias !== undefined && dias <= 7)
+          ? '<span style="font-size:10px;font-weight:700;background:#FDECEC;color:#C0392B;padding:2px 8px;border-radius:9999px;margin-left:8px">' + dias + 'd restantes</span>'
+          : (dias !== null && dias !== undefined ? '<span style="font-size:10px;font-weight:700;background:#E7F4EC;color:#1B7A43;padding:2px 8px;border-radius:9999px;margin-left:8px">' + dias + 'd restantes</span>' : '');
+
+        return '<div style="margin-bottom:16px">'+
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">'+
+            '<div style="font-size:12.5px;font-weight:800;color:#334259">🎙️ ' + (audios.length === 1 ? 'Nota de voz del vecino' : 'Notas de voz del vecino (' + audios.length + ')') + badge + '</div>'+
+            (audios.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 10px;border-radius:8px;cursor:pointer" class="hv-soft">⬇️ Descargar todos los audios</button>' : '')+
+          '</div>'+
+          audios.map(function(_src, idx) {
+            return '<div class="drawer-audio-box" style="margin-bottom:10px">'+
+              '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">'+
+                '<span style="font-size:12px;font-weight:800;color:#334259">Audio #' + (idx + 1) + '</span>'+
+                '<a href="' + escapeHtml(_src) + '" download target="_blank" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 10px;border-radius:8px;text-decoration:none;display:inline-flex;align-items:center;gap:4px" class="hv-soft">⬇️ Descargar audio</a>'+
+              '</div>'+
+              '<audio controls style="width:100%;border-radius:8px" src="' + escapeHtml(_src) + '"></audio>'+
+            '</div>';
+          }).join('')+
+        '</div>';
+      })()+
       // ── Atendió ──
-      '<div style="display:flex;align-items:center;gap:11px;background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:11px 14px;margin-bottom:18px">'+
+      '<div class="drawer-atendio-box">'+
         '<span style="width:36px;height:36px;border-radius:50%;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">M</span>'+
         '<div style="flex:1"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.03em">Atendió</div><div style="font-size:14.5px;font-weight:700;color:#16233B">Marcos</div></div>'+
       '</div>'+
-      '<div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:8px">El pedido</div>'+
-      '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:14px 16px;font-size:14.5px;color:#334259;line-height:1.55;margin-bottom:20px;white-space:pre-wrap">'+escapeHtml(datos.mensaje||'—')+'</div>'+
       '<div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:8px">📝 Qué hizo Marcos</div>'+
-      '<div style="background:linear-gradient(120deg,#EAF1FB,#F3F7FD);border:1px solid #D8E5F6;border-radius:12px;padding:14px 16px;font-size:14.5px;color:#1E3A6B;line-height:1.6;white-space:pre-wrap">'+escapeHtml(datos.notas||'—')+'</div>'+
-      '<div style="margin-top:24px">'+
-        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'+
-          '<div style="font-size:13px;font-weight:800;color:#334259">📄 Conversación registrada</div>'+
-          '<button onclick="descargarResumenEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar</button>'+
-        '</div>'+
-        '<div style="display:flex;align-items:flex-start;gap:9px;background:#F1F5FB;border-radius:11px;padding:11px 14px;font-size:12.5px;color:#5A6B85;line-height:1.5">'+
-          '<span style="font-size:15px">🔒</span>'+
-          '<span>Registro textual completo de lo conversado. Queda como <strong style="color:#334259">comprobante</strong> ante cualquier reclamo: nadie puede negar lo que pidió o acordó.</span>'+
-        '</div>'+
-      '</div>'+
+      '<div class="drawer-notes-box">'+escapeHtml(datos.notas||'—')+'</div>'+
+      // ── Generación de Chat de Conversación Registrada ──
+      (function(){
+        var rawChat = datos.historial_chat || '';
+        var chatLines = [];
+        if (typeof rawChat === 'string' && rawChat.trim().startsWith('[')) {
+          try { chatLines = JSON.parse(rawChat); } catch(e) { chatLines = [rawChat]; }
+        } else if (Array.isArray(rawChat)) {
+          chatLines = rawChat;
+        } else if (rawChat) {
+          chatLines = String(rawChat).split('\\n').filter(Boolean);
+        }
+
+        var chatInnerHtml = '';
+        if (chatLines.length > 0) {
+          var bubbles = chatLines.map(function(line) {
+            var str = String(line);
+            var isVecino = /^(Vecino|Usuario|Cliente):/i.test(str);
+            var isProveedor = /^(Proveedor|Técnico)/i.test(str);
+            var isEncargado = /^(Encargado|Seguridad)/i.test(str);
+            
+            var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Marcos|Susana|Proveedor|Técnico|Encargado|Seguridad)(\s*\(.*?\))?:\s*/i, '');
+            
+            var senderLabel = 'Marcos';
+            var align = 'margin-right:auto;background:#FFFFFF;color:#16233B;border:1px solid #E1E7F0;border-bottom-left-radius:2px;';
+            var icon = '🤖';
+
+            if (isVecino) {
+              senderLabel = datos.vecino || 'Vecino';
+              align = 'margin-left:auto;background:#DCF8C6;color:#0F2310;border-bottom-right-radius:2px;';
+              icon = '🟢';
+            } else if (isProveedor) {
+              senderLabel = str.match(/^(Proveedor|Técnico)(\s*\(.*?\))?/i)?.[0] || 'Proveedor / Técnico';
+              align = 'margin-left:auto;background:#FEF3C7;color:#78350F;border:1px solid #FDE68A;border-bottom-right-radius:2px;';
+              icon = '🔧';
+            } else if (isEncargado) {
+              senderLabel = str.match(/^(Encargado|Seguridad)(\s*\(.*?\))?/i)?.[0] || 'Encargado';
+              align = 'margin-left:auto;background:#EDE9FE;color:#4C1D95;border:1px solid #DDD6FE;border-bottom-right-radius:2px;';
+              icon = '👷';
+            }
+
+            var audioMatch = cleanText.match(new RegExp('(\\/root\\/marcos[^\\s"\\)]+\\.(ogg|mp3|wav|m4a)|\\/archivos[^\\s"\\)]+\\.(ogg|mp3|wav|m4a)|https?:\\/\\/[^\\s"\\)]+\\.(ogg|mp3|wav|m4a))', 'i'));
+            var audioLinkHtml = '';
+            if (audioMatch) {
+              var rawAudioPath = audioMatch[1];
+              var webAudioUrl = normalizarUrlAudio(rawAudioPath);
+              cleanText = cleanText.replace(rawAudioPath, '').trim();
+              audioLinkHtml = '<div style="margin-top:6px;padding:6px 10px;background:rgba(46,111,192,.08);border-radius:8px;border:1px solid rgba(46,111,192,.18)">' +
+                '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">' +
+                  '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ Nota de voz</span>' +
+                  '<a href="' + escapeHtml(webAudioUrl) + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:2px 8px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
+                '</div>' +
+                '<audio controls style="width:100%;height:34px;border-radius:6px" src="' + escapeHtml(webAudioUrl) + '"></audio>' +
+              '</div>';
+            }
+
+            return '<div style="max-width:85%;padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.06);' + align + '" class="chat-bubble">' +
+              '<div style="font-size:10px;font-weight:800;opacity:.75;margin-bottom:3px;display:flex;align-items:center;gap:4px"><span>' + icon + '</span><span>' + escapeHtml(senderLabel) + '</span></div>' +
+              '<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>' +
+              audioLinkHtml +
+            '</div>';
+          }).join('');
+
+          chatInnerHtml = '<div style="margin-top:10px;margin-bottom:14px;max-height:300px;overflow-y:auto;background:#E5DDD5;border-radius:14px;padding:14px;border:1px solid #D1C7BD" class="chat-box">' +
+            bubbles +
+          '</div>';
+        } else {
+          chatInnerHtml = '<div style="display:flex;align-items:flex-start;gap:9px;background:#F1F5FB;border-radius:11px;padding:11px 14px;font-size:12.5px;color:#5A6B85;line-height:1.5;margin-top:10px">'+
+            '<span style="font-size:15px">🔒</span>'+
+            '<span>Registro textual completo de lo conversado. Queda como <strong style="color:#334259">comprobante</strong> ante cualquier reclamo: nadie puede negar lo que pidió o acordó.</span>'+
+          '</div>';
+        }
+
+        return '<div style="margin-top:24px">'+
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'+
+            '<div style="font-size:13px;font-weight:800;color:#334259">📄 Conversación registrada</div>'+
+            '<button onclick="descargarResumenEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar TXT</button>'+
+          '</div>'+
+          chatInnerHtml+
+        '</div>';
+      })()+
       fbHtml+
       '<div style="display:flex;gap:10px;margin-top:22px">'+
         '<button onclick="cerrarDrawerEvento()" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cerrar</button>'+
         resolverBtn+
-        (esDueno?'':'<button onclick="location.href=\'/admin/sugerencias\'" style="flex:1;height:44px;border:none;border-radius:11px;background:#17408B;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-navy">Comentar a mi admin</button>')+
+        (esDueno?'':'<button onclick="location.href=\\\'/admin/sugerencias\\\';" style="flex:1;height:44px;border:none;border-radius:11px;background:#17408B;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-navy">Comentar a mi admin</button>')+
       '</div>'+
     '</div>';
   overlay.classList.add('open');
   panel.classList.add('open');
 }
+
 function cerrarDrawerEvento(){
   var p=document.getElementById('drawer-panel');
   var o=document.getElementById('drawer-overlay');
   if(p)p.classList.remove('open');
   if(o)o.classList.remove('open');
 }
+
 function descargarResumenEvento(){
   var d=_drawerActual;
   if(!d)return;
+  var chatTexto = '';
+  if (d.historial_chat) {
+    try {
+      var parsed = typeof d.historial_chat === 'string' && d.historial_chat.startsWith('[') ? JSON.parse(d.historial_chat) : d.historial_chat;
+      chatTexto = Array.isArray(parsed) ? parsed.join('\\n') : String(d.historial_chat);
+    } catch(e) { chatTexto = String(d.historial_chat); }
+  }
+
+  // Convertir rutas locales en URLs web absolutas totalmente funcionales
+  chatTexto = chatTexto.replace(new RegExp('\\/root\\/marcos\\/[^\\s"\\)]+\\/almacenamiento\\/[^\\s"\\)]+', 'gi'), function(match) {
+    return normalizarUrlAudio(match);
+  });
+
+  var audios = obtenerAudiosEvento(d);
+  var audiosSection = audios.length ? [
+    '',
+    'NOTAS DE VOZ DEL EVENTO (' + audios.length + ')',
+    '----------------------------------',
+    audios.map(function(u, i){ return 'Audio #' + (i + 1) + ': ' + u; }).join('\\n')
+  ].join('\\n') : '';
+
   var lineas=[
     'MARCOS IA -- Registro de evento',
     '========================================',
     'Edificio: '+(d.edificio||''),
     'Vecino: '+(d.vecino||''),
+    'Depto / Unidad: '+((d.depto||d.unidad)?(d.depto||'')+(d.depto&&d.unidad?' · ':'')+(d.unidad||''):''),
     'Telefono: '+(d.telefono||''),
     'Canal: '+(d.canal||''),
     'Fecha: '+(d.when||''),
@@ -972,9 +2013,15 @@ function descargarResumenEvento(){
     'QUE HIZO MARCOS',
     '---------------',
     (d.notas||'(sin datos)'),
+    audiosSection,
+    '',
+    'HISTORIAL COMPLETO DE CONVERSACION',
+    '----------------------------------',
+    (chatTexto || '(sin conversacion registrada)'),
     '',
     'Descargado el '+new Date().toLocaleString('es-AR'),
   ].join('\\n');
+
   var blob=new Blob([lineas],{type:'text/plain;charset=utf-8'});
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
@@ -1041,12 +2088,23 @@ function abrirSolicitud(campo,label,actual,edificio){
   var c=document.getElementById('req-current');if(c)c.textContent=actual||'—';
   var n=document.getElementById('req-nuevo');if(n)n.value='';
   var m=document.getElementById('req-motivo');if(m)m.value='';
+  var inWrap=document.getElementById('req-nuevo-input-wrap');
+  var selWrap=document.getElementById('req-nuevo-select-wrap');
+  if(campo==='plan'){
+    if(inWrap)inWrap.style.display='none';
+    if(selWrap)selWrap.style.display='block';
+  }else{
+    if(inWrap)inWrap.style.display='block';
+    if(selWrap)selWrap.style.display='none';
+  }
   abrirModal('modal-solicitud');
 }
 async function enviarSolicitud(btn){
-  var nuevo=(document.getElementById('req-nuevo')||{}).value||'';
+  var nuevo = _reqCampo === 'plan'
+    ? ((document.getElementById('req-nuevo-plan')||{}).value||'')
+    : ((document.getElementById('req-nuevo')||{}).value||'');
   var motivo=(document.getElementById('req-motivo')||{}).value||'';
-  if(!nuevo.trim()){toast('Escribí el valor nuevo','err');return;}
+  if(!nuevo.trim()){toast('Seleccioná o escribí el valor nuevo','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Enviando...';
   try{
     var r=await fetch('/admin/api/solicitar-cambio',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1058,6 +2116,165 @@ async function enviarSolicitud(btn){
     setTimeout(function(){location.reload();},900);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
+}
+
+var _planAcEdificioTarget = '';
+function abrirModalPlanesAc(edificioNombre) {
+  _planAcEdificioTarget = edificioNombre || '';
+  abrirModal('modal-planes-ac');
+}
+
+async function solicitarPlanCat(planNombre, modoLote) {
+  var edificio = modoLote === 'todos' ? 'Todos los edificios del cliente' : (_planAcEdificioTarget || '');
+  var valorNuevo = planNombre + (modoLote === 'todos' ? ' (Paquete Corporativo)' : '');
+  try {
+    var r = await fetch('/admin/api/solicitar-cambio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campo: 'plan', valorNuevo: valorNuevo, edificio: edificio, motivo: 'Solicitud desde el catálogo de planes (' + (modoLote === 'todos' ? 'Paquete Corporativo' : 'Individual') + ')' })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al enviar solicitud');
+    cerrarModal('modal-planes-ac');
+    toast('Solicitud de cambio a "' + planNombre + '" enviada con éxito.', 'ok');
+    setTimeout(function() { location.reload(); }, 1000);
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+function escStr(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+var _corpPlanNombre = '';
+var _corpLimiteCupos = 5;
+var _corpEdificiosLista = [];
+
+function abrirSolicitudCorporativa(planNombre, limiteCupos, edificiosJsonStr) {
+  _corpPlanNombre = planNombre;
+  _corpLimiteCupos = Number(limiteCupos) || 5;
+  try {
+    _corpEdificiosLista = JSON.parse(edificiosJsonStr || '[]');
+  } catch (e) {
+    _corpEdificiosLista = [];
+  }
+
+  var lblPlan = document.getElementById('corp-plan-nombre');
+  if (lblPlan) lblPlan.textContent = planNombre + ' (' + _corpLimiteCupos + ' Edificios)';
+
+  var container = document.getElementById('corp-edificios-checklist');
+  if (container) {
+    if (_corpEdificiosLista.length === 0) {
+      container.innerHTML = '<div style="padding:16px;text-align:center;color:#8595AD">No tenés edificios registrados aún.</div>';
+    } else {
+      container.innerHTML = _corpEdificiosLista.map(function(e, idx) {
+        var autoChecked = idx < _corpLimiteCupos ? 'checked' : '';
+        var statusBadge = autoChecked ? '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#E7F4EC;color:#1B7A43">Incluido en Paquete</span>' : '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F1F5FB;color:#64748B">Plan Individual</span>';
+        var safeNombre = escStr(e.nombre);
+        var safeDir = escStr(e.direccion || e.nombre);
+        var safePlan = escStr(e.plan || 'Base');
+        return '<label style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#fff;border:1.5px solid #E4E9F1;border-radius:12px;cursor:pointer;gap:12px" class="hv-card">' +
+          '<div style="display:flex;align-items:center;gap:12px">' +
+            '<input type="checkbox" class="chk-corp-item" value="' + safeNombre + '" ' + autoChecked + ' onchange="recalcularCuposCorp()" style="width:18px;height:18px;accent-color:#2E6FC0">' +
+            '<div>' +
+              '<div style="font-size:14.5px;font-weight:700;color:#16233B">' + safeNombre + '</div>' +
+              '<div style="font-size:12px;color:#8595AD">' + safeDir + ' · Plan actual: ' + safePlan + '</div>' +
+            '</div>' +
+          '</div>' +
+          statusBadge +
+        '</label>';
+      }).join('');
+    }
+  }
+
+  recalcularCuposCorp();
+  cerrarModal('modal-planes-ac');
+  abrirModal('modal-solicitud-corporativa');
+}
+
+function recalcularCuposCorp() {
+  var chks = document.querySelectorAll('.chk-corp-item');
+  var count = 0;
+  chks.forEach(function(chk) {
+    var label = chk.closest('label');
+    var tag = label ? label.querySelector('.corp-status-tag') : null;
+    if (chk.checked) {
+      count++;
+      if (tag) {
+        tag.textContent = 'Incluido en Paquete';
+        tag.style.background = '#E7F4EC';
+        tag.style.color = '#1B7A43';
+      }
+    } else {
+      if (tag) {
+        tag.textContent = 'Plan Individual';
+        tag.style.background = '#F1F5FB';
+        tag.style.color = '#64748B';
+      }
+    }
+  });
+
+  var counterEl = document.getElementById('corp-counter');
+  if (counterEl) {
+    counterEl.textContent = count + ' / ' + _corpLimiteCupos;
+    if (count > _corpLimiteCupos) {
+      counterEl.style.color = '#C0392B';
+    } else {
+      counterEl.style.color = '#2E6FC0';
+    }
+  }
+}
+
+async function enviarSolicitudCorporativa(btn) {
+  var chks = document.querySelectorAll('.chk-corp-item');
+  var seleccionados = [];
+  var excluidos = [];
+  chks.forEach(function(chk) {
+    if (chk.checked) seleccionados.push(chk.value);
+    else excluidos.push(chk.value);
+  });
+
+  if (seleccionados.length === 0) {
+    toast('Seleccioná al menos 1 edificio para el paquete corporativo', 'err');
+    return;
+  }
+  if (seleccionados.length > _corpLimiteCupos) {
+    toast('Seleccionaste ' + seleccionados.length + ' edificios. El cupo máximo del plan es ' + _corpLimiteCupos, 'err');
+    return;
+  }
+
+  var motivoObs = (document.getElementById('corp-motivo') || {}).value || '';
+  var detalleMotivo = 'Paquete Corporativo (' + _corpPlanNombre + '). Edificios asignados (' + seleccionados.length + '): [' + seleccionados.join(', ') + ']';
+  if (excluidos.length > 0) {
+    detalleMotivo += ' · Fuera de paquete (Plan Individual): [' + excluidos.join(', ') + ']';
+  }
+  if (motivoObs.trim()) {
+    detalleMotivo += ' · Nota cliente: ' + motivoObs.trim();
+  }
+
+  btn.disabled = true; var old = btn.textContent; btn.textContent = 'Enviando solicitud...';
+  try {
+    var r = await fetch('/admin/api/solicitar-cambio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        campo: 'plan',
+        valorNuevo: _corpPlanNombre + ' (Paquete Corporativo)',
+        edificio: 'Paquete Corporativo (' + seleccionados.length + ' edificios)',
+        motivo: detalleMotivo
+      })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al enviar solicitud');
+    cerrarModal('modal-solicitud-corporativa');
+    toast('¡Solicitud de Paquete Corporativo enviada con éxito!', 'ok');
+    setTimeout(function() { location.reload(); }, 1000);
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
 }
 
 // --- mi edificio: datos editables directo ---
@@ -1111,6 +2328,8 @@ function abrirEditarCampo(campo,label,actual,placeholder,ayuda){
   var v=document.getElementById('ec-valor');if(v){v.value=actual||'';v.placeholder=placeholder||'';}
   var a=document.getElementById('ec-ayuda');
   if(a){ if(ayuda){a.textContent=ayuda;a.style.display='block';} else {a.style.display='none';} }
+  var p=document.getElementById('ec-pdf-wrap');
+  if(p){ p.style.display=(campo==='horario_sum')?'block':'none'; }
   abrirModal('modal-editar-campo');
 }
 async function guardarCampoEditado(btn){
@@ -1118,6 +2337,27 @@ async function guardarCampoEditado(btn){
   var data={};data[_ecCampo]=valor;
   btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
   try{
+    if(_ecCampo==='horario_sum'){
+      var pdfInp=document.getElementById('ec-pdf-file');
+      var pdfFile=pdfInp&&pdfInp.files?pdfInp.files[0]:null;
+      if(pdfFile){
+        btn.textContent='Subiendo PDF...';
+        var base64=await new Promise(function(resolve,reject){
+          var reader=new FileReader();
+          reader.onload=function(e){resolve(e.target.result);};
+          reader.onerror=reject;
+          reader.readAsDataURL(pdfFile);
+        });
+        var curEd=(window.__CUR_BUILDING__||{}).nombre||'';
+        var pr=await fetch('/admin/api/subir-pdf-reglamento',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({edificio:curEd,pdfBase64:base64,filename:pdfFile.name})
+        });
+        var pj=await pr.json();
+        if(!pr.ok||pj.error)throw new Error(pj.error||'Error al subir PDF');
+      }
+    }
     var r=await fetch('/admin/api/mi-edificio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
@@ -1155,15 +2395,123 @@ async function quitarProveedor(btn,row){
     setTimeout(function(){location.reload();},700);
   }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;}
 }
+function abrirEditarProveedor(row, rubro, nombre, tel, notas){
+  var r=document.getElementById('edit-prov-row');if(r)r.value=row;
+  var rb=document.getElementById('edit-prov-rubro');if(rb)rb.value=rubro||'Otro';
+  var n=document.getElementById('edit-prov-nombre');if(n)n.value=nombre||'';
+  var t=document.getElementById('edit-prov-tel');if(t)t.value=tel||'';
+  var nt=document.getElementById('edit-prov-notas');if(nt)nt.value=notas||'';
+  abrirModal('modal-editar-proveedor');
+}
+async function guardarEditarProveedor(btn){
+  var row=valEl('edit-prov-row');
+  var rubro=valEl('edit-prov-rubro');
+  var nombre=valEl('edit-prov-nombre');
+  var tel=valEl('edit-prov-tel');
+  var notas=valEl('edit-prov-notas');
+  if(!nombre.trim()&&!tel.trim()){toast('Cargá al menos nombre o teléfono','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/proveedor-editar',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row,rubro:rubro,nombre:nombre.trim(),telefono:tel.trim(),notas:notas.trim()})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    cerrarModal('modal-editar-proveedor');
+    toast('Proveedor actualizado','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+
+// --- consejo de administracion ---
+function abrirModalConsejoNuevo(edificios){
+  var el=document.getElementById('cons-edificio');if(el)el.value=edificios||'';
+  abrirModal('modal-consejo-nuevo');
+}
+async function guardarConsejoNuevo(btn){
+  var nombre=valEl('cons-nombre');
+  var cargo=valEl('cons-cargo');
+  var unidad=valEl('cons-unidad');
+  var tel=valEl('cons-tel');
+  var email=valEl('cons-email');
+  var notas=valEl('cons-notas');
+  var edificio=valEl('cons-edificio');
+  if(!nombre.trim()){toast('Cargá el nombre del integrante','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/consejo',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nombre:nombre.trim(),cargo:cargo,unidad:unidad.trim(),telefono:tel.trim(),email:email.trim(),notas:notas.trim(),edificio:edificio})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    cerrarModal('modal-consejo-nuevo');
+    toast('Integrante del consejo agregado','ok');
+    setTimeout(function(){location.reload();},800);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+function abrirEditarConsejo(row, nombre, cargo, unidad, tel, email, notas){
+  var r=document.getElementById('edit-cons-row');if(r)r.value=row;
+  var n=document.getElementById('edit-cons-nombre');if(n)n.value=nombre||'';
+  var c=document.getElementById('edit-cons-cargo');if(c)c.value=cargo||'Presidente';
+  var u=document.getElementById('edit-cons-unidad');if(u)u.value=unidad||'';
+  var t=document.getElementById('edit-cons-tel');if(t)t.value=tel||'';
+  var em=document.getElementById('edit-cons-email');if(em)em.value=email||'';
+  var nt=document.getElementById('edit-cons-notas');if(nt)nt.value=notas||'';
+  abrirModal('modal-consejo-editar');
+}
+async function guardarEditarConsejo(btn){
+  var row=valEl('edit-cons-row');
+  var nombre=valEl('edit-cons-nombre');
+  var cargo=valEl('edit-cons-cargo');
+  var unidad=valEl('edit-cons-unidad');
+  var tel=valEl('edit-cons-tel');
+  var email=valEl('edit-cons-email');
+  var notas=valEl('edit-cons-notas');
+  if(!nombre.trim()){toast('Cargá el nombre del integrante','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/consejo-editar',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row,nombre:nombre.trim(),cargo:cargo,unidad:unidad.trim(),telefono:tel.trim(),email:email.trim(),notas:notas.trim()})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    cerrarModal('modal-consejo-editar');
+    toast('Integrante del consejo actualizado','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+async function eliminarConsejo(btn,row){
+  if(!confirm('¿Eliminar este integrante del consejo?')) return;
+  btn.disabled=true;
+  try{
+    var r=await fetch('/admin/api/consejo-quitar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({row:row})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Integrante eliminado','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;}
+}
+async function toggleServicioGastos(btn,edificio,nuevoEstado){
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/servicio-gastos-toggle',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({edificio:edificio,activo:nuevoEstado})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast(nuevoEstado?'Servicio de Gestión Administrativa IA activado':'Servicio de Gestión desactivado','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
 // Asignar un proveedor de la lista a ESTE edificio con prioridad.
-async function asignarProveedor(btn){
+async function asignarProveedor(btn,edificio){
   var prov=(document.getElementById('asig-prov')||{}).value||'';
   var prio=(document.getElementById('asig-prio')||{}).value||'primera';
   if(!prov){toast('Elegí un proveedor','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Asignando...';
   try{
     var r=await fetch('/admin/api/proveedor-asignar',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({proveedor:prov,prioridad:prio})});
+      body:JSON.stringify({proveedor:prov,prioridad:prio,edificio:edificio})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Proveedor asignado a este edificio','ok');
@@ -1307,23 +2655,8 @@ function abrirEditar(row,nombre,encargado,plan,direccion,cuit,unidades,zona,alia
   var u=document.getElementById('edit-unidades');if(u)u.value=unidades||'';
   var z=document.getElementById('edit-zona');if(z)z.value=zona||'';
   var a=document.getElementById('edit-aliases');if(a)a.value=aliases||'';
-  document.querySelectorAll('[data-editplan-btn]').forEach(function(b){
-    var act=b.getAttribute('data-editplan-btn')===plan;
-    b.style.borderColor=act?'#2E6FC0':'#DDE3EE';
-    b.style.background=act?'#EAF1FB':'#fff';
-    b.style.color=act?'#17408B':'#64748B';
-  });
   var h=document.getElementById('edit-plan');if(h)h.value=plan||'Base';
   abrirModal('modal-editar');
-}
-function elegirPlanEditar(btn,plan){
-  document.querySelectorAll('[data-editplan-btn]').forEach(function(b){
-    var act=b===btn;
-    b.style.borderColor=act?'#2E6FC0':'#DDE3EE';
-    b.style.background=act?'#EAF1FB':'#fff';
-    b.style.color=act?'#17408B':'#64748B';
-  });
-  var h=document.getElementById('edit-plan');if(h)h.value=plan;
 }
 async function guardarEditar(btn){
   var nombre=valEl('edit-nombre');
@@ -1332,7 +2665,7 @@ async function guardarEditar(btn){
   var direccion=valEl('edit-direccion');
   var cuit=valEl('edit-cuit');
   var unidades=valEl('edit-unidades');
-  var zona=valEl('edit-zona');
+    var zona=valEl('edit-zona');
   var aliases=valEl('edit-aliases');
   btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
   try{
@@ -1344,6 +2677,312 @@ async function guardarEditar(btn){
     setTimeout(function(){location.reload();},900);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
+}
+
+// --- gestión multi-personal (encargados, suplentes, seguridad) ---
+function formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb) {
+  var partes = [];
+  if (lv1a && lv1b) partes.push('L-V ' + lv1a + '–' + lv1b);
+  if (lv2a && lv2b) partes.push('L-V ' + lv2a + '–' + lv2b);
+  if (saba && sabb) partes.push('Sáb ' + saba + '–' + sabb);
+  return partes.join(' · ') || 'Sin horario';
+}
+
+function parseHorario3Lineas(str) {
+  var res = { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
+  if (!str || str === 'Sin horario') return res;
+  var partes = String(str).split('·').map(function(s){ return s.trim(); });
+  partes.forEach(function(p) {
+    var matchLv = p.match(/L-V\s*([0-9]{1,2}:[0-9]{2})\s*–\s*([0-9]{1,2}:[0-9]{2})/i);
+    if (matchLv) {
+      if (!res.lv1[0]) { res.lv1 = [matchLv[1], matchLv[2]]; }
+      else { res.lv2 = [matchLv[1], matchLv[2]]; }
+      return;
+    }
+    var matchSab = p.match(/Sáb\s*([0-9]{1,2}:[0-9]{2})\s*–\s*([0-9]{1,2}:[0-9]{2})/i);
+    if (matchSab) {
+      res.sab = [matchSab[1], matchSab[2]];
+    }
+  });
+  return res;
+}
+
+function parseStaffClient(namesStr, telsStr) {
+  if (!namesStr && !telsStr) return [];
+  var rawNames = String(namesStr || '').split(/,|\n|;|\|/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawTels = String(telsStr || '').split(/,|\n|;|\|/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var len = Math.max(rawNames.length, rawTels.length);
+  var res = [];
+
+  for (var i = 0; i < len; i++) {
+    var str = rawNames[i] || ('Personal ' + (i + 1));
+    var tel = rawTels[i] || (rawTels.length === 1 ? rawTels[0] : '—');
+    var estado = 'activo';
+    var horario = '';
+
+    var matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
+    if (matchMeta) {
+      if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
+      if (matchMeta[2]) horario = matchMeta[2].trim();
+      str = str.replace(/\[[^\]]*\]/g, '').trim();
+    }
+
+    var matchTel = str.match(/\(([^)]+)\)/);
+    if (matchTel && (!tel || tel === '—')) {
+      tel = matchTel[1].trim();
+      str = str.replace(/\([^)]+\)/g, '').trim();
+    }
+
+    res.push({
+      nombre: str || 'Personal',
+      tel: tel || '—',
+      estado: estado || 'activo',
+      horario: horario || 'Sin horario'
+    });
+  }
+  return res;
+}
+
+function abrirModalStaffItem(fieldKey, idx, edNombre) {
+  var ed = (window.__EDIFICIOS__ || []).find(function(x){ return x.nombre === edNombre; });
+  if (!ed && window.__CUR_BUILDING__ && (window.__CUR_BUILDING__.nombre === edNombre || !edNombre)) {
+    ed = window.__CUR_BUILDING__;
+    if (!edNombre && ed) edNombre = ed.nombre;
+  }
+  var edRow = ed ? (ed._row || ed.row) : 0;
+
+  var titleEl = document.getElementById('staff-modal-title');
+  var inputNombre = document.getElementById('staff-inp-nombre');
+  var inputTel = document.getElementById('staff-inp-tel');
+  var inputEstado = document.getElementById('staff-inp-estado');
+  var inputEd = document.getElementById('staff-inp-ed');
+  var inputRow = document.getElementById('staff-inp-row');
+  var inputKey = document.getElementById('staff-inp-key');
+  var inputIdx = document.getElementById('staff-inp-idx');
+
+  if (!inputNombre || !inputTel || !inputEd || !inputKey || !inputIdx || !inputRow) return;
+
+  inputEd.value = edNombre;
+  inputRow.value = edRow || '';
+  inputKey.value = fieldKey;
+  inputIdx.value = idx;
+
+  var namesStr = '';
+  var telsStr = '';
+  var labelTipo = '';
+
+  if (fieldKey === 'encargado') {
+    namesStr = ed ? (ed.encargado || '') : '';
+    telsStr = ed ? (ed.tel_encargado || '') : '';
+    labelTipo = 'Encargado Titular';
+  } else if (fieldKey === 'suplente') {
+    namesStr = ed ? (ed.encargado_suplente || '') : '';
+    telsStr = ed ? (ed.tel_suplente || '') : '';
+    labelTipo = 'Suplente / Limpieza';
+  } else if (fieldKey === 'seguridad') {
+    namesStr = ed ? (ed.tel_seguridad || '') : '';
+    telsStr = '';
+    labelTipo = 'Personal de Seguridad / Portería';
+  }
+
+  var items = parseStaffClient(namesStr, telsStr);
+
+  var lv1a = document.getElementById('staff-inp-lv1a');
+  var lv1b = document.getElementById('staff-inp-lv1b');
+  var lv2a = document.getElementById('staff-inp-lv2a');
+  var lv2b = document.getElementById('staff-inp-lv2b');
+  var saba = document.getElementById('staff-inp-saba');
+  var sabb = document.getElementById('staff-inp-sabb');
+
+  if (idx >= 0 && items[idx]) {
+    if (titleEl) titleEl.textContent = '✏️ Editar ' + labelTipo;
+    inputNombre.value = items[idx].nombre;
+    inputTel.value = items[idx].tel !== '—' ? items[idx].tel : '';
+    if (inputEstado) inputEstado.value = items[idx].estado || 'activo';
+
+    var horParsed = parseHorario3Lineas(items[idx].horario);
+    if (lv1a) lv1a.value = horParsed.lv1[0] || '';
+    if (lv1b) lv1b.value = horParsed.lv1[1] || '';
+    if (lv2a) lv2a.value = horParsed.lv2[0] || '';
+    if (lv2b) lv2b.value = horParsed.lv2[1] || '';
+    if (saba) saba.value = horParsed.sab[0] || '';
+    if (sabb) sabb.value = horParsed.sab[1] || '';
+  } else {
+    if (titleEl) titleEl.textContent = '➕ Añadir ' + labelTipo;
+    inputNombre.value = '';
+    inputTel.value = '';
+    if (inputEstado) inputEstado.value = 'activo';
+    if (lv1a) lv1a.value = '';
+    if (lv1b) lv1b.value = '';
+    if (lv2a) lv2a.value = '';
+    if (lv2b) lv2b.value = '';
+    if (saba) saba.value = '';
+    if (sabb) sabb.value = '';
+  }
+
+  abrirModal('modal-staff-edit');
+}
+
+async function guardarStaffItem(btn) {
+  var edNombre = (document.getElementById('staff-inp-ed') || {}).value || '';
+  var fieldKey = (document.getElementById('staff-inp-key') || {}).value || '';
+  var idx = parseInt((document.getElementById('staff-inp-idx') || {}).value || '-1', 10);
+  var nombre = (document.getElementById('staff-inp-nombre') || {}).value || '';
+  var tel = (document.getElementById('staff-inp-tel') || {}).value || '';
+  var estado = (document.getElementById('staff-inp-estado') || {}).value || 'activo';
+
+  var lv1a = (document.getElementById('staff-inp-lv1a') || {}).value || '';
+  var lv1b = (document.getElementById('staff-inp-lv1b') || {}).value || '';
+  var lv2a = (document.getElementById('staff-inp-lv2a') || {}).value || '';
+  var lv2b = (document.getElementById('staff-inp-lv2b') || {}).value || '';
+  var saba = (document.getElementById('staff-inp-saba') || {}).value || '';
+  var sabb = (document.getElementById('staff-inp-sabb') || {}).value || '';
+
+  var horario = formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb);
+
+  if (!nombre.trim() && !tel.trim()) {
+    toast('Ingresá al menos el nombre o teléfono', 'err');
+    return;
+  }
+
+  var ed = (window.__EDIFICIOS__ || []).find(function(x){ return x.nombre === edNombre; });
+  if (!ed && window.__CUR_BUILDING__ && (window.__CUR_BUILDING__.nombre === edNombre || !edNombre)) {
+    ed = window.__CUR_BUILDING__;
+    if (!edNombre && ed) edNombre = ed.nombre;
+  }
+  var edRow = ed ? (ed._row || ed.row) : parseInt((document.getElementById('staff-inp-row') || {}).value || '0', 10);
+
+  var namesStr = '';
+  var telsStr = '';
+  if (fieldKey === 'encargado') {
+    namesStr = ed ? (ed.encargado || '') : '';
+    telsStr = ed ? (ed.tel_encargado || '') : '';
+  } else if (fieldKey === 'suplente') {
+    namesStr = ed ? (ed.encargado_suplente || '') : '';
+    telsStr = ed ? (ed.tel_suplente || '') : '';
+  } else if (fieldKey === 'seguridad') {
+    namesStr = ed ? (ed.tel_seguridad || '') : '';
+    telsStr = '';
+  }
+
+  var items = parseStaffClient(namesStr, telsStr);
+  var newItem = {
+    nombre: nombre.trim(),
+    tel: tel.trim() || '—',
+    estado: estado || 'activo',
+    horario: horario
+  };
+
+  if (idx >= 0 && items[idx]) {
+    items[idx] = newItem;
+  } else {
+    items.push(newItem);
+  }
+
+  var formattedNames = items.map(function(x){
+    return x.nombre + ' [' + (x.estado || 'activo') + ' | ' + (x.horario || 'Sin horario') + ']';
+  }).join(', ');
+
+  var formattedTels = items.map(function(x){ return x.tel; }).join(', ');
+
+  btn.disabled = true;
+  var old = btn.textContent;
+  btn.textContent = 'Guardando...';
+
+  try {
+    var payload = {};
+    if (fieldKey === 'encargado') {
+      payload.encargado = formattedNames;
+      payload.tel_encargado = formattedTels;
+    } else if (fieldKey === 'suplente') {
+      payload.encargado_suplente = formattedNames;
+      payload.tel_suplente = formattedTels;
+    } else if (fieldKey === 'seguridad') {
+      payload.tel_seguridad = formattedNames;
+    }
+
+    var apiUrl = (edRow && window.__ES_DUENO__) ? '/admin/api/edificio' : '/admin/api/mi-edificio';
+    var bodyData = (apiUrl === '/admin/api/edificio') ? Object.assign({ row: edRow }, payload) : Object.assign({ edificio: edNombre }, payload);
+
+    var r = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyData)
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al guardar');
+
+    cerrarModal('modal-staff-edit');
+    toast('Personal actualizado correctamente', 'ok');
+    setTimeout(function(){ location.reload(); }, 600);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+async function eliminarStaffItem(fieldKey, idx, edNombre) {
+  if (!confirm('¿Eliminar esta persona del registro?')) return;
+  var ed = (window.__EDIFICIOS__ || []).find(function(x){ return x.nombre === edNombre; });
+  if (!ed && window.__CUR_BUILDING__ && (window.__CUR_BUILDING__.nombre === edNombre || !edNombre)) {
+    ed = window.__CUR_BUILDING__;
+    if (!edNombre && ed) edNombre = ed.nombre;
+  }
+  var edRow = ed ? (ed._row || ed.row) : 0;
+
+  var namesStr = '';
+  var telsStr = '';
+  if (fieldKey === 'encargado') {
+    namesStr = ed ? (ed.encargado || '') : '';
+    telsStr = ed ? (ed.tel_encargado || '') : '';
+  } else if (fieldKey === 'suplente') {
+    namesStr = ed ? (ed.encargado_suplente || '') : '';
+    telsStr = ed ? (ed.tel_suplente || '') : '';
+  } else if (fieldKey === 'seguridad') {
+    namesStr = ed ? (ed.tel_seguridad || '') : '';
+    telsStr = '';
+  }
+
+  var items = parseStaffClient(namesStr, telsStr);
+  if (idx >= 0 && idx < items.length) {
+    items.splice(idx, 1);
+  }
+
+  var formattedNames = items.map(function(x){
+    return x.nombre + ' [' + (x.estado || 'activo') + ' | ' + (x.horario || 'Sin horario') + ']';
+  }).join(', ');
+
+  var formattedTels = items.map(function(x){ return x.tel; }).join(', ');
+
+  try {
+    var payload = {};
+    if (fieldKey === 'encargado') {
+      payload.encargado = formattedNames;
+      payload.tel_encargado = formattedTels;
+    } else if (fieldKey === 'suplente') {
+      payload.encargado_suplente = formattedNames;
+      payload.tel_suplente = formattedTels;
+    } else if (fieldKey === 'seguridad') {
+      payload.tel_seguridad = formattedNames;
+    }
+
+    var apiUrl = (edRow && window.__ES_DUENO__) ? '/admin/api/edificio' : '/admin/api/mi-edificio';
+    var bodyData = (apiUrl === '/admin/api/edificio') ? Object.assign({ row: edRow }, payload) : Object.assign({ edificio: edNombre }, payload);
+
+    var r = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyData)
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al eliminar');
+
+    setTimeout(function(){ location.reload(); }, 600);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  }
 }
 
 // --- editar cliente directo (dueño) ---
@@ -1384,6 +3023,247 @@ async function guardarEditarCliente(btn){
   finally{btn.disabled=false;btn.textContent=old;}
 }
 
+// --- colaboradores y parametros de planes ---
+async function abrirModalColaboradores(){
+  abrirModal('modal-colaboradores');
+  var cont = document.getElementById('colaboradores-lista-body');
+  if(!cont) return;
+  cont.innerHTML = '<div style="padding:20px;text-align:center;color:#8595AD">Cargando colaboradores...</div>';
+  try {
+    var r = await fetch('/admin/api/colaboradores');
+    var j = await r.json();
+    if(!j.colaboradores || !j.colaboradores.length) {
+      cont.innerHTML = '<div style="padding:24px;text-align:center;color:#8595AD;font-size:13.5px">No hay colaboradores registrados todavía. Usá el botón superior para dar de alta.</div>';
+      return;
+    }
+    cont.innerHTML = j.colaboradores.map(function(c){
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #EEF2F8" class="hv-row">'+
+        '<div>'+
+          '<div style="font-weight:700;font-size:14px">'+escapeHtml(c.nombre)+' <span style="font-size:12px;color:#8595AD;font-weight:400">(@'+escapeHtml(c.usuario)+')</span></div>'+
+          '<div style="font-size:12px;color:#8595AD">'+escapeHtml(c.email||'Sin email')+' · Alta: '+escapeHtml(c.fecha_alta||'—')+'</div>'+
+        '</div>'+
+        '<div style="display:flex;gap:8px;align-items:center">'+
+          '<button onclick="toggleEstadoColaborador('+c._row+','+(!c.activo)+')" style="height:32px;padding:0 12px;border:1px solid #DCE4F0;border-radius:8px;background:'+(c.activo?'#FDECEC':'#E7F4EC')+';color:'+(c.activo?'#C0392B':'#1B7A43')+';font-weight:700;font-size:12px;cursor:pointer">'+(c.activo?'Bloquear':'Activar')+'</button>'+
+          '<button onclick="eliminarColaborador('+c._row+')" style="height:32px;padding:0 10px;border:1px solid #FCA5A5;border-radius:8px;background:#FEF2F2;color:#DC2626;font-weight:700;font-size:12px;cursor:pointer">🗑️</button>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+  } catch(e) {
+    cont.innerHTML = '<div style="padding:20px;text-align:center;color:#EF4444">Error al cargar colaboradores</div>';
+  }
+}
+
+function abrirModalColaboradorNuevo(){
+  abrirModal('modal-colaborador-nuevo');
+}
+
+async function guardarColaborador(btn){
+  var nombre = valEl('colab-nombre');
+  var usuario = valEl('colab-usuario');
+  var pass = valEl('colab-pass');
+  var email = valEl('colab-email');
+  if(!nombre || !usuario || !pass){
+    toast('Nombre, usuario y contraseña son obligatorios','err');
+    return;
+  }
+  btn.disabled=true; var old=btn.textContent; btn.textContent='Guardando...';
+  try {
+    var r = await fetch('/admin/api/colaborador',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nombre:nombre.trim(),usuario:usuario.trim(),pass:pass.trim(),email:email.trim()})});
+    var j = await r.json();
+    if(!r.ok || j.error) throw new Error(j.error||'Error');
+    cerrarModal('modal-colaborador-nuevo');
+    toast('Colaborador agregado exitosamente','ok');
+    abrirModalColaboradores();
+  } catch(e) { toast('Error: '+e.message,'err'); }
+  finally { btn.disabled=false; btn.textContent=old; }
+}
+
+async function toggleEstadoColaborador(row, nuevoActivo){
+  try {
+    var r = await fetch('/admin/api/colaborador-estado',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row, activo:nuevoActivo})});
+    var j = await r.json();
+    if(!r.ok || j.error) throw new Error(j.error||'Error');
+    toast(nuevoActivo ? 'Colaborador activado' : 'Colaborador bloqueado','ok');
+    abrirModalColaboradores();
+  } catch(e) { toast('Error: '+e.message,'err'); }
+}
+
+async function eliminarColaborador(row){
+  if(!confirm('¿Eliminar este colaborador definitivamente?')) return;
+  try {
+    var r = await fetch('/admin/api/colaborador-estado',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row, eliminar:true})});
+    var j = await r.json();
+    if(!r.ok || j.error) throw new Error(j.error||'Error');
+    toast('Colaborador eliminado','ok');
+    abrirModalColaboradores();
+  } catch(e) { toast('Error: '+e.message,'err'); }
+}
+
+async function abrirModalConfigPlanes(){
+  abrirModal('modal-config-planes');
+  try {
+    var r = await fetch('/admin/api/configuracion-planes');
+    var j = await r.json();
+    if(j.config){
+      var c = j.config;
+      var bm = document.getElementById('cfg-base-msgs'); if(bm) bm.value = c.base_msgs || 300;
+      var pm = document.getElementById('cfg-plus-msgs'); if(pm) pm.value = c.plus_msgs || 1000;
+      var bc = document.getElementById('cfg-base-calls'); if(bc) bc.value = c.base_calls || 200;
+      var pc = document.getElementById('cfg-plus-calls'); if(pc) pc.value = c.plus_calls || 500;
+      var be = document.getElementById('cfg-base-edificios'); if(be) be.value = c.base_edificios || 5;
+      var pe = document.getElementById('cfg-plus-edificios'); if(pe) pe.value = c.plus_edificios || 20;
+      var ia = document.getElementById('cfg-ia-activa'); if(ia) ia.checked = c.ia_admin_activa !== false;
+    }
+  } catch(e){}
+}
+
+async function guardarConfigPlanes(btn){
+  var bm = Number(valEl('cfg-base-msgs')) || 300;
+  var pm = Number(valEl('cfg-plus-msgs')) || 1000;
+  var bc = Number(valEl('cfg-base-calls')) || 200;
+  var pc = Number(valEl('cfg-plus-calls')) || 500;
+  var be = Number(valEl('cfg-base-edificios')) || 5;
+  var pe = Number(valEl('cfg-plus-edificios')) || 20;
+  var ia = (document.getElementById('cfg-ia-activa')||{}).checked !== false;
+
+  btn.disabled=true; var old=btn.textContent; btn.textContent='Guardando...';
+  try {
+    var r = await fetch('/admin/api/configuracion-planes',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({base_msgs:bm, plus_msgs:pm, base_calls:bc, plus_calls:pc, base_edificios:be, plus_edificios:pe, ia_admin_activa:ia})});
+    var j = await r.json();
+    if(!r.ok || j.error) throw new Error(j.error||'Error');
+    cerrarModal('modal-config-planes');
+    toast('Parámetros de planes guardados correctamente','ok');
+    setTimeout(function(){location.reload();},800);
+  } catch(e) { toast('Error: '+e.message,'err'); }
+  finally { btn.disabled=false; btn.textContent=old; }
+}
+
+function cambiarTipoPlanModal(tipo) {
+  var edEl = document.getElementById('plan-edificios');
+  if (!edEl) return;
+  if (tipo === 'individual') {
+    edEl.value = '1';
+  } else if (tipo === 'corporativo' && Number(edEl.value) <= 1) {
+    edEl.value = '5';
+  }
+}
+
+// --- Suscripciones y Datos Bancarios ---
+function abrirModalPlanNuevo() {
+  var r = document.getElementById('plan-row'); if(r) r.value = '';
+  var t = document.getElementById('plan-modal-titulo'); if(t) t.textContent = '✨ Crear Nuevo Plan de Suscripción';
+  var tp = document.getElementById('plan-tipo'); if(tp) tp.value = 'individual';
+  var n = document.getElementById('plan-nombre'); if(n) n.value = '';
+  var p = document.getElementById('plan-precio'); if(p) p.value = '';
+  var m = document.getElementById('plan-moneda'); if(m) m.value = 'ARS';
+  var e = document.getElementById('plan-edificios'); if(e) e.value = '1';
+  var msg = document.getElementById('plan-mensajes'); if(msg) msg.value = '300';
+  var call = document.getElementById('plan-llamadas'); if(call) call.value = '200';
+  var s = document.getElementById('plan-servicios'); if(s) s.value = 'Atención IA 24/7, Panel Completo AC, Múltiples proveedores';
+  var est = document.getElementById('plan-estado'); if(est) est.value = 'activo';
+  abrirModal('modal-plan');
+}
+
+function abrirEditarPlan(row, nombre, precio, moneda, ed, msgs, calls, servicios, estado) {
+  var r = document.getElementById('plan-row'); if(r) r.value = row || '';
+  var t = document.getElementById('plan-modal-titulo'); if(t) t.textContent = '✏️ Editar Plan: ' + nombre;
+  var tp = document.getElementById('plan-tipo'); if(tp) tp.value = Number(ed) > 1 ? 'corporativo' : 'individual';
+  var n = document.getElementById('plan-nombre'); if(n) n.value = nombre || '';
+  var p = document.getElementById('plan-precio'); if(p) p.value = precio || '0';
+  var m = document.getElementById('plan-moneda'); if(m) m.value = moneda || 'ARS';
+  var e = document.getElementById('plan-edificios'); if(e) e.value = ed || '1';
+  var msg = document.getElementById('plan-mensajes'); if(msg) msg.value = msgs || '300';
+  var call = document.getElementById('plan-llamadas'); if(call) call.value = calls || '200';
+  var s = document.getElementById('plan-servicios'); if(s) s.value = servicios || '';
+  var est = document.getElementById('plan-estado'); if(est) est.value = estado || 'activo';
+  abrirModal('modal-plan');
+}
+
+async function guardarPlanSuscripcion(btn) {
+  var row = valEl('plan-row');
+  var nombre = valEl('plan-nombre').trim();
+  var precio = valEl('plan-precio').trim();
+  var moneda = valEl('plan-moneda');
+  var edificios = valEl('plan-edificios').trim();
+  var mensajes = valEl('plan-mensajes').trim();
+  var llamadas = valEl('plan-llamadas').trim();
+  var servicios = valEl('plan-servicios').trim();
+  var estado = valEl('plan-estado');
+
+  if (!nombre) { toast('Ingresá el nombre del plan', 'err'); return; }
+
+  btn.disabled = true; var old = btn.textContent; btn.textContent = 'Guardando...';
+  try {
+    var r = await fetch('/admin/api/suscripciones-plan-guardar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row, nombre, precio, moneda, edificios, mensajes, llamadas, servicios, estado })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al guardar');
+    cerrarModal('modal-plan');
+    toast('Plan guardado correctamente', 'ok');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
+}
+
+async function eliminarPlanSuscripcion(row, nombre) {
+  if (!confirm('¿Seguro que querés desactivar o eliminar el plan "' + nombre + '"?')) return;
+  try {
+    var r = await fetch('/admin/api/suscripciones-plan-eliminar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al eliminar');
+    toast('Plan eliminado', 'ok');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+function abrirModalEditarBanco() {
+  abrirModal('modal-banco');
+}
+
+async function guardarDatosBancarios(btn) {
+  var titular = valEl('banco-titular').trim();
+  var cuit = valEl('banco-cuit').trim();
+  var banco = valEl('banco-nombre').trim();
+  var cbu = valEl('banco-cbu').trim();
+  var alias = valEl('banco-alias').trim();
+  var tipo = valEl('banco-tipo').trim();
+  var notas = valEl('banco-notas').trim();
+
+  btn.disabled = true; var old = btn.textContent; btn.textContent = 'Guardando...';
+  try {
+    var r = await fetch('/admin/api/suscripciones-banco-guardar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titular, cuit, banco, cbu, alias, tipo, notas })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al guardar');
+    cerrarModal('modal-banco');
+    toast('Datos bancarios actualizados correctamente', 'ok');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
+}
+
 // --- mi cuenta y preferencias ---
 async function guardarMiCuenta(btn){
   var pass=valEl('account-pass');
@@ -1404,12 +3284,14 @@ async function guardarMiCuenta(btn){
 }
 
 async function guardarPreferencias(btn){
+  var email=valEl('pref-email');
+  var wsp=valEl('pref-wsp');
   var notifEmail=(document.getElementById('pref-notif-email')||{}).checked;
   var notifWsp=(document.getElementById('pref-notif-wsp')||{}).checked;
   btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
   try{
     var r=await fetch('/admin/api/actualizar-perfil',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({notif_email:notifEmail,notif_wsp:notifWsp})});
+      body:JSON.stringify({email:email?email.trim():undefined,wsp:wsp?wsp.trim():undefined,notif_email:notifEmail,notif_wsp:notifWsp})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     cerrarModal('modal-preferencias');
@@ -1611,7 +3493,15 @@ function vistaEvento(e, filterFn) {
     mensaje: e.mensaje, notas: e.notas,
     transcripcion: e.transcripcion || '',
     audio_url: e.audio_url || '',
+    audioDiasRestantes: (() => {
+      if (!e.audio_url) return null;
+      const f = parseFecha(e.fecha);
+      if (!f) return null;
+      const dias = 30 - Math.floor((Date.now() - f.getTime()) / 86400000);
+      return dias;
+    })(),
     feedback: e.feedback, nuevo,
+    historial_chat: e.historial_chat || '',
   };
 }
 
@@ -1763,6 +3653,7 @@ function shell(req, d, activeKey, contenido) {
     { key: 'facturas', icon: '🧾', label: 'Facturas/Fotos', href: '/admin/archivos' },
     { key: 'edificios', icon: '👥', label: 'Clientes', href: '/admin/clientes' },
     { key: 'solicitudes', icon: '📥', label: 'Solicitudes', href: '/admin/solicitudes', badge: solPend },
+    { key: 'suscripciones', icon: '💳', label: 'Planes y Pagos', href: '/admin/suscripciones' },
   ];
   const nav = dueno ? navDueno : navCliente;
   const navHtml = nav.map((n) => {
@@ -1853,6 +3744,7 @@ function shell(req, d, activeKey, contenido) {
           <div style="font-size:12px;color:#8595AD">${esc(userMeta)}</div>
         </div>
         ${verComoCliente}
+        <a href="https://bienargentinos.com" target="_blank" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#2E6FC0;font-weight:700;display:block;text-decoration:none" class="hv-soft">🌐&nbsp;&nbsp;BienArgentinos.com ↗</a>
         <button onclick="abrirModal('modal-mi-cuenta')" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#334259" class="hv-soft">👤&nbsp;&nbsp;Mi cuenta</button>
         <button onclick="abrirModal('modal-preferencias')" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#334259" class="hv-soft">⚙️&nbsp;&nbsp;Preferencias</button>
         <button onclick="location.href='/admin/logout'" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#E5484D;font-weight:600" class="hv-red">↩&nbsp;&nbsp;Cerrar sesión</button>
@@ -1866,17 +3758,51 @@ function shell(req, d, activeKey, contenido) {
       <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9AA7BD;padding:6px 12px 8px">Menú</div>
       ${navHtml}
       <div style="flex:1"></div>
+      ${dueno ? '' : `
       <div style="margin:0 6px;padding:14px;background:linear-gradient(155deg,#0F326A,#2E6FC0);border-radius:14px;color:#fff">
         <div style="font-size:13px;font-weight:800;margin-bottom:4px">¿Necesitás algo?</div>
         <div style="font-size:12.5px;color:rgba(255,255,255,.8);line-height:1.45;margin-bottom:10px">Tu consorcio está siendo atendido las 24 horas.</div>
         <a href="${sugerenciaHref}" style="display:flex;align-items:center;justify-content:center;width:100%;height:36px;border-radius:9px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:13px">Enviar sugerencia</a>
-      </div>
+      </div>`}
     </nav>
 
     <!-- MAIN -->
     <main style="flex:1;min-width:0;padding:26px 30px 90px;max-width:1180px;margin:0 auto;width:100%">
       ${contenido}
     </main>
+  <!-- BARRA DE NAVEGACION INFERIOR PARA MOVIL -->
+  <div class="mobile-bottom-nav">
+    <a href="/admin" class="${activeKey === 'resumen' ? 'active' : ''}">
+      <span class="nav-icon">📊</span>
+      <span class="nav-label">Resumen</span>
+    </a>
+    <a href="/admin/mi-edificio" class="${activeKey === 'edificio' ? 'active' : ''}">
+      <span class="nav-icon">🏢</span>
+      <span class="nav-label">Edificio</span>
+    </a>
+    <a href="/admin/eventos" class="${activeKey === 'eventos' ? 'active' : ''}">
+      <span class="nav-icon">📋</span>
+      <span class="nav-label">Eventos</span>
+    </a>
+    ${dueno ? `
+    <a href="/admin/clientes" class="${activeKey === 'clientes' ? 'active' : ''}">
+      <span class="nav-icon">👥</span>
+      <span class="nav-label">Clientes</span>
+    </a>
+    <a href="/admin/suscripciones" class="${activeKey === 'suscripciones' ? 'active' : ''}">
+      <span class="nav-icon">💳</span>
+      <span class="nav-label">Planes</span>
+    </a>
+    ` : `
+    <a href="/admin/archivos" class="${activeKey === 'archivos' ? 'active' : ''}">
+      <span class="nav-icon">🧾</span>
+      <span class="nav-label">Facturas</span>
+    </a>
+    <a href="/admin/sugerencias" class="${activeKey === 'sugerencias' ? 'active' : ''}">
+      <span class="nav-icon">💡</span>
+      <span class="nav-label">Ideas</span>
+    </a>
+    `}
   </div>
 </div>
 <div id="toast" class="toast"></div>
@@ -1928,9 +3854,13 @@ ${(() => {
       <div class="modal-box" style="max-height:85vh;overflow-y:auto" onclick="stopEv(event)">
         <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
           <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Preferencias del sistema</div>
-          <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Personalización visual y notificaciones</div>
+          <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Personalización y contacto</div>
         </div>
         <div style="padding:20px 24px">
+          <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email de contacto</div>
+          <input id="pref-email" value="${esc(currentEmail)}" placeholder="tuemail@ejemplo.com" class="inp" style="margin-bottom:14px">
+          <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">WhatsApp de notificaciones</div>
+          <input id="pref-wsp" value="${esc((d.clienteActual||{}).wsp||'')}" placeholder="Ej: 1122334455" class="inp" style="margin-bottom:20px">
           <div style="font-size:13.5px;font-weight:700;color:#334259;margin-bottom:10px">Tema de la interfaz</div>
           <div style="display:flex;gap:12px;margin-bottom:20px">
             <button id="btn-theme-light" onclick="setTema('light')" style="flex:1;height:48px;border:1.5px solid #2E6FC0;border-radius:12px;background:#EAF1FB;color:#16233B;font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px" class="hv-soft">☀️&nbsp;&nbsp;Modo Claro</button>
@@ -1953,6 +3883,14 @@ ${(() => {
     </div>`;
 })()}
 
+<script>
+  window.onerror = function(msg, url, line, col, err) {
+    var d = document.createElement('div');
+    d.style = "position:fixed;top:0;left:0;background:red;color:white;z-index:999999;padding:10px;font-size:14px;white-space:pre-wrap;width:100%;text-align:left;";
+    d.textContent = "JS ERR: " + msg + "\\nL: " + line + " C: " + col + "\\nStack: " + (err?err.stack:'');
+    document.body.appendChild(d);
+  };
+</script>
 <script>${CLIENT_JS}</script>
 </body>
 </html>`;
@@ -1972,7 +3910,7 @@ function selectorEdificioHtml(label, sub, tituloMenu, filas, hrefBase) {
       <div id="menu-edificio" class="menu-pop" style="position:absolute;top:48px;left:0;width:300px;background:#fff;border:1px solid #E4E9F1;border-radius:14px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);padding:7px;z-index:50;animation:mPop .16s ease both">
         <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8595AD;padding:8px 10px 6px">${esc(tituloMenu)}</div>
         ${filas.map((f) => `
-          <a href="${hrefBase}?edificio=${encodeURIComponent(f.val)}" style="width:100%;display:flex;align-items:center;gap:11px;padding:10px;background:${f.activo ? '#F1F5FB' : 'transparent'};border-radius:10px;text-align:left" class="hv-soft">
+          <a href="${hrefBase}${hrefBase.includes('?') ? '&' : '?'}edificio=${encodeURIComponent(f.val)}" style="width:100%;display:flex;align-items:center;gap:11px;padding:10px;background:${f.activo ? '#F1F5FB' : 'transparent'};border-radius:10px;text-align:left" class="hv-soft">
             <span style="width:38px;height:38px;border-radius:9px;background:${f.activo ? '#DCE9FA' : '#F1F5FB'};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🏢</span>
             <span style="flex:1;min-width:0">
               <span style="display:block;font-size:14px;font-weight:700;color:#16233B">${esc(f.label)}</span>
@@ -1985,8 +3923,54 @@ function selectorEdificioHtml(label, sub, tituloMenu, filas, hrefBase) {
 }
 
 /* ===================================================================
- * LOGIN
+ * LOGIN — FRASES ROTATIVAS DIARIAS
  * =================================================================== */
+
+function loginFraseDelDia() {
+  const ahora = new Date();
+  const dia = ahora.getDate();
+  const mes = ahora.getMonth() + 1; // 1-12
+
+  // Fechas Patrias y efemérides argentinas
+  const fechasEspeciales = [
+    { d: 1,  m: 1,  frase: '¡Feliz Año Nuevo!<br>Un edificio mejor<br>empieza hoy.' },
+    { d: 24, m: 3,  frase: 'Memoria, Verdad<br>y Justicia.<br>Siempre presentes.' },
+    { d: 2,  m: 4,  frase: 'Día del Veterano<br>y de los Caídos<br>en Malvinas. 🇦🇷' },
+    { d: 25, m: 5,  frase: '¡Feliz 25 de Mayo!<br>Un paso hacia<br>la libertad.' },
+    { d: 20, m: 6,  frase: 'Día de la Bandera.<br>Ondeá con orgullo,<br>Manuel Belgrano. 🇦🇷' },
+    { d: 9,  m: 7,  frase: '¡Feliz Día de<br>la Independencia!<br>Argentina libre. 🎉' },
+    { d: 17, m: 8,  frase: 'Día del Libertador<br>San Martín.<br>Un héroe eterno. 🇦🇷' },
+    { d: 12, m: 10, frase: 'Día del Respeto<br>a la Diversidad<br>Cultural. 🌎' },
+    { d: 20, m: 11, frase: 'Día de la Soberanía<br>Nacional.<br>Vuelta de Obligado. 🇦🇷' },
+    { d: 8,  m: 12, frase: 'Día de la<br>Inmaculada Concepción.<br>Paz y esperanza. ✨' },
+    { d: 25, m: 12, frase: '¡Feliz Navidad!<br>Un edificio lleno<br>de alegría. 🎄' },
+    { d: 31, m: 12, frase: 'Último día del año.<br>Gracias por la confianza.<br>¡Hasta el 2026! 🥂' },
+  ];
+
+  const especial = fechasEspeciales.find((f) => f.d === dia && f.m === mes);
+  if (especial) return especial.frase;
+
+  // Frases rotativas por día del año
+  const frases = [
+    'Todo lo que pasó<br>en tu edificio,<br>mientras no estabas.',
+    'Tu edificio,<br>siempre atendido.<br>Las 24 horas.',
+    'Reclamos resueltos,<br>vecinos tranquilos.<br>Eso es Marcos IA.',
+    'Menos llamados<br>en el celular.<br>Más tiempo libre para vos.',
+    'Un consorcio<br>bien administrado<br>vale oro. 🏆',
+    'Cada reclamo,<br>registrado y atendido.<br>En tiempo real.',
+    'Tu edificio habla.<br>Marcos escucha.<br>Vos decidís.',
+    'Transparencia total<br>en la administración<br>de tu edificio.',
+    'Gestión moderna<br>para consorcios<br>que miran al futuro.',
+    'Novedades, reclamos,<br>reservas y más.<br>Todo en un panel.',
+    'Administrar bien<br>es hacer el trabajo<br>antes de que lo pidan.',
+    'Vecinos felices,<br>edificio organizado.<br>Misión cumplida.',
+    'La tecnología<br>al servicio de tu<br>consorcio.',
+    'Cada edificio<br>tiene su historia.<br>Marcos la registra.',
+  ];
+
+  const diaDelAño = Math.floor((ahora - new Date(ahora.getFullYear(), 0, 0)) / 864e5);
+  return frases[diaDelAño % frases.length];
+}
 
 router.get('/login', (req, res) => {
   if (req.session && req.session.authed) return res.redirect('/admin');
@@ -2009,32 +3993,46 @@ router.get('/login', (req, res) => {
 </style></head>
 <body>
 <div class="login-shell">
-  <div class="login-brand" style="position:relative;background:linear-gradient(150deg,#0F326A 0%,#17408B 45%,#2E6FC0 100%);color:#fff;padding:56px 60px;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;min-height:100vh">
-    <div style="position:absolute;top:-120px;right:-120px;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(217,155,31,.28),transparent 70%)"></div>
-    <div style="position:absolute;bottom:-160px;left:-80px;width:380px;height:380px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 70%)"></div>
-    <div style="position:relative;display:flex;align-items:center;gap:16px">
-      <div style="width:128px;height:82px;background:#fff;border-radius:14px;padding:8px;box-shadow:0 8px 22px -8px rgba(0,0,0,.35);flex-shrink:0;display:flex;align-items:center;justify-content:center"><img src="${LOGO_URL}" alt="Bien Argentinos" style="max-width:100%;max-height:100%;object-fit:contain"></div>
-      <div>
-        <div style="font-weight:800;font-size:22px;letter-spacing:-.02em">Marcos IA</div>
-        <div style="font-size:12.5px;color:rgba(255,255,255,.72);font-weight:600">por Bien Argentinos</div>
+  <div class="login-brand" style="position:relative;background:linear-gradient(150deg,#0F326A 0%,#17408B 45%,#2E6FC0 100%);color:#fff;padding:44px 48px;display:flex;flex-direction:column;gap:22px;justify-content:center;overflow-y:auto;min-height:100vh;box-sizing:border-box">
+    <div style="position:absolute;top:-120px;right:-120px;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(217,155,31,.28),transparent 70%);pointer-events:none"></div>
+    <div style="position:absolute;bottom:-160px;left:-80px;width:380px;height:380px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 70%);pointer-events:none"></div>
+    <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:14px">
+        <a href="https://bienargentinos.com" target="_blank" title="Visitar BienArgentinos.com" style="width:110px;height:70px;background:#fff;border-radius:14px;padding:6px;box-shadow:0 8px 22px -8px rgba(0,0,0,.35);flex-shrink:0;display:flex;align-items:center;justify-content:center"><img src="${LOGO_URL}" alt="Bien Argentinos" style="max-width:100%;max-height:100%;object-fit:contain"></a>
+        <div>
+          <div style="font-weight:800;font-size:22px;letter-spacing:-.02em;color:#FFFFFF">Marcos IA</div>
+          <a href="https://bienargentinos.com" target="_blank" style="font-size:12.5px;color:#FFFFFF;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px">por BienArgentinos.com <span style="font-size:11px">🌐 ↗</span></a>
+        </div>
       </div>
-    </div>
-    <div style="position:relative">
-      <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);padding:7px 14px;border-radius:999px;font-size:13px;font-weight:600;margin-bottom:26px">
+      <div style="display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:600;flex-shrink:0">
         <span style="width:8px;height:8px;border-radius:50%;background:#4ADE80;box-shadow:0 0 0 4px rgba(74,222,128,.25)"></span>
         Atención 24/7 activa
       </div>
-      <h1 style="font-size:40px;line-height:1.08;font-weight:800;letter-spacing:-.03em;margin:0 0 18px">Todo lo que pasó<br>en tu edificio,<br>mientras no estabas.</h1>
-      <p style="font-size:17px;line-height:1.55;color:rgba(255,255,255,.82);max-width:440px;margin:0">Marcos atiende los WhatsApp y llamados de tu consorcio las 24 horas. Este panel es tu ventana: reclamos, reservas, accesos y avisos, ordenados y al día.</p>
     </div>
-    <div style="position:relative;display:flex;gap:26px;font-size:13px;color:rgba(255,255,255,.72)">
-      <div><span style="display:block;font-size:22px;font-weight:800;color:#fff">24/7</span>sin horarios</div>
-      <div><span style="display:block;font-size:22px;font-weight:800;color:#fff">CABA</span>y GBA</div>
+    <div style="position:relative;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.26);border-radius:14px;padding:16px 20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+        <span style="font-size:11.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#FFFFFF">Ecosistema Bien Argentinos</span>
+        <a href="https://bienargentinos.com" target="_blank" style="font-size:12px;font-weight:800;color:#17408B;background:#FFFFFF;padding:5px 14px;border-radius:999px;text-decoration:none;flex-shrink:0">Visitar Web 🌐</a>
+      </div>
+      <div style="font-size:13.5px;color:#FFFFFF;line-height:1.45;font-weight:600">
+        Descubrí todos los servicios integrales de administración, mantenimiento y tecnología en <strong style="color:#ffffff;text-decoration:underline">BienArgentinos.com</strong>
+      </div>
+    </div>
+    <div style="position:relative">
+      <h1 style="font-size:36px;line-height:1.1;font-weight:800;letter-spacing:-.03em;margin:0 0 12px;color:#FFFFFF">${loginFraseDelDia()}</h1>
+      <p style="font-size:15.5px;line-height:1.5;color:rgba(255,255,255,.9);max-width:440px;margin:0">Marcos atiende los WhatsApp y llamados de tu consorcio las 24 horas. Este panel es tu ventana: reclamos, reservas, accesos y avisos, ordenados y al día.</p>
+    </div>
+    <div style="position:relative;display:flex;gap:26px;font-size:13px;color:rgba(255,255,255,.85)">
+      <div><span style="display:block;font-size:20px;font-weight:800;color:#fff">24/7</span>sin horarios</div>
+      <div><span style="display:block;font-size:20px;font-weight:800;color:#fff">CABA</span>y GBA</div>
     </div>
   </div>
   <div style="display:flex;align-items:center;justify-content:center;padding:40px;min-height:100vh">
     <form method="POST" action="/admin/login" style="width:100%;max-width:380px;animation:mUp .5s ease both">
-      <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#2E6FC0;margin-bottom:10px">Panel de administración</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#2E6FC0">Panel de administración</div>
+        <a href="https://bienargentinos.com" target="_blank" style="font-size:12px;font-weight:700;color:#2E6FC0;background:#EAF1FB;border:1px solid #DCE4F0;padding:4px 10px;border-radius:999px;text-decoration:none" class="hv-soft">BienArgentinos.com 🌐</a>
+      </div>
       <h2 style="font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px">Ingresá a tu cuenta</h2>
       <p style="color:#64748B;font-size:15px;margin:0 0 28px">Usá el usuario y la contraseña de tu cuenta de administrador.</p>
       ${err}
@@ -2069,6 +4067,18 @@ router.post('/login', async (req, res) => {
     req.session.user = user;
     return req.session.save(() => res.redirect('/admin'));
   }
+  try {
+    const { rows: colabRows } = await readTab(TAB_COLABORADORES);
+    const colabs = colabRows.map(mapColaborador);
+    const colabMatch = colabs.find((c) => c.usuario === user && c.activo);
+    if (colabMatch && colabMatch.pass === pass) {
+      req.session.authed = true;
+      req.session.role = 'dueno';
+      req.session.user = user;
+      req.session.isColaborador = true;
+      return req.session.save(() => res.redirect('/admin'));
+    }
+  } catch (_) {}
   const consorcioCfg = CONSORCIO_USERS[user];
   if (consorcioCfg && consorcioCfg.pass === pass) {
     req.session.authed = true;
@@ -2176,19 +4186,19 @@ router.get('/', async (req, res) => {
       const solPend = d.solicitudes.filter((s) => !s.estado || s.estado === 'pendiente').length;
 
       const kpis = [
-        { icon: '🏢', iconBg: '#EAF1FB', value: String(edVisibles.length), label: 'Edificios activos' },
-        { icon: '🔔', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: labelPeriodo },
-        { icon: '🚨', iconBg: '#FDECEC', value: String(urgAbiertas.length), label: 'Urgencias abiertas' },
-        { icon: '📥', iconBg: '#FBF3DE', value: String(solPend), label: 'Solicitudes pendientes' },
-        { icon: '🧾', iconBg: '#E7F4EC', value: '$0', label: 'Excedente facturable' },
+        { icon: '🏢', iconBg: '#EAF1FB', value: String(edVisibles.length), label: 'Edificios activos', href: '/admin/clientes' },
+        { icon: '🔔', iconBg: '#EDEEFB', value: String(nuevosHoy.length), label: labelPeriodo, href: '/admin/eventos?tipo=nuevos' },
+        { icon: '🚨', iconBg: '#FDECEC', value: String(urgAbiertas.length), label: 'Urgencias abiertas', href: '/admin/eventos?tipo=urgentes' },
+        { icon: '📥', iconBg: '#FBF3DE', value: String(solPend), label: 'Solicitudes pendientes', href: '/admin/solicitudes' },
+        { icon: '🧾', iconBg: '#E7F4EC', value: '$0', label: 'Excedente facturable', href: '/admin/consumos' },
       ];
 
       const kpiHtml = kpis.map((k) => `
-        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,59,.04)">
+        <a href="${k.href}" style="display:block;text-decoration:none;color:inherit;background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,59,.04);cursor:pointer;transition:transform .15s ease,box-shadow .15s ease" class="hv-card" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
           <span style="width:38px;height:38px;border-radius:11px;background:${k.iconBg};display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:11px">${k.icon}</span>
           <div style="font-size:27px;font-weight:800;letter-spacing:-.03em;line-height:1">${k.value}</div>
           <div style="font-size:13px;color:#64748B;font-weight:600;margin-top:4px">${k.label}</div>
-        </div>`).join('');
+        </a>`).join('');
 
       const cardsHtml = edVisibles.map((e) => {
         const ev = d.eventos.filter((x) => compararEdificios(x.edificio, e.nombre));
@@ -2247,7 +4257,7 @@ router.get('/', async (req, res) => {
         { icon: '🚨', iconBg: '#FDECEC', value: String(urgAbiertas.length), label: 'Urgencias abiertas', action: "location.href='/admin/eventos?tipo=urgentes'" },
       ];
       const kpiHtml = kpis.map((k) => `
-        <div onclick="${k.action}" style="cursor:pointer;background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,59,.04);transition:transform .15s ease,box-shadow .15s ease" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.05)'" onmouseout="this.style.transform='none';this.style.boxShadow='0 1px 2px rgba(16,35,59,.04)'">
+        <div onclick="${k.action}" class="hv-card" style="cursor:pointer;background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,35,59,.04);transition:transform .15s ease,box-shadow .15s ease" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
           <span style="width:38px;height:38px;border-radius:11px;background:${k.iconBg};display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:11px">${k.icon}</span>
           <div style="font-size:27px;font-weight:800;letter-spacing:-.03em;line-height:1">${k.value}</div>
           <div style="font-size:13px;color:#64748B;font-weight:600;margin-top:4px">${k.label}</div>
@@ -2359,7 +4369,7 @@ router.get('/', async (req, res) => {
     ];
 
     const statHtml = statCards.map((s) => `
-      <div onclick="${s.action}" style="cursor:pointer;background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(16,35,59,.04);transition:transform .15s ease,box-shadow .15s ease" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.05)'" onmouseout="this.style.transform='none';this.style.boxShadow='0 1px 2px rgba(16,35,59,.04)'">
+      <div onclick="${s.action}" class="hv-card" style="cursor:pointer;background:#fff;border:1px solid #E7ECF3;border-radius:15px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(16,35,59,.04);transition:transform .15s ease,box-shadow .15s ease" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <span style="width:40px;height:40px;border-radius:11px;background:${s.iconBg};display:flex;align-items:center;justify-content:center;font-size:19px">${s.icon}</span>
           <span style="font-size:12px;font-weight:700;color:${s.deltaColor}">${s.delta}</span>
@@ -2399,14 +4409,14 @@ router.get('/', async (req, res) => {
         <span style="font-size:14px;font-weight:800;color:#16233B">${t.count}</span>
       </div>`).join('') : '<div style="font-size:13px;color:#8595AD">Sin eventos registrados aún.</div>';
 
-    // costos en divisa desde facturas del edificio
-    let usdTotal = 0, eurTotal = 0;
+    // costos en pesos y dólares desde facturas del edificio
+    let arsTotal = 0, usdTotal = 0;
     try {
       const { rows: facRows } = await readTab(TAB_ARCHIVOS);
       facRows.map(mapFactura).filter((f) => cur && compararEdificios(f.edificio, cur.nombre)).forEach((f) => {
         const n = parseFloat(String(f.monto).replace(/[^0-9.,]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
         if (f.moneda === 'USD') usdTotal += n;
-        if (f.moneda === 'EUR') eurTotal += n;
+        else if (f.moneda === 'ARS' || !f.moneda) arsTotal += n;
       });
     } catch (_) {}
 
@@ -2439,27 +4449,33 @@ router.get('/', async (req, res) => {
               ${dibujarConsumoHtml(cur.nombre, cur.plan, evTodos)}
             </div>
             <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
-              <div style="font-size:15px;font-weight:800;margin-bottom:6px">Costos en divisa</div>
-              <div style="font-size:12.5px;color:#8595AD;margin-bottom:14px;line-height:1.4">Servicios facturados en moneda extranjera este mes</div>
-              <div style="display:flex;gap:10px">
-                <div style="flex:1;background:#E7F4EC;border-radius:12px;padding:12px 14px">
-                  <div style="font-size:11px;font-weight:800;color:#1B7A43;letter-spacing:.04em">USD</div>
-                  <div style="font-size:20px;font-weight:800;color:#14532D;letter-spacing:-.02em">USD ${Math.round(usdTotal)}</div>
+              <div style="font-size:15px;font-weight:800;margin-bottom:4px">🧾 Facturas y Fotos del Consorcio</div>
+              <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px;line-height:1.4">Comprobantes y archivos recibidos de vecinos y proveedores</div>
+              <a href="/admin/archivos" style="display:flex;align-items:center;justify-content:center;width:100%;height:38px;border:1px solid #E1E7F1;border-radius:10px;background:#F7F9FC;color:#2E6FC0;font-weight:700;font-size:13px" class="hv-soft">Ver Facturas y Fotos →</a>
+            </div>
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
+              <div style="font-size:15px;font-weight:800;margin-bottom:4px">📊 Gastos del Consorcio</div>
+              <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px;line-height:1.4">Total acumulado de servicios y facturas (Pesos y Dólares)</div>
+              <div style="display:flex;gap:10px;margin-bottom:10px">
+                <div style="flex:1;background:#EAF1FB;border-radius:12px;padding:12px 14px" class="box-ars">
+                  <div style="font-size:11px;font-weight:800;color:#2E6FC0;letter-spacing:.04em">PESOS (ARS)</div>
+                  <div style="font-size:19px;font-weight:800;color:#17408B;letter-spacing:-.02em">$${Math.round(arsTotal).toLocaleString('es-AR')}</div>
                 </div>
-                <div style="flex:1;background:#E9EEFB;border-radius:12px;padding:12px 14px">
-                  <div style="font-size:11px;font-weight:800;color:#2C55A8;letter-spacing:.04em">EUR</div>
-                  <div style="font-size:20px;font-weight:800;color:#1E3A6B;letter-spacing:-.02em">EUR ${Math.round(eurTotal)}</div>
+                <div style="flex:1;background:#E7F4EC;border-radius:12px;padding:12px 14px" class="box-usd">
+                  <div style="font-size:11px;font-weight:800;color:#1B7A43;letter-spacing:.04em">DÓLARES (USD)</div>
+                  <div style="font-size:19px;font-weight:800;color:#14532D;letter-spacing:-.02em">USD $${Math.round(usdTotal).toLocaleString('es-AR')}</div>
                 </div>
               </div>
-              <a href="/admin/archivos" style="display:flex;align-items:center;justify-content:center;width:100%;margin-top:12px;height:38px;border:1px solid #E1E7F1;border-radius:10px;background:#F7F9FC;color:#334259;font-weight:700;font-size:13px" class="hv-soft">Ver comprobantes</a>
+              <div style="font-size:11.5px;color:#8595AD;line-height:1.35">💡 Se calcula automáticamente de los comprobantes y facturas que Marcos procesa en la sección <strong>Facturas/Fotos</strong> de este edificio.</div>
             </div>
           </div>
         </div>
       </div>
       <script>window.__EVENTOS__=${jsonEventos(feedVistas)};window.__ES_DUENO__=false;</script>`;
 
-    res.send(shell(req, d, 'resumen', contenido));
+    res.send(shell(req, d, 'resumen', contenido + modalPlanesAcHtml(d.planesList, d.propios)));
   } catch (e) {
+    console.error('Error en /:', e);
     res.status(500).send(paginaError(e));
   }
 });
@@ -2472,7 +4488,11 @@ function saludoHora() {
 }
 
 function jsonEventos(vistas) {
-  return JSON.stringify(vistas).replace(/</g, '\\u003c');
+  return JSON.stringify(vistas || [])
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 }
 
 function paginaError(e) {
@@ -2567,7 +4587,10 @@ router.get('/eventos', async (req, res) => {
 router.get('/mi-edificio', async (req, res) => {
   if (esDueno(req)) return res.redirect('/admin/clientes');
   try {
-    const d = await cargarDatos(req);
+    const [d, planesList] = await Promise.all([
+      cargarDatos(req),
+      obtenerPlanesSuscripcion()
+    ]);
 
     // En modo "Todos los edificios" (más de uno, sin elegir ninguno todavía)
     // se muestra un bloque por edificio para elegir cuál ver en detalle.
@@ -2583,7 +4606,7 @@ router.get('/mi-edificio', async (req, res) => {
             ${dibujarConsumoHtml(e.nombre, e.plan, ev)}
           </a>`;
       }).join('');
-      const modalNuevoEdificio = modalAltaEdificioHtml('Nuevo edificio');
+      const modalNuevoEdificio = modalAltaEdificioHtml('Nuevo edificio', null, planesList);
       const contenido = `
         <div style="animation:mFade .3s ease both">
           <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
@@ -2640,8 +4663,8 @@ router.get('/mi-edificio', async (req, res) => {
     // "Editar" guarda directo por modal, "Solicitar cambio" pasa por
     // aprobación del administrador) ----
     const label = (t) => `<div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">${t}</div>`;
-    const fichaRow = (icon, labelTxt, valor, pendiente, boton) => `
-      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 17px;display:flex;align-items:center;gap:12px">
+    const fichaRow = (icon, labelTxt, valor, pendiente, boton, extraStyle) => `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 17px;display:flex;align-items:center;gap:12px;${extraStyle || ''}" class="hv-card ${extraStyle ? 'box-gold-border' : ''}">
         <span style="width:40px;height:40px;border-radius:11px;background:#F1F5FB;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${icon}</span>
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:700;color:#8595AD;letter-spacing:.02em;text-transform:uppercase">${labelTxt}</div>
@@ -2747,9 +4770,6 @@ router.get('/mi-edificio', async (req, res) => {
     ];
 
     // ---- PROVEEDORES: asignados a este edificio + asignar desde la lista ----
-    const rubroColor = (r) => ({
-      Plomero: '#EAF1FB', Gasista: '#FBF3DE', Electricista: '#FDF3D6', Ascensores: '#EDEEFB',
-    }[r] || '#EEF2F8');
     const prioStyle = (k) => (PRIORIDADES.find((p) => p.key === k) || PRIORIDADES[0]);
 
     // Fila de proveedor asignado (resuelve telefono desde la maestra por si cambió).
@@ -2762,21 +4782,21 @@ router.get('/mi-edificio', async (req, res) => {
         const pr = prioStyle(a.prioridad);
         return `
           <div style="display:flex;align-items:center;gap:13px;padding:12px 14px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
-            <span style="font-size:11px;font-weight:800;padding:5px 11px;border-radius:999px;background:${rubroColor(a.rubro)};color:#334259;min-width:92px;text-align:center">${esc(a.rubro)}</span>
+            <span class="rubro-badge ${getRubroClass(a.rubro)}">${esc(a.rubro)}</span>
             <div style="flex:1;min-width:120px">
               <div style="font-size:14.5px;font-weight:700">${esc(a.proveedor || '—')}</div>
               ${m.notas ? `<div style="font-size:12px;color:#8595AD">${esc(m.notas)}</div>` : ''}
             </div>
-            <span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:${pr.bg};color:${pr.fg}">${pr.label}</span>
+            <span class="prio-badge prio-${esc(a.prioridad)}">${esc(pr.label)}</span>
             <div style="font-size:14px;font-weight:700;color:#2E6FC0">${esc(tel)}</div>
-            <button onclick="desasignarProveedor(this,${a._row})" style="height:34px;padding:0 12px;border:1px solid #EEDCDC;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-red">Quitar</button>
+            <button onclick="desasignarProveedor(this,${a._row})" class="btn-remove hv-red">Quitar</button>
           </div>`;
       }).join('')
       : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">Todavía no asignaste proveedores a este edificio. Elegí de tu lista abajo.</div>';
 
     // Opciones para asignar: los de la maestra que no estan ya asignados.
-    const yaAsignados = new Set(asignados.map((a) => a.proveedor));
-    const disponibles = maestros.filter((m) => !yaAsignados.has(m.nombre));
+    const yaAsignados = new Set(asignados.map((a) => String(a.proveedor).trim().toLowerCase()));
+    const disponibles = maestros.filter((m) => !yaAsignados.has(String(m.nombre).trim().toLowerCase()));
     const optMaestros = disponibles.length
       ? disponibles.map((m) => `<option value="${esc(m.nombre)}">${esc(m.rubro)} · ${esc(m.nombre)}${m.telefono ? ' (' + esc(m.telefono) + ')' : ''}</option>`).join('')
       : '';
@@ -2789,7 +4809,7 @@ router.get('/mi-edificio', async (req, res) => {
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
           <div style="flex:1;min-width:200px">${label('Proveedor')}<select id="asig-prov" class="inp" style="height:44px">${optMaestros}</select></div>
           <div style="width:170px">${label('Prioridad')}<select id="asig-prio" class="inp" style="height:44px">${optPrioridad}</select></div>
-          <button onclick="asignarProveedor(this)" style="height:44px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Asignar</button>
+          <button onclick="asignarProveedor(this,'${escJs(cur.nombre)}')" style="height:44px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Asignar</button>
         </div>` : '<div style="font-size:13px;color:#8595AD">Ya asignaste todos tus proveedores a este edificio.</div>'}
       </div>` : `
       <div style="border-top:1px dashed #E4E9F1;padding-top:16px;font-size:13.5px;color:#8595AD">
@@ -2810,23 +4830,144 @@ router.get('/mi-edificio', async (req, res) => {
     // ---- FICHA COMPLETA: todo junto, una sola grilla — orientativa para
     // el cliente. Los datos sensibles piden permiso; el resto se edita
     // directo. ----
-    const solicitarRow = (icon, campo, labelTxt, valorCrudo) => {
+    const solicitarRow = (icon, campo, labelTxt, valorCrudo, extraStyle) => {
       const value = valorCrudo || '—';
       return fichaRow(icon, labelTxt, value, pendCampos.has(campo), `
-        <button onclick="abrirSolicitud('${escJs(campo)}','${escJs(labelTxt)}','${escJs(value === '—' ? '' : value)}','${escJs(cur.nombre)}')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-softb">Solicitar cambio</button>`);
+        <button onclick="abrirSolicitud('${escJs(campo)}','${escJs(labelTxt)}','${escJs(value === '—' ? '' : value)}','${escJs(cur.nombre)}')" style="flex-shrink:0;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-softb">Solicitar cambio</button>`, extraStyle);
     };
 
-    // Orden pensado como ficha de presentación: identidad del consorcio
-    // primero, encargado (lo que más cambia) enseguida, después el resto.
-    const fichaHtml = [
-      solicitarRow('🏢', 'nombre', 'Consorcio', cur.nombre),
-      solicitarRow('📍', 'direccion', 'Dirección', cur.direccion),
-      solicitarRow('👔', 'administrador', 'Administrador', cur.administrador),
-      solicitarRow('📞', 'telefonos', 'Tel. administración', cur.telefonos),
-      ...encargadoRows,
-      solicitarRow('🧾', 'cuit', 'CUIT del edificio', cur.cuit),
-      ...datosDirectosRows,
-    ].join('');
+    // Bloques organizados temáticamente
+    const bloqueBaseHtml = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+          <span style="font-size:20px">🏢</span>
+          <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Información Base e Identidad</h2>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+          ${solicitarRow('🏢', 'nombre', 'Consorcio', cur.nombre)}
+          ${solicitarRow('📍', 'direccion', 'Dirección', cur.direccion)}
+          ${editRow('🏷️', 'aliases', cur.aliases, 'Alias / doble dirección', 'Ej: Ortiz 1486 (como lo conocen los vecinos)', 'Si el edificio figura con una altura legal pero los vecinos lo nombran distinto, cargá acá los dos. Marcos reconoce cualquiera de las dos.')}
+          ${solicitarRow('🧾', 'cuit', 'CUIT del edificio', cur.cuit)}
+          ${editRow('🗺️', 'zona', cur.zona, 'Zona / barrio', 'Barrio, ciudad')}
+          ${editRow('🏠', 'unidades', cur.unidades, 'Unidades funcionales', 'Cantidad')}
+          ${solicitarRow('👔', 'administrador', 'Administrador', cur.administrador)}
+          ${solicitarRow('📞', 'telefonos', 'Tel. administración', cur.telefonos)}
+          ${solicitarRow('💳', 'plan', 'Plan Contratado', cur.plan, 'border:2px solid #F59E0B !important;box-shadow:0 0 12px rgba(245,158,11,.25) !important;')}
+        </div>
+      </div>`;
+
+    function parseStaffList(namesStr, telsStr) {
+      if (!namesStr && !telsStr) return [];
+      const rawNames = String(namesStr || '').split(/,|\n|;|\|/).map(s => s.trim()).filter(Boolean);
+      const rawTels = String(telsStr || '').split(/,|\n|;|\|/).map(s => s.trim()).filter(Boolean);
+      const len = Math.max(rawNames.length, rawTels.length);
+      const res = [];
+
+      for (let i = 0; i < len; i++) {
+        let str = rawNames[i] || ('Personal ' + (i + 1));
+        let tel = rawTels[i] || (rawTels.length === 1 ? rawTels[0] : '—');
+        let estado = 'activo';
+        let horario = '';
+
+        const matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
+        if (matchMeta) {
+          if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
+          if (matchMeta[2]) horario = matchMeta[2].trim();
+          str = str.replace(/\[[^\]]*\]/g, '').trim();
+        }
+
+        const matchTel = str.match(/\(([^)]+)\)/);
+        if (matchTel && (!tel || tel === '—')) {
+          tel = matchTel[1].trim();
+          str = str.replace(/\([^)]+\)/g, '').trim();
+        }
+
+        res.push({
+          nombre: str || 'Personal',
+          tel: tel || '—',
+          estado: estado || 'activo',
+          horario: horario || 'Sin horario'
+        });
+      }
+      return res;
+    }
+
+    function renderStaffCards(namesStr, telsStr, fieldKey, icon, labelTitle, edNombre, edRow) {
+      const list = parseStaffList(namesStr, telsStr);
+      let html = '';
+      if (!list.length) {
+        html = `<div style="font-size:12.5px;color:#8595AD;font-style:italic;padding:6px 2px">Sin datos cargados. Usá <strong>+ Añadir</strong> para agregar.</div>`;
+      } else {
+        html = list.map((item, idx) => {
+          let stBadge = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#E7F4EC;color:#1B7A43">🟢 Activo</span>';
+          if (item.estado === 'licencia') stBadge = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#FBF3DE;color:#8A6410">🟡 Licencia</span>';
+          else if (item.estado === 'vacaciones') stBadge = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#EAF1FB;color:#2C55A8">🔵 Vacaciones</span>';
+
+          return `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;margin-bottom:8px;gap:16px;flex-wrap:wrap" class="hv-card">
+              <!-- Izquierda: Nombre y Teléfono -->
+              <div style="display:flex;align-items:center;gap:12px;min-width:180px;flex:1">
+                <span style="font-size:20px;flex-shrink:0">${icon}</span>
+                <div style="min-width:0;flex:1">
+                  <div style="font-size:14px;font-weight:800;color:#16233B;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.nombre)}</div>
+                  <div style="font-size:12.5px;color:#2E6FC0;font-weight:700;margin-top:2px">📞 ${esc(item.tel)}</div>
+                </div>
+              </div>
+              
+              <!-- Centro (Recuadro Verde del usuario): Estado y Horarios -->
+              <div style="display:flex;align-items:center;gap:12px;min-width:240px;flex:1.5;background:#F8FAFD;padding:8px 14px;border-radius:10px;border:1px solid #E2E8F0">
+                ${stBadge}
+                <div style="font-size:12.5px;color:#475569;font-weight:600;display:flex;align-items:center;gap:5px">
+                  <span>🕒</span> <span>${esc(item.horario)}</span>
+                </div>
+              </div>
+
+              <!-- Derecha: Acciones -->
+              <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+                <button onclick="abrirModalStaffItem('${escJs(fieldKey)}', ${idx}, '${escJs(edNombre)}')" style="font-size:12.5px;font-weight:700;color:#2E6FC0;background:none;border:none;cursor:pointer;padding:4px 8px" class="hv-soft">Editar</button>
+                <button onclick="eliminarStaffItem('${escJs(fieldKey)}', ${idx}, '${escJs(edNombre)}')" style="font-size:12.5px;font-weight:700;color:#EF4444;background:none;border:none;cursor:pointer;padding:4px 8px" class="hv-red">Eliminar</button>
+              </div>
+            </div>`;
+        }).join('');
+      }
+
+      return `
+        <div style="background:#F8FAFD;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px;margin-bottom:16px" class="box-staff-section">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <div style="font-size:14px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:7px">
+              <span>${icon}</span> ${esc(labelTitle)}
+            </div>
+            <button onclick="abrirModalStaffItem('${escJs(fieldKey)}', -1, '${escJs(edNombre)}')" style="display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 14px;border:none;border-radius:999px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-primary">+ Añadir</button>
+          </div>
+          <div>${html}</div>
+        </div>`;
+    }
+
+    const bloqueServiciosHtml = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+          <span style="font-size:20px">👥</span>
+          <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Personal, Limpieza y Seguridad del Edificio</h2>
+        </div>
+
+        ${renderStaffCards(cur.encargado, cur.tel_encargado, 'encargado', '🧑‍🔧', 'Encargados Titulares', cur.nombre, cur._row)}
+        ${renderStaffCards(cur.encargado_suplente, cur.tel_suplente, 'suplente', '🧹 Encargados Suplentes y Personal de Limpieza', cur.nombre, cur._row)}
+        ${renderStaffCards(cur.tel_seguridad, '', 'seguridad', '🛡️ Personal de Portería y Seguridad Entrada', cur.nombre, cur._row)}
+      </div>`;
+
+    const bloqueEspaciosHtml = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+          <span style="font-size:20px">🛋️</span>
+          <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Espacios Comunes, Horarios y Cocheras</h2>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+          ${editRow('📅', 'horario_sum', cur.horario_sum, 'Horario SUM / Reglamento', 'Ej: 10 a 24hs · seña $15.000')}
+          ${editRow('🚗', 'cocheras', cur.cocheras, 'Cocheras', 'Ej: 22 fijas + 4 de cortesía')}
+        </div>
+      </div>`;
+
+    const planReqOptions = (planesList || []).map((p) => `<option value="${esc(p.nombre)}">${esc(p.nombre)}${Number(p.precio) > 0 ? ' ($' + Number(p.precio).toLocaleString('es-AR') + '/mes)' : ' (Gratis)'}</option>`).join('');
 
     const modalSolicitud = `
       <div id="modal-solicitud" class="modal-overlay" onclick="cerrarModal('modal-solicitud')">
@@ -2839,9 +4980,16 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#8595AD;margin-bottom:6px">Valor actual</div>
             <div id="req-current" style="background:#F1F5FB;border:1px solid #E4EBF5;border-radius:11px;padding:12px 14px;font-size:15px;font-weight:600;color:#5A6B85;margin-bottom:18px"></div>
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nuevo valor</div>
-            <input id="req-nuevo" placeholder="Escribí el valor correcto" class="inp" style="margin-bottom:16px">
+            <div id="req-nuevo-input-wrap">
+              <input id="req-nuevo" placeholder="Escribí el valor correcto" class="inp" style="margin-bottom:16px">
+            </div>
+            <div id="req-nuevo-select-wrap" style="display:none">
+              <select id="req-nuevo-plan" class="inp" style="margin-bottom:16px">
+                ${planReqOptions}
+              </select>
+            </div>
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Motivo <span style="font-weight:500;color:#9AA7BD">(opcional)</span></div>
-            <textarea id="req-motivo" placeholder="Ej: Cambiamos de administrador." class="inp"></textarea>
+            <textarea id="req-motivo" placeholder="Ej: Cambiamos de plan para acceder a nuevos servicios." class="inp"></textarea>
             <div style="display:flex;align-items:center;gap:9px;background:#FBF3DE;border-radius:10px;padding:10px 13px;margin-top:16px;font-size:12.5px;color:#8A6410;line-height:1.4">
               <span style="font-size:15px">🔒</span>
               <span>Tu pedido queda <strong>pendiente</strong>. Tu administrador lo revisa y recién ahí se aplica. Nada se cambia solo.</span>
@@ -2865,6 +5013,11 @@ router.get('/mi-edificio', async (req, res) => {
           <div style="padding:20px 24px">
             <input id="ec-valor" placeholder="" class="inp">
             <div id="ec-ayuda" style="font-size:12px;color:#9AA7BD;margin-top:8px;display:none"></div>
+            <div id="ec-pdf-wrap" style="display:none;margin-top:16px;padding-top:14px;border-top:1px dashed #E2E8F0">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">📄 Adjuntar / Actualizar Reglamento del SUM (PDF)</label>
+              <input type="file" id="ec-pdf-file" accept="application/pdf" class="inp" style="padding:8px">
+              <div style="font-size:11.5px;color:#8595AD;margin-top:4px">Marcos compartirá este documento PDF con los vecinos cuando soliciten el reglamento del SUM.</div>
+            </div>
           </div>
           <div style="display:flex;gap:11px;padding:0 24px 22px">
             <button onclick="cerrarModal('modal-editar-campo')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
@@ -2873,26 +5026,216 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
+    let consejo = [];
+    try {
+      const { rows: cRows } = await readTab(TAB_CONSEJO);
+      consejo = cRows.map(mapConsejo).filter((c) => cur && compararEdificios(c.edificio, cur.nombre) && c.estado !== 'eliminado');
+    } catch (_) {}
+
+    const consejoFilas = consejo.length ? consejo.map((c) => {
+      const cargoClass = 'cargo-' + String(c.cargo || 'otro').toLowerCase().replace(/[^a-z]/g, '');
+      return `
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
+          <span class="cargo-badge ${cargoClass}">${esc(c.cargo)}</span>
+          <div style="flex:1;min-width:140px">
+            <div style="font-size:14.5px;font-weight:700">${esc(c.nombre)}${c.unidad ? ' (' + esc(c.unidad) + ')' : ''}</div>
+            <div style="font-size:12px;color:#8595AD">${esc(c.telefono || 'Sin teléfono')}${c.email ? ' · ' + esc(c.email) : ''}${c.notas ? ' · ' + esc(c.notas) : ''}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button onclick="abrirEditarConsejo(${c._row},'${escJs(c.nombre)}','${escJs(c.cargo)}','${escJs(c.unidad || '')}','${escJs(c.telefono || '')}','${escJs(c.email || '')}','${escJs(c.notas || '')}')" class="btn-edit-sm hv-soft">Editar</button>
+            <button onclick="eliminarConsejo(this,${c._row})" class="btn-remove-sm hv-red">Quitar</button>
+          </div>
+        </div>`;
+    }).join('') : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">Todavía no agregaste integrantes del Consejo de Administración para este edificio.</div>';
+
+    const consejoCard = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+          <div style="font-size:16px;font-weight:800">🏛️ Consejo de Administración / Integrantes</div>
+          <button onclick="abrirModalConsejoNuevo('${escJs(cur.nombre)}')" style="height:36px;padding:0 14px;border:none;border-radius:999px;background:#2E6FC0;color:#fff;font-weight:700;font-size:13px;cursor:pointer">+ Agregar integrante</button>
+        </div>
+        <p style="font-size:13px;color:#8595AD;margin:0 0 14px">Registrá a las personas del consejo (Presidente, Tesorero, Vocales) para rotaciones y contactos de consulta del edificio.</p>
+        <div style="display:flex;flex-direction:column;gap:10px">${consejoFilas}</div>
+      </div>`;
+
+    const modalConsejoNuevoHtml = `
+      <div id="modal-consejo-nuevo" class="modal-overlay" onclick="cerrarModal('modal-consejo-nuevo')">
+        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Consejo de Administración</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏛️ Agregar Integrante</div>
+          </div>
+          <div style="padding:20px 24px">
+            <input type="hidden" id="cons-edificio">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
+            <input id="cons-nombre" class="inp" placeholder="Ej: Roberto Gómez" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Cargo / Rol</div>
+            <select id="cons-cargo" class="inp" style="margin-bottom:14px">
+              <option value="Presidente">Presidente</option>
+              <option value="Tesorero">Tesorero</option>
+              <option value="Vocal">Vocal / Integrante</option>
+              <option value="Suplente">Suplente</option>
+            </select>
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Unidad / Departamento</div>
+            <input id="cons-unidad" class="inp" placeholder="Ej: 4° B" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Teléfono</div>
+            <input id="cons-tel" class="inp" placeholder="Ej: +54 9 11 2233 4455" style="margin-bottom:4px">
+            <div style="font-size:11.5px;color:#64748B;margin-bottom:14px">⚠️ Incluir +54 para Argentina / Neuquén / interior.</div>
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email (opcional)</div>
+            <input id="cons-email" class="inp" placeholder="ejemplo@email.com" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas / Observaciones (opcional)</div>
+            <input id="cons-notas" class="inp" placeholder="Ej: tiene firma autorizada">
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-consejo-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarConsejoNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar integrante</button>
+          </div>
+        </div>
+      </div>`;
+
+    const modalConsejoEditarHtml = `
+      <div id="modal-consejo-editar" class="modal-overlay" onclick="cerrarModal('modal-consejo-editar')">
+        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Consejo de Administración</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Integrante</div>
+          </div>
+          <div style="padding:20px 24px">
+            <input type="hidden" id="edit-cons-row">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
+            <input id="edit-cons-nombre" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Cargo / Rol</div>
+            <select id="edit-cons-cargo" class="inp" style="margin-bottom:14px">
+              <option value="Presidente">Presidente</option>
+              <option value="Tesorero">Tesorero</option>
+              <option value="Vocal">Vocal / Integrante</option>
+              <option value="Suplente">Suplente</option>
+            </select>
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Unidad / Departamento</div>
+            <input id="edit-cons-unidad" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Teléfono</div>
+            <input id="edit-cons-tel" class="inp" placeholder="Ej: +54 9 11 2233 4455" style="margin-bottom:4px">
+            <div style="font-size:11.5px;color:#64748B;margin-bottom:14px">⚠️ Incluir +54 para Argentina / Neuquén / interior.</div>
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email (opcional)</div>
+            <input id="edit-cons-email" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
+            <input id="edit-cons-notas" class="inp">
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-consejo-editar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarEditarConsejo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
+          </div>
+        </div>
+      </div>`;
+
+    const modalStaffEditHtml = `
+      <div id="modal-staff-edit" class="modal-overlay" onclick="cerrarModal('modal-staff-edit')">
+        <div class="modal-box" style="max-width:520px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Personal del Edificio</div>
+            <div id="staff-modal-title" style="font-size:19px;font-weight:800;letter-spacing:-.01em">➕ Personal</div>
+          </div>
+          <div style="padding:20px 24px;max-height:75vh;overflow-y:auto">
+            <input type="hidden" id="staff-inp-ed" value="">
+            <input type="hidden" id="staff-inp-row" value="">
+            <input type="hidden" id="staff-inp-key" value="">
+            <input type="hidden" id="staff-inp-idx" value="-1">
+            
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y Apellido / Rol / Puesto</div>
+            <input id="staff-inp-nombre" class="inp" placeholder="Ej: Juan Carlos (Turno Mañana)" style="margin-bottom:14px">
+            
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Teléfono de contacto (WhatsApp)</div>
+            <input id="staff-inp-tel" class="inp" placeholder="Ej: 5491155554444" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Estado de disponibilidad</div>
+            <select id="staff-inp-estado" class="inp" style="margin-bottom:16px">
+              <option value="activo">🟢 Activo (Trabajando normalmente)</option>
+              <option value="licencia">🟡 Licencia médica / Ausente</option>
+              <option value="vacaciones">🔵 Vacaciones</option>
+            </select>
+
+            <div style="font-size:13px;font-weight:700;color:#16233B;margin-bottom:8px">Horarios de Trabajo / Atención (3 Turnos)</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:12px">Especificá los rangos horarios exactos para que Marcos IA sepa cuándo está disponible.</div>
+
+            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Lun a Vie (1° Turno)</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="time" id="staff-inp-lv1a" class="inp" style="height:40px;width:auto">
+                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
+                <input type="time" id="staff-inp-lv1b" class="inp" style="height:40px;width:auto">
+              </div>
+            </div>
+
+            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Lun a Vie (2° Turno / Cortado - Opcional)</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="time" id="staff-inp-lv2a" class="inp" style="height:40px;width:auto">
+                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
+                <input type="time" id="staff-inp-lv2b" class="inp" style="height:40px;width:auto">
+              </div>
+            </div>
+
+            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:14px">
+              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Sábados (Opcional)</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="time" id="staff-inp-saba" class="inp" style="height:40px;width:auto">
+                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
+                <input type="time" id="staff-inp-sabb" class="inp" style="height:40px;width:auto">
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6">
+            <button onclick="cerrarModal('modal-staff-edit')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarStaffItem(this)" style="flex:1.4;height:44px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">Guardar</button>
+          </div>
+        </div>
+      </div>`;
+
     const modalNuevoEdificio = modalAltaEdificioHtml('Nuevo edificio');
 
     const contenido = `
       <div style="animation:mFade .3s ease both">
-        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:4px">
-          <div>
-            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Mi Edificio</h1>
-            <p style="color:#64748B;font-size:15px;margin:0">Ficha de ${esc(cur.nombre)}. Tocá "Editar" para actualizar un dato al instante, o "Solicitar cambio" en los datos sensibles del consorcio.</p>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">${esc(cur ? cur.nombre : 'Mi Edificio')}</h1>
+            ${selectorEdificioHtml(cur ? cur.nombre : 'Elegí edificio', 'Cambiar edificio', 'Mis Edificios', d.propios.map((x) => ({ label: x.nombre, sub: x.direccion, val: x.nombre, activo: cur && x.nombre === cur.nombre })), '/admin/set-filtro?volver=' + encodeURIComponent('/admin/mi-edificio'))}
+            <button onclick="abrirModalPlanesAc('${escJs(cur ? cur.nombre : '')}')" style="height:34px;padding:0 13px;border:1px solid #C9D5E8;border-radius:999px;background:#EAF1FB;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" class="hv-blue">
+              <span>💳 Plan: <strong>${esc(cur ? cur.plan : 'Base')}</strong></span>
+              <span style="font-size:11px;opacity:.8">· Cambiar plan ↗</span>
+            </button>
           </div>
           <button onclick="abrirModal('modal-edificio')" style="flex-shrink:0;height:40px;padding:0 18px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">+ Agregar edificio</button>
         </div>
-        <div style="height:16px"></div>
+
+        <div style="background:#F1F5FB;border:1px solid #DCE5F2;border-radius:14px;padding:12px 18px;margin-bottom:20px;display:flex;align-items:center;gap:11px;font-size:13.5px;color:#334259" class="info-recuadro">
+          <span style="font-size:18px;flex-shrink:0">💡</span>
+          <span>Tocá <strong>"Editar"</strong> para actualizar un dato al instante, o <strong>"Solicitar cambio"</strong> en los datos sensibles del consorcio.</span>
+        </div>
         ${pendHtml}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:26px" class="fichagrid">${fichaHtml}</div>
+        ${bloqueBaseHtml}
+        ${bloqueServiciosHtml}
+        ${bloqueEspaciosHtml}
+        ${consejoCard}
         ${proveedoresCard}
       </div>
       ${modalSolicitud}
       ${modalEncargadoHorario}
       ${modalEditarCampo}
-      ${modalNuevoEdificio}`;
+      ${modalNuevoEdificio}
+      ${modalConsejoNuevoHtml}
+      ${modalConsejoEditarHtml}
+      ${modalStaffEditHtml}
+      ${modalPlanesAcHtml(planesList, d.propios)}`;
 
     res.send(shell(req, d, 'edificio', contenido));
   } catch (e) {
@@ -2919,22 +5262,50 @@ router.get('/proveedores', async (req, res) => {
     } catch (_) {}
 
     const label = (t) => `<div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">${t}</div>`;
-    const rubroColor = (r) => ({
-      Plomero: '#EAF1FB', Gasista: '#FBF3DE', Electricista: '#FDF3D6', Ascensores: '#EDEEFB',
-    }[r] || '#EEF2F8');
-
     const filas = maestros.length ? maestros.map((m) => `
       <div style="display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
-        <span style="font-size:11px;font-weight:800;padding:5px 11px;border-radius:999px;background:${rubroColor(m.rubro)};color:#334259;min-width:92px;text-align:center">${esc(m.rubro)}</span>
+        <span class="rubro-badge ${getRubroClass(m.rubro)}">${esc(m.rubro)}</span>
         <div style="flex:1;min-width:140px">
           <div style="font-size:14.5px;font-weight:700">${esc(m.nombre || '—')}</div>
           ${m.notas ? `<div style="font-size:12px;color:#8595AD">${esc(m.notas)}</div>` : ''}
         </div>
         <div style="font-size:14px;font-weight:700;color:#2E6FC0">${esc(m.telefono || '—')}</div>
-        <button onclick="quitarProveedor(this,${m._row})" style="height:34px;padding:0 12px;border:1px solid #EEDCDC;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-red">Quitar</button>
+        <div style="display:flex;gap:6px">
+          <button onclick="abrirEditarProveedor(${m._row},'${escJs(m.rubro)}','${escJs(m.nombre)}','${escJs(m.telefono)}','${escJs(m.notas || '')}')" class="btn-edit hv-soft">Editar</button>
+          <button onclick="quitarProveedor(this,${m._row})" class="btn-remove hv-red">Quitar</button>
+        </div>
       </div>`).join('') : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
 
     const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
+
+    const modalEditarProveedorHtml = `
+      <div id="modal-editar-proveedor" class="modal-overlay" onclick="cerrarModal('modal-editar-proveedor')">
+        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Lista Maestra de Proveedores</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Proveedor</div>
+          </div>
+          <div style="padding:20px 24px">
+            <input type="hidden" id="edit-prov-row">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Rubro / Especialidad</div>
+            <select id="edit-prov-rubro" class="inp" style="margin-bottom:14px">${rubroOptions}</select>
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre / Empresa</div>
+            <input id="edit-prov-nombre" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Teléfono de contacto</div>
+            <input id="edit-prov-tel" class="inp" placeholder="Ej: +54 9 11 2233 4455" style="margin-bottom:4px">
+            <div style="font-size:11.5px;color:#64748B;margin-bottom:14px">⚠️ Incluir siempre +54 (o código de país) y característica regional.</div>
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
+            <input id="edit-prov-notas" class="inp" placeholder="Ej: Atiende 24hs">
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-editar-proveedor')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarEditarProveedor(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
+          </div>
+        </div>
+      </div>`;
 
     const contenido = `
       <div style="animation:mFade .3s ease both;max-width:820px">
@@ -2951,12 +5322,17 @@ router.get('/proveedores', async (req, res) => {
             <div>${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:44px" placeholder="Ej: Gastón, Plomería del Oeste"></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-            <div>${label('Teléfono')}<input id="prov-tel" class="inp" style="height:44px" placeholder="Teléfono"></div>
+            <div>
+              ${label('Teléfono')}
+              <input id="prov-tel" class="inp" style="height:44px" placeholder="Ej: +54 9 11 2233 4455">
+              <div style="font-size:11.5px;color:#64748B;margin-top:3px">⚠️ Incluir +54 para Argentina / Neuquén / interior</div>
+            </div>
             <div>${label('Notas (opcional)')}<input id="prov-notas" class="inp" style="height:44px" placeholder="Ej: tiene llave del edificio"></div>
           </div>
           <button onclick="agregarProveedor(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">+ Agregar a mi lista</button>
         </div>
-      </div>`;
+      </div>
+      ${modalEditarProveedorHtml}`;
 
     res.send(shell(req, d, 'proveedores', contenido));
   } catch (e) {
@@ -3225,7 +5601,10 @@ router.get('/consumos', async (req, res) => {
 router.get('/clientes', async (req, res) => {
   if (!esDueno(req)) return res.redirect('/admin');
   try {
-    const d = await cargarDatos(req);
+    const [d, planesList] = await Promise.all([
+      cargarDatos(req),
+      obtenerPlanesSuscripcion()
+    ]);
     const vista = req.query.vista === 'todos' ? 'todos' : 'cliente';
     const clienteSel = req.query.cliente ? d.clientes.find((c) => c.usuario === req.query.cliente) : null;
 
@@ -3239,9 +5618,12 @@ router.get('/clientes', async (req, res) => {
           <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Clientes y edificios</h1>
           <p style="color:#64748B;font-size:15px;margin:0">Entrá por administrador para ver y editar sus edificios, o mirá todos juntos.</p>
         </div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <a href="/admin/clientes" style="display:inline-flex;align-items:center;height:38px;padding:0 15px;${tabBtn(vista === 'cliente')};border-radius:10px;font-weight:700;font-size:13.5px">Por cliente</a>
           <a href="/admin/clientes?vista=todos" style="display:inline-flex;align-items:center;height:38px;padding:0 15px;${tabBtn(vista === 'todos')};border-radius:10px;font-weight:700;font-size:13.5px">Todos los edificios</a>
+          ${esDueno(req) ? `
+          <button onclick="abrirModalColaboradores()" style="display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 14px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#17408B;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-soft">👥 Colaboradores</button>
+          ` : ''}
         </div>
       </div>`;
 
@@ -3362,20 +5744,18 @@ router.get('/clientes', async (req, res) => {
       <div id="modal-cliente-editar" class="modal-overlay" onclick="cerrarModal('modal-cliente-editar')">
         <div class="modal-box" style="max-height:85vh;overflow-y:auto" onclick="stopEv(event)">
           <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
-            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Editar cliente / administrador</div>
-            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Modificar datos (Fe de errata)</div>
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Editar Administrador</div>
+            <div id="edit-cli-title" style="font-size:19px;font-weight:800;letter-spacing:-.01em"></div>
           </div>
           <div style="padding:20px 24px">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del administrador</div>
             <input id="edit-cli-nombre" class="inp" style="margin-bottom:14px">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Usuario de acceso</div>
-            <input id="edit-cli-usuario" class="inp" style="margin-bottom:14px">
-            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Contraseña</div>
-            <input id="edit-cli-pass" class="inp" style="margin-bottom:14px">
+            <input id="edit-cli-usuario" class="inp" readonly style="margin-bottom:14px;background:#F1F4F9;cursor:not-allowed">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email</div>
             <input id="edit-cli-email" class="inp" style="margin-bottom:14px">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">WhatsApp de Notificación</div>
-            <input id="edit-cli-wsp" placeholder="Ej: 1122334455" class="inp" style="margin-bottom:14px">
+            <input id="edit-cli-wsp" class="inp" style="margin-bottom:14px">
 
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:8px">Alertas activas</div>
             <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334259;cursor:pointer;background:#F8FAFD;padding:10px 12px;border-radius:10px;border:1px solid #E4E9F1;margin-bottom:8px">
@@ -3394,13 +5774,15 @@ router.get('/clientes', async (req, res) => {
         </div>
       </div>`;
 
-    const modalEdificio = clienteSel ? modalAltaEdificioHtml(`Nuevo edificio · ${clienteSel.nombre}`, clienteSel.usuario) : '';
+    const modalEdificio = clienteSel ? modalAltaEdificioHtml(`Nuevo edificio · ${clienteSel.nombre}`, clienteSel.usuario, planesList) : '';
+
+    const editPlanOptions = planesList.map((p) => `<option value="${esc(p.nombre)}">${esc(p.nombre)}${Number(p.precio) > 0 ? ' ($' + Number(p.precio).toLocaleString('es-AR') + '/mes)' : ' (Gratis)'}</option>`).join('');
 
     const modalEditar = `
       <div id="modal-editar" class="modal-overlay" onclick="cerrarModal('modal-editar')">
         <div class="modal-box" style="max-height:85vh;overflow-y:auto" onclick="stopEv(event)">
           <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
-            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Editar ficha · directo</div>
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Editar ficha</div>
             <div id="edit-bname" style="font-size:19px;font-weight:800;letter-spacing:-.01em"></div>
           </div>
           <div style="padding:20px 24px">
@@ -3419,11 +5801,9 @@ router.get('/clientes', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Alias / doble dirección</div>
             <input id="edit-aliases" class="inp" style="margin-bottom:14px">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Plan contratado</div>
-            <div style="display:flex;gap:9px">
-              <button data-editplan-btn="Base" onclick="elegirPlanEditar(this,'Base')" style="flex:1;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;background:#fff;color:#64748B;font-weight:700;font-size:14px;cursor:pointer">Base</button>
-              <button data-editplan-btn="Plus" onclick="elegirPlanEditar(this,'Plus')" style="flex:1;height:44px;border:1.5px solid #DDE3EE;border-radius:11px;background:#fff;color:#64748B;font-weight:700;font-size:14px;cursor:pointer">Plus</button>
-            </div>
-            <input type="hidden" id="edit-plan" value="Base">
+            <select id="edit-plan" class="inp" style="margin-bottom:14px">
+              ${editPlanOptions}
+            </select>
             <div style="display:flex;align-items:flex-start;gap:9px;background:#EAF1FB;border-radius:10px;padding:10px 13px;margin-top:16px;font-size:12.5px;color:#2C55A8;line-height:1.4">
               <span style="font-size:15px">⚡</span>
               <span>Como dueño, estos cambios se escriben <strong>directo</strong> en la planilla, sin pasar por aprobación.</span>
@@ -3436,9 +5816,53 @@ router.get('/clientes', async (req, res) => {
         </div>
       </div>`;
 
+    const modalColaboradoresHtml = `
+      <div id="modal-colaboradores" class="modal-overlay" onclick="cerrarModal('modal-colaboradores')">
+        <div class="modal-box" style="max-width:540px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Equipo de Trabajo</div>
+              <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">👥 Colaboradores del Sistema</div>
+            </div>
+            <button onclick="abrirModalColaboradorNuevo()" style="height:36px;padding:0 14px;border:none;border-radius:999px;background:#2E6FC0;color:#fff;font-weight:700;font-size:13px;cursor:pointer">+ Alta colaborador</button>
+          </div>
+          <div id="colaboradores-lista-body" style="padding:10px 0;max-height:360px;overflow-y:auto">
+            <div style="padding:20px;text-align:center;color:#8595AD">Cargando...</div>
+          </div>
+          <div style="padding:14px 24px;border-top:1px solid #EEF1F6;text-align:right">
+            <button onclick="cerrarModal('modal-colaboradores')" style="height:40px;padding:0 20px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cerrar</button>
+          </div>
+        </div>
+      </div>`;
+
+    const modalColaboradorNuevoHtml = `
+      <div id="modal-colaborador-nuevo" class="modal-overlay" onclick="cerrarModal('modal-colaborador-nuevo')">
+        <div class="modal-box" style="max-width:440px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Nuevo usuario ayudante</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Alta de Colaborador</div>
+          </div>
+          <div style="padding:20px 24px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
+            <input id="colab-nombre" class="inp" placeholder="Ej: Juan Pérez" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Usuario de acceso</div>
+            <input id="colab-usuario" class="inp" placeholder="Ej: juan_colab" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Contraseña de acceso</div>
+            <input id="colab-pass" class="inp" type="password" style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email (opcional)</div>
+            <input id="colab-email" class="inp" placeholder="juan@ejemplo.com">
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-colaborador-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarColaborador(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar colaborador</button>
+          </div>
+        </div>
+      </div>`;
+
+
     const contenido = `
       <div style="animation:mFade .3s ease both">${encabezado}${cuerpo}</div>
-      ${modalCliente}${modalClienteEditar}${modalEdificio}${modalEditar}`;
+      ${modalCliente}${modalClienteEditar}${modalEdificio}${modalEditar}${modalColaboradoresHtml}${modalColaboradorNuevoHtml}`;
 
     res.send(shell(req, d, 'edificios', contenido));
   } catch (e) {
@@ -3510,12 +5934,238 @@ router.get('/solicitudes', async (req, res) => {
   }
 });
 
+// --- SECCIÓN PLANES Y SUSCRIPCIONES ---
+router.get('/suscripciones', async (req, res) => {
+  if (!esDueno(req)) return res.redirect('/admin');
+  try {
+    const d = await cargarDatos(req);
+    const planes = await obtenerPlanesSuscripcion();
+    const banco = await obtenerDatosBancarios();
+
+    const planesCardsHtml = planes.map((p) => {
+      const servList = (p.servicios || '').split(/,|\n/).map((s) => s.trim()).filter(Boolean);
+      const servHtml = servList.length
+        ? servList.map((s) => `<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#334259;margin-bottom:6px"><span style="color:#22C55E">✓</span> ${esc(s)}</div>`).join('')
+        : '<div style="font-size:12.5px;color:#8595AD">Sin servicios especificados.</div>';
+
+      const precioFmt = Number(p.precio) > 0 ? (p.moneda === 'USD' ? 'USD $' + p.precio : '$' + Number(p.precio).toLocaleString('es-AR')) : 'GRATIS';
+
+      return `
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:18px;padding:22px;display:flex;flex-direction:column;box-shadow:0 2px 6px rgba(16,35,59,.03)" class="hv-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <span class="status-badge status-${p.estado === 'activo' ? 'active' : 'inactive'}">${esc(p.estado || 'activo')}</span>
+            <span style="font-size:12.5px;font-weight:700;color:#2E6FC0">🏢 ${esc(p.edificios)} Edificio${Number(p.edificios) === 1 ? '' : 's'}</span>
+          </div>
+          <div style="font-size:22px;font-weight:800;letter-spacing:-.02em;color:#16233B;margin-bottom:4px">${esc(p.nombre)}</div>
+          <div style="font-size:26px;font-weight:800;letter-spacing:-.02em;color:#2E6FC0;margin-bottom:16px">${precioFmt}<span style="font-size:13px;font-weight:600;color:#8595AD"> / mes</span></div>
+          
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#F8FAFD;border-radius:12px;padding:12px;margin-bottom:18px">
+            <div>
+              <div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Mensajes</div>
+              <div style="font-size:15px;font-weight:800;color:#334259">${esc(p.mensajes)} 💬</div>
+            </div>
+            <div>
+              <div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Llamadas</div>
+              <div style="font-size:15px;font-weight:800;color:#334259">${esc(p.llamadas)} 📞</div>
+            </div>
+          </div>
+
+          <div style="font-size:13px;font-weight:700;color:#16233B;margin-bottom:8px">Servicios incluidos:</div>
+          <div style="flex:1;margin-bottom:20px">${servHtml}</div>
+
+          <div style="display:flex;gap:10px;margin-top:auto;padding-top:14px;border-top:1px solid #EEF2F8">
+            <button onclick="abrirEditarPlan('${p._row || ''}','${escJs(p.nombre)}','${escJs(p.precio)}','${escJs(p.moneda)}','${escJs(p.edificios)}','${escJs(p.mensajes)}','${escJs(p.llamadas)}','${escJs(p.servicios)}','${escJs(p.estado)}')" class="btn-edit-plan hv-soft">✏️ Editar</button>
+            ${p._row ? `<button onclick="eliminarPlanSuscripcion(${p._row},'${escJs(p.nombre)}')" class="btn-remove-plan hv-red">🗑️</button>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:14px">
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#2E6FC0;letter-spacing:.02em;margin-bottom:3px">Configuración Comercial</div>
+            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">Planes, Suscripciones y Pagos</h1>
+          </div>
+          <button onclick="abrirModalPlanNuevo()" style="height:44px;padding:0 22px;border:none;border-radius:12px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 4px 12px rgba(46,111,192,.25)" class="hv-primary">✨ + Crear Nuevo Plan</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 340px;gap:24px" class="resgrid">
+          <!-- Columna Izquierda: Planes de Suscripción -->
+          <div>
+            <div style="font-size:16px;font-weight:800;margin-bottom:14px;display:flex;align-items:center;gap:8px">💳 Planes disponibles para tus Clientes</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px">${planesCardsHtml}</div>
+          </div>
+
+          <!-- Columna Derecha: Datos Bancarios de Cobro -->
+          <div style="display:flex;flex-direction:column;gap:18px">
+            <div style="background:#fff;border:1px solid #E7ECF3;border-radius:18px;padding:22px;box-shadow:0 2px 6px rgba(16,35,59,.03)" class="hv-card">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                <div style="font-size:16px;font-weight:800">🏦 Datos Bancarios de Cobro</div>
+                <button onclick="abrirModalEditarBanco()" style="padding:6px 12px;border:1px solid #DCE4F0;border-radius:99px;background:#F8FAFD;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-soft">✏️ Editar</button>
+              </div>
+              <div style="font-size:12.5px;color:#8595AD;margin-bottom:16px;line-height:1.4">Datos para que las administraciones transfieran el pago de su suscripción:</div>
+
+              <div style="display:flex;flex-direction:column;gap:12px">
+                <div style="background:#F8FAFD;border-radius:12px;padding:12px">
+                  <div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Titular / Razón Social</div>
+                  <div style="font-size:14.5px;font-weight:800;color:#16233B;margin-top:2px" id="lbl-banco-titular">${esc(banco.titular)}</div>
+                </div>
+                <div style="background:#F8FAFD;border-radius:12px;padding:12px">
+                  <div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">CUIT / CUIL</div>
+                  <div style="font-size:14px;font-weight:800;color:#334259;margin-top:2px" id="lbl-banco-cuit">${esc(banco.cuit)}</div>
+                </div>
+                <div style="background:#F8FAFD;border-radius:12px;padding:12px">
+                  <div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">Banco / Cuenta</div>
+                  <div style="font-size:14px;font-weight:800;color:#334259;margin-top:2px">${esc(banco.banco)} · ${esc(banco.tipo)}</div>
+                </div>
+                <div style="background:#F8FAFD;border-radius:12px;padding:12px">
+                  <div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase">CBU / CVU</div>
+                  <div style="font-size:14px;font-weight:800;color:#2E6FC0;font-family:monospace;margin-top:2px">${esc(banco.cbu)}</div>
+                </div>
+                <div style="background:#EAF1FB;border-radius:12px;padding:12px">
+                  <div style="font-size:11px;font-weight:800;color:#2E6FC0;text-transform:uppercase">Alias CBU</div>
+                  <div style="font-size:16px;font-weight:800;color:#17408B;margin-top:2px">${esc(banco.alias)}</div>
+                </div>
+              </div>
+
+              ${banco.notas ? `
+              <div style="margin-top:16px;padding-top:14px;border-top:1px solid #EEF2F8;font-size:12.5px;color:#64748B;line-height:1.45">
+                💡 <strong>Instrucciones:</strong> ${esc(banco.notas)}
+              </div>` : ''}
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    const modalPlanHtml = `
+      <div id="modal-plan" class="modal-overlay" onclick="cerrarModal('modal-plan')">
+        <div class="modal-box" style="width:520px" onclick="event.stopPropagation()">
+          <div style="padding:22px 24px;border-bottom:1px solid #F1F4F9;display:flex;align-items:center;justify-content:space-between">
+            <h2 style="font-size:18px;font-weight:800;margin:0" id="plan-modal-titulo">✨ Crear Nuevo Plan</h2>
+            <button onclick="cerrarModal('modal-plan')" style="border:none;background:none;font-size:20px;cursor:pointer;color:#8595AD">✕</button>
+          </div>
+          <div style="padding:24px">
+            <input type="hidden" id="plan-row" value="" />
+            <div style="margin-bottom:16px">
+              <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Modalidad / Tipo de Plan</label>
+              <select id="plan-tipo" class="inp" onchange="cambiarTipoPlanModal(this.value)">
+                <option value="individual">🏢 Plan Individual (Por 1 Edificio)</option>
+                <option value="corporativo">🏛️ Paquete Corporativo (Múltiples Edificios)</option>
+              </select>
+            </div>
+            <div style="margin-bottom:16px">
+              <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre del Plan</label>
+              <input type="text" id="plan-nombre" class="inp" placeholder="ej: Plan Base, Plus, Premium" />
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+              <div>
+                <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Precio Mensual</label>
+                <input type="number" id="plan-precio" class="inp" placeholder="ej: 15000" />
+              </div>
+              <div>
+                <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Moneda</label>
+                <select id="plan-moneda" class="inp">
+                  <option value="ARS">ARS ($ Pesos)</option>
+                  <option value="USD">USD ($ Dólares)</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+              <div>
+                <label style="display:block;font-size:12.5px;font-weight:700;color:#334259;margin-bottom:6px">Edificios incl.</label>
+                <input type="number" id="plan-edificios" class="inp" placeholder="5" />
+              </div>
+              <div>
+                <label style="display:block;font-size:12.5px;font-weight:700;color:#334259;margin-bottom:6px">Mensajes 24/7</label>
+                <input type="number" id="plan-mensajes" class="inp" placeholder="1000" />
+              </div>
+              <div>
+                <label style="display:block;font-size:12.5px;font-weight:700;color:#334259;margin-bottom:6px">Llamadas incl.</label>
+                <input type="number" id="plan-llamadas" class="inp" placeholder="500" />
+              </div>
+            </div>
+            <div style="margin-bottom:16px">
+              <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Servicios incluidos (separados por coma)</label>
+              <textarea id="plan-servicios" class="inp" style="height:80px" placeholder="ej: Atención IA 24/7, Reclamos en tiempo real, Facturas y Fotos, Servicio de Gastos IA"></textarea>
+            </div>
+            <div style="margin-bottom:20px">
+              <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Estado del Plan</label>
+              <select id="plan-estado" class="inp">
+                <option value="activo">Activo</option>
+                <option value="inactivo">Inactivo</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:12px">
+              <button onclick="cerrarModal('modal-plan')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+              <button onclick="guardarPlanSuscripcion(this)" style="flex:1.4;height:44px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Guardar Plan</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    const modalBancoHtml = `
+      <div id="modal-banco" class="modal-overlay" onclick="cerrarModal('modal-banco')">
+        <div class="modal-box" style="width:500px" onclick="event.stopPropagation()">
+          <div style="padding:22px 24px;border-bottom:1px solid #F1F4F9;display:flex;align-items:center;justify-content:space-between">
+            <h2 style="font-size:18px;font-weight:800;margin:0">🏦 Editar Datos Bancarios de Cobro</h2>
+            <button onclick="cerrarModal('modal-banco')" style="border:none;background:none;font-size:20px;cursor:pointer;color:#8595AD">✕</button>
+          </div>
+          <div style="padding:24px">
+            <div style="margin-bottom:14px">
+              <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Titular / Razón Social</label>
+              <input type="text" id="banco-titular" class="inp" value="${esc(banco.titular)}" />
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+              <div>
+                <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">CUIT / CUIL</label>
+                <input type="text" id="banco-cuit" class="inp" value="${esc(banco.cuit)}" />
+              </div>
+              <div>
+                <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Banco / Entidad</label>
+                <input type="text" id="banco-nombre" class="inp" value="${esc(banco.banco)}" />
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+              <div>
+                <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">CBU / CVU</label>
+                <input type="text" id="banco-cbu" class="inp" value="${esc(banco.cbu)}" />
+              </div>
+              <div>
+                <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Alias CBU</label>
+                <input type="text" id="banco-alias" class="inp" value="${esc(banco.alias)}" />
+              </div>
+            </div>
+            <div style="margin-bottom:14px">
+              <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Tipo de Cuenta</label>
+              <input type="text" id="banco-tipo" class="inp" value="${esc(banco.tipo)}" placeholder="ej: Cuenta Corriente en Pesos" />
+            </div>
+            <div style="margin-bottom:20px">
+              <label style="display:block;font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas / Instrucciones de pago</label>
+              <textarea id="banco-notas" class="inp" style="height:70px">${esc(banco.notas)}</textarea>
+            </div>
+            <div style="display:flex;gap:12px">
+              <button onclick="cerrarModal('modal-banco')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+              <button onclick="guardarDatosBancarios(this)" style="flex:1.4;height:44px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Guardar Datos</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    res.send(shell(req, d, 'suscripciones', contenido + modalPlanHtml + modalBancoHtml));
+  } catch (e) {
+    console.error('Error en /admin/suscripciones:', e);
+    res.status(500).send(paginaError(e));
+  }
+});
+
 /* ===================================================================
  * ESCRITURA EN SHEETS (helpers)
  * =================================================================== */
 
 async function findOrPlanColumn(tabName, candidateKeys) {
-  const { rawHeaders, headers } = await readTab(tabName);
+  await ensureSheetExists(tabName).catch(() => {});
+  const { rawHeaders, headers } = await readTab(tabName).catch(() => ({ rawHeaders: [], headers: [] }));
   for (let i = 0; i < headers.length; i++) {
     if (candidateKeys.includes(headers[i])) {
       return { col: columnLetter(i + 1), index: i, rawHeaders, headers };
@@ -3541,6 +6191,7 @@ function columnLetter(n) {
 }
 
 async function writeCell(tabName, col, row, value) {
+  await ensureSheetExists(tabName).catch(() => {});
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
@@ -3567,6 +6218,7 @@ async function ensureSheetExists(tabName) {
 }
 
 async function appendRow(tabName, rowData) {
+  await ensureSheetExists(tabName).catch(() => {});
   const sheets = await getSheetsClient();
   let res;
   try {
@@ -3575,7 +6227,6 @@ async function appendRow(tabName, rowData) {
       range: `${tabName}!1:1`,
     });
   } catch (_) {
-    await ensureSheetExists(tabName);
     res = null;
   }
   let existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
@@ -3613,8 +6264,129 @@ async function appendRow(tabName, rowData) {
 }
 
 /* ===================================================================
- * APIs (POST)
+ * APIs (POST & GET)
  * =================================================================== */
+
+// --- ENDPOINTS PLANES Y DATOS BANCARIOS DE SUSCRIPCIÓN ---
+router.get('/api/suscripciones-planes', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'No autorizado' });
+  const planes = await obtenerPlanesSuscripcion();
+  res.json({ planes });
+});
+
+router.post('/api/suscripciones-plan-guardar', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'No autorizado' });
+  try {
+    const { row, nombre, precio, moneda, edificios, mensajes, llamadas, servicios, estado } = req.body || {};
+    if (!nombre) return res.status(400).json({ error: 'El nombre del plan es obligatorio' });
+
+    const cNom = await findOrPlanColumn(TAB_SUSCRIPCIONES_PLANES, ['nombre', 'plan']);
+    const cPre = await findOrPlanColumn(TAB_SUSCRIPCIONES_PLANES, ['precio', 'monto']);
+    const cMon = await findOrPlanColumn(TAB_SUSCRIPCIONES_PLANES, ['moneda']);
+    const cEd = await findOrPlanColumn(TAB_SUSCRIPCIONES_PLANES, ['edificios', 'edificios_incluidos']);
+    const cMsg = await findOrPlanColumn(TAB_SUSCRIPCIONES_PLANES, ['mensajes', 'mensajes_incluidos']);
+    const cCall = await findOrPlanColumn(TAB_SUSCRIPCIONES_PLANES, ['llamadas', 'llamadas_incluidas']);
+    const cSrv = await findOrPlanColumn(TAB_SUSCRIPCIONES_PLANES, ['servicios', 'caracteristicas']);
+    const cEst = await findOrPlanColumn(TAB_SUSCRIPCIONES_PLANES, ['estado']);
+
+    if (cNom.create) await ensureHeader(TAB_SUSCRIPCIONES_PLANES, cNom.col, 'nombre', false);
+    if (cPre.create) await ensureHeader(TAB_SUSCRIPCIONES_PLANES, cPre.col, 'precio', false);
+    if (cMon.create) await ensureHeader(TAB_SUSCRIPCIONES_PLANES, cMon.col, 'moneda', false);
+    if (cEd.create) await ensureHeader(TAB_SUSCRIPCIONES_PLANES, cEd.col, 'edificios', false);
+    if (cMsg.create) await ensureHeader(TAB_SUSCRIPCIONES_PLANES, cMsg.col, 'mensajes', false);
+    if (cCall.create) await ensureHeader(TAB_SUSCRIPCIONES_PLANES, cCall.col, 'llamadas', false);
+    if (cSrv.create) await ensureHeader(TAB_SUSCRIPCIONES_PLANES, cSrv.col, 'servicios', false);
+    if (cEst.create) await ensureHeader(TAB_SUSCRIPCIONES_PLANES, cEst.col, 'estado', false);
+
+    if (row) {
+      const rowNum = Number(row);
+      await writeCell(TAB_SUSCRIPCIONES_PLANES, cNom.col, rowNum, nombre);
+      await writeCell(TAB_SUSCRIPCIONES_PLANES, cPre.col, rowNum, precio || '0');
+      await writeCell(TAB_SUSCRIPCIONES_PLANES, cMon.col, rowNum, moneda || 'ARS');
+      await writeCell(TAB_SUSCRIPCIONES_PLANES, cEd.col, rowNum, edificios || '1');
+      await writeCell(TAB_SUSCRIPCIONES_PLANES, cMsg.col, rowNum, mensajes || '300');
+      await writeCell(TAB_SUSCRIPCIONES_PLANES, cCall.col, rowNum, llamadas || '200');
+      await writeCell(TAB_SUSCRIPCIONES_PLANES, cSrv.col, rowNum, servicios || '');
+      await writeCell(TAB_SUSCRIPCIONES_PLANES, cEst.col, rowNum, estado || 'activo');
+    } else {
+      await appendRow(TAB_SUSCRIPCIONES_PLANES, {
+        nombre,
+        precio: precio || '0',
+        moneda: moneda || 'ARS',
+        edificios: edificios || '1',
+        mensajes: mensajes || '300',
+        llamadas: llamadas || '200',
+        servicios: servicios || '',
+        estado: estado || 'activo'
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Error al guardar plan:', e);
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/suscripciones-plan-eliminar', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'No autorizado' });
+  try {
+    const { row } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila no especificada' });
+    const cEst = await findOrPlanColumn(TAB_SUSCRIPCIONES_PLANES, ['estado']);
+    if (cEst.create) await ensureHeader(TAB_SUSCRIPCIONES_PLANES, cEst.col, 'estado', false);
+    await writeCell(TAB_SUSCRIPCIONES_PLANES, cEst.col, Number(row), 'eliminado');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.get('/api/suscripciones-banco', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'No autorizado' });
+  const banco = await obtenerDatosBancarios();
+  res.json({ banco });
+});
+
+router.post('/api/suscripciones-banco-guardar', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'No autorizado' });
+  try {
+    const { titular, cuit, banco, cbu, alias, tipo, notas } = req.body || {};
+
+    const cTit = await findOrPlanColumn(TAB_SUSCRIPCIONES_BANCO, ['titular', 'razon_social']);
+    const cCuit = await findOrPlanColumn(TAB_SUSCRIPCIONES_BANCO, ['cuit', 'cuil']);
+    const cBnc = await findOrPlanColumn(TAB_SUSCRIPCIONES_BANCO, ['banco', 'entidad']);
+    const cCbu = await findOrPlanColumn(TAB_SUSCRIPCIONES_BANCO, ['cbu', 'cvu']);
+    const cAli = await findOrPlanColumn(TAB_SUSCRIPCIONES_BANCO, ['alias']);
+    const cTip = await findOrPlanColumn(TAB_SUSCRIPCIONES_BANCO, ['tipo', 'tipo_cuenta']);
+    const cNot = await findOrPlanColumn(TAB_SUSCRIPCIONES_BANCO, ['notas', 'instrucciones']);
+
+    if (cTit.create) await ensureHeader(TAB_SUSCRIPCIONES_BANCO, cTit.col, 'titular', false);
+    if (cCuit.create) await ensureHeader(TAB_SUSCRIPCIONES_BANCO, cCuit.col, 'cuit', false);
+    if (cBnc.create) await ensureHeader(TAB_SUSCRIPCIONES_BANCO, cBnc.col, 'banco', false);
+    if (cCbu.create) await ensureHeader(TAB_SUSCRIPCIONES_BANCO, cCbu.col, 'cbu', false);
+    if (cAli.create) await ensureHeader(TAB_SUSCRIPCIONES_BANCO, cAli.col, 'alias', false);
+    if (cTip.create) await ensureHeader(TAB_SUSCRIPCIONES_BANCO, cTip.col, 'tipo', false);
+    if (cNot.create) await ensureHeader(TAB_SUSCRIPCIONES_BANCO, cNot.col, 'notas', false);
+
+    const { rows } = await readTab(TAB_SUSCRIPCIONES_BANCO).catch(() => ({ rows: [] }));
+    if (rows && rows.length > 0) {
+      const rowNum = rows[0]._row;
+      await writeCell(TAB_SUSCRIPCIONES_BANCO, cTit.col, rowNum, titular || '');
+      await writeCell(TAB_SUSCRIPCIONES_BANCO, cCuit.col, rowNum, cuit || '');
+      await writeCell(TAB_SUSCRIPCIONES_BANCO, cBnc.col, rowNum, banco || '');
+      await writeCell(TAB_SUSCRIPCIONES_BANCO, cCbu.col, rowNum, cbu || '');
+      await writeCell(TAB_SUSCRIPCIONES_BANCO, cAli.col, rowNum, alias || '');
+      await writeCell(TAB_SUSCRIPCIONES_BANCO, cTip.col, rowNum, tipo || '');
+      await writeCell(TAB_SUSCRIPCIONES_BANCO, cNot.col, rowNum, notas || '');
+    } else {
+      await appendRow(TAB_SUSCRIPCIONES_BANCO, { titular, cuit, banco, cbu, alias, tipo, notas });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Error al guardar datos bancarios:', e);
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
 
 // Nota de feedback del dueño sobre un evento (Marcos aprende).
 router.post('/api/feedback', async (req, res) => {
@@ -3682,6 +6454,7 @@ const EDIFICIO_FIELDS = {
   aliases: ['aliases', 'alias', 'otros_nombres'],
   unidades: ['unidades', 'unidad', 'departamentos'],
   plan: ['plan'],
+  reglamento_sum_pdf: ['reglamento_sum_pdf', 'reglamento_pdf', 'pdf_sum']
 };
 
 router.post('/api/edificio', async (req, res) => {
@@ -3711,16 +6484,171 @@ router.post('/api/edificio', async (req, res) => {
   }
 });
 
-// Alta de cliente (dueño). Los edificios se asignan despues, desde la ficha.
-router.post('/api/clientes', async (req, res) => {
+router.post('/api/subir-pdf-reglamento', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { edificio, pdfBase64, filename } = req.body || {};
+    if (!edificio || !pdfBase64) return res.status(400).json({ error: 'Faltan datos (edificio o pdfBase64)' });
+    
+    const buffer = Buffer.from(pdfBase64.replace(/^data:application\/pdf;base64,/, ''), 'base64');
+    const safeName = (filename || 'reglamento_sum.pdf').replace(/[^a-zA-Z0-9_\.-]/g, '_');
+    
+    const adminFolder = 'administracion_general';
+    const edificioFolder = typeof normalizarCarpeta === 'function' ? normalizarCarpeta(edificio) : edificio.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const targetDir = path.join(__dirname, 'almacenamiento', adminFolder, edificioFolder, 'documentos');
+    
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+    
+    const targetPath = path.join(targetDir, safeName);
+    fs.writeFileSync(targetPath, buffer);
+    
+    const relativeUrl = `/archivos/${adminFolder}/${edificioFolder}/documentos/${safeName}`;
+    
+    const { rows, headers } = await readTab(TAB_EDIFICIOS);
+    const edRow = rows.findIndex((r) => compararEdificios(r.nombre, edificio));
+    if (edRow >= 0) {
+      let colIdx = headers.findIndex((h) => ['reglamento_sum_pdf', 'reglamento_pdf', 'pdf_sum'].includes(h.toLowerCase()));
+      let colLetter;
+      if (colIdx >= 0) colLetter = columnLetter(colIdx + 1);
+      else {
+        colLetter = columnLetter(headers.length + 1);
+        await ensureHeader(TAB_EDIFICIOS, colLetter, 'reglamento_sum_pdf', false);
+      }
+      await writeCell(TAB_EDIFICIOS, colLetter, edRow + 2, relativeUrl);
+    }
+    
+    res.json({ ok: true, url: relativeUrl });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// --- Endpoints Colaboradores del Sistema ---
+router.get('/api/colaboradores', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { rows } = await readTab(TAB_COLABORADORES);
+    const list = rows.map(mapColaborador);
+    res.json({ ok: true, colaboradores: list });
+  } catch (e) {
+    res.json({ ok: true, colaboradores: [] });
+  }
+});
+
+router.post('/api/colaborador', async (req, res) => {
   if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
   try {
     const { nombre, usuario, pass, email } = req.body || {};
+    if (!nombre || !usuario || !pass) return res.status(400).json({ error: 'Nombre, usuario y contraseña son obligatorios' });
+    
+    let { rows } = await readTab(TAB_COLABORADORES).catch(() => ({ rows: [] }));
+    if (rows && rows.map(mapColaborador).some((x) => x.usuario === usuario)) {
+      return res.status(400).json({ error: 'Ese usuario ya existe como colaborador' });
+    }
+
+    await ensureHeader(TAB_COLABORADORES, 'A', 'nombre', false);
+    await ensureHeader(TAB_COLABORADORES, 'B', 'usuario', false);
+    await ensureHeader(TAB_COLABORADORES, 'C', 'contrasena', false);
+    await ensureHeader(TAB_COLABORADORES, 'D', 'email', false);
+    await ensureHeader(TAB_COLABORADORES, 'E', 'rol', false);
+    await ensureHeader(TAB_COLABORADORES, 'F', 'activo', false);
+    await ensureHeader(TAB_COLABORADORES, 'G', 'fecha_alta', false);
+
+    await appendRow(TAB_COLABORADORES, [
+      nombre.trim(),
+      usuario.trim(),
+      pass.trim(),
+      (email || '').trim(),
+      'colaborador',
+      'si',
+      new Date().toLocaleDateString('es-AR')
+    ]);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/colaborador-estado', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { row, activo, eliminar } = req.body || {};
+    const rowNum = Number(row);
+    if (!rowNum || isNaN(rowNum)) return res.status(400).json({ error: 'Fila inválida' });
+
+    if (eliminar) {
+      for (let c = 1; c <= 7; c++) {
+        await writeCell(TAB_COLABORADORES, columnLetter(c), rowNum, '');
+      }
+    } else {
+      await writeCell(TAB_COLABORADORES, 'F', rowNum, activo ? 'si' : 'no');
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// --- Endpoints Configuración de Planes & IA ---
+router.get('/api/configuracion-planes', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  const cfg = await obtenerConfiguracionPlanes();
+  res.json({ ok: true, config: cfg });
+});
+
+router.post('/api/configuracion-planes', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { base_msgs, plus_msgs, base_calls, plus_calls, base_edificios, plus_edificios, ia_admin_activa } = req.body || {};
+    
+    await ensureHeader(TAB_CONFIG_PLANES, 'A', 'base_msgs', false);
+    await ensureHeader(TAB_CONFIG_PLANES, 'B', 'plus_msgs', false);
+    await ensureHeader(TAB_CONFIG_PLANES, 'C', 'base_calls', false);
+    await ensureHeader(TAB_CONFIG_PLANES, 'D', 'plus_calls', false);
+    await ensureHeader(TAB_CONFIG_PLANES, 'E', 'base_edificios', false);
+    await ensureHeader(TAB_CONFIG_PLANES, 'F', 'plus_edificios', false);
+    await ensureHeader(TAB_CONFIG_PLANES, 'G', 'ia_admin_activa', false);
+
+    const rowData = [
+      String(Number(base_msgs) || 300),
+      String(Number(plus_msgs) || 1000),
+      String(Number(base_calls) || 200),
+      String(Number(plus_calls) || 500),
+      String(Number(base_edificios) || 5),
+      String(Number(plus_edificios) || 20),
+      ia_admin_activa ? 'si' : 'no'
+    ];
+
+    const { rows } = await readTab(TAB_CONFIG_PLANES).catch(() => ({ rows: [] }));
+    if (rows && rows.length > 0) {
+      for (let i = 0; i < rowData.length; i++) {
+        await writeCell(TAB_CONFIG_PLANES, columnLetter(i + 1), 2, rowData[i]);
+      }
+    } else {
+      await appendRow(TAB_CONFIG_PLANES, rowData);
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/clientes', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { nombre, usuario, pass, email, wsp, notif_email, notif_wsp } = req.body || {};
     if (!nombre || !usuario || !pass) return res.status(400).json({ error: 'Nombre, usuario y contraseña son obligatorios' });
     const { rows } = await readTab(TAB_CLIENTES);
     if (rows.map(mapCliente).some((c) => c.usuario === usuario)) return res.status(400).json({ error: 'Ese usuario ya existe' });
     await appendRow(TAB_CLIENTES, {
       nombre, usuario, contrasena: pass, email: email || '',
+      whatsapp: wsp || '', wsp: wsp || '', telefono: wsp || '',
+      notif_email: notif_email !== false ? 'si' : 'no',
+      notif_wsp: notif_wsp ? 'si' : 'no',
       edificios: '', activo: 'si',
     });
     res.json({ ok: true });
@@ -3733,7 +6661,7 @@ router.post('/api/clientes', async (req, res) => {
 router.post('/api/cliente-editar', async (req, res) => {
   if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
   try {
-    const { row, nombre, usuario, pass, email } = req.body || {};
+    const { row, nombre, usuario, pass, email, wsp, notif_email, notif_wsp } = req.body || {};
     const rowNum = Number(row);
     if (!rowNum || isNaN(rowNum)) return res.status(400).json({ error: 'Fila inválida' });
     if (!nombre || !usuario || !pass) return res.status(400).json({ error: 'Nombre, usuario y contraseña son obligatorios' });
@@ -3750,11 +6678,22 @@ router.post('/api/cliente-editar', async (req, res) => {
       nombre: ['nombre'],
       usuario: ['usuario'],
       contrasena: ['contrasena', 'clave', 'password'],
-      email: ['email']
+      email: ['email'],
+      whatsapp: ['whatsapp', 'wsp', 'telefono_wsp', 'telefono'],
+      notif_email: ['notif_email'],
+      notif_wsp: ['notif_wsp']
     };
 
     let workingHeaders = cliHeaders.slice();
-    const updates = { nombre, usuario, contrasena: pass, email: email || '' };
+    const updates = { 
+      nombre, 
+      usuario, 
+      contrasena: pass, 
+      email: email || '',
+      whatsapp: wsp || '',
+      notif_email: notif_email ? 'si' : 'no',
+      notif_wsp: notif_wsp ? 'si' : 'no'
+    };
     for (const field of Object.keys(fieldMap)) {
       const candidates = fieldMap[field];
       let idx = workingHeaders.findIndex((h) => candidates.includes(h));
@@ -3777,7 +6716,7 @@ router.post('/api/cliente-editar', async (req, res) => {
 // Actualizar perfil de mi cuenta (dueño o cliente)
 router.post('/api/actualizar-perfil', async (req, res) => {
   try {
-    const { pass, email } = req.body || {};
+    const { pass, email, wsp, notif_email, notif_wsp } = req.body || {};
     const currentUser = req.session.user;
     if (!currentUser) return res.status(401).json({ error: 'No autenticado' });
 
@@ -3790,18 +6729,21 @@ router.post('/api/actualizar-perfil', async (req, res) => {
       if (!c) return res.status(404).json({ error: 'Cliente no encontrado' });
 
       let workingHeaders = cliHeaders.slice();
-      if (pass) {
-        let idx = workingHeaders.findIndex((h) => ['contrasena', 'clave', 'password'].includes(h));
+
+      const saveField = async (candidates, value, defaultName) => {
+        if (value === undefined) return;
+        let idx = workingHeaders.findIndex((h) => candidates.includes(h));
         let col = idx >= 0 ? columnLetter(idx + 1) : columnLetter(workingHeaders.length + 1);
-        if (idx < 0) { await ensureHeader(TAB_CLIENTES, col, 'contrasena', false); workingHeaders.push('contrasena'); }
-        await writeCell(TAB_CLIENTES, col, c._row, pass);
-      }
-      if (email !== undefined) {
-        let idx = workingHeaders.findIndex((h) => ['email'].includes(h));
-        let col = idx >= 0 ? columnLetter(idx + 1) : columnLetter(workingHeaders.length + 1);
-        if (idx < 0) { await ensureHeader(TAB_CLIENTES, col, 'email', false); workingHeaders.push('email'); }
-        await writeCell(TAB_CLIENTES, col, c._row, email);
-      }
+        if (idx < 0) { await ensureHeader(TAB_CLIENTES, col, defaultName, false); workingHeaders.push(defaultName); }
+        await writeCell(TAB_CLIENTES, col, c._row, value);
+      };
+
+      await saveField(['contrasena', 'clave', 'password'], pass || undefined, 'contrasena');
+      await saveField(['email', 'correo', 'mail'], email, 'email');
+      await saveField(['whatsapp', 'wsp', 'telefono_wsp', 'telefono'], wsp, 'wsp');
+      await saveField(['notif_email'], notif_email !== undefined ? (notif_email ? 'si' : 'no') : undefined, 'notif_email');
+      await saveField(['notif_wsp'], notif_wsp !== undefined ? (notif_wsp ? 'si' : 'no') : undefined, 'notif_wsp');
+
       res.json({ ok: true });
     }
   } catch (e) {
@@ -3840,7 +6782,7 @@ router.post('/api/edificio-nuevo', async (req, res) => {
     const adminHeader = edHeaders.find((h) => ['admin_nombre', 'administrador', 'admin'].includes(h)) || 'administrador';
 
     await appendRow(TAB_EDIFICIOS, {
-      edificio: nombre, direccion: direccion || '', zona: zona || '',
+      nombre: nombre, edificio: nombre, direccion: direccion || '', zona: zona || '',
       unidades: unidades || '', encargado: encargado || '', plan: plan || 'Base',
       [adminHeader]: nombreAdmin
     });
@@ -3899,7 +6841,10 @@ router.post('/api/solicitar-cambio', async (req, res) => {
     if (!campo || !valorNuevo) return res.status(400).json({ error: 'Datos incompletos' });
     const usuario = req.session.user;
     const permitidos = edificiosPermitidos(req) || [];
-    const ed = edificio && permitidos.includes(edificio) ? edificio : (permitidos[0] || '');
+    // Si viene un paquete corporativo, conservamos el texto descriptivo tal cual
+    // para que el motivo (que sí trae la lista real de edificios) sea procesable al aprobar.
+    const esCorp = edificio && String(edificio).toLowerCase().includes('paquete corporativo');
+    const ed = esCorp ? String(edificio) : (edificio && permitidos.includes(edificio) ? edificio : (permitidos[0] || ''));
     // Si quien edita es el dueño real del sistema, guardamos el cambio DIRECTAMENTE en el edificio.
     if (esDuenoReal(req)) {
       const { rows: edRows, headers: edHeaders } = await readTab(TAB_EDIFICIOS);
@@ -3930,7 +6875,7 @@ router.post('/api/solicitar-cambio', async (req, res) => {
   }
 });
 
-// Aprobar solicitud (dueño): aplica el cambio en la tab edificios.
+// Aprobar solicitud (dueño): aplica el cambio en la tab edificios a TODOS los edificios seleccionados si es corporativo.
 router.post('/api/aprobar-solicitud', async (req, res) => {
   if (!esDueno(req)) return res.status(403).json({ error: 'Sin permiso' });
   try {
@@ -3939,12 +6884,50 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
     const { rows } = await readTab(TAB_SOLICITUDES);
     const solicitud = rows.find((r) => r._row === Number(row));
     if (!solicitud) return res.status(404).json({ error: 'Solicitud no encontrada' });
-    const { edificio, campo, valor_nuevo } = solicitud;
+    const { edificio, campo, valor_nuevo, motivo, cliente, usuario } = solicitud;
     const { rows: edRows, headers: edHeaders } = await readTab(TAB_EDIFICIOS);
-    const edRow = edRows.find((r) =>
-      String(r.edificio || r.nombre || '').toLowerCase().includes(String(edificio || '').toLowerCase().split(',')[0].trim().toLowerCase())
-    );
-    if (edRow && campo) {
+
+    // Extraer todos los edificios asignados al paquete corporativo
+    // Usamos [^\]] para matchear todo hasta el cierre del corchete (más robusto que .*?)
+    let targetEdificios = [];
+    const motivoTxt = String(motivo || '');
+    const matchAsignados = motivoTxt.match(/Edificios asignados \(\d+\):\s*\[([^\]]+)\]/i);
+    if (matchAsignados && matchAsignados[1]) {
+      targetEdificios = matchAsignados[1].split(',').map((s) => s.trim()).filter(Boolean);
+    }
+
+    // Fallback 1: si no viene el formato de asignados, ver si edificio trae lista separada por coma
+    if (!targetEdificios.length) {
+      if (edificio && !String(edificio).toLowerCase().includes('paquete corporativo')) {
+        targetEdificios = String(edificio).split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    }
+
+    // Fallback 2: si es paquete corporativo sin lista explícita en motivo, tomar todos los edificios del usuario solicitante
+    if (!targetEdificios.length && ((valor_nuevo || '').toLowerCase().includes('corporativo') || (edificio || '').toLowerCase().includes('paquete corporativo'))) {
+      const cliUsuario = usuario || cliente || '';
+      if (cliUsuario) {
+        // Buscar en TAB_EDIFICIOS todos los edificios que pertenezcan a ese usuario/cliente
+        targetEdificios = edRows
+          .filter((r) => {
+            const u = String(r.usuario || r.cliente || r.admin_usuario || '').toLowerCase();
+            return u && u === cliUsuario.toLowerCase();
+          })
+          .map((r) => r.edificio || r.nombre)
+          .filter(Boolean);
+      }
+      // Último recurso: tomar todos los edificios de la hoja
+      if (!targetEdificios.length) {
+        targetEdificios = edRows.map((r) => r.edificio || r.nombre).filter(Boolean);
+      }
+    }
+
+    // Fallback 3: si aun así no hay lista, usar exactamente el edificio de la solicitud
+    if (!targetEdificios.length && edificio) {
+      targetEdificios = [edificio];
+    }
+
+    if (campo) {
       const candidates = EDIFICIO_FIELDS[campo] || [campo];
       let colIdx = edHeaders.findIndex((h) => candidates.includes(h));
       let col;
@@ -3953,12 +6936,23 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
         col = columnLetter(edHeaders.length + 1);
         await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
       }
-      await writeCell(TAB_EDIFICIOS, col, edRow._row, valor_nuevo);
+
+      for (const edNom of targetEdificios) {
+        const matchingEdRows = edRows.filter((r) =>
+          compararEdificios(r.edificio || r.nombre || '', edNom)
+        );
+        for (const edRow of matchingEdRows) {
+          if (edRow) {
+            await writeCell(TAB_EDIFICIOS, col, edRow._row, valor_nuevo);
+          }
+        }
+      }
     }
+
     const planEstado = await findOrPlanColumn(TAB_SOLICITUDES, ['estado']);
     if (planEstado.create) await ensureHeader(TAB_SOLICITUDES, planEstado.col, 'estado', false);
     await writeCell(TAB_SOLICITUDES, planEstado.col, Number(row), 'aplicada');
-    res.json({ ok: true });
+    res.json({ ok: true, edificiosActualizados: targetEdificios });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -4124,7 +7118,8 @@ router.post('/api/proveedor', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
     const { rubro, nombre, telefono, notas } = req.body || {};
-    const cliente = clienteDeSesion(req);
+    let cliente = clienteDeSesion(req);
+    if (!cliente && esDueno(req)) cliente = req.session.user;
     if (!cliente) return res.status(400).json({ error: 'Solo clientes cargan su lista' });
     if (!nombre && !telefono) return res.status(400).json({ error: 'Cargá nombre o teléfono' });
     await appendRow(TAB_PROVEEDORES, {
@@ -4147,12 +7142,9 @@ router.post('/api/proveedor-quitar', async (req, res) => {
   try {
     const { row } = req.body || {};
     if (!row) return res.status(400).json({ error: 'Fila inválida' });
-    const cliente = clienteDeSesion(req);
     const { rows } = await readTab(TAB_PROVEEDORES);
     const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
-    if (cliente && (!prov || prov.cliente !== cliente)) {
-      return res.status(403).json({ error: 'Sin permiso sobre ese proveedor' });
-    }
+    if (!prov) return res.status(404).json({ error: 'Proveedor no encontrado' });
     const plan = await findOrPlanColumn(TAB_PROVEEDORES, ['estado']);
     if (plan.create) await ensureHeader(TAB_PROVEEDORES, plan.col, 'estado', false);
     await writeCell(TAB_PROVEEDORES, plan.col, Number(row), 'eliminado');
@@ -4162,32 +7154,90 @@ router.post('/api/proveedor-quitar', async (req, res) => {
   }
 });
 
-// Asignar un proveedor de la lista al edificio activo con prioridad.
+router.post('/api/proveedor-editar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row, rubro, nombre, telefono, notas } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+    const { rows } = await readTab(TAB_PROVEEDORES);
+    const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
+    if (!prov) return res.status(404).json({ error: 'Proveedor no encontrado' });
+
+    const cRubro = await findOrPlanColumn(TAB_PROVEEDORES, ['rubro', 'especialidad']);
+    const cNombre = await findOrPlanColumn(TAB_PROVEEDORES, ['nombre', 'proveedor']);
+    const cTel = await findOrPlanColumn(TAB_PROVEEDORES, ['telefono', 'tel']);
+    const cNotas = await findOrPlanColumn(TAB_PROVEEDORES, ['notas', 'observaciones']);
+
+    if (cRubro.create) await ensureHeader(TAB_PROVEEDORES, cRubro.col, 'rubro', false);
+    if (cNombre.create) await ensureHeader(TAB_PROVEEDORES, cNombre.col, 'nombre', false);
+    if (cTel.create) await ensureHeader(TAB_PROVEEDORES, cTel.col, 'telefono', false);
+    if (cNotas.create) await ensureHeader(TAB_PROVEEDORES, cNotas.col, 'notas', false);
+
+    if (rubro !== undefined) await writeCell(TAB_PROVEEDORES, cRubro.col, Number(row), rubro);
+    if (nombre !== undefined) await writeCell(TAB_PROVEEDORES, cNombre.col, Number(row), nombre);
+    if (telefono !== undefined) await writeCell(TAB_PROVEEDORES, cTel.col, Number(row), telefono);
+    if (notas !== undefined) await writeCell(TAB_PROVEEDORES, cNotas.col, Number(row), notas);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
 router.post('/api/proveedor-asignar', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { proveedor, prioridad } = req.body || {};
-    const cliente = clienteDeSesion(req);
+    const { proveedor, prioridad, edificio: reqEdificio } = req.body || {};
+    let cliente = clienteDeSesion(req);
+    if (!cliente && esDueno(req)) {
+      cliente = req.session.user;
+    }
     if (!cliente) return res.status(400).json({ error: 'Solo clientes asignan proveedores' });
-    const edificio = (edificiosPermitidos(req) || [])[0];
+
+    const permitidos = edificiosPermitidos(req) || [];
+    const edificio = reqEdificio || (permitidos.length ? permitidos[0] : (req.session.edificioActivo || ''));
     if (!edificio) return res.status(400).json({ error: 'Sin edificio activo' });
     if (!proveedor) return res.status(400).json({ error: 'Falta el proveedor' });
 
     const { rows } = await readTab(TAB_PROVEEDORES);
-    const m = rows.map(mapProveedor).find((p) => p.cliente === cliente && p.nombre === proveedor);
+    const m = rows.map(mapProveedor).find((p) =>
+      String(p.nombre).trim().toLowerCase() === String(proveedor).trim().toLowerCase()
+    );
+
     if (!m) return res.status(404).json({ error: 'Ese proveedor no está en tu lista' });
 
-    // Evitar duplicado del mismo proveedor en el mismo edificio.
-    try {
-      const { rows: aRows } = await readTab(TAB_ASIGNACIONES);
-      const dup = aRows.map(mapAsignacion).some((a) => compararEdificios(a.edificio, edificio) && a.proveedor === proveedor && a.estado !== 'eliminado');
-      if (dup) return res.status(400).json({ error: 'Ese proveedor ya está asignado a este edificio' });
-    } catch (_) {}
+    const { rows: aRows } = await readTab(TAB_ASIGNACIONES);
+    const existente = aRows.map(mapAsignacion).find((a) =>
+      compararEdificios(a.edificio, edificio) &&
+      String(a.proveedor).trim().toLowerCase() === String(proveedor).trim().toLowerCase()
+    );
+
+    if (existente) {
+      const cPrio = await findOrPlanColumn(TAB_ASIGNACIONES, ['prioridad']);
+      const cEst = await findOrPlanColumn(TAB_ASIGNACIONES, ['estado']);
+      const cTel = await findOrPlanColumn(TAB_ASIGNACIONES, ['telefono', 'tel']);
+      const cRub = await findOrPlanColumn(TAB_ASIGNACIONES, ['rubro', 'especialidad']);
+
+      if (cPrio.create) await ensureHeader(TAB_ASIGNACIONES, cPrio.col, 'prioridad', false);
+      if (cEst.create) await ensureHeader(TAB_ASIGNACIONES, cEst.col, 'estado', false);
+      if (cTel.create) await ensureHeader(TAB_ASIGNACIONES, cTel.col, 'telefono', false);
+      if (cRub.create) await ensureHeader(TAB_ASIGNACIONES, cRub.col, 'rubro', false);
+
+      await writeCell(TAB_ASIGNACIONES, cPrio.col, existente._row, prioridad || 'primera');
+      await writeCell(TAB_ASIGNACIONES, cEst.col, existente._row, 'activo');
+      await writeCell(TAB_ASIGNACIONES, cTel.col, existente._row, m.telefono || '');
+      await writeCell(TAB_ASIGNACIONES, cRub.col, existente._row, m.rubro || 'Otro');
+      return res.json({ ok: true });
+    }
 
     await appendRow(TAB_ASIGNACIONES, {
-      cliente, edificio, proveedor,
-      rubro: m.rubro, telefono: m.telefono,
-      prioridad: prioridad || 'primera', estado: 'activo',
+      cliente: cliente || '',
+      edificio,
+      proveedor: m.nombre,
+      rubro: m.rubro || 'Otro',
+      telefono: m.telefono || '',
+      prioridad: prioridad || 'primera',
+      estado: 'activo',
     });
     res.json({ ok: true });
   } catch (e) {
@@ -4200,16 +7250,111 @@ router.post('/api/proveedor-desasignar', async (req, res) => {
   try {
     const { row } = req.body || {};
     if (!row) return res.status(400).json({ error: 'Fila inválida' });
-    const cliente = clienteDeSesion(req);
     const { rows } = await readTab(TAB_ASIGNACIONES);
     const a = rows.map(mapAsignacion).find((x) => x._row === Number(row));
-    if (cliente && (!a || a.cliente !== cliente)) {
-      return res.status(403).json({ error: 'Sin permiso' });
-    }
+    if (!a) return res.status(404).json({ error: 'Asignación no encontrada' });
     const plan = await findOrPlanColumn(TAB_ASIGNACIONES, ['estado']);
     if (plan.create) await ensureHeader(TAB_ASIGNACIONES, plan.col, 'estado', false);
     await writeCell(TAB_ASIGNACIONES, plan.col, Number(row), 'eliminado');
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// --- CONSEJO DE ADMINISTRACIÓN ---
+router.post('/api/consejo', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { nombre, cargo, unidad, telefono, email, notas, edificio: reqEdificio } = req.body || {};
+    let cliente = clienteDeSesion(req);
+    if (!cliente && esDueno(req)) cliente = req.session.user;
+
+    const permitidos = edificiosPermitidos(req) || [];
+    const edificio = reqEdificio || (permitidos.length ? permitidos[0] : (req.session.edificioActivo || ''));
+    if (!edificio) return res.status(400).json({ error: 'Sin edificio activo' });
+    if (!nombre) return res.status(400).json({ error: 'Cargá el nombre del integrante' });
+
+    await appendRow(TAB_CONSEJO, {
+      cliente: cliente || '',
+      edificio,
+      nombre: nombre || '',
+      cargo: cargo || 'Integrante',
+      unidad: unidad || '',
+      telefono: telefono || '',
+      email: email || '',
+      notas: notas || '',
+      estado: 'activo',
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/consejo-editar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row, nombre, cargo, unidad, telefono, email, notas } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+
+    const cNombre = await findOrPlanColumn(TAB_CONSEJO, ['nombre', 'miembro']);
+    const cCargo = await findOrPlanColumn(TAB_CONSEJO, ['cargo', 'rol']);
+    const cUnidad = await findOrPlanColumn(TAB_CONSEJO, ['unidad', 'depto']);
+    const cTel = await findOrPlanColumn(TAB_CONSEJO, ['telefono', 'tel']);
+    const cEmail = await findOrPlanColumn(TAB_CONSEJO, ['email', 'mail']);
+    const cNotas = await findOrPlanColumn(TAB_CONSEJO, ['notas']);
+
+    if (cNombre.create) await ensureHeader(TAB_CONSEJO, cNombre.col, 'nombre', false);
+    if (cCargo.create) await ensureHeader(TAB_CONSEJO, cCargo.col, 'cargo', false);
+    if (cUnidad.create) await ensureHeader(TAB_CONSEJO, cUnidad.col, 'unidad', false);
+    if (cTel.create) await ensureHeader(TAB_CONSEJO, cTel.col, 'telefono', false);
+    if (cEmail.create) await ensureHeader(TAB_CONSEJO, cEmail.col, 'email', false);
+    if (cNotas.create) await ensureHeader(TAB_CONSEJO, cNotas.col, 'notas', false);
+
+    if (nombre !== undefined) await writeCell(TAB_CONSEJO, cNombre.col, Number(row), nombre);
+    if (cargo !== undefined) await writeCell(TAB_CONSEJO, cCargo.col, Number(row), cargo);
+    if (unidad !== undefined) await writeCell(TAB_CONSEJO, cUnidad.col, Number(row), unidad);
+    if (telefono !== undefined) await writeCell(TAB_CONSEJO, cTel.col, Number(row), telefono);
+    if (email !== undefined) await writeCell(TAB_CONSEJO, cEmail.col, Number(row), email);
+    if (notas !== undefined) await writeCell(TAB_CONSEJO, cNotas.col, Number(row), notas);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/consejo-quitar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+    const plan = await findOrPlanColumn(TAB_CONSEJO, ['estado']);
+    if (plan.create) await ensureHeader(TAB_CONSEJO, plan.col, 'estado', false);
+    await writeCell(TAB_CONSEJO, plan.col, Number(row), 'eliminado');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/servicio-gastos-toggle', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, activo } = req.body || {};
+    const nombreEd = edificio || (edificiosPermitidos(req) || [])[0];
+    if (!nombreEd) return res.status(400).json({ error: 'Sin edificio activo' });
+
+    const { rows } = await readTab(TAB_EDIFICIOS);
+    const edRow = rows.map(mapEdificio).find((e) => compararEdificios(e.nombre, nombreEd));
+    if (!edRow) return res.status(404).json({ error: 'Edificio no encontrado' });
+
+    const plan = await findOrPlanColumn(TAB_EDIFICIOS, ['servicio_gastos_ia', 'servicio_ia_gastos']);
+    if (plan.create) await ensureHeader(TAB_EDIFICIOS, plan.col, 'servicio_gastos_ia', false);
+    await writeCell(TAB_EDIFICIOS, plan.col, edRow._row, activo ? 'SI' : 'NO');
+
+    res.json({ ok: true, activo: !!activo });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
