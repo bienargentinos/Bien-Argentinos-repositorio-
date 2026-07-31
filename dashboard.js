@@ -2709,16 +2709,26 @@ function parseHorario3Lineas(str) {
 
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
-  var rawNames = String(namesStr || '').split(new RegExp('[,\\n;|\\|]')).map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(new RegExp('[,\\n;|\\|]')).map(function(s){ return s.trim(); }).filter(Boolean);
-  var len = Math.max(rawNames.length, rawTels.length);
+  var rawNames = String(namesStr || '').split(new RegExp('[,\\n;]')).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawTels = String(telsStr || '').split(new RegExp('[,\\n;]')).map(function(s){ return s.trim(); }).filter(Boolean);
   var res = [];
 
-  for (var i = 0; i < len; i++) {
-    var str = rawNames[i] || ('Personal ' + (i + 1));
+  for (var i = 0; i < rawNames.length; i++) {
+    var str = rawNames[i];
     var tel = rawTels[i] || (rawTels.length === 1 ? rawTels[0] : '—');
     var estado = 'activo';
     var horario = '';
+
+    var isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
+    if (isScheduleFragment && res.length > 0) {
+      var cleanHor = str.replace(/\[[^\]]*\]/g, '').replace(/\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
+      if (cleanHor) {
+        res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
+          ? cleanHor
+          : res[res.length - 1].horario + ' · ' + cleanHor;
+      }
+      continue;
+    }
 
     var matchMeta = str.match(new RegExp('\\\\[(activo|licencia|vacaciones)?\\\\s*\\\\|?\\\\s*([^\\\\]*)\\\\]', 'i'));
     if (matchMeta) {
@@ -2733,19 +2743,25 @@ function parseStaffClient(namesStr, telsStr) {
       str = str.replace(new RegExp('\\\\([^)]+\\\\)', 'g'), '').trim();
     }
 
-    res.push({
-      nombre: str || 'Personal',
-      tel: tel || '—',
-      estado: estado || 'activo',
-      horario: horario || 'Sin horario'
-    });
+    str = str.replace(/\[|\]/g, '').trim();
+
+    if (str || tel !== '—') {
+      res.push({
+        nombre: str || 'Personal',
+        tel: tel || '—',
+        estado: estado || 'activo',
+        horario: horario || 'Sin horario'
+      });
+    }
   }
   return res;
 }
 
 function abrirModalStaffItem(fieldKey, idx, edNombre) {
-  var ed = (window.__EDIFICIOS__ || []).find(function(x){ return x.nombre === edNombre; });
-  if (!ed && window.__CUR_BUILDING__ && (window.__CUR_BUILDING__.nombre === edNombre || !edNombre)) {
+  var ed = (window.__EDIFICIOS__ || []).find(function(x){
+    return String(x.nombre || '').trim().toLowerCase() === String(edNombre || '').trim().toLowerCase();
+  });
+  if (!ed && window.__CUR_BUILDING__) {
     ed = window.__CUR_BUILDING__;
     if (!edNombre && ed) edNombre = ed.nombre;
   }
@@ -2845,8 +2861,10 @@ async function guardarStaffItem(btn) {
     return;
   }
 
-  var ed = (window.__EDIFICIOS__ || []).find(function(x){ return x.nombre === edNombre; });
-  if (!ed && window.__CUR_BUILDING__ && (window.__CUR_BUILDING__.nombre === edNombre || !edNombre)) {
+  var ed = (window.__EDIFICIOS__ || []).find(function(x){
+    return String(x.nombre || '').trim().toLowerCase() === String(edNombre || '').trim().toLowerCase();
+  });
+  if (!ed && window.__CUR_BUILDING__) {
     ed = window.__CUR_BUILDING__;
     if (!edNombre && ed) edNombre = ed.nombre;
   }
@@ -2866,8 +2884,9 @@ async function guardarStaffItem(btn) {
   }
 
   var items = parseStaffClient(namesStr, telsStr);
+  var cleanNombre = nombre.trim().replace(/\[|\]/g, '');
   var newItem = {
-    nombre: nombre.trim(),
+    nombre: cleanNombre || 'Personal',
     tel: tel.trim() || '—',
     estado: estado || 'activo',
     horario: horario
@@ -2880,7 +2899,8 @@ async function guardarStaffItem(btn) {
   }
 
   var formattedNames = items.map(function(x){
-    return x.nombre + ' [' + (x.estado || 'activo') + ' | ' + (x.horario || 'Sin horario') + ']';
+    var cNom = (x.nombre || 'Personal').replace(/\[|\]/g, '').trim();
+    return cNom + ' [' + (x.estado || 'activo') + ' | ' + (x.horario || 'Sin horario') + ']';
   }).join(', ');
 
   var formattedTels = items.map(function(x){ return x.tel; }).join(', ');
@@ -4858,16 +4878,26 @@ router.get('/mi-edificio', async (req, res) => {
 
     function parseStaffList(namesStr, telsStr) {
       if (!namesStr && !telsStr) return [];
-      const rawNames = String(namesStr || '').split(/,|\n|;|\|/).map(s => s.trim()).filter(Boolean);
-      const rawTels = String(telsStr || '').split(/,|\n|;|\|/).map(s => s.trim()).filter(Boolean);
-      const len = Math.max(rawNames.length, rawTels.length);
+      const rawNames = String(namesStr || '').split(/,|\n|;/).map(s => s.trim()).filter(Boolean);
+      const rawTels = String(telsStr || '').split(/,|\n|;/).map(s => s.trim()).filter(Boolean);
       const res = [];
 
-      for (let i = 0; i < len; i++) {
-        let str = rawNames[i] || ('Personal ' + (i + 1));
+      for (let i = 0; i < rawNames.length; i++) {
+        let str = rawNames[i];
         let tel = rawTels[i] || (rawTels.length === 1 ? rawTels[0] : '—');
         let estado = 'activo';
         let horario = '';
+
+        const isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
+        if (isScheduleFragment && res.length > 0) {
+          const cleanHor = str.replace(/\[[^\]]*\]/g, '').replace(/\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
+          if (cleanHor) {
+            res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
+              ? cleanHor
+              : res[res.length - 1].horario + ' · ' + cleanHor;
+          }
+          continue;
+        }
 
         const matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
         if (matchMeta) {
@@ -4882,12 +4912,16 @@ router.get('/mi-edificio', async (req, res) => {
           str = str.replace(/\([^)]+\)/g, '').trim();
         }
 
-        res.push({
-          nombre: str || 'Personal',
-          tel: tel || '—',
-          estado: estado || 'activo',
-          horario: horario || 'Sin horario'
-        });
+        str = str.replace(/\[|\]/g, '').trim();
+
+        if (str || tel !== '—') {
+          res.push({
+            nombre: str || 'Personal',
+            tel: tel || '—',
+            estado: estado || 'activo',
+            horario: horario || 'Sin horario'
+          });
+        }
       }
       return res;
     }
