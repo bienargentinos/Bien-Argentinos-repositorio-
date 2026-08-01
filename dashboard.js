@@ -2217,11 +2217,39 @@ function abrirDrawerEvento(idx){
             cleanText = mediaRes.cleanText;
             var mediaLinkHtml = '';
 
-            if (mediaRes.webUrl) {
-              var urlEsc = escapeHtml(mediaRes.webUrl);
-              var fnEsc = escapeHtml(mediaRes.filename);
+            var finalWebUrl = mediaRes.webUrl;
+            var finalMediaType = mediaRes.mediaType;
+            var finalFilename = mediaRes.filename;
 
-              if (mediaRes.mediaType === 'image') {
+            if (!finalWebUrl && datos.audio_url) {
+              var rawAudioUrl = String(datos.audio_url).trim();
+              if (rawAudioUrl.length > 3) {
+                var ext = rawAudioUrl.split('.').pop().toLowerCase();
+                var lowerTxt = cleanText.toLowerCase();
+                if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/imagenes/') !== -1 || lowerTxt.indexOf('imagen') !== -1 || lowerTxt.indexOf('foto') !== -1) {
+                  finalWebUrl = normalizarUrlAudio(rawAudioUrl);
+                  finalMediaType = 'image';
+                  var lastSlash = rawAudioUrl.lastIndexOf('/');
+                  finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+                } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/videos/') !== -1 || lowerTxt.indexOf('video') !== -1) {
+                  finalWebUrl = normalizarUrlAudio(rawAudioUrl);
+                  finalMediaType = 'video';
+                  var lastSlash = rawAudioUrl.lastIndexOf('/');
+                  finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+                } else if (['ogg', 'mp3', 'wav', 'm4a', 'aac'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/audios/') !== -1 || lowerTxt.indexOf('nota de voz') !== -1 || lowerTxt.indexOf('audio') !== -1) {
+                  finalWebUrl = normalizarUrlAudio(rawAudioUrl);
+                  finalMediaType = 'audio';
+                  var lastSlash = rawAudioUrl.lastIndexOf('/');
+                  finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+                }
+              }
+            }
+
+            if (finalWebUrl) {
+              var urlEsc = escapeHtml(finalWebUrl);
+              var fnEsc = escapeHtml(finalFilename);
+
+              if (finalMediaType === 'image') {
                 mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
                   '<div style="position:relative;max-width:280px;max-height:200px;border-radius:8px;overflow:hidden;margin-bottom:6px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.12);background:#000" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)">' +
                     '<img src="' + urlEsc + '" style="width:100%;height:100%;object-fit:cover;display:block" alt="Imagen adjunta">' +
@@ -2232,7 +2260,7 @@ function abrirDrawerEvento(idx){
                     '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
                   '</div>' +
                 '</div>';
-              } else if (mediaRes.mediaType === 'video') {
+              } else if (finalMediaType === 'video') {
                 mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
                   '<video src="' + urlEsc + '" controls style="width:100%;max-height:220px;border-radius:8px;margin-bottom:6px"></video>' +
                   '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
@@ -2255,9 +2283,8 @@ function abrirDrawerEvento(idx){
                       '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + fnEsc + '</span>' +
                       diasBadgeHtml +
                     '</div>' +
-                    '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:2px 8px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
+                    '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
                   '</div>' +
-                  '<audio controls style="width:100%;height:34px;border-radius:6px" src="' + urlEsc + '"></audio>' +
                 '</div>';
               }
             }
@@ -3821,6 +3848,7 @@ async function cargarDatos(req) {
   ]);
   const eventos = ev.rows.map(mapEvento);
   const edificios = ed.rows.map(mapEdificio);
+  global.__EDIFICIOS_CACHE__ = edificios;
   const clientes = cli.rows.map(mapCliente);
   const solicitudes = sol.rows;
   const sugerencias = sug.rows;
@@ -3884,8 +3912,14 @@ function vistaEvento(e, filterFn, listaEdificios) {
   const nuevo = fn(parseFecha(e.fecha));
 
   let dirReal = e.direccion || '';
-  if (!dirReal && e.edificio && Array.isArray(listaEdificios)) {
-    const found = listaEdificios.find(b => b.nombre && compararEdificios(b.nombre, e.edificio));
+  if (!dirReal && e.edificio) {
+    const edSearch = String(e.edificio).trim().toLowerCase();
+    const pool = Array.isArray(listaEdificios) && listaEdificios.length ? listaEdificios : (global.__EDIFICIOS_CACHE__ || []);
+    const found = pool.find((b) => {
+      if (!b) return false;
+      const n = (b.nombre || b.edificio || '').trim().toLowerCase();
+      return n && (n === edSearch || edSearch.indexOf(n) !== -1 || n.indexOf(edSearch) !== -1);
+    });
     if (found && found.direccion) dirReal = found.direccion;
   }
   const edificioMostrar = dirReal || e.direccion || e.edificio || '—';
@@ -4915,12 +4949,17 @@ function saludoHora() {
   return 'Buenas noches';
 }
 
-function jsonEventos(vistas) {
+function jsonEventos(vistas, d) {
+  var edList = (d && (d.edificios || d.propios)) ? (d.edificios || d.propios) : (global.__EDIFICIOS_CACHE__ || []);
+  var edJson = JSON.stringify(edList || [])
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e');
+
   return JSON.stringify(vistas || [])
     .replace(/</g, '\\u003c')
     .replace(/>/g, '\\u003e')
     .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
+    .replace(/\u2029/g, '\\u2029') + ';window.__EDIFICIOS__=' + edJson;
 }
 
 function paginaError(e) {
