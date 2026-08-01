@@ -2108,15 +2108,18 @@ function abrirDrawerEvento(idx){
               tagBg = '#DDD6FE'; tagFg = '#5B21B6';
             }
 
-            var audioMatch = cleanText.match(new RegExp('(\\/root\\/marcos[^\\s"\\)]+\\.(ogg|mp3|wav|m4a)|\\/archivos[^\\s"\\)]+\\.(ogg|mp3|wav|m4a)|https?:\\/\\/[^\\s"\\)]+\\.(ogg|mp3|wav|m4a))', 'i'));
+            var audioRegexInBubble = /(\[?\\s*(?:Audio:)?\\s*)?(\\/root\\/marcos[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|\\/archivos[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|\\/almacenamiento[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\/\\/[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\/\\/[^"'()\\\\s]*audio[^"'()\\\\s]*)(\\s*\\])?/gi;
+            var audioMatch = cleanText.match(audioRegexInBubble);
             var audioLinkHtml = '';
             if (audioMatch) {
-              var rawAudioPath = audioMatch[1];
-              var webAudioUrl = normalizarUrlAudio(rawAudioPath);
-              cleanText = cleanText.replace(rawAudioPath, '').trim();
+              var fullMatchStr = audioMatch[0];
+              var pureUrl = fullMatchStr.replace(/^\[?\s*(?:Audio:)?\s*/i, '').replace(/\s*\]?$/, '').trim();
+              var webAudioUrl = normalizarUrlAudio(pureUrl);
+              var filename = pureUrl.substring(pureUrl.lastIndexOf('/') + 1) || 'nota_de_voz.ogg';
+              cleanText = cleanText.replace(audioRegexInBubble, '(nota de voz) ' + filename).trim();
               audioLinkHtml = '<div style="margin-top:6px;padding:6px 10px;background:rgba(46,111,192,.08);border-radius:8px;border:1px solid rgba(46,111,192,.18)">' +
                 '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">' +
-                  '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ Nota de voz</span>' +
+                  '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + escapeHtml(filename) + '</span>' +
                   '<a href="' + escapeHtml(webAudioUrl) + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:2px 8px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
                 '</div>' +
                 '<audio controls style="width:100%;height:34px;border-radius:6px" src="' + escapeHtml(webAudioUrl) + '"></audio>' +
