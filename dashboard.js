@@ -1921,6 +1921,65 @@ function parseInvolucrados(datos) {
   return result;
 }
 
+function procesarLineaAudioChat(strText) {
+  var cleanText = String(strText || '');
+  var webAudioUrl = '';
+  var filename = '';
+
+  var prefixes = ['/root/marcos/', '/archivos/', '/almacenamiento/', 'http://', 'https://'];
+  var foundIdx = -1;
+
+  for (var i = 0; i < prefixes.length; i++) {
+    var pos = cleanText.indexOf(prefixes[i]);
+    if (pos !== -1 && (foundIdx === -1 || pos < foundIdx)) {
+      foundIdx = pos;
+    }
+  }
+
+  if (foundIdx !== -1) {
+    var rest = cleanText.substring(foundIdx);
+    var endPos = rest.length;
+    for (var j = 0; j < rest.length; j++) {
+      var ch = rest.charAt(j);
+      if (ch <= ' ' || ch === ']' || ch === ')') {
+        endPos = j;
+        break;
+      }
+    }
+
+    var rawPath = rest.substring(0, endPos).trim();
+    if (rawPath.length > 3) {
+      webAudioUrl = normalizarUrlAudio(rawPath);
+      var lastSlash = rawPath.lastIndexOf('/');
+      filename = lastSlash !== -1 ? rawPath.substring(lastSlash + 1) : rawPath;
+
+      var startCut = foundIdx;
+      if (startCut > 0 && cleanText.charAt(startCut - 1) === '[') startCut--;
+
+      var endCut = foundIdx + rawPath.length;
+      if (endCut < cleanText.length && cleanText.charAt(endCut) === ']') endCut++;
+
+      var before = cleanText.substring(0, startCut).trim();
+      var after = cleanText.substring(endCut).trim();
+
+      if (before.toLowerCase().endsWith('audio:')) {
+        before = before.substring(0, before.length - 6).trim();
+      }
+      if (before.endsWith('[')) {
+        before = before.substring(0, before.length - 1).trim();
+      }
+
+      cleanText = (before ? before + ' ' : '') + '(nota de voz) ' + filename + (after ? ' ' + after : '');
+    }
+  }
+
+  return {
+    cleanText: cleanText,
+    webAudioUrl: webAudioUrl,
+    filename: filename
+  };
+}
+
 function abrirDrawerEvento(idx){
   var datos=(window.__EVENTOS__||[])[idx];
   if(!datos)return;
@@ -2108,21 +2167,16 @@ function abrirDrawerEvento(idx){
               tagBg = '#DDD6FE'; tagFg = '#5B21B6';
             }
 
-            var audioRegexInBubble = /(\[?\\s*(?:Audio:)?\\s*)?(\\/root\\/marcos[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|\\/archivos[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|\\/almacenamiento[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\/\\/[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\/\\/[^"'()\\\\s]*audio[^"'()\\\\s]*)(\\s*\\])?/gi;
-            var audioMatch = cleanText.match(audioRegexInBubble);
+            var audioRes = procesarLineaAudioChat(cleanText);
+            cleanText = audioRes.cleanText;
             var audioLinkHtml = '';
-            if (audioMatch) {
-              var fullMatchStr = audioMatch[0];
-              var pureUrl = fullMatchStr.replace(/^\[?\s*(?:Audio:)?\s*/i, '').replace(/\s*\]?$/, '').trim();
-              var webAudioUrl = normalizarUrlAudio(pureUrl);
-              var filename = pureUrl.substring(pureUrl.lastIndexOf('/') + 1) || 'nota_de_voz.ogg';
-              cleanText = cleanText.replace(audioRegexInBubble, '(nota de voz) ' + filename).trim();
+            if (audioRes.webAudioUrl) {
               audioLinkHtml = '<div style="margin-top:6px;padding:6px 10px;background:rgba(46,111,192,.08);border-radius:8px;border:1px solid rgba(46,111,192,.18)">' +
                 '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">' +
-                  '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + escapeHtml(filename) + '</span>' +
-                  '<a href="' + escapeHtml(webAudioUrl) + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:2px 8px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
+                  '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + escapeHtml(audioRes.filename) + '</span>' +
+                  '<a href="' + escapeHtml(audioRes.webAudioUrl) + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:2px 8px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
                 '</div>' +
-                '<audio controls style="width:100%;height:34px;border-radius:6px" src="' + escapeHtml(webAudioUrl) + '"></audio>' +
+                '<audio controls style="width:100%;height:34px;border-radius:6px" src="' + escapeHtml(audioRes.webAudioUrl) + '"></audio>' +
               '</div>';
             }
 
