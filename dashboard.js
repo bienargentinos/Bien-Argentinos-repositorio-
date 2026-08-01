@@ -210,7 +210,8 @@ function mapEvento(r) {
     involucrados_json: pick(r, ['involucrados_json', 'involucrados', 'contactos_involucrados', 'involucrados_lista']),
     fecha: pick(r, ['fecha', 'fecha_hora', 'timestamp', 'fecha_y_hora', 'hora']),
     hora_fin: pick(r, ['hora_fin', 'hora_finalizacion', 'fin', 'fecha_fin', 'hora_cierre']),
-    edificio: pick(r, ['edificio', 'consorcio', 'building', 'direccion'], 'Sin edificio'),
+    edificio: pick(r, ['edificio', 'consorcio', 'building'], 'Sin edificio'),
+    direccion: pick(r, ['direccion', 'domicilio', 'address', 'direccion_edificio', 'ubicacion']),
     vecino: pick(r, ['vecino', 'nombre', 'remitente', 'contacto', 'usuario'], 'Vecino'),
     telefono: pick(r, ['telefono', 'numero', 'phone', 'celular', 'whatsapp']),
     depto: pick(r, ['depto', 'departamento']),
@@ -1921,6 +1922,27 @@ function parseInvolucrados(datos) {
   return result;
 }
 
+function obtenerDireccionEdificio(datos) {
+  if (!datos) return '—';
+  if (datos.direccion && String(datos.direccion).trim()) return String(datos.direccion).trim();
+
+  var edName = (datos.edificio || '').trim();
+  if (!edName) return '—';
+
+  var listaEd = window.__EDIFICIOS__ || [];
+  for (var i = 0; i < listaEd.length; i++) {
+    var ed = listaEd[i];
+    if (!ed) continue;
+    var n = (ed.nombre || ed.edificio || '').trim().toLowerCase();
+    var d = (ed.direccion || ed.domicilio || ed.address || '').trim();
+    if (d && n && (n === edName.toLowerCase() || edName.toLowerCase().indexOf(n) !== -1 || n.indexOf(edName.toLowerCase()) !== -1)) {
+      return d;
+    }
+  }
+
+  return edName;
+}
+
 function procesarLineaAudioChat(strText) {
   var cleanText = String(strText || '');
   var webAudioUrl = '';
@@ -2021,7 +2043,7 @@ function abrirDrawerEvento(idx){
         '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Vecino principal</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
         '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Teléfono</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.telefono||'—')+'</div></div>'+
         '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Depto / Unidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+((datos.depto||datos.unidad)?(escapeHtml(datos.depto||'')+( datos.depto&&datos.unidad?' · ':'')+escapeHtml(datos.unidad||'')):'—')+'</div></div>'+
-        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Edificio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.edificio||'—')+'</div></div>'+
+        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Edificio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(obtenerDireccionEdificio(datos))+'</div></div>'+
         '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Canal</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+escapeHtml(datos.canalIcon)+' '+escapeHtml(datos.canal)+'</div></div>'+
         '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Hora inicio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.when||'—')+'</div></div>'+
         (datos.hora_fin ? '<div style="background:#E7F4EC;border:1px solid #C3E6D0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#1B7A43;text-transform:uppercase;letter-spacing:.04em">✅ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#14532D">'+escapeHtml(datos.hora_fin)+'</div></div>' : '<div style="background:#FBF3DE;border:1px solid #E8D9A0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#8A6410;text-transform:uppercase;letter-spacing:.04em">⏳ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#8A6410">Sin registrar</div></div>')+
@@ -3754,7 +3776,7 @@ async function cargarDatos(req) {
  * VISTA DE EVENTO (fila del feed + datos del drawer)
  * =================================================================== */
 
-function vistaEvento(e, filterFn) {
+function vistaEvento(e, filterFn, listaEdificios) {
   const cat = clasificarEvento(e);
   const catInfo = CATEGORIAS_EVENTO[cat];
   const canal = canalDe(e);
@@ -3763,6 +3785,14 @@ function vistaEvento(e, filterFn) {
   const est = EST_STYLE[estKey];
   const fn = filterFn || esDe24Horas;
   const nuevo = fn(parseFecha(e.fecha));
+
+  let dirReal = e.direccion || '';
+  if (!dirReal && e.edificio && Array.isArray(listaEdificios)) {
+    const found = listaEdificios.find(b => b.nombre && compararEdificios(b.nombre, e.edificio));
+    if (found && found.direccion) dirReal = found.direccion;
+  }
+  const edificioMostrar = dirReal || e.direccion || e.edificio || '—';
+
   return {
     row: e._row,
     id_evento: e.id_evento || ('CASO-' + String(e._row).padStart(4, '0')),
@@ -3774,7 +3804,10 @@ function vistaEvento(e, filterFn) {
     urgKey: e.urgencia, urgLabel: urg.label, urgBg: urg.bg, urgFg: urg.fg,
     estKey, estLabel: est.label, estBg: est.bg, estFg: est.fg,
     canalIcon: canal.icon, canal: canal.nombre,
-    vecino: e.vecino, telefono: e.telefono, edificio: e.edificio,
+    vecino: e.vecino, telefono: e.telefono,
+    edificio: edificioMostrar,
+    nombre_edificio: e.edificio || '',
+    direccion: dirReal || e.direccion || '',
     depto: e.depto, unidad: e.unidad,
     when: fechaCorta(parseFecha(e.fecha)) || e.fecha,
     hora_fin: e.hora_fin || '',
