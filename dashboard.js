@@ -1943,10 +1943,67 @@ function obtenerDireccionEdificio(datos) {
   return edName;
 }
 
-function procesarLineaAudioChat(strText) {
+function abrirVisorMultimediaElem(elem) {
+  var url = elem.getAttribute('data-url') || '';
+  var filename = elem.getAttribute('data-filename') || '';
+  var mediaType = elem.getAttribute('data-type') || 'image';
+  abrirVisorMultimedia(url, mediaType, filename);
+}
+
+function abrirVisorMultimedia(url, mediaType, filename) {
+  var modal = document.getElementById('modal-visor-multimedia');
+  var contenido = document.getElementById('visor-contenido');
+  var titulo = document.getElementById('visor-titulo');
+  var btnDescargar = document.getElementById('visor-btn-descargar');
+
+  if (!modal || !contenido) return;
+
+  btnDescargar.href = url;
+  btnDescargar.download = filename || 'archivo_multimedia';
+
+  var nameTag = filename ? escapeHtml(filename) : 'Archivo Multimedia';
+
+  if (mediaType === 'image') {
+    titulo.innerHTML = '🖼️ ' + nameTag;
+    contenido.innerHTML = '<img src="' + escapeHtml(url) + '" style="max-width:90vw;max-height:80vh;object-fit:contain;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);animation:mScale .2s cubic-bezier(0.16, 1, 0.3, 1) both" alt="Imagen">';
+  } else if (mediaType === 'video') {
+    titulo.innerHTML = '🎥 ' + nameTag;
+    contenido.innerHTML = '<video src="' + escapeHtml(url) + '" controls autoplay style="max-width:90vw;max-height:80vh;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);animation:mScale .2s cubic-bezier(0.16, 1, 0.3, 1) both"></video>';
+  }
+
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function cerrarVisorMultimedia() {
+  var modal = document.getElementById('modal-visor-multimedia');
+  var contenido = document.getElementById('visor-contenido');
+  if (!modal) return;
+  modal.style.display = 'none';
+  if (contenido) contenido.innerHTML = '';
+  document.body.style.overflow = '';
+}
+
+function cerrarVisorMultimediaSiBackdrop(e) {
+  if (e.target.id === 'modal-visor-multimedia' || e.target.id === 'visor-contenido') {
+    cerrarVisorMultimedia();
+  }
+}
+
+if (typeof window !== 'undefined' && !window.__VISOR_ESC_REGISTERED__) {
+  window.__VISOR_ESC_REGISTERED__ = true;
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' || e.key === 'Esc') {
+      cerrarVisorMultimedia();
+    }
+  });
+}
+
+function procesarLineaMultimediaChat(strText) {
   var cleanText = String(strText || '');
-  var webAudioUrl = '';
+  var webUrl = '';
   var filename = '';
+  var mediaType = '';
 
   var prefixes = ['/root/marcos/', '/archivos/', '/almacenamiento/', 'http://', 'https://'];
   var foundIdx = -1;
@@ -1971,9 +2028,19 @@ function procesarLineaAudioChat(strText) {
 
     var rawPath = rest.substring(0, endPos).trim();
     if (rawPath.length > 3) {
-      webAudioUrl = normalizarUrlAudio(rawPath);
+      webUrl = normalizarUrlAudio(rawPath);
       var lastSlash = rawPath.lastIndexOf('/');
       filename = lastSlash !== -1 ? rawPath.substring(lastSlash + 1) : rawPath;
+
+      var ext = filename.split('.').pop().toLowerCase();
+
+      if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawPath.indexOf('/imagenes/') !== -1 || rawPath.indexOf('/fotos/') !== -1) {
+        mediaType = 'image';
+      } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawPath.indexOf('/videos/') !== -1) {
+        mediaType = 'video';
+      } else {
+        mediaType = 'audio';
+      }
 
       var startCut = foundIdx;
       if (startCut > 0 && cleanText.charAt(startCut - 1) === '[') startCut--;
@@ -1984,21 +2051,26 @@ function procesarLineaAudioChat(strText) {
       var before = cleanText.substring(0, startCut).trim();
       var after = cleanText.substring(endCut).trim();
 
-      if (before.toLowerCase().endsWith('audio:')) {
-        before = before.substring(0, before.length - 6).trim();
+      var tagRegexes = [/imagen:\s*$/i, /foto:\s*$/i, /video:\s*$/i, /audio:\s*$/i, /\(imagen adjunta\)\s*$/i, /\(video adjunto\)\s*$/i, /\(nota de voz\)\s*$/i];
+      for (var t = 0; t < tagRegexes.length; t++) {
+        if (tagRegexes[t].test(before)) {
+          before = before.replace(tagRegexes[t], '').trim();
+        }
       }
       if (before.endsWith('[')) {
         before = before.substring(0, before.length - 1).trim();
       }
 
-      cleanText = (before ? before + ' ' : '') + '(nota de voz) ' + filename + (after ? ' ' + after : '');
+      var label = mediaType === 'image' ? '(imagen adjunta) ' : (mediaType === 'video' ? '(video adjunto) ' : '(nota de voz) ');
+      cleanText = (before ? before + ' ' : '') + label + filename + (after ? ' ' + after : '');
     }
   }
 
   return {
     cleanText: cleanText,
-    webAudioUrl: webAudioUrl,
-    filename: filename
+    webUrl: webUrl,
+    filename: filename,
+    mediaType: mediaType
   };
 }
 
@@ -2141,28 +2213,53 @@ function abrirDrawerEvento(idx){
               tagBg = '#DDD6FE'; tagFg = '#5B21B6';
             }
 
-            var audioRes = procesarLineaAudioChat(cleanText);
-            cleanText = audioRes.cleanText;
-            var audioLinkHtml = '';
-            if (audioRes.webAudioUrl) {
-              var dias = datos.audioDiasRestantes;
-              if (dias === null || dias === undefined) dias = 30;
-              var diasBadgeHtml = (dias <= 0)
-                ? '<span style="font-size:10px;font-weight:800;background:#FBF3DE;color:#8A6410;padding:2px 7px;border-radius:999px;border:1px solid #E8D9A0;margin-left:4px">⏳ Expirado</span>'
-                : (dias <= 7
-                  ? '<span style="font-size:10px;font-weight:800;background:#FDECEC;color:#C0392B;padding:2px 7px;border-radius:999px;border:1px solid #F8B4B4;margin-left:4px">' + dias + 'd restantes</span>'
-                  : '<span style="font-size:10px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:2px 7px;border-radius:999px;border:1px solid #C3E6D0;margin-left:4px">' + dias + 'd restantes</span>');
+            var mediaRes = procesarLineaMultimediaChat(cleanText);
+            cleanText = mediaRes.cleanText;
+            var mediaLinkHtml = '';
 
-              audioLinkHtml = '<div style="margin-top:6px;padding:6px 10px;background:rgba(46,111,192,.08);border-radius:8px;border:1px solid rgba(46,111,192,.18)">' +
-                '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;flex-wrap:wrap">' +
-                  '<div style="display:flex;align-items:center;gap:4px">' +
-                    '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + escapeHtml(audioRes.filename) + '</span>' +
-                    diasBadgeHtml +
+            if (mediaRes.webUrl) {
+              var urlEsc = escapeHtml(mediaRes.webUrl);
+              var fnEsc = escapeHtml(mediaRes.filename);
+
+              if (mediaRes.mediaType === 'image') {
+                mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
+                  '<div style="position:relative;max-width:280px;max-height:200px;border-radius:8px;overflow:hidden;margin-bottom:6px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.12);background:#000" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)">' +
+                    '<img src="' + urlEsc + '" style="width:100%;height:100%;object-fit:cover;display:block" alt="Imagen adjunta">' +
+                    '<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.65);color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;backdrop-filter:blur(4px)">🔍 Ver HD</div>' +
                   '</div>' +
-                  '<a href="' + escapeHtml(audioRes.webAudioUrl) + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:2px 8px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
-                '</div>' +
-                '<audio controls style="width:100%;height:34px;border-radius:6px" src="' + escapeHtml(audioRes.webAudioUrl) + '"></audio>' +
-              '</div>';
+                  '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+                    '<button data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;cursor:pointer" class="hv-soft">🖼️ Ampliar foto</button>' +
+                    '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
+                  '</div>' +
+                '</div>';
+              } else if (mediaRes.mediaType === 'video') {
+                mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
+                  '<video src="' + urlEsc + '" controls style="width:100%;max-height:220px;border-radius:8px;margin-bottom:6px"></video>' +
+                  '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+                    '<button data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="video" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;cursor:pointer" class="hv-soft">🎥 Ampliar video</button>' +
+                    '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
+                  '</div>' +
+                '</div>';
+              } else {
+                var dias = datos.audioDiasRestantes;
+                if (dias === null || dias === undefined) dias = 30;
+                var diasBadgeHtml = (dias <= 0)
+                  ? '<span style="font-size:10px;font-weight:800;background:#FBF3DE;color:#8A6410;padding:2px 7px;border-radius:999px;border:1px solid #E8D9A0;margin-left:4px">⏳ Expirado</span>'
+                  : (dias <= 7
+                    ? '<span style="font-size:10px;font-weight:800;background:#FDECEC;color:#C0392B;padding:2px 7px;border-radius:999px;border:1px solid #F8B4B4;margin-left:4px">' + dias + 'd restantes</span>'
+                    : '<span style="font-size:10px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:2px 7px;border-radius:999px;border:1px solid #C3E6D0;margin-left:4px">' + dias + 'd restantes</span>');
+
+                mediaLinkHtml = '<div style="margin-top:6px;padding:6px 10px;background:rgba(46,111,192,.08);border-radius:8px;border:1px solid rgba(46,111,192,.18)">' +
+                  '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;flex-wrap:wrap">' +
+                    '<div style="display:flex;align-items:center;gap:4px">' +
+                      '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + fnEsc + '</span>' +
+                      diasBadgeHtml +
+                    '</div>' +
+                    '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:2px 8px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
+                  '</div>' +
+                  '<audio controls style="width:100%;height:34px;border-radius:6px" src="' + urlEsc + '"></audio>' +
+                '</div>';
+              }
             }
 
             return '<div style="max-width:88%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.06);' + align + '" class="chat-bubble">' +
@@ -2171,7 +2268,7 @@ function abrirDrawerEvento(idx){
                 (horaTag ? '<span style="font-size:10px;opacity:.65;font-weight:600">🕒 ' + escapeHtml(horaTag) + '</span>' : '') +
               '</div>' +
               '<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>' +
-              audioLinkHtml +
+              mediaLinkHtml +
             '</div>';
           }).join('');
 
@@ -4128,6 +4225,17 @@ function shell(req, d, activeKey, contenido) {
 <div id="toast" class="toast"></div>
 <div class="drawer-overlay" id="drawer-overlay" onclick="cerrarDrawerEvento()"></div>
 <div class="drawer-panel" id="drawer-panel"></div>
+<div id="modal-visor-multimedia" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(10,15,28,.92);backdrop-filter:blur(10px);z-index:99999;flex-direction:column;align-items:center;justify-content:center;padding:20px;box-sizing:border-box" onclick="cerrarVisorMultimediaSiBackdrop(event)">
+  <div style="position:absolute;top:20px;left:24px;right:24px;display:flex;align-items:center;justify-content:space-between;z-index:100000">
+    <div style="color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px" id="visor-titulo">🖼️ Visor Multimedia</div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <a id="visor-btn-descargar" href="#" download target="_blank" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.25);padding:8px 16px;border-radius:10px;font-size:13px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:6px;backdrop-filter:blur(4px)" class="hv-soft">⬇️ Descargar</a>
+      <button onclick="cerrarVisorMultimedia()" style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;border:none;cursor:pointer;font-size:18px;font-weight:800;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)" class="hv-soft" title="Cerrar (Esc)">✕</button>
+    </div>
+  </div>
+  <div style="max-width:90vw;max-height:82vh;display:flex;align-items:center;justify-content:center;position:relative" id="visor-contenido"></div>
+  <div style="position:absolute;bottom:16px;color:rgba(255,255,255,.6);font-size:12px;font-weight:600">Presioná <kbd style="background:rgba(255,255,255,.2);padding:2px 6px;border-radius:4px;color:#fff">Esc</kbd> o hacé clic afuera para cerrar</div>
+</div>
 ${clientPickerHtml}
 
 ${(() => {
