@@ -2123,9 +2123,20 @@ function abrirDrawerEvento(idx){
             cleanText = audioRes.cleanText;
             var audioLinkHtml = '';
             if (audioRes.webAudioUrl) {
+              var dias = datos.audioDiasRestantes;
+              if (dias === null || dias === undefined) dias = 30;
+              var diasBadgeHtml = (dias <= 0)
+                ? '<span style="font-size:10px;font-weight:800;background:#FBF3DE;color:#8A6410;padding:2px 7px;border-radius:999px;border:1px solid #E8D9A0;margin-left:4px">⏳ Expirado</span>'
+                : (dias <= 7
+                  ? '<span style="font-size:10px;font-weight:800;background:#FDECEC;color:#C0392B;padding:2px 7px;border-radius:999px;border:1px solid #F8B4B4;margin-left:4px">' + dias + 'd restantes</span>'
+                  : '<span style="font-size:10px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:2px 7px;border-radius:999px;border:1px solid #C3E6D0;margin-left:4px">' + dias + 'd restantes</span>');
+
               audioLinkHtml = '<div style="margin-top:6px;padding:6px 10px;background:rgba(46,111,192,.08);border-radius:8px;border:1px solid rgba(46,111,192,.18)">' +
-                '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">' +
-                  '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + escapeHtml(audioRes.filename) + '</span>' +
+                '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;flex-wrap:wrap">' +
+                  '<div style="display:flex;align-items:center;gap:4px">' +
+                    '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + escapeHtml(audioRes.filename) + '</span>' +
+                    diasBadgeHtml +
+                  '</div>' +
                   '<a href="' + escapeHtml(audioRes.webAudioUrl) + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:2px 8px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
                 '</div>' +
                 '<audio controls style="width:100%;height:34px;border-radius:6px" src="' + escapeHtml(audioRes.webAudioUrl) + '"></audio>' +
@@ -3771,11 +3782,10 @@ function vistaEvento(e, filterFn) {
     transcripcion: e.transcripcion || '',
     audio_url: e.audio_url || '',
     audioDiasRestantes: (() => {
-      if (!e.audio_url) return null;
       const f = parseFecha(e.fecha);
-      if (!f) return null;
+      if (!f) return 30;
       const dias = 30 - Math.floor((Date.now() - f.getTime()) / 86400000);
-      return dias;
+      return dias > 0 ? dias : 0;
     })(),
     feedback: e.feedback, nuevo,
     historial_chat: e.historial_chat || '',
