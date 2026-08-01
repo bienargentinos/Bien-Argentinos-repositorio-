@@ -1745,107 +1745,132 @@ function normalizarUrlAudio(pathOrUrl) {
   return window.location.origin + u;
 }
 
-function obtenerAudiosEvento(datos) {
-  if (!datos) return [];
-  var audios = [];
-  var seen = new Set();
-
-  function addAudio(urlStr) {
-    if (!urlStr) return;
-    var norm = normalizarUrlAudio(urlStr);
-    if (norm && !seen.has(norm)) {
-      seen.add(norm);
-      audios.push(norm);
-    }
-  }
-
-  if (datos.audio_url) {
-    String(datos.audio_url).split(new RegExp('[,\\n;|\\|]')).forEach(addAudio);
-  }
-
-  if (datos.audios_lista && Array.isArray(datos.audios_lista)) {
-    datos.audios_lista.forEach(addAudio);
-  }
-
-  var rawAll = (datos.historial_chat || '') + ' ' + (datos.notas_ia || '') + ' ' + (datos.notas || '') + ' ' + (datos.transcripcion || '');
-  var matches = String(rawAll).match(new RegExp('(\\/root\\/marcos[^\\s"\\)]+\\.(ogg|mp3|wav|m4a|aac)|\\/archivos[^\\s"\\)]+\\.(ogg|mp3|wav|m4a|aac)|https?:\\/\\/[^\\s"\\)]+\\.(ogg|mp3|wav|m4a|aac))', 'gi'));
-  if (matches) {
-    matches.forEach(addAudio);
-  }
-
-  return audios;
-}
-
-function descargarTodosLosAudiosEvento() {
-  var d = _drawerActual;
-  if (!d) return;
-  var audios = obtenerAudiosEvento(d);
-  if (!audios.length) {
-    toast('No hay audios para descargar', 'err');
-    return;
-  }
-  audios.forEach(function(url, idx) {
-    setTimeout(function() {
-      var a = document.createElement('a');
-      a.href = url;
-      a.download = 'audio-' + (idx + 1) + '-' + (d.edificio || '').replace(new RegExp('[^a-z0-9]+', 'gi'), '-') + '.ogg';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }, idx * 450);
-  });
-}
-
 function parseAudiosDetallados(datos) {
   if (!datos) return [];
-  var list = [];
-  var rawJson = datos.audios_json;
-  if (rawJson) {
-    if (typeof rawJson === 'string' && rawJson.trim()) {
-      try {
-        var parsed = JSON.parse(rawJson);
-        if (Array.isArray(parsed)) list = parsed;
-        else if (typeof parsed === 'object') list = [parsed];
-      } catch(e) {
-        list = String(rawJson).split(new RegExp('[,\\n;]')).map(function(u){ return { url: u.trim() }; }).filter(function(x){ return Boolean(x.url); });
-      }
-    } else if (Array.isArray(rawJson)) {
-      list = rawJson;
-    }
-  }
-
   var result = [];
   var seenUrls = new Set();
 
-  list.forEach(function(item) {
-    var u = typeof item === 'string' ? item : (item.url || item.audio_url || item.src || item.path || '');
-    if (!u) return;
-    var normUrl = normalizarUrlAudio(u);
+  function addAudioItem(url, emisor, hora, transcripcion) {
+    if (!url) return;
+    var normUrl = normalizarUrlAudio(url);
     if (!normUrl || seenUrls.has(normUrl)) return;
     seenUrls.add(normUrl);
 
     result.push({
       url: normUrl,
-      emisor: typeof item === 'object' && (item.emisor || item.nombre || item.remitente) ? (item.emisor || item.nombre || item.remitente) : (datos.vecino || 'Vecino'),
-      hora: typeof item === 'object' && (item.hora || item.timestamp || item.fecha || item.hora_envio) ? (item.hora || item.timestamp || item.fecha || item.hora_envio) : (datos.when || '—'),
-      transcripcion: typeof item === 'object' && (item.transcripcion || item.texto || item.transcripcion_texto) ? (item.transcripcion || item.texto || item.transcripcion_texto) : (datos.transcripcion || '')
+      emisor: emisor || datos.vecino || 'Vecino',
+      hora: hora || datos.when || '—',
+      transcripcion: transcripcion || ''
     });
-  });
+  }
 
-  var fallbackAudios = obtenerAudiosEvento(datos);
-  fallbackAudios.forEach(function(fUrl, fIdx) {
-    if (!seenUrls.has(fUrl)) {
-      seenUrls.add(fUrl);
-      result.push({
-        url: fUrl,
-        emisor: datos.vecino || 'Vecino',
-        hora: datos.when || '—',
-        transcripcion: (fIdx === 0 && datos.transcripcion) ? datos.transcripcion : ''
+  // 1. Parse audios_json field
+  var rawJson = datos.audios_json;
+  if (rawJson) {
+    var listJson = [];
+    if (typeof rawJson === 'string' && rawJson.trim()) {
+      try {
+        var parsed = JSON.parse(rawJson);
+        if (Array.isArray(parsed)) listJson = parsed;
+        else if (typeof parsed === 'object') listJson = [parsed];
+      } catch(e) {
+        listJson = String(rawJson).split(new RegExp('[\\\\,\\\\n;|]')).map(function(u){ return { url: u.trim() }; });
+      }
+    } else if (Array.isArray(rawJson)) {
+      listJson = rawJson;
+    }
+
+    listJson.forEach(function(item) {
+      if (!item) return;
+      if (typeof item === 'string') {
+        addAudioItem(item, datos.vecino, datos.when, datos.transcripcion);
+      } else if (typeof item === 'object') {
+        var u = item.url || item.audio_url || item.src || item.path || item.link || '';
+        var em = item.emisor || item.nombre || item.remitente || item.vecino;
+        var hr = item.hora || item.timestamp || item.fecha || item.hora_envio;
+        var tr = item.transcripcion || item.texto || item.transcripcion_texto;
+        addAudioItem(u, em, hr, tr);
+      }
+    });
+  }
+
+  // 2. Parse audio_url field (can contain multiple URLs delimited by comma, newline, pipe, semicolon, space)
+  if (datos.audio_url) {
+    var parts = String(datos.audio_url).split(new RegExp('[\\\\,\\\\n;|\\\\s]+')).filter(Boolean);
+    parts.forEach(function(p) {
+      addAudioItem(p, datos.vecino, datos.when, datos.transcripcion);
+    });
+  }
+
+  // 3. Extract audios from historial_chat
+  var rawChat = datos.historial_chat;
+  var chatItems = [];
+  if (rawChat) {
+    if (typeof rawChat === 'string' && rawChat.trim()) {
+      if (rawChat.trim().startsWith('[')) {
+        try { chatItems = JSON.parse(rawChat); } catch(e) { chatItems = String(rawChat).split('\\n'); }
+      } else {
+        chatItems = String(rawChat).split('\\n');
+      }
+    } else if (Array.isArray(rawChat)) {
+      chatItems = rawChat;
+    }
+  }
+
+  var audioUrlRegex = /(\\/root\\/marcos[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|\\/archivos[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|\\/almacenamiento[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\/\\/[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\/\\/[^"'()\\\\s]*audio[^"'()\\\\s]*)/gi;
+
+  chatItems.forEach(function(line) {
+    if (!line) return;
+    var strText = '';
+    var lineEmisor = '';
+    var lineHora = '';
+    var lineAudioUrl = '';
+    var lineTrans = '';
+
+    if (typeof line === 'object') {
+      lineAudioUrl = line.audio_url || line.url || line.audio || '';
+      lineEmisor = line.emisor || line.nombre || line.remitente || line.sender || '';
+      lineHora = line.hora || line.timestamp || line.fecha || '';
+      lineTrans = line.transcripcion || line.texto || line.mensaje || '';
+      strText = (lineEmisor ? lineEmisor + ': ' : '') + (line.texto || line.mensaje || '');
+    } else {
+      strText = String(line);
+      var matchSender = strText.match(/^([^:\(\)]+)(\s*\([^\)]+\))?:\s*/);
+      if (matchSender) {
+        lineEmisor = matchSender[1].trim();
+        if (matchSender[2]) lineHora = matchSender[2].replace(/[\(\)]/g, '').trim();
+      }
+    }
+
+    if (lineAudioUrl) {
+      addAudioItem(lineAudioUrl, lineEmisor, lineHora, lineTrans);
+    }
+
+    var textMatches = strText.match(audioUrlRegex);
+    if (textMatches) {
+      textMatches.forEach(function(mUrl) {
+        var cleanTrans = strText.replace(/^[^:]+:\s*/, '').replace(mUrl, '').replace(/\[audio\]/gi, '').trim();
+        addAudioItem(mUrl, lineEmisor, lineHora, cleanTrans || lineTrans);
       });
     }
   });
 
+  // 4. Scan general fields (mensaje, notas, transcripcion) for any remaining audio URLs
+  var generalRaw = (datos.mensaje || '') + ' ' + (datos.notas || '') + ' ' + (datos.transcripcion || '');
+  var genMatches = String(generalRaw).match(audioUrlRegex);
+  if (genMatches) {
+    genMatches.forEach(function(mUrl) {
+      addAudioItem(mUrl, datos.vecino, datos.when, datos.transcripcion);
+    });
+  }
+
   return result;
+}
+
+function obtenerAudiosEvento(datos) {
+  if (!datos) return [];
+  var detailed = parseAudiosDetallados(datos);
+  return detailed.map(function(item) { return item.url; });
 }
 
 function parseInvolucrados(datos) {
@@ -1998,8 +2023,9 @@ function abrirDrawerEvento(idx){
         return '<div style="margin-bottom:18px;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px">'+
           '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">'+
             '<div style="font-size:12.5px;font-weight:800;color:#16233B">🎙️ ' + (audiosList.length === 1 ? 'Nota de voz del evento' : 'Notas de voz registradas (' + audiosList.length + ')') + badge + '</div>'+
-            (audiosList.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 10px;border-radius:8px;cursor:pointer" class="hv-soft">⬇️ Descargar todos los audios</button>' : '')+
+            (audiosList.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 10px;border-radius:8px;cursor:pointer" class="hv-soft">⬇️ Descargar todos (' + audiosList.length + ')</button>' : '')+
           '</div>'+
+          '<div style="max-height:380px;overflow-y:auto;padding-right:4px">'+
           audiosList.map(function(aud, idx) {
             return '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px;margin-bottom:10px" class="hv-card">'+
               '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">'+
@@ -2015,6 +2041,7 @@ function abrirDrawerEvento(idx){
               (aud.transcripcion ? '<div style="font-size:12.5px;color:#334259;background:#F8FAFD;border-left:3px solid #2E6FC0;padding:8px 10px;border-radius:6px;line-height:1.45"><strong style="color:#2E6FC0">📝 Transcripción:</strong> ' + escapeHtml(aud.transcripcion) + '</div>' : '')+
             '</div>';
           }).join('')+
+          '</div>'+
         '</div>';
       })()+
 
