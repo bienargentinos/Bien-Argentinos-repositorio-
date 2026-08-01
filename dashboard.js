@@ -2056,54 +2056,6 @@ function abrirDrawerEvento(idx){
         '</div>';
       })()+
 
-      // ── Lista Completa de Audios (de audios_json + fallback) ──
-      (function(){
-        var audiosList = parseAudiosDetallados(datos);
-        if (!audiosList.length) {
-          if (datos.transcripcion) {
-            return '<div class="drawer-audio-box" style="margin-bottom:16px"><div style="font-size:12px;font-weight:800;color:#334259;margin-bottom:6px">🎙️ Transcripción del audio</div><div style="font-size:13.5px;color:#334259;line-height:1.55;white-space:pre-wrap">'+escapeHtml(datos.transcripcion)+'</div></div>';
-          }
-          return '';
-        }
-
-        var dias = datos.audioDiasRestantes;
-        var expirado = (dias !== null && dias !== undefined && dias <= 0);
-        if (expirado) {
-          return '<div style="background:#FBF3DE;border:1px solid #E8D9A0;border-radius:12px;padding:13px 16px;margin-bottom:16px">'+
-            '<div style="font-size:12px;font-weight:800;color:#8A6410;margin-bottom:4px">🎙️ Notas de voz del evento (' + audiosList.length + ')</div>'+
-            '<div style="font-size:13px;color:#8A6410">⏳ Audios eliminados por política de retención de 30 días.</div>'+
-            '</div>';
-        }
-
-        var badge = (dias !== null && dias !== undefined && dias <= 7)
-          ? '<span style="font-size:10px;font-weight:700;background:#FDECEC;color:#C0392B;padding:2px 8px;border-radius:9999px;margin-left:8px">' + dias + 'd restantes</span>'
-          : (dias !== null && dias !== undefined ? '<span style="font-size:10px;font-weight:700;background:#E7F4EC;color:#1B7A43;padding:2px 8px;border-radius:9999px;margin-left:8px">' + dias + 'd restantes</span>' : '');
-
-        return '<div style="margin-bottom:18px;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px">'+
-          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">'+
-            '<div style="font-size:12.5px;font-weight:800;color:#16233B">🎙️ ' + (audiosList.length === 1 ? 'Nota de voz del evento' : 'Notas de voz registradas (' + audiosList.length + ')') + badge + '</div>'+
-            (audiosList.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 10px;border-radius:8px;cursor:pointer" class="hv-soft">⬇️ Descargar todos (' + audiosList.length + ')</button>' : '')+
-          '</div>'+
-          '<div style="max-height:380px;overflow-y:auto;padding-right:4px">'+
-          audiosList.map(function(aud, idx) {
-            return '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px;margin-bottom:10px" class="hv-card">'+
-              '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">'+
-                '<div style="font-size:12.5px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:6px">'+
-                  '<span>🎙️</span> <span>Audio #' + (idx + 1) + ' · ' + escapeHtml(aud.emisor) + '</span>'+
-                '</div>'+
-                '<div style="display:flex;align-items:center;gap:8px">'+
-                  '<span style="font-size:11.5px;color:#8595AD;font-weight:600">🕒 ' + escapeHtml(aud.hora) + '</span>'+
-                  '<a href="' + escapeHtml(aud.url) + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#F1F5FB;border:1px solid #DCE4F0;padding:3px 10px;border-radius:6px;text-decoration:none" class="hv-soft">⬇ Descargar</a>'+
-                '</div>'+
-              '</div>'+
-              '<audio controls style="width:100%;height:36px;border-radius:8px;margin-bottom:8px" src="' + escapeHtml(aud.url) + '"></audio>'+
-              (aud.transcripcion ? '<div style="font-size:12.5px;color:#334259;background:#F8FAFD;border-left:3px solid #2E6FC0;padding:8px 10px;border-radius:6px;line-height:1.45"><strong style="color:#2E6FC0">📝 Transcripción:</strong> ' + escapeHtml(aud.transcripcion) + '</div>' : '')+
-            '</div>';
-          }).join('')+
-          '</div>'+
-        '</div>';
-      })()+
-
       // ── Atendió ──
       '<div class="drawer-atendio-box">'+
         '<span style="width:36px;height:36px;border-radius:50%;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">M</span>'+
@@ -2200,10 +2152,16 @@ function abrirDrawerEvento(idx){
           '</div>';
         }
 
+        var allAudios = parseAudiosDetallados(datos);
+        var bulkBtn = allAudios.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer;margin-right:6px" class="hv-soft">🎙️ Descargar todos los audios (' + allAudios.length + ')</button>' : '';
+
         return '<div style="margin-top:22px">'+
-          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'+
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">'+
             '<div style="font-size:13px;font-weight:800;color:#334259">📄 Conversación registrada</div>'+
-            '<button onclick="descargarResumenEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar TXT</button>'+
+            '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
+              bulkBtn+
+              '<button onclick="descargarResumenEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar TXT</button>'+
+            '</div>'+
           '</div>'+
           chatInnerHtml+
         '</div>';
