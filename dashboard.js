@@ -194,8 +194,20 @@ function mapEvento(r) {
   else if (/baja|bajo|low|normal/.test(urgRaw)) urgencia = 'baja';
   else if (urgRaw) urgencia = 'media';
 
+  const rawId = pick(r, ['id_evento', 'id', 'caso', 'codigo_caso', 'id_caso', 'num_caso', 'ticket']);
+  let id_evento = '';
+  if (rawId) {
+    const sId = String(rawId).trim();
+    id_evento = /^caso-/i.test(sId) ? sId.toUpperCase() : 'CASO-' + sId;
+  } else if (r._row) {
+    id_evento = 'CASO-' + String(r._row).padStart(4, '0');
+  }
+
   return {
     _row: r._row,
+    id_evento,
+    audios_json: pick(r, ['audios_json', 'audios', 'lista_audios', 'audios_lista']),
+    involucrados_json: pick(r, ['involucrados_json', 'involucrados', 'contactos_involucrados', 'involucrados_lista']),
     fecha: pick(r, ['fecha', 'fecha_hora', 'timestamp', 'fecha_y_hora', 'hora']),
     hora_fin: pick(r, ['hora_fin', 'hora_finalizacion', 'fin', 'fecha_fin', 'hora_cierre']),
     edificio: pick(r, ['edificio', 'consorcio', 'building', 'direccion'], 'Sin edificio'),
@@ -1784,6 +1796,106 @@ function descargarTodosLosAudiosEvento() {
   });
 }
 
+function parseAudiosDetallados(datos) {
+  if (!datos) return [];
+  var list = [];
+  var rawJson = datos.audios_json;
+  if (rawJson) {
+    if (typeof rawJson === 'string' && rawJson.trim()) {
+      try {
+        var parsed = JSON.parse(rawJson);
+        if (Array.isArray(parsed)) list = parsed;
+        else if (typeof parsed === 'object') list = [parsed];
+      } catch(e) {
+        list = String(rawJson).split(new RegExp('[,\\n;]')).map(function(u){ return { url: u.trim() }; }).filter(function(x){ return Boolean(x.url); });
+      }
+    } else if (Array.isArray(rawJson)) {
+      list = rawJson;
+    }
+  }
+
+  var result = [];
+  var seenUrls = new Set();
+
+  list.forEach(function(item) {
+    var u = typeof item === 'string' ? item : (item.url || item.audio_url || item.src || item.path || '');
+    if (!u) return;
+    var normUrl = normalizarUrlAudio(u);
+    if (!normUrl || seenUrls.has(normUrl)) return;
+    seenUrls.add(normUrl);
+
+    result.push({
+      url: normUrl,
+      emisor: typeof item === 'object' && (item.emisor || item.nombre || item.remitente) ? (item.emisor || item.nombre || item.remitente) : (datos.vecino || 'Vecino'),
+      hora: typeof item === 'object' && (item.hora || item.timestamp || item.fecha || item.hora_envio) ? (item.hora || item.timestamp || item.fecha || item.hora_envio) : (datos.when || '—'),
+      transcripcion: typeof item === 'object' && (item.transcripcion || item.texto || item.transcripcion_texto) ? (item.transcripcion || item.texto || item.transcripcion_texto) : (datos.transcripcion || '')
+    });
+  });
+
+  var fallbackAudios = obtenerAudiosEvento(datos);
+  fallbackAudios.forEach(function(fUrl, fIdx) {
+    if (!seenUrls.has(fUrl)) {
+      seenUrls.add(fUrl);
+      result.push({
+        url: fUrl,
+        emisor: datos.vecino || 'Vecino',
+        hora: datos.when || '—',
+        transcripcion: (fIdx === 0 && datos.transcripcion) ? datos.transcripcion : ''
+      });
+    }
+  });
+
+  return result;
+}
+
+function parseInvolucrados(datos) {
+  if (!datos) return [];
+  var raw = datos.involucrados_json;
+  var list = [];
+  if (raw) {
+    if (typeof raw === 'string' && raw.trim()) {
+      try {
+        var parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) list = parsed;
+        else if (typeof parsed === 'object') list = [parsed];
+      } catch(e) {
+        list = String(raw).split(new RegExp('[,\\n;]')).map(function(s){ return { nombre: s.trim() }; }).filter(function(x){ return Boolean(x.nombre); });
+      }
+    } else if (Array.isArray(raw)) {
+      list = raw;
+    }
+  }
+
+  var result = [];
+  var seenKeys = new Set();
+
+  list.forEach(function(item) {
+    var nom = typeof item === 'string' ? item : (item.nombre || item.vecino || item.contacto || '');
+    if (!nom) return;
+    var key = nom.trim().toLowerCase();
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+
+    result.push({
+      nombre: nom.trim(),
+      rol: typeof item === 'object' && (item.rol || item.tipo || item.relacion) ? (item.rol || item.tipo || item.relacion) : 'Involucrado',
+      telefono: typeof item === 'object' && (item.telefono || item.tel || item.wsp) ? (item.telefono || item.tel || item.wsp) : '',
+      depto: typeof item === 'object' && (item.depto || item.unidad) ? (item.depto || item.unidad) : ''
+    });
+  });
+
+  if (!result.length && datos.vecino && datos.vecino !== 'Vecino') {
+    result.push({
+      nombre: datos.vecino,
+      rol: 'Titular',
+      telefono: datos.telefono || '',
+      depto: (datos.depto || datos.unidad) ? ((datos.depto || '') + (datos.depto && datos.unidad ? ' · ' : '') + (datos.unidad || '')) : ''
+    });
+  }
+
+  return result;
+}
+
 function abrirDrawerEvento(idx){
   var datos=(window.__EVENTOS__||[])[idx];
   if(!datos)return;
@@ -1794,6 +1906,8 @@ function abrirDrawerEvento(idx){
   var esDueno=!!window.__ES_DUENO__;
   var resolverBtn = datos.estKey !== 'resuelto' ? '<button onclick="marcarEventoResuelto(this, '+datos.row+')" style="flex:1.2;height:44px;border:none;border-radius:11px;background:#16A34A;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-green">Confirmar Resuelto</button>' : '';
   var titulo=datos.titulo||'Evento';
+  var casoCode = datos.id_evento || ('CASO-' + String(datos.row).padStart(4, '0'));
+
   var fbHtml='';
   if(esDueno){
     fbHtml='<div style="margin-top:22px"><div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:8px">📝 Tu nota para Marcos</div>'+
@@ -1802,10 +1916,12 @@ function abrirDrawerEvento(idx){
       '<button onclick="guardarFeedbackDrawer(this,'+datos.row+')" style="height:44px;padding:0 16px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">Guardar</button>'+
       '</div></div>';
   }
+
   panel.innerHTML=
     '<div style="background:'+escapeHtml(datos.catBg)+';padding:22px 24px 20px;position:relative" class="drawer-header-box">'+
       '<button onclick="cerrarDrawerEvento()" style="position:absolute;top:16px;right:16px;width:34px;height:34px;border:none;border-radius:9px;background:rgba(255,255,255,.7);cursor:pointer;font-size:17px" class="drawer-close-btn">✕</button>'+
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
+        '<span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:#EAF1FB;color:#1E5FB4;border:1px solid #C9D5E8">📋 ' + escapeHtml(casoCode) + '</span>'+
         '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:'+escapeHtml(datos.urgBg)+';color:'+escapeHtml(datos.urgFg)+'">'+escapeHtml(datos.urgLabel)+'</span>'+
         '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:'+escapeHtml(datos.estBg)+';color:'+escapeHtml(datos.estFg)+'">'+escapeHtml(datos.estLabel)+'</span>'+
       '</div>'+
@@ -1818,7 +1934,7 @@ function abrirDrawerEvento(idx){
     '<div style="padding:22px 24px">'+
       // ── Grilla de datos del vecino ──
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'+
-        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Vecino</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
+        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Vecino principal</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
         '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Teléfono</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.telefono||'—')+'</div></div>'+
         '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Depto / Unidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+((datos.depto||datos.unidad)?(escapeHtml(datos.depto||'')+( datos.depto&&datos.unidad?' · ':'')+escapeHtml(datos.unidad||'')):'—')+'</div></div>'+
         '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Edificio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.edificio||'—')+'</div></div>'+
@@ -1826,12 +1942,42 @@ function abrirDrawerEvento(idx){
         '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Hora inicio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.when||'—')+'</div></div>'+
         (datos.hora_fin ? '<div style="background:#E7F4EC;border:1px solid #C3E6D0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#1B7A43;text-transform:uppercase;letter-spacing:.04em">✅ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#14532D">'+escapeHtml(datos.hora_fin)+'</div></div>' : '<div style="background:#FBF3DE;border:1px solid #E8D9A0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#8A6410;text-transform:uppercase;letter-spacing:.04em">⏳ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#8A6410">Sin registrar</div></div>')+
       '</div>'+
-      // ── Audios del vecino (Muestra TODOS los audios del evento) ──
+
+      // ── Contactos Involucrados (Titular, Familiares, Vecinos) ──
       (function(){
-        var audios = obtenerAudiosEvento(datos);
-        if (!audios.length) {
+        var invList = parseInvolucrados(datos);
+        if (!invList.length) return '';
+        return '<div style="margin-bottom:18px;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px">'+
+          '<div style="font-size:12.5px;font-weight:800;color:#16233B;margin-bottom:10px;display:flex;align-items:center;gap:6px">👥 Contactos Involucrados (' + invList.length + ')</div>'+
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">'+
+            invList.map(function(c) {
+              var rolBadgeBg = '#EAF1FB', rolBadgeFg = '#1E5FB4';
+              if (/titular|propietario/i.test(c.rol)) { rolBadgeBg = '#E7F4EC'; rolBadgeFg = '#1B7A43'; }
+              else if (/familiar/i.test(c.rol)) { rolBadgeBg = '#FBF3DE'; rolBadgeFg = '#8A6410'; }
+              
+              var telHtml = c.telefono ? '<a href="https://wa.me/' + escapeHtml(c.telefono.replace(/[^0-9]/g, '')) + '" target="_blank" style="font-size:12px;color:#2E6FC0;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:3px" class="hv-soft">💬 ' + escapeHtml(c.telefono) + '</a>' : '<span style="font-size:12px;color:#8595AD">Sin teléfono</span>';
+              
+              return '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:11px;padding:9px 12px;display:flex;align-items:center;gap:10px">'+
+                '<span style="width:34px;height:34px;border-radius:50%;background:#EEF2F8;color:#2E6FC0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13.5px;flex-shrink:0">' + escapeHtml((c.nombre || 'V').charAt(0).toUpperCase()) + '</span>'+
+                '<div style="flex:1;min-width:0">'+
+                  '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
+                    '<span style="font-size:13px;font-weight:800;color:#16233B;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(c.nombre) + '</span>'+
+                    '<span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:' + rolBadgeBg + ';color:' + rolBadgeFg + '">' + escapeHtml(c.rol) + '</span>'+
+                  '</div>'+
+                  '<div style="margin-top:2px">' + telHtml + (c.depto ? ' · <span style="font-size:11.5px;color:#64748B;font-weight:600">🏠 ' + escapeHtml(c.depto) + '</span>' : '') + '</div>'+
+                '</div>'+
+              '</div>';
+            }).join('')+
+          '</div>'+
+        '</div>';
+      })()+
+
+      // ── Lista Completa de Audios (de audios_json + fallback) ──
+      (function(){
+        var audiosList = parseAudiosDetallados(datos);
+        if (!audiosList.length) {
           if (datos.transcripcion) {
-            return '<div class="drawer-audio-box"><div style="font-size:12px;font-weight:800;color:#334259;margin-bottom:6px">🎙️ Transcripción del audio</div><div style="font-size:13.5px;color:#334259;line-height:1.55;white-space:pre-wrap">'+escapeHtml(datos.transcripcion)+'</div></div>';
+            return '<div class="drawer-audio-box" style="margin-bottom:16px"><div style="font-size:12px;font-weight:800;color:#334259;margin-bottom:6px">🎙️ Transcripción del audio</div><div style="font-size:13.5px;color:#334259;line-height:1.55;white-space:pre-wrap">'+escapeHtml(datos.transcripcion)+'</div></div>';
           }
           return '';
         }
@@ -1840,7 +1986,7 @@ function abrirDrawerEvento(idx){
         var expirado = (dias !== null && dias !== undefined && dias <= 0);
         if (expirado) {
           return '<div style="background:#FBF3DE;border:1px solid #E8D9A0;border-radius:12px;padding:13px 16px;margin-bottom:16px">'+
-            '<div style="font-size:12px;font-weight:800;color:#8A6410;margin-bottom:4px">🎙️ Notas de voz del vecino (' + audios.length + ')</div>'+
+            '<div style="font-size:12px;font-weight:800;color:#8A6410;margin-bottom:4px">🎙️ Notas de voz del evento (' + audiosList.length + ')</div>'+
             '<div style="font-size:13px;color:#8A6410">⏳ Audios eliminados por política de retención de 30 días.</div>'+
             '</div>';
         }
@@ -1849,22 +1995,29 @@ function abrirDrawerEvento(idx){
           ? '<span style="font-size:10px;font-weight:700;background:#FDECEC;color:#C0392B;padding:2px 8px;border-radius:9999px;margin-left:8px">' + dias + 'd restantes</span>'
           : (dias !== null && dias !== undefined ? '<span style="font-size:10px;font-weight:700;background:#E7F4EC;color:#1B7A43;padding:2px 8px;border-radius:9999px;margin-left:8px">' + dias + 'd restantes</span>' : '');
 
-        return '<div style="margin-bottom:16px">'+
-          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">'+
-            '<div style="font-size:12.5px;font-weight:800;color:#334259">🎙️ ' + (audios.length === 1 ? 'Nota de voz del vecino' : 'Notas de voz del vecino (' + audios.length + ')') + badge + '</div>'+
-            (audios.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 10px;border-radius:8px;cursor:pointer" class="hv-soft">⬇️ Descargar todos los audios</button>' : '')+
+        return '<div style="margin-bottom:18px;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px">'+
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">'+
+            '<div style="font-size:12.5px;font-weight:800;color:#16233B">🎙️ ' + (audiosList.length === 1 ? 'Nota de voz del evento' : 'Notas de voz registradas (' + audiosList.length + ')') + badge + '</div>'+
+            (audiosList.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 10px;border-radius:8px;cursor:pointer" class="hv-soft">⬇️ Descargar todos los audios</button>' : '')+
           '</div>'+
-          audios.map(function(_src, idx) {
-            return '<div class="drawer-audio-box" style="margin-bottom:10px">'+
+          audiosList.map(function(aud, idx) {
+            return '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:12px;padding:12px 14px;margin-bottom:10px" class="hv-card">'+
               '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">'+
-                '<span style="font-size:12px;font-weight:800;color:#334259">Audio #' + (idx + 1) + '</span>'+
-                '<a href="' + escapeHtml(_src) + '" download target="_blank" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 10px;border-radius:8px;text-decoration:none;display:inline-flex;align-items:center;gap:4px" class="hv-soft">⬇️ Descargar audio</a>'+
+                '<div style="font-size:12.5px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:6px">'+
+                  '<span>🎙️</span> <span>Audio #' + (idx + 1) + ' · ' + escapeHtml(aud.emisor) + '</span>'+
+                '</div>'+
+                '<div style="display:flex;align-items:center;gap:8px">'+
+                  '<span style="font-size:11.5px;color:#8595AD;font-weight:600">🕒 ' + escapeHtml(aud.hora) + '</span>'+
+                  '<a href="' + escapeHtml(aud.url) + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#F1F5FB;border:1px solid #DCE4F0;padding:3px 10px;border-radius:6px;text-decoration:none" class="hv-soft">⬇ Descargar</a>'+
+                '</div>'+
               '</div>'+
-              '<audio controls style="width:100%;border-radius:8px" src="' + escapeHtml(_src) + '"></audio>'+
+              '<audio controls style="width:100%;height:36px;border-radius:8px;margin-bottom:8px" src="' + escapeHtml(aud.url) + '"></audio>'+
+              (aud.transcripcion ? '<div style="font-size:12.5px;color:#334259;background:#F8FAFD;border-left:3px solid #2E6FC0;padding:8px 10px;border-radius:6px;line-height:1.45"><strong style="color:#2E6FC0">📝 Transcripción:</strong> ' + escapeHtml(aud.transcripcion) + '</div>' : '')+
             '</div>';
           }).join('')+
         '</div>';
       })()+
+
       // ── Atendió ──
       '<div class="drawer-atendio-box">'+
         '<span style="width:36px;height:36px;border-radius:50%;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">M</span>'+
@@ -1872,44 +2025,60 @@ function abrirDrawerEvento(idx){
       '</div>'+
       '<div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:8px">📝 Qué hizo Marcos</div>'+
       '<div class="drawer-notes-box">'+escapeHtml(datos.notas||'—')+'</div>'+
-      // ── Generación de Chat de Conversación Registrada ──
+
+      // ── Línea de Tiempo del Chat Unificado ──
       (function(){
         var rawChat = datos.historial_chat || '';
         var chatLines = [];
-        if (typeof rawChat === 'string' && rawChat.trim().startsWith('[')) {
-          try { chatLines = JSON.parse(rawChat); } catch(e) { chatLines = [rawChat]; }
+        if (typeof rawChat === 'string' && rawChat.trim()) {
+          if (rawChat.trim().startsWith('[')) {
+            try { chatLines = JSON.parse(rawChat); } catch(e) { chatLines = [rawChat]; }
+          } else {
+            chatLines = String(rawChat).split('\\n').filter(Boolean);
+          }
         } else if (Array.isArray(rawChat)) {
           chatLines = rawChat;
-        } else if (rawChat) {
-          chatLines = String(rawChat).split('\\n').filter(Boolean);
         }
 
         var chatInnerHtml = '';
         if (chatLines.length > 0) {
           var bubbles = chatLines.map(function(line) {
-            var str = String(line);
-            var isVecino = /^(Vecino|Usuario|Cliente):/i.test(str);
-            var isProveedor = /^(Proveedor|Técnico)/i.test(str);
-            var isEncargado = /^(Encargado|Seguridad)/i.test(str);
+            var str = typeof line === 'object' ? ((line.emisor ? line.emisor + ': ' : '') + (line.texto || line.mensaje || '')) : String(line);
+            var horaTag = (typeof line === 'object' && line.hora) ? line.hora : '';
+
+            var isFamiliar = /^(Familiar|Pariente)/i.test(str);
+            var isVecino = /^(Vecino|Usuario|Cliente|Titular)/i.test(str);
+            var isProveedor = /^(Proveedor|Técnico|Plomero|Electricista|Gasista)/i.test(str);
+            var isEncargado = /^(Encargado|Seguridad|Portero|Portería)/i.test(str);
+
+            var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos|Susana|Proveedor|Técnico|Plomero|Electricista|Gasista|Encargado|Seguridad|Portero|Portería)(\s*\(.*?\))?:\s*/i, '');
             
-            var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Marcos|Susana|Proveedor|Técnico|Encargado|Seguridad)(\s*\(.*?\))?:\s*/i, '');
-            
-            var senderLabel = 'Marcos';
+            var senderLabel = 'Marcos IA';
             var align = 'margin-right:auto;background:#FFFFFF;color:#16233B;border:1px solid #E1E7F0;border-bottom-left-radius:2px;';
             var icon = '🤖';
+            var tagBg = '#EAF1FB', tagFg = '#2E6FC0';
 
-            if (isVecino) {
-              senderLabel = datos.vecino || 'Vecino';
+            if (isFamiliar) {
+              senderLabel = str.match(/^(Familiar|Pariente)(\s*\(.*?\))?/i)?.[0] || 'Familiar';
+              align = 'margin-left:auto;background:#EFF6FF;color:#1E3A8A;border:1px solid #BFDBFE;border-bottom-right-radius:2px;';
+              icon = '🔵';
+              tagBg = '#DBEAFE'; tagFg = '#1E40AF';
+            } else if (isVecino) {
+              var matchNom = str.match(/^(Vecino|Usuario|Cliente|Titular)(\s*\(.*?\))?/i)?.[0];
+              senderLabel = matchNom || (datos.vecino || 'Vecino (Titular)');
               align = 'margin-left:auto;background:#DCF8C6;color:#0F2310;border-bottom-right-radius:2px;';
               icon = '🟢';
+              tagBg = '#D1FAE5'; tagFg = '#065F46';
             } else if (isProveedor) {
-              senderLabel = str.match(/^(Proveedor|Técnico)(\s*\(.*?\))?/i)?.[0] || 'Proveedor / Técnico';
+              senderLabel = str.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista)(\s*\(.*?\))?/i)?.[0] || 'Proveedor / Técnico';
               align = 'margin-left:auto;background:#FEF3C7;color:#78350F;border:1px solid #FDE68A;border-bottom-right-radius:2px;';
               icon = '🔧';
+              tagBg = '#FDE68A'; tagFg = '#92400E';
             } else if (isEncargado) {
-              senderLabel = str.match(/^(Encargado|Seguridad)(\s*\(.*?\))?/i)?.[0] || 'Encargado';
+              senderLabel = str.match(/^(Encargado|Seguridad|Portero|Portería)(\s*\(.*?\))?/i)?.[0] || 'Personal del Edificio';
               align = 'margin-left:auto;background:#EDE9FE;color:#4C1D95;border:1px solid #DDD6FE;border-bottom-right-radius:2px;';
               icon = '👷';
+              tagBg = '#DDD6FE'; tagFg = '#5B21B6';
             }
 
             var audioMatch = cleanText.match(new RegExp('(\\/root\\/marcos[^\\s"\\)]+\\.(ogg|mp3|wav|m4a)|\\/archivos[^\\s"\\)]+\\.(ogg|mp3|wav|m4a)|https?:\\/\\/[^\\s"\\)]+\\.(ogg|mp3|wav|m4a))', 'i'));
@@ -1927,14 +2096,17 @@ function abrirDrawerEvento(idx){
               '</div>';
             }
 
-            return '<div style="max-width:85%;padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.06);' + align + '" class="chat-bubble">' +
-              '<div style="font-size:10px;font-weight:800;opacity:.75;margin-bottom:3px;display:flex;align-items:center;gap:4px"><span>' + icon + '</span><span>' + escapeHtml(senderLabel) + '</span></div>' +
+            return '<div style="max-width:88%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.06);' + align + '" class="chat-bubble">' +
+              '<div style="font-size:10.5px;font-weight:800;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+                '<span style="display:flex;align-items:center;gap:4px"><span>' + icon + '</span><span style="padding:1px 6px;border-radius:999px;background:' + tagBg + ';color:' + tagFg + '">' + escapeHtml(senderLabel) + '</span></span>' +
+                (horaTag ? '<span style="font-size:10px;opacity:.65;font-weight:600">🕒 ' + escapeHtml(horaTag) + '</span>' : '') +
+              '</div>' +
               '<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>' +
               audioLinkHtml +
             '</div>';
           }).join('');
 
-          chatInnerHtml = '<div style="margin-top:10px;margin-bottom:14px;max-height:300px;overflow-y:auto;background:#E5DDD5;border-radius:14px;padding:14px;border:1px solid #D1C7BD" class="chat-box">' +
+          chatInnerHtml = '<div style="margin-top:10px;margin-bottom:14px;max-height:340px;overflow-y:auto;background:#E5DDD5;border-radius:14px;padding:14px;border:1px solid #D1C7BD" class="chat-box">' +
             bubbles +
           '</div>';
         } else {
@@ -1944,7 +2116,7 @@ function abrirDrawerEvento(idx){
           '</div>';
         }
 
-        return '<div style="margin-top:24px">'+
+        return '<div style="margin-top:22px">'+
           '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'+
             '<div style="font-size:13px;font-weight:800;color:#334259">📄 Conversación registrada</div>'+
             '<button onclick="descargarResumenEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar TXT</button>'+
@@ -1952,6 +2124,7 @@ function abrirDrawerEvento(idx){
           chatInnerHtml+
         '</div>';
       })()+
+
       fbHtml+
       '<div style="display:flex;gap:10px;margin-top:22px">'+
         '<button onclick="cerrarDrawerEvento()" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cerrar</button>'+
@@ -3539,6 +3712,9 @@ function vistaEvento(e, filterFn) {
   const nuevo = fn(parseFecha(e.fecha));
   return {
     row: e._row,
+    id_evento: e.id_evento || ('CASO-' + String(e._row).padStart(4, '0')),
+    audios_json: e.audios_json || '',
+    involucrados_json: e.involucrados_json || '',
     titulo: truncate(e.mensaje || e.notas || 'Evento', 80),
     detalle: truncate(e.notas || '', 150),
     catKey: cat, catLabel: catInfo.label, catIcon: catInfo.icon, catBg: catInfo.bg,
