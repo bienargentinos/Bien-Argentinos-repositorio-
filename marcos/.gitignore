@@ -1,0 +1,7 @@
+node_modules/
+.env
+*.log
+temp/
+session_cookies.json
+*.key.json
+gen-lang-client-*.json
