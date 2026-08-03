@@ -190,7 +190,7 @@ function iniciarCronReportes() {
 async function notificarEscalacionAlAdmin({ vecino, decisionCaso, tecnicoAsignado, intentosRealizados }) {
     try {
         const perfilEdificio = await buscarPerfilEdificio(vecino?.edificio);
-        const emailAdmin = perfilEdificio?.adminEmail || process.env.ADMIN_EMAIL || 'administracion@bienargentinos.com';
+        const emailAdmin = perfilEdificio?.adminEmail || process.env.ADMIN_EMAIL || 'alertas@bienargentinos.com';
 
         const asunto = `🚨 ALERTA SIN CONFIRMACIÓN — ${vecino?.edificio || 'Consorcio'} [Urgencia: ${(decisionCaso?.urgencia || 'alta').toUpperCase()}]`;
         const cuerpo = `Estimada Administración,\n\n` +
