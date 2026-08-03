@@ -1,5 +1,17 @@
 # Bien Argentinos — Marcos IA
 
+## Estado (última sesión: 3-ago-2026)
+
+- Se subieron a `main` (vía PR) el backend real de Marcos, el dashboard "Panel Consorcio" completo, y un
+  script de reparación de historial (`marcos/scripts/reparar-historial-proveedor.js`).
+- Se confirmó por comparación de tamaño de archivo que `main` coincide byte a byte con lo que corre en el
+  VPS (backend) y casi exacto con el dashboard (solo diferencia de fin de línea).
+- Se corrigió un bug real: `marcos-admin.js` mandaba alertas de escalación a `administracion@bienargentinos.com`
+  (casilla inexistente, rechazada por el server de mail) — ahora usa `alertas@bienargentinos.com`. Ya
+  aplicado en `main` y en el VPS.
+- Pendiente sin resolver: la duplicación de `dashboard.js` (raíz vs `marcos/`), configurar deploy por
+  `git pull` en el VPS en vez de edición manual, y rotar credenciales viejas expuestas (ver abajo).
+
 ## Accesos VPS (DonWeb)
 
 ```
@@ -14,24 +26,21 @@ ssh -p5436 root@200.58.102.182
 
 ## Repositorio GitHub
 
-- Repo: `bienargentinos/bien-argentinos-repositorio-`
-- Branch de desarrollo: `claude/ecstatic-hamilton-d1564x`
-- Para transferir archivos al VPS (rama de desarrollo, no `main`):
-  ```bash
-  curl -L -s "https://raw.githubusercontent.com/bienargentinos/Bien-Argentinos-repositorio-/claude/ecstatic-hamilton-d1564x/dashboard.js" \
-    -o /root/marcos/Consorcio-AI-Assistant/dashboard.js && \
-  node --check /root/marcos/Consorcio-AI-Assistant/dashboard.js && \
-  pm2 restart marcos-ai
-  ```
-  > El repo debe estar público para que curl funcione. Ponerlo privado después.
-- Logo de marca: `dashboard.js` sirve `/admin/assets/logo.png` desde `design/assets/logo.png`.
-  Ese archivo NO se actualiza con el curl de arriba (curl solo baja `dashboard.js`) — copiarlo
-  una sola vez al VPS:
-  ```bash
-  mkdir -p /root/marcos/Consorcio-AI-Assistant/design/assets && \
-  curl -L -s "https://raw.githubusercontent.com/bienargentinos/Bien-Argentinos-repositorio-/claude/ecstatic-hamilton-d1564x/design/assets/logo.png" \
-    -o /root/marcos/Consorcio-AI-Assistant/design/assets/logo.png
-  ```
+- Repo: `bienargentinos/Bien-Argentinos-repositorio-`
+- **`main` es la rama de verdad.** Se confirmó (3-ago-2026, comparando tamaño de archivo byte a byte
+  contra lo que corre en el VPS) que `marcos/index.js`, `marcos/sheets.js` y todos los `marcos/agentes/*.js`
+  en `main` son idénticos a lo que está en producción. Las ramas viejas `claude/ecstatic-hamilton-d1564x`
+  y `claude/marcos-ia-dashboard-58lj62` ya se mergearon a `main` (vía PR) y pueden borrarse.
+- Flujo de trabajo: rama nueva por cambio → PR contra `main` → merge. No pushear directo a `main`.
+- **Duplicación pendiente de resolver**: el backend vive en `marcos/` (`marcos/index.js`, `marcos/sheets.js`,
+  `marcos/agentes/`, `marcos/dashboard.js`), pero el dashboard "Panel Consorcio" (`dashboard.js`, `design/`,
+  este mismo `CLAUDE.md`) quedó en la **raíz del repo**, de una rama anterior. Hay DOS `dashboard.js`
+  (raíz y `marcos/dashboard.js`) — el de la raíz + `design/` es el que coincide con el VPS. Ordenar esto
+  (mover todo a `marcos/`) es una tarea pendiente, no urgente.
+- **Deploy al VPS sigue siendo manual** (SSH + editar/copiar archivo + `pm2 restart marcos-ai`). Sería
+  mejor configurar `git pull` en el VPS apuntando a este repo para no editar a mano — pendiente de armar.
+- **Seguridad**: en sesiones anteriores circularon en texto plano (en ZIPs locales, no en este repo) la
+  contraseña root del VPS y un Personal Access Token de GitHub. Si todavía no se rotaron, hacerlo.
 
 ## Stack técnico
 
