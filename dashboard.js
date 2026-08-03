@@ -1826,7 +1826,7 @@ function normalizarUrlAudio(pathOrUrl) {
   } else if (u.indexOf('/archivos/') !== -1) {
     u = '/archivos/' + u.substring(u.indexOf('/archivos/') + 10);
   } else {
-    var filename = u.replace(/^\/+/g, '').replace(/^\\+/g, '');
+    var filename = u.replace(/^\\/+/g, '').replace(/^\\\\+/g, '');
     if (filename.startsWith('temp/')) {
       u = '/audios/' + filename.substring(5);
     } else if (filename.startsWith('almacenamiento/')) {
@@ -1916,7 +1916,7 @@ function parseAudiosDetallados(datos) {
     }
   }
 
-  var audioUrlRegex = new RegExp('(/root/marcos[^"\'()\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/archivos[^"\'()\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/almacenamiento[^"\'()\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\/\\/[^"\'()\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\/\\/[^"\'()\\s]*audio[^"\'()\\s]*)', 'gi');
+  var audioUrlRegex = new RegExp('(/root/marcos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/archivos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/almacenamiento[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]*audio[^"\\'()\\\\s]*)', 'gi');
 
   chatItems.forEach(function(line) {
     if (!line) return;
