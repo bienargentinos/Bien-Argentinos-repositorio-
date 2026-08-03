@@ -12,6 +12,7 @@ function getPersona() {
     if (hour >= 13 && hour < 20) saludo = 'Buenas tardes';
     if (hour >= 20 || hour < 6) saludo = 'Buenas noches';
     
+    // 08:00 a 19:59 = Susana, resto Marcos
     if (hour >= 8 && hour < 20) {
         return { nombre: 'Susana', voz: 'femenina', trato: 'sumamente profesional, resolutiva y cálida', saludo };
     } else {
@@ -19,6 +20,10 @@ function getPersona() {
     }
 }
 
+/**
+ * Evalúa con Gemini Vision si una imagen o video adjuntado por el vecino
+ * se relaciona con el problema del edificio reportado.
+ */
 async function evaluarImagenConProblema({ mediaPath, mimeType, problemaResumen }) {
     if (!mediaPath || !fs.existsSync(mediaPath)) return { esRelacionada: true, razon: '' };
 
@@ -47,7 +52,7 @@ Devolvé ÚNICAMENTE este formato JSON válido:
         return jsonRes;
     } catch (e) {
         console.error('Error evaluando imagen visualmente:', e.message);
-        return { esRelacionada: true, razon: '' };
+        return { esRelacionada: true, razon: '' }; // fallback a admitirla por defecto
     }
 }
 
@@ -64,6 +69,7 @@ async function responderVecino({
 }) {
     const persona = getPersona();
 
+    // ── Evaluación de imagen visual adjunta (si la hay) ──
     let instruccionImagenIrrelevante = '';
     let imagenEsValida = true;
 
