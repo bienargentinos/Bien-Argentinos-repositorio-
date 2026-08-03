@@ -2384,7 +2384,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
               '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
             '</div>' +
           '</div>';
-        } else {
+        } else if (!isMarcos) {
           var dias = datos.audioDiasRestantes;
           if (dias === null || dias === undefined) dias = 30;
           var diasBadgeHtml = (dias <= 0)
