@@ -1707,11 +1707,33 @@ function cerrarModal(id){
 
 // --- Asistente Virtual AC Widget ---
 window.__aiWidgetJustDragged = false;
+
+function posicionarChatAsistente(box, btn){
+  var margen = 12;
+  var boxW = box.offsetWidth || 340;
+  var boxH = box.offsetHeight || 460;
+  var r = btn.getBoundingClientRect();
+  var espacioAbajo = window.innerHeight - r.bottom;
+  var espacioArriba = r.top;
+  var top = (espacioAbajo >= boxH + margen || espacioAbajo >= espacioArriba)
+    ? r.bottom + margen
+    : r.top - margen - boxH;
+  var left = r.left;
+  left = Math.max(8, Math.min(left, window.innerWidth - boxW - 8));
+  top = Math.max(8, Math.min(top, window.innerHeight - boxH - 8));
+  box.style.position = 'fixed';
+  box.style.margin = '0';
+  box.style.left = left + 'px';
+  box.style.top = top + 'px';
+}
+
 window.toggleAsistenteWidget = function toggleAsistenteWidget(){
   if (window.__aiWidgetJustDragged) { window.__aiWidgetJustDragged = false; return; }
   var box = document.getElementById('ac-ai-chat-box');
+  var btn = document.querySelector('#ac-ai-widget-container button.hv-navy');
   if(!box) return;
   var isHidden = (box.style.display === 'none' || !box.style.display);
+  if (isHidden && btn) posicionarChatAsistente(box, btn);
   box.style.display = isHidden ? 'flex' : 'none';
 };
 var toggleAsistenteWidget = window.toggleAsistenteWidget;
@@ -1798,6 +1820,8 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
   });
 
   function posicionPorDefecto(){
+    // Arranca pegado abajo del header (64px, sticky) en vez de abajo de todo
+    // la pantalla, donde se pierde entre el resto de los botones del panel.
     // En desktop el sidebar (236px, con la tarjeta "Enviar sugerencia" en modo
     // cliente) queda tapado por el globo si arranca pegado a la izquierda.
     // En mobile ese sidebar se oculta (@media max-width:900px), asi que ahi
@@ -1805,7 +1829,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     var sidebar = document.querySelector('nav.sidebar-nav');
     var sidebarVisible = !!(sidebar && sidebar.offsetWidth > 0 && getComputedStyle(sidebar).display !== 'none');
     var left = sidebarVisible ? (sidebar.getBoundingClientRect().right + 16) : 16;
-    var top = window.innerHeight - (widget.offsetHeight || 48) - 24;
+    var top = 76;
     applyPosition(left, top);
   }
 
