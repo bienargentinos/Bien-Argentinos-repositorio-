@@ -1706,13 +1706,104 @@ function cerrarModal(id){
 }
 
 // --- Asistente Virtual AC Widget ---
+window.__aiWidgetJustDragged = false;
 window.toggleAsistenteWidget = function toggleAsistenteWidget(){
+  if (window.__aiWidgetJustDragged) { window.__aiWidgetJustDragged = false; return; }
   var box = document.getElementById('ac-ai-chat-box');
   if(!box) return;
   var isHidden = (box.style.display === 'none' || !box.style.display);
   box.style.display = isHidden ? 'flex' : 'none';
 };
 var toggleAsistenteWidget = window.toggleAsistenteWidget;
+
+// --- Arrastrar el globo flotante del Asistente ---
+(function initDragAsistenteWidget(){
+  var widget = document.getElementById('ac-ai-widget-container');
+  if (!widget) return;
+  var handle = widget.querySelector('button.hv-navy');
+  if (!handle) return;
+
+  var dragging = false;
+  var moved = false;
+  var startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+  function clamp(val, min, max){
+    return Math.max(min, Math.min(max, val));
+  }
+
+  function applyPosition(left, top){
+    var w = widget.offsetWidth || 60;
+    var h = widget.offsetHeight || 48;
+    left = clamp(left, 8, window.innerWidth - w - 8);
+    top = clamp(top, 8, window.innerHeight - h - 8);
+    widget.style.left = left + 'px';
+    widget.style.top = top + 'px';
+    widget.style.right = 'auto';
+    widget.style.bottom = 'auto';
+  }
+
+  function guardarPosicion(){
+    try {
+      var rect = widget.getBoundingClientRect();
+      localStorage.setItem('marcos_ai_widget_pos', JSON.stringify({ left: rect.left, top: rect.top }));
+    } catch(e){}
+  }
+
+  function onPointerMove(e){
+    if (!dragging) return;
+    var p = e.touches ? e.touches[0] : e;
+    var dx = p.clientX - startX;
+    var dy = p.clientY - startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+    if (moved && e.cancelable) e.preventDefault();
+    applyPosition(startLeft + dx, startTop + dy);
+  }
+
+  function onPointerUp(){
+    if (!dragging) return;
+    dragging = false;
+    document.removeEventListener('mousemove', onPointerMove);
+    document.removeEventListener('mouseup', onPointerUp);
+    document.removeEventListener('touchmove', onPointerMove);
+    document.removeEventListener('touchend', onPointerUp);
+    if (moved) {
+      guardarPosicion();
+      window.__aiWidgetJustDragged = true;
+    }
+  }
+
+  function onPointerDown(e){
+    var p = e.touches ? e.touches[0] : e;
+    dragging = true;
+    moved = false;
+    var rect = widget.getBoundingClientRect();
+    startLeft = rect.left;
+    startTop = rect.top;
+    startX = p.clientX;
+    startY = p.clientY;
+    document.addEventListener('mousemove', onPointerMove);
+    document.addEventListener('mouseup', onPointerUp);
+    document.addEventListener('touchmove', onPointerMove, { passive: false });
+    document.addEventListener('touchend', onPointerUp);
+  }
+
+  handle.style.cursor = 'grab';
+  handle.addEventListener('mousedown', onPointerDown);
+  handle.addEventListener('touchstart', onPointerDown, { passive: true });
+
+  window.addEventListener('resize', function(){
+    if (widget.style.left && widget.style.left !== 'auto') {
+      applyPosition(parseFloat(widget.style.left), parseFloat(widget.style.top));
+    }
+  });
+
+  try {
+    var saved = JSON.parse(localStorage.getItem('marcos_ai_widget_pos') || 'null');
+    if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
+      applyPosition(saved.left, saved.top);
+    }
+  } catch(e){}
+})();
 
 window.checkAndRunFirstTimeTour = function checkAndRunFirstTimeTour(force){
   if(typeof toast === 'function'){
