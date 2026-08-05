@@ -20,7 +20,12 @@
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
-const { google } = require('googleapis');
+let google = null;
+try {
+    google = require('googleapis').google;
+} catch (e) {
+    console.log('⚠️ googleapis no disponible en dashboard, continuando...');
+}
 
 const router = express.Router();
 
@@ -223,7 +228,11 @@ function mapEvento(r) {
     audio_url: pick(r, ['audio_url', 'url_audio', 'nota_voz', 'audio']),
     urgencia,
     estado: pick(r, ['estado', 'status']),
-    tecnico: pick(r, ['tecnico', 'proveedor', 'rubro']),
+    tecnico: pick(r, ['tecnico', 'proveedor', 'tecnico_nombre', 'nombre_tecnico', 'proveedor_nombre', 'nombre_proveedor']),
+    tel_tecnico: pick(r, ['tel_tecnico', 'telefono_tecnico', 'celular_tecnico', 'tecnico_telefono', 'proveedor_telefono', 'tel_proveedor', 'telefono_proveedor']),
+    rubro_tecnico: pick(r, ['rubro_tecnico', 'rubro_proveedor', 'especialidad_tecnico', 'especialidad_proveedor', 'rubro', 'especialidad']),
+    historial_chat_vecino: pick(r, ['historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
+    historial_chat_proveedor: pick(r, ['historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
     historial_chat: pick(r, ['historial_chat', 'historial', 'chat_log', 'conversacion']),
   };
@@ -1696,6 +1705,202 @@ function escapeHtml(s){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
   });
 }
+function cerrarModal(id){
+  var m=document.getElementById(id);
+  if(m) m.classList.remove('open');
+}
+
+// --- Asistente Virtual AC Widget ---
+window.__aiWidgetJustDragged = false;
+
+function posicionarChatAsistente(box, btn){
+  var margen = 12;
+  var boxW = box.offsetWidth || 340;
+  var boxH = box.offsetHeight || 460;
+  var r = btn.getBoundingClientRect();
+  var espacioAbajo = window.innerHeight - r.bottom;
+  var espacioArriba = r.top;
+  var top = (espacioAbajo >= boxH + margen || espacioAbajo >= espacioArriba)
+    ? r.bottom + margen
+    : r.top - margen - boxH;
+  var left = r.left;
+  left = Math.max(8, Math.min(left, window.innerWidth - boxW - 8));
+  top = Math.max(8, Math.min(top, window.innerHeight - boxH - 8));
+  box.style.position = 'fixed';
+  box.style.margin = '0';
+  box.style.left = left + 'px';
+  box.style.top = top + 'px';
+}
+
+window.toggleAsistenteWidget = function toggleAsistenteWidget(){
+  if (window.__aiWidgetJustDragged) { window.__aiWidgetJustDragged = false; return; }
+  var box = document.getElementById('ac-ai-chat-box');
+  var btn = document.querySelector('#ac-ai-widget-container button.hv-navy');
+  if(!box) return;
+  var isHidden = (box.style.display === 'none' || !box.style.display);
+  if (isHidden && btn) posicionarChatAsistente(box, btn);
+  box.style.display = isHidden ? 'flex' : 'none';
+};
+var toggleAsistenteWidget = window.toggleAsistenteWidget;
+
+// --- Arrastrar el globo flotante del Asistente ---
+(function initDragAsistenteWidget(){
+  var widget = document.getElementById('ac-ai-widget-container');
+  if (!widget) return;
+  var handle = widget.querySelector('button.hv-navy');
+  if (!handle) return;
+
+  var dragging = false;
+  var moved = false;
+  var startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+  function clamp(val, min, max){
+    return Math.max(min, Math.min(max, val));
+  }
+
+  function applyPosition(left, top){
+    var w = widget.offsetWidth || 60;
+    var h = widget.offsetHeight || 48;
+    left = clamp(left, 8, window.innerWidth - w - 8);
+    top = clamp(top, 8, window.innerHeight - h - 8);
+    widget.style.left = left + 'px';
+    widget.style.top = top + 'px';
+    widget.style.right = 'auto';
+    widget.style.bottom = 'auto';
+  }
+
+  function guardarPosicion(){
+    try {
+      var rect = widget.getBoundingClientRect();
+      localStorage.setItem('marcos_ai_widget_pos', JSON.stringify({ left: rect.left, top: rect.top }));
+    } catch(e){}
+  }
+
+  function onPointerMove(e){
+    if (!dragging) return;
+    var p = e.touches ? e.touches[0] : e;
+    var dx = p.clientX - startX;
+    var dy = p.clientY - startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+    if (moved && e.cancelable) e.preventDefault();
+    applyPosition(startLeft + dx, startTop + dy);
+  }
+
+  function onPointerUp(){
+    if (!dragging) return;
+    dragging = false;
+    document.removeEventListener('mousemove', onPointerMove);
+    document.removeEventListener('mouseup', onPointerUp);
+    document.removeEventListener('touchmove', onPointerMove);
+    document.removeEventListener('touchend', onPointerUp);
+    if (moved) {
+      guardarPosicion();
+      window.__aiWidgetJustDragged = true;
+    }
+  }
+
+  function onPointerDown(e){
+    var p = e.touches ? e.touches[0] : e;
+    dragging = true;
+    moved = false;
+    var rect = widget.getBoundingClientRect();
+    startLeft = rect.left;
+    startTop = rect.top;
+    startX = p.clientX;
+    startY = p.clientY;
+    document.addEventListener('mousemove', onPointerMove);
+    document.addEventListener('mouseup', onPointerUp);
+    document.addEventListener('touchmove', onPointerMove, { passive: false });
+    document.addEventListener('touchend', onPointerUp);
+  }
+
+  handle.style.cursor = 'grab';
+  handle.addEventListener('mousedown', onPointerDown);
+  handle.addEventListener('touchstart', onPointerDown, { passive: true });
+
+  window.addEventListener('resize', function(){
+    if (widget.style.left && widget.style.left !== 'auto') {
+      applyPosition(parseFloat(widget.style.left), parseFloat(widget.style.top));
+    }
+  });
+
+  function posicionPorDefecto(){
+    // Arranca pegado abajo del header (64px, sticky) en vez de abajo de todo
+    // la pantalla, donde se pierde entre el resto de los botones del panel.
+    // En desktop el sidebar (236px, con la tarjeta "Enviar sugerencia" en modo
+    // cliente) queda tapado por el globo si arranca pegado a la izquierda.
+    // En mobile ese sidebar se oculta (@media max-width:900px), asi que ahi
+    // no hay conflicto. Se calcula en vivo en lugar de un valor fijo.
+    var sidebar = document.querySelector('nav.sidebar-nav');
+    var sidebarVisible = !!(sidebar && sidebar.offsetWidth > 0 && getComputedStyle(sidebar).display !== 'none');
+    var left = sidebarVisible ? (sidebar.getBoundingClientRect().right + 16) : 16;
+    var top = 76;
+    applyPosition(left, top);
+  }
+
+  try {
+    var saved = JSON.parse(localStorage.getItem('marcos_ai_widget_pos') || 'null');
+    if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
+      applyPosition(saved.left, saved.top);
+    } else {
+      posicionPorDefecto();
+    }
+  } catch(e){}
+})();
+
+window.checkAndRunFirstTimeTour = function checkAndRunFirstTimeTour(force){
+  if(typeof toast === 'function'){
+    toast('📍 Recorrido iniciado: explorá las secciones del menú lateral.', 'ok');
+  } else if(typeof showToast === 'function'){
+    showToast('📍 Recorrido iniciado: explorá las secciones del menú lateral.', '📍');
+  }
+};
+var checkAndRunFirstTimeTour = window.checkAndRunFirstTimeTour;
+
+window.enviarPreguntaAsistente = async function enviarPreguntaAsistente(){
+  var input = document.getElementById('ac-ai-input');
+  var msgs = document.getElementById('ac-ai-messages');
+  if(!input || !msgs) return;
+  var txt = input.value.trim();
+  if(!txt) return;
+
+  var userDiv = document.createElement('div');
+  userDiv.className = 'ac-ai-msg user';
+  userDiv.textContent = txt;
+  msgs.appendChild(userDiv);
+  input.value = '';
+  msgs.scrollTop = msgs.scrollHeight;
+
+  var loadingDiv = document.createElement('div');
+  loadingDiv.className = 'ac-ai-msg loading';
+  loadingDiv.textContent = 'Pensando...';
+  msgs.appendChild(loadingDiv);
+  msgs.scrollTop = msgs.scrollHeight;
+
+  try {
+    var res = await fetch('/api/asistente-consultar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pregunta: txt, seccion: window.location.pathname })
+    });
+    var data = await res.json();
+    if(loadingDiv.parentNode) loadingDiv.parentNode.removeChild(loadingDiv);
+    var botDiv = document.createElement('div');
+    botDiv.className = 'ac-ai-msg bot';
+    botDiv.textContent = data.respuesta || data.error || 'No se pudo obtener respuesta.';
+    msgs.appendChild(botDiv);
+    msgs.scrollTop = msgs.scrollHeight;
+  } catch(err) {
+    if(loadingDiv.parentNode) loadingDiv.parentNode.removeChild(loadingDiv);
+    var botDiv = document.createElement('div');
+    botDiv.className = 'ac-ai-msg bot';
+    botDiv.textContent = 'Error al procesar la consulta. Intentalo de nuevo.';
+    msgs.appendChild(botDiv);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+};
+var enviarPreguntaAsistente = window.enviarPreguntaAsistente;
+
 function valEl(id){
   var el=document.getElementById(id);
   return el ? el.value : '';
@@ -1727,24 +1932,51 @@ function abrirModal(id){
     }
   }
 }
-function cerrarModal(id){var m=document.getElementById(id);if(m)m.classList.remove('open');}
+function cerrarModal(id){
+  var m=document.getElementById(id);
+  if(m) m.classList.remove('open');
+}
+function normalizarUrlAudio(pathOrUrl) {
+  if (!pathOrUrl) return '';
+  var u = String(pathOrUrl).trim();
+  if (u.indexOf('http://') === 0 || u.indexOf('https://') === 0) {
+    return u;
+  }
+
+  // Quitar prefijos del sistema de archivos local o del servidor VPS
+  if (u.indexOf('/root/marcos/Consorcio-AI-Assistant/') !== -1) {
+    u = u.replace('/root/marcos/Consorcio-AI-Assistant/', '');
+  }
+  if (u.indexOf('/root/marcos/') !== -1) {
+    u = u.replace('/root/marcos/', '');
+  }
+
+  if (u.indexOf('/almacenamiento/') !== -1) {
+    u = '/archivos/' + u.substring(u.indexOf('/almacenamiento/') + 16);
+  } else if (u.indexOf('/temp/') !== -1) {
+    u = '/audios/' + u.substring(u.indexOf('/temp/') + 6);
+  } else if (u.indexOf('/audios/') !== -1) {
+    u = '/audios/' + u.substring(u.indexOf('/audios/') + 8);
+  } else if (u.indexOf('/archivos/') !== -1) {
+    u = '/archivos/' + u.substring(u.indexOf('/archivos/') + 10);
+  } else {
+    var filename = u.replace(/^\\/+/g, '').replace(/^\\\\+/g, '');
+    if (filename.startsWith('temp/')) {
+      u = '/audios/' + filename.substring(5);
+    } else if (filename.startsWith('almacenamiento/')) {
+      u = '/archivos/' + filename.substring(15);
+    } else {
+      u = '/audios/' + filename;
+    }
+  }
+
+  if (u.charAt(0) !== '/') u = '/' + u;
+  return window.location.origin + u;
+}
 function stopEv(e){e.stopPropagation();}
 
 // --- drawer de evento ---
 var _drawerActual=null;
-
-function normalizarUrlAudio(pathOrUrl) {
-  if (!pathOrUrl) return '';
-  var u = String(pathOrUrl).trim();
-  if (u.indexOf('/almacenamiento/') !== -1) {
-    u = '/archivos/' + u.substring(u.indexOf('/almacenamiento/') + 16);
-  }
-  if (u.indexOf('http://') === 0 || u.indexOf('https://') === 0) {
-    return u;
-  }
-  if (u.charAt(0) !== '/') u = '/' + u;
-  return window.location.origin + u;
-}
 
 function parseAudiosDetallados(datos) {
   if (!datos) return [];
@@ -1818,7 +2050,7 @@ function parseAudiosDetallados(datos) {
     }
   }
 
-  var audioUrlRegex = /(\\/root\\/marcos[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|\\/archivos[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|\\/almacenamiento[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\/\\/[^"'()\\\\s]+\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\/\\/[^"'()\\\\s]*audio[^"'()\\\\s]*)/gi;
+  var audioUrlRegex = new RegExp('(/root/marcos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/archivos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/almacenamiento[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]*audio[^"\\'()\\\\s]*)', 'gi');
 
   chatItems.forEach(function(line) {
     if (!line) return;
@@ -2005,65 +2237,86 @@ function procesarLineaMultimediaChat(strText) {
   var filename = '';
   var mediaType = '';
 
-  var prefixes = ['/root/marcos/', '/archivos/', '/almacenamiento/', 'http://', 'https://'];
-  var foundIdx = -1;
+  var tagMatch = cleanText.match(/\\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO):\\s*([^\\\]]+)\\\]/i);
+  if (tagMatch) {
+    var rawUrlFromTag = tagMatch[2].trim();
+    var tagType = tagMatch[1].toUpperCase();
+    webUrl = normalizarUrlAudio(rawUrlFromTag);
+    var lastSlashTag = rawUrlFromTag.lastIndexOf('/');
+    filename = lastSlashTag !== -1 ? rawUrlFromTag.substring(lastSlashTag + 1) : rawUrlFromTag;
+    
+    if (tagType === 'IMAGEN' || tagType === 'FOTO') mediaType = 'image';
+    else if (tagType === 'VIDEO') mediaType = 'video';
+    else mediaType = 'audio';
 
-  for (var i = 0; i < prefixes.length; i++) {
-    var pos = cleanText.indexOf(prefixes[i]);
-    if (pos !== -1 && (foundIdx === -1 || pos < foundIdx)) {
-      foundIdx = pos;
+    cleanText = cleanText.replace(tagMatch[0], '').trim();
+  }
+
+  if (!webUrl) {
+    var prefixes = ['/root/marcos/', '/archivos/', '/audios/', '/almacenamiento/', 'http://', 'https://'];
+    var foundIdx = -1;
+
+    for (var i = 0; i < prefixes.length; i++) {
+      var pos = cleanText.indexOf(prefixes[i]);
+      if (pos !== -1 && (foundIdx === -1 || pos < foundIdx)) {
+        foundIdx = pos;
+      }
+    }
+
+    if (foundIdx !== -1) {
+      var rest = cleanText.substring(foundIdx);
+      var endPos = rest.length;
+      for (var j = 0; j < rest.length; j++) {
+        var ch = rest.charAt(j);
+        if (ch <= ' ' || ch === ']' || ch === ')') {
+          endPos = j;
+          break;
+        }
+      }
+
+      var rawPath = rest.substring(0, endPos).trim();
+      if (rawPath.length > 3) {
+        webUrl = normalizarUrlAudio(rawPath);
+        var lastSlash = rawPath.lastIndexOf('/');
+        filename = lastSlash !== -1 ? rawPath.substring(lastSlash + 1) : rawPath;
+
+        var ext = filename.split('.').pop().toLowerCase();
+
+        if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawPath.indexOf('/imagenes/') !== -1 || rawPath.indexOf('/fotos/') !== -1) {
+          mediaType = 'image';
+        } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawPath.indexOf('/videos/') !== -1) {
+          mediaType = 'video';
+        } else {
+          mediaType = 'audio';
+        }
+
+        var startCut = foundIdx;
+        if (startCut > 0 && cleanText.charAt(startCut - 1) === '[') startCut--;
+
+        var endCut = foundIdx + rawPath.length;
+        if (endCut < cleanText.length && cleanText.charAt(endCut) === ']') endCut++;
+
+        var before = cleanText.substring(0, startCut).trim();
+        var after = cleanText.substring(endCut).trim();
+
+        var tagRegexes = [/imagen:\\s*$/i, /foto:\\s*$/i, /video:\\s*$/i, /audio:\\s*$/i, /\\(imagen adjunta\\)\\s*$/i, /\\(video adjunto\\)\\s*$/i, /\\(nota de voz\\)\\s*$/i];
+        for (var t = 0; t < tagRegexes.length; t++) {
+          if (tagRegexes[t].test(before)) {
+            before = before.replace(tagRegexes[t], '').trim();
+          }
+        }
+        if (before.endsWith('[')) {
+          before = before.substring(0, before.length - 1).trim();
+        }
+
+        cleanText = (before ? before + ' ' : '') + (after ? after : '');
+      }
     }
   }
 
-  if (foundIdx !== -1) {
-    var rest = cleanText.substring(foundIdx);
-    var endPos = rest.length;
-    for (var j = 0; j < rest.length; j++) {
-      var ch = rest.charAt(j);
-      if (ch <= ' ' || ch === ']' || ch === ')') {
-        endPos = j;
-        break;
-      }
-    }
-
-    var rawPath = rest.substring(0, endPos).trim();
-    if (rawPath.length > 3) {
-      webUrl = normalizarUrlAudio(rawPath);
-      var lastSlash = rawPath.lastIndexOf('/');
-      filename = lastSlash !== -1 ? rawPath.substring(lastSlash + 1) : rawPath;
-
-      var ext = filename.split('.').pop().toLowerCase();
-
-      if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawPath.indexOf('/imagenes/') !== -1 || rawPath.indexOf('/fotos/') !== -1) {
-        mediaType = 'image';
-      } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawPath.indexOf('/videos/') !== -1) {
-        mediaType = 'video';
-      } else {
-        mediaType = 'audio';
-      }
-
-      var startCut = foundIdx;
-      if (startCut > 0 && cleanText.charAt(startCut - 1) === '[') startCut--;
-
-      var endCut = foundIdx + rawPath.length;
-      if (endCut < cleanText.length && cleanText.charAt(endCut) === ']') endCut++;
-
-      var before = cleanText.substring(0, startCut).trim();
-      var after = cleanText.substring(endCut).trim();
-
-      var tagRegexes = [/imagen:\s*$/i, /foto:\s*$/i, /video:\s*$/i, /audio:\s*$/i, /\(imagen adjunta\)\s*$/i, /\(video adjunto\)\s*$/i, /\(nota de voz\)\s*$/i];
-      for (var t = 0; t < tagRegexes.length; t++) {
-        if (tagRegexes[t].test(before)) {
-          before = before.replace(tagRegexes[t], '').trim();
-        }
-      }
-      if (before.endsWith('[')) {
-        before = before.substring(0, before.length - 1).trim();
-      }
-
-      var label = mediaType === 'image' ? '(imagen adjunta) ' : (mediaType === 'video' ? '(video adjunto) ' : '(nota de voz) ');
-      cleanText = (before ? before + ' ' : '') + label + filename + (after ? ' ' + after : '');
-    }
+  if (webUrl && !cleanText) {
+    var label = mediaType === 'image' ? '(imagen adjunta)' : (mediaType === 'video' ? '(video adjunto)' : '(nota de voz)');
+    cleanText = label;
   }
 
   return {
@@ -2072,6 +2325,249 @@ function procesarLineaMultimediaChat(strText) {
     filename: filename,
     mediaType: mediaType
   };
+}
+
+function cambiarTabChatEvento(tab) {
+  var btnA = document.getElementById('tab-btn-ambos');
+  var btnV = document.getElementById('tab-btn-vecino');
+  var btnP = document.getElementById('tab-btn-proveedor');
+  var panelV = document.getElementById('panel-chat-vecino');
+  var panelP = document.getElementById('panel-chat-proveedor');
+
+  [btnA, btnV, btnP].forEach(function(b) {
+    if (b) {
+      b.style.background = '#F1F5FB';
+      b.style.color = '#5A6B85';
+      b.style.border = '1px solid #DCE4F0';
+    }
+  });
+
+  if (tab === 'vecino') {
+    if (btnV) {
+      btnV.style.background = 'linear-gradient(180deg,#2E6FC0,#1E5FB4)';
+      btnV.style.color = '#FFFFFF';
+      btnV.style.border = '1px solid #1E5FB4';
+    }
+    if (panelV) panelV.style.display = 'block';
+    if (panelP) panelP.style.display = 'none';
+  } else if (tab === 'proveedor') {
+    if (btnP) {
+      btnP.style.background = 'linear-gradient(180deg,#2E6FC0,#1E5FB4)';
+      btnP.style.color = '#FFFFFF';
+      btnP.style.border = '1px solid #1E5FB4';
+    }
+    if (panelV) panelV.style.display = 'none';
+    if (panelP) panelP.style.display = 'block';
+  } else {
+    if (btnA) {
+      btnA.style.background = 'linear-gradient(180deg,#2E6FC0,#1E5FB4)';
+      btnA.style.color = '#FFFFFF';
+      btnA.style.border = '1px solid #1E5FB4';
+    }
+    if (panelV) panelV.style.display = 'block';
+    if (panelP) panelP.style.display = 'block';
+  }
+}
+
+function renderizarBloqueChat(rawChat, tipoBloque, datos) {
+  var chatLines = [];
+  if (typeof rawChat === 'string' && rawChat.trim()) {
+    if (rawChat.trim().startsWith('[')) {
+      try { chatLines = JSON.parse(rawChat); } catch(e) { chatLines = [rawChat]; }
+    } else {
+      chatLines = String(rawChat).split('\\n').filter(Boolean);
+    }
+  } else if (Array.isArray(rawChat)) {
+    chatLines = rawChat;
+  }
+
+  if (!chatLines.length && tipoBloque === 'vecino' && datos.historial_chat) {
+    var rawGen = datos.historial_chat;
+    if (typeof rawGen === 'string' && rawGen.trim()) {
+      if (rawGen.trim().startsWith('[')) {
+        try { chatLines = JSON.parse(rawGen); } catch(e) { chatLines = [rawGen]; }
+      } else {
+        chatLines = String(rawGen).split('\\n').filter(Boolean);
+      }
+    } else if (Array.isArray(rawGen)) {
+      chatLines = rawGen;
+    }
+    chatLines = chatLines.filter(function(line) {
+      var str = typeof line === 'object' ? (line.emisor || '') + ': ' + (line.texto || '') : String(line);
+      return !/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
+    });
+  } else if (!chatLines.length && tipoBloque === 'proveedor' && datos.historial_chat) {
+    var rawGen = datos.historial_chat;
+    var allGen = [];
+    if (typeof rawGen === 'string' && rawGen.trim()) {
+      if (rawGen.trim().startsWith('[')) {
+        try { allGen = JSON.parse(rawGen); } catch(e) { allGen = [rawGen]; }
+      } else {
+        allGen = String(rawGen).split('\\n').filter(Boolean);
+      }
+    } else if (Array.isArray(rawGen)) {
+      allGen = rawGen;
+    }
+    chatLines = allGen.filter(function(line) {
+      var str = typeof line === 'object' ? (line.emisor || '') + ': ' + (line.texto || '') : String(line);
+      return /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
+    });
+  }
+
+  if (chatLines.length > 0) {
+    var bubbles = chatLines.map(function(line) {
+      var str = typeof line === 'object' ? ((line.emisor ? line.emisor + ': ' : '') + (line.texto || line.mensaje || '')) : String(line);
+      var horaTag = (typeof line === 'object' && line.hora) ? line.hora : '';
+
+      var isFamiliar = /^(Familiar|Pariente)/i.test(str);
+      var isVecino = /^(Vecino|Usuario|Cliente|Titular)/i.test(str);
+      var isProveedor = /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
+      var isEncargado = /^(Encargado|Seguridad|Portero|Portería)/i.test(str);
+
+      var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos|Susana|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería)(\s*\(.*\?\))?:\s*/i, '');
+      
+      var senderLabel = 'Marcos IA';
+      var align = 'margin-right:auto;background:#FFFFFF;color:#16233B;border:1px solid #E1E7F0;border-bottom-left-radius:2px;';
+      var icon = '🤖';
+      var tagBg = '#EAF1FB', tagFg = '#2E6FC0';
+
+      if (isFamiliar) {
+        senderLabel = (str.match(/^(Familiar|Pariente)(\s*\(.*\?\))?/i)?.[0]) || 'Familiar';
+        align = 'margin-left:auto;background:#EFF6FF;color:#1E3A8A;border:1px solid #BFDBFE;border-bottom-right-radius:2px;';
+        icon = '🔵';
+        tagBg = '#DBEAFE'; tagFg = '#1E40AF';
+      } else if (isVecino) {
+        var matchNom = str.match(/^(Vecino|Usuario|Cliente|Titular)(\s*\(.*\?\))?/i)?.[0];
+        senderLabel = matchNom || (datos.vecino || 'Vecino (Titular)');
+        align = 'margin-left:auto;background:#DCF8C6;color:#0F2310;border-bottom-right-radius:2px;';
+        icon = '🟢';
+        tagBg = '#D1FAE5'; tagFg = '#065F46';
+      } else if (isProveedor) {
+        var matchProv = str.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)(\s*\(.*\?\))?/i)?.[0];
+        senderLabel = matchProv || (datos.tecnico || 'Técnico / Proveedor');
+        align = 'margin-left:auto;background:#FEF3C7;color:#78350F;border:1px solid #FDE68A;border-bottom-right-radius:2px;';
+        icon = '🔧';
+        tagBg = '#FDE68A'; tagFg = '#92400E';
+      } else if (isEncargado) {
+        senderLabel = (str.match(/^(Encargado|Seguridad|Portero|Portería)(\s*\(.*\?\))?/i)?.[0]) || 'Personal del Edificio';
+        align = 'margin-left:auto;background:#EDE9FE;color:#4C1D95;border:1px solid #DDD6FE;border-bottom-right-radius:2px;';
+        icon = '👷';
+        tagBg = '#DDD6FE'; tagFg = '#5B21B6';
+      }
+
+      var mediaRes = procesarLineaMultimediaChat(cleanText);
+      cleanText = mediaRes.cleanText;
+      var mediaLinkHtml = '';
+
+      var finalWebUrl = mediaRes.webUrl;
+      var finalMediaType = mediaRes.mediaType;
+      var finalFilename = mediaRes.filename;
+
+      var objAudioUrl = typeof line === 'object' ? (line.audio_url || line.url || line.audio || '') : '';
+      if (objAudioUrl && !finalWebUrl) {
+        finalWebUrl = normalizarUrlAudio(objAudioUrl);
+        finalMediaType = 'audio';
+        var lastSlashObj = objAudioUrl.lastIndexOf('/');
+        finalFilename = lastSlashObj !== -1 ? objAudioUrl.substring(lastSlashObj + 1) : objAudioUrl;
+      }
+
+      if (!finalWebUrl && datos.audio_url && tipoBloque === 'vecino') {
+        var rawAudioUrl = String(datos.audio_url).trim();
+        if (rawAudioUrl.length > 3) {
+          var ext = rawAudioUrl.split('.').pop().toLowerCase();
+          var lowerTxt = cleanText.toLowerCase();
+          if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/imagenes/') !== -1 || lowerTxt.indexOf('imagen') !== -1 || lowerTxt.indexOf('foto') !== -1) {
+            finalWebUrl = normalizarUrlAudio(rawAudioUrl);
+            finalMediaType = 'image';
+            var lastSlash = rawAudioUrl.lastIndexOf('/');
+            finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+          } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/videos/') !== -1 || lowerTxt.indexOf('video') !== -1) {
+            finalWebUrl = normalizarUrlAudio(rawAudioUrl);
+            finalMediaType = 'video';
+            var lastSlash = rawAudioUrl.lastIndexOf('/');
+            finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+          } else if (['ogg', 'mp3', 'wav', 'm4a', 'aac'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/audios/') !== -1 || lowerTxt.indexOf('nota de voz') !== -1 || lowerTxt.indexOf('audio') !== -1) {
+            finalWebUrl = normalizarUrlAudio(rawAudioUrl);
+            finalMediaType = 'audio';
+            var lastSlash = rawAudioUrl.lastIndexOf('/');
+            finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+          }
+        }
+      }
+
+      if (finalWebUrl) {
+        var urlEsc = escapeHtml(finalWebUrl);
+        var fnEsc = escapeHtml(finalFilename);
+
+        if (finalMediaType === 'image') {
+          mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
+            '<div style="position:relative;max-width:280px;max-height:200px;border-radius:8px;overflow:hidden;margin-bottom:6px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.12);background:#000" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)">' +
+              '<img src="' + urlEsc + '" style="width:100%;height:100%;object-fit:cover;display:block" alt="Imagen adjunta">' +
+              '<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.65);color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;backdrop-filter:blur(4px)">🔍 Ver HD</div>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+              '<button data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;cursor:pointer" class="hv-soft">🖼️ Ampliar foto</button>' +
+              '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
+            '</div>' +
+          '</div>';
+        } else if (finalMediaType === 'video') {
+          mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
+            '<video src="' + urlEsc + '" controls style="width:100%;max-height:220px;border-radius:8px;margin-bottom:6px"></video>' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+              '<button data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="video" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;cursor:pointer" class="hv-soft">🎥 Ampliar video</button>' +
+              '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
+            '</div>' +
+          '</div>';
+        } else if (isFamiliar || isVecino || isProveedor || isEncargado) {
+          var dias = datos.audioDiasRestantes;
+          if (dias === null || dias === undefined) dias = 30;
+          var diasBadgeHtml = (dias <= 0)
+            ? '<span style="font-size:10px;font-weight:800;background:#FBF3DE;color:#8A6410;padding:2px 7px;border-radius:999px;border:1px solid #E8D9A0;margin-left:4px">⏳ Expirado</span>'
+            : (dias <= 7
+              ? '<span style="font-size:10px;font-weight:800;background:#FDECEC;color:#C0392B;padding:2px 7px;border-radius:999px;border:1px solid #F8B4B4;margin-left:4px">' + dias + 'd restantes</span>'
+              : '<span style="font-size:10px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:2px 7px;border-radius:999px;border:1px solid #C3E6D0;margin-left:4px">' + dias + 'd restantes</span>');
+
+          mediaLinkHtml = '<div style="margin-top:6px;padding:8px 12px;background:rgba(46,111,192,.08);border-radius:10px;border:1px solid rgba(46,111,192,.2)">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
+              '<div style="display:flex;align-items:center;gap:4px">' +
+                '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + fnEsc + '</span>' +
+                diasBadgeHtml +
+              '</div>' +
+              '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
+            '</div>' +
+            '<audio controls preload="metadata" style="width:100%;height:36px;border-radius:6px;outline:none"><source src="' + urlEsc + '" type="audio/ogg"><source src="' + urlEsc + '" type="audio/mpeg"><source src="' + urlEsc + '"></audio>' +
+          '</div>';
+        }
+      }
+
+      return '<div style="max-width:88%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.06);' + align + '" class="chat-bubble">' +
+        '<div style="font-size:10.5px;font-weight:800;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+          '<span style="display:flex;align-items:center;gap:4px"><span>' + icon + '</span><span style="padding:1px 6px;border-radius:999px;background:' + tagBg + ';color:' + tagFg + '">' + escapeHtml(senderLabel) + '</span></span>' +
+          (horaTag ? '<span style="font-size:10px;opacity:.65;font-weight:600">🕒 ' + escapeHtml(horaTag) + '</span>' : '') +
+        '</div>' +
+        '<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>' +
+        mediaLinkHtml +
+      '</div>';
+    }).join('');
+
+    return '<div style="margin-top:10px;margin-bottom:14px;max-height:340px;overflow-y:auto;background:#E5DDD5;border-radius:14px;padding:14px;border:1px solid #D1C7BD" class="chat-box">' +
+      bubbles +
+    '</div>';
+  } else {
+    if (tipoBloque === 'proveedor') {
+      var tecNombre = (datos.tecnico || datos.rubro_tecnico) ? escapeHtml(datos.tecnico || datos.rubro_tecnico) : '';
+      return '<div style="display:flex;align-items:flex-start;gap:11px;background:#FFFDF5;border-radius:12px;padding:14px;font-size:13px;color:#78350F;line-height:1.5;margin-top:10px;border:1px solid #FDE68A">' +
+        '<span style="font-size:22px">🛠️</span>' +
+        '<div><strong style="color:#92400E;display:block;font-size:14px;margin-bottom:3px">' + (tecNombre ? 'Técnico Asignado: ' + tecNombre : 'Sin técnico asignado aún') + '</strong>' +
+        '<span>' + (tecNombre ? 'Marcos IA gestionará los detalles por WhatsApp cuando el técnico confirme o consulte el reclamo.' : 'Marcos IA coordinará automáticamente con el proveedor cuando la Administración le asigne un especialista al caso.') + '</span></div>' +
+      '</div>';
+    } else {
+      return '<div style="display:flex;align-items:flex-start;gap:9px;background:#F1F5FB;border-radius:11px;padding:11px 14px;font-size:12.5px;color:#5A6B85;line-height:1.5;margin-top:10px">' +
+        '<span style="font-size:15px">🔒</span>' +
+        '<span>Registro textual completo de lo conversado con el vecino. Queda como <strong style="color:#334259">comprobante</strong> ante cualquier reclamo.</span>' +
+      '</div>';
+    }
+  }
 }
 
 function abrirDrawerEvento(idx){
@@ -2110,217 +2606,91 @@ function abrirDrawerEvento(idx){
       '</div>'+
     '</div>'+
     '<div style="padding:22px 24px">'+
-      // ── Grilla de datos del vecino ──
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'+
-        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Vecino principal</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
-        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Teléfono</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.telefono||'—')+'</div></div>'+
-        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Depto / Unidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+((datos.depto||datos.unidad)?(escapeHtml(datos.depto||'')+( datos.depto&&datos.unidad?' · ':'')+escapeHtml(datos.unidad||'')):'—')+'</div></div>'+
-        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Edificio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(obtenerDireccionEdificio(datos))+'</div></div>'+
-        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Canal</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+escapeHtml(datos.canalIcon)+' '+escapeHtml(datos.canal)+'</div></div>'+
-        '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Hora inicio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.when||'—')+'</div></div>'+
-        (datos.hora_fin ? '<div style="background:#E7F4EC;border:1px solid #C3E6D0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#1B7A43;text-transform:uppercase;letter-spacing:.04em">✅ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#14532D">'+escapeHtml(datos.hora_fin)+'</div></div>' : '<div style="background:#FBF3DE;border:1px solid #E8D9A0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#8A6410;text-transform:uppercase;letter-spacing:.04em">⏳ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#8A6410">Sin registrar</div></div>')+
-      '</div>'+
-
-      // ── Contactos Involucrados (Titular, Familiares, Vecinos) ──
+      // ── Bloques de Comunicación (Vecino vs Proveedor) ──
       (function(){
-        var invList = parseInvolucrados(datos);
-        if (!invList.length) return '';
-        return '<div style="margin-bottom:18px;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px">'+
-          '<div style="font-size:12.5px;font-weight:800;color:#16233B;margin-bottom:10px;display:flex;align-items:center;gap:6px">👥 Contactos Involucrados (' + invList.length + ')</div>'+
-          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">'+
-            invList.map(function(c) {
-              var rolBadgeBg = '#EAF1FB', rolBadgeFg = '#1E5FB4';
-              if (/titular|propietario/i.test(c.rol)) { rolBadgeBg = '#E7F4EC'; rolBadgeFg = '#1B7A43'; }
-              else if (/familiar/i.test(c.rol)) { rolBadgeBg = '#FBF3DE'; rolBadgeFg = '#8A6410'; }
-              
-              var telHtml = c.telefono ? '<a href="https://wa.me/' + escapeHtml(c.telefono.replace(/[^0-9]/g, '')) + '" target="_blank" style="font-size:12px;color:#2E6FC0;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:3px" class="hv-soft">💬 ' + escapeHtml(c.telefono) + '</a>' : '<span style="font-size:12px;color:#8595AD">Sin teléfono</span>';
-              
-              return '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:11px;padding:9px 12px;display:flex;align-items:center;gap:10px">'+
-                '<span style="width:34px;height:34px;border-radius:50%;background:#EEF2F8;color:#2E6FC0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13.5px;flex-shrink:0">' + escapeHtml((c.nombre || 'V').charAt(0).toUpperCase()) + '</span>'+
-                '<div style="flex:1;min-width:0">'+
-                  '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
-                    '<span style="font-size:13px;font-weight:800;color:#16233B;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(c.nombre) + '</span>'+
-                    '<span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:' + rolBadgeBg + ';color:' + rolBadgeFg + '">' + escapeHtml(c.rol) + '</span>'+
-                  '</div>'+
-                  '<div style="margin-top:2px">' + telHtml + (c.depto ? ' · <span style="font-size:11.5px;color:#64748B;font-weight:600">🏠 ' + escapeHtml(c.depto) + '</span>' : '') + '</div>'+
-                '</div>'+
-              '</div>';
-            }).join('')+
-          '</div>'+
-        '</div>';
-      })()+
-
-      // ── Atendió ──
-      '<div class="drawer-atendio-box">'+
-        '<span style="width:36px;height:36px;border-radius:50%;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">M</span>'+
-        '<div style="flex:1"><div style="font-size:11px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.03em">Atendió</div><div style="font-size:14.5px;font-weight:700;color:#16233B">Marcos</div></div>'+
-      '</div>'+
-      '<div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:8px">📝 Qué hizo Marcos</div>'+
-      '<div class="drawer-notes-box">'+escapeHtml(datos.notas||'—')+'</div>'+
-
-      // ── Línea de Tiempo del Chat Unificado ──
-      (function(){
-        var rawChat = datos.historial_chat || '';
-        var chatLines = [];
-        if (typeof rawChat === 'string' && rawChat.trim()) {
-          if (rawChat.trim().startsWith('[')) {
-            try { chatLines = JSON.parse(rawChat); } catch(e) { chatLines = [rawChat]; }
-          } else {
-            chatLines = String(rawChat).split('\\n').filter(Boolean);
-          }
-        } else if (Array.isArray(rawChat)) {
-          chatLines = rawChat;
-        }
-
-        var chatInnerHtml = '';
-        if (chatLines.length > 0) {
-          var bubbles = chatLines.map(function(line) {
-            var str = typeof line === 'object' ? ((line.emisor ? line.emisor + ': ' : '') + (line.texto || line.mensaje || '')) : String(line);
-            var horaTag = (typeof line === 'object' && line.hora) ? line.hora : '';
-
-            var isFamiliar = /^(Familiar|Pariente)/i.test(str);
-            var isVecino = /^(Vecino|Usuario|Cliente|Titular)/i.test(str);
-            var isProveedor = /^(Proveedor|Técnico|Plomero|Electricista|Gasista)/i.test(str);
-            var isEncargado = /^(Encargado|Seguridad|Portero|Portería)/i.test(str);
-
-            var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos|Susana|Proveedor|Técnico|Plomero|Electricista|Gasista|Encargado|Seguridad|Portero|Portería)(\s*\(.*?\))?:\s*/i, '');
-            
-            var senderLabel = 'Marcos IA';
-            var align = 'margin-right:auto;background:#FFFFFF;color:#16233B;border:1px solid #E1E7F0;border-bottom-left-radius:2px;';
-            var icon = '🤖';
-            var tagBg = '#EAF1FB', tagFg = '#2E6FC0';
-
-            if (isFamiliar) {
-              senderLabel = str.match(/^(Familiar|Pariente)(\s*\(.*?\))?/i)?.[0] || 'Familiar';
-              align = 'margin-left:auto;background:#EFF6FF;color:#1E3A8A;border:1px solid #BFDBFE;border-bottom-right-radius:2px;';
-              icon = '🔵';
-              tagBg = '#DBEAFE'; tagFg = '#1E40AF';
-            } else if (isVecino) {
-              var matchNom = str.match(/^(Vecino|Usuario|Cliente|Titular)(\s*\(.*?\))?/i)?.[0];
-              senderLabel = matchNom || (datos.vecino || 'Vecino (Titular)');
-              align = 'margin-left:auto;background:#DCF8C6;color:#0F2310;border-bottom-right-radius:2px;';
-              icon = '🟢';
-              tagBg = '#D1FAE5'; tagFg = '#065F46';
-            } else if (isProveedor) {
-              senderLabel = str.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista)(\s*\(.*?\))?/i)?.[0] || 'Proveedor / Técnico';
-              align = 'margin-left:auto;background:#FEF3C7;color:#78350F;border:1px solid #FDE68A;border-bottom-right-radius:2px;';
-              icon = '🔧';
-              tagBg = '#FDE68A'; tagFg = '#92400E';
-            } else if (isEncargado) {
-              senderLabel = str.match(/^(Encargado|Seguridad|Portero|Portería)(\s*\(.*?\))?/i)?.[0] || 'Personal del Edificio';
-              align = 'margin-left:auto;background:#EDE9FE;color:#4C1D95;border:1px solid #DDD6FE;border-bottom-right-radius:2px;';
-              icon = '👷';
-              tagBg = '#DDD6FE'; tagFg = '#5B21B6';
-            }
-
-            var mediaRes = procesarLineaMultimediaChat(cleanText);
-            cleanText = mediaRes.cleanText;
-            var mediaLinkHtml = '';
-
-            var finalWebUrl = mediaRes.webUrl;
-            var finalMediaType = mediaRes.mediaType;
-            var finalFilename = mediaRes.filename;
-
-            if (!finalWebUrl && datos.audio_url) {
-              var rawAudioUrl = String(datos.audio_url).trim();
-              if (rawAudioUrl.length > 3) {
-                var ext = rawAudioUrl.split('.').pop().toLowerCase();
-                var lowerTxt = cleanText.toLowerCase();
-                if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/imagenes/') !== -1 || lowerTxt.indexOf('imagen') !== -1 || lowerTxt.indexOf('foto') !== -1) {
-                  finalWebUrl = normalizarUrlAudio(rawAudioUrl);
-                  finalMediaType = 'image';
-                  var lastSlash = rawAudioUrl.lastIndexOf('/');
-                  finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-                } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/videos/') !== -1 || lowerTxt.indexOf('video') !== -1) {
-                  finalWebUrl = normalizarUrlAudio(rawAudioUrl);
-                  finalMediaType = 'video';
-                  var lastSlash = rawAudioUrl.lastIndexOf('/');
-                  finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-                } else if (['ogg', 'mp3', 'wav', 'm4a', 'aac'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/audios/') !== -1 || lowerTxt.indexOf('nota de voz') !== -1 || lowerTxt.indexOf('audio') !== -1) {
-                  finalWebUrl = normalizarUrlAudio(rawAudioUrl);
-                  finalMediaType = 'audio';
-                  var lastSlash = rawAudioUrl.lastIndexOf('/');
-                  finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-                }
-              }
-            }
-
-            if (finalWebUrl) {
-              var urlEsc = escapeHtml(finalWebUrl);
-              var fnEsc = escapeHtml(finalFilename);
-
-              if (finalMediaType === 'image') {
-                mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
-                  '<div style="position:relative;max-width:280px;max-height:200px;border-radius:8px;overflow:hidden;margin-bottom:6px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.12);background:#000" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)">' +
-                    '<img src="' + urlEsc + '" style="width:100%;height:100%;object-fit:cover;display:block" alt="Imagen adjunta">' +
-                    '<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.65);color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;backdrop-filter:blur(4px)">🔍 Ver HD</div>' +
-                  '</div>' +
-                  '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-                    '<button data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;cursor:pointer" class="hv-soft">🖼️ Ampliar foto</button>' +
-                    '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
-                  '</div>' +
-                '</div>';
-              } else if (finalMediaType === 'video') {
-                mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
-                  '<video src="' + urlEsc + '" controls style="width:100%;max-height:220px;border-radius:8px;margin-bottom:6px"></video>' +
-                  '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-                    '<button data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="video" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;cursor:pointer" class="hv-soft">🎥 Ampliar video</button>' +
-                    '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
-                  '</div>' +
-                '</div>';
-              } else {
-                var dias = datos.audioDiasRestantes;
-                if (dias === null || dias === undefined) dias = 30;
-                var diasBadgeHtml = (dias <= 0)
-                  ? '<span style="font-size:10px;font-weight:800;background:#FBF3DE;color:#8A6410;padding:2px 7px;border-radius:999px;border:1px solid #E8D9A0;margin-left:4px">⏳ Expirado</span>'
-                  : (dias <= 7
-                    ? '<span style="font-size:10px;font-weight:800;background:#FDECEC;color:#C0392B;padding:2px 7px;border-radius:999px;border:1px solid #F8B4B4;margin-left:4px">' + dias + 'd restantes</span>'
-                    : '<span style="font-size:10px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:2px 7px;border-radius:999px;border:1px solid #C3E6D0;margin-left:4px">' + dias + 'd restantes</span>');
-
-                mediaLinkHtml = '<div style="margin-top:6px;padding:6px 10px;background:rgba(46,111,192,.08);border-radius:8px;border:1px solid rgba(46,111,192,.18)">' +
-                  '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;flex-wrap:wrap">' +
-                    '<div style="display:flex;align-items:center;gap:4px">' +
-                      '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + fnEsc + '</span>' +
-                      diasBadgeHtml +
-                    '</div>' +
-                    '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
-                  '</div>' +
-                '</div>';
-              }
-            }
-
-            return '<div style="max-width:88%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.06);' + align + '" class="chat-bubble">' +
-              '<div style="font-size:10.5px;font-weight:800;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-                '<span style="display:flex;align-items:center;gap:4px"><span>' + icon + '</span><span style="padding:1px 6px;border-radius:999px;background:' + tagBg + ';color:' + tagFg + '">' + escapeHtml(senderLabel) + '</span></span>' +
-                (horaTag ? '<span style="font-size:10px;opacity:.65;font-weight:600">🕒 ' + escapeHtml(horaTag) + '</span>' : '') +
-              '</div>' +
-              '<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>' +
-              mediaLinkHtml +
-            '</div>';
-          }).join('');
-
-          chatInnerHtml = '<div style="margin-top:10px;margin-bottom:14px;max-height:340px;overflow-y:auto;background:#E5DDD5;border-radius:14px;padding:14px;border:1px solid #D1C7BD" class="chat-box">' +
-            bubbles +
-          '</div>';
-        } else {
-          chatInnerHtml = '<div style="display:flex;align-items:flex-start;gap:9px;background:#F1F5FB;border-radius:11px;padding:11px 14px;font-size:12.5px;color:#5A6B85;line-height:1.5;margin-top:10px">'+
-            '<span style="font-size:15px">🔒</span>'+
-            '<span>Registro textual completo de lo conversado. Queda como <strong style="color:#334259">comprobante</strong> ante cualquier reclamo: nadie puede negar lo que pidió o acordó.</span>'+
-          '</div>';
-        }
-
+        var chatVecinoHtml = renderizarBloqueChat(datos.historial_chat_vecino || datos.historial_chat, 'vecino', datos);
+        var chatProveedorHtml = renderizarBloqueChat(datos.historial_chat_proveedor, 'proveedor', datos);
         var allAudios = parseAudiosDetallados(datos);
         var bulkBtn = allAudios.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer;margin-right:6px" class="hv-soft">🎙️ Descargar todos los audios (' + allAudios.length + ')</button>' : '';
-
-        return '<div style="margin-top:22px">'+
-          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">'+
-            '<div style="font-size:13px;font-weight:800;color:#334259">📄 Conversación registrada</div>'+
-            '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
-              bulkBtn+
-              '<button onclick="descargarResumenEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar TXT</button>'+
-            '</div>'+
+        var telVecinoClean = datos.telefono ? String(datos.telefono).replace(/[^0-9]/g, '') : '';
+        var telVecinoLink = telVecinoClean ? '<a href="https://wa.me/' + escapeHtml(telVecinoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(datos.telefono) + '</a>' : (datos.telefono ? escapeHtml(datos.telefono) : '—');
+        var telTecnicoClean = datos.tel_tecnico ? String(datos.tel_tecnico).replace(/[^0-9]/g, '') : '';
+        var telTecnicoLink = telTecnicoClean ? '<a href="https://wa.me/' + escapeHtml(telTecnicoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(datos.tel_tecnico) + '</a>' : (datos.tel_tecnico ? escapeHtml(datos.tel_tecnico) : '—');
+        return '<div style="display:flex;gap:8px;margin-bottom:18px;background:#F1F5FB;padding:5px;border-radius:14px;border:1px solid #E2E8F0">'+
+          '<button id="tab-btn-ambos" onclick="cambiarTabChatEvento(&quot;ambos&quot;)" style="flex:1;padding:9px 12px;border:1px solid #1E5FB4;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#FFFFFF;font-weight:800;font-size:12.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s ease" class="hv-primary">'+
+            '👁️ Ver Ambos Bloques'+
+          '</button>'+
+          '<button id="tab-btn-vecino" onclick="cambiarTabChatEvento(&quot;vecino&quot;)" style="flex:1;padding:9px 12px;border:1px solid #DCE4F0;border-radius:10px;background:#F1F5FB;color:#5A6B85;font-weight:700;font-size:12.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s ease" class="hv-soft">'+
+            '💬 Solo Vecino'+
+          '</button>'+
+          '<button id="tab-btn-proveedor" onclick="cambiarTabChatEvento(&quot;proveedor&quot;)" style="flex:1;padding:9px 12px;border:1px solid #DCE4F0;border-radius:10px;background:#F1F5FB;color:#5A6B85;font-weight:700;font-size:12.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s ease" class="hv-soft">'+
+            '🛠️ Solo Proveedor'+
+          '</button>'+
+        '</div>'+
+        '<div id="panel-chat-vecino" style="display:block">'+
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'+
+            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Vecino principal</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.vecino||'—')+'</div></div>'+
+            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Teléfono</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+telVecinoLink+'</div></div>'+
+            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Depto / Unidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+((datos.depto||datos.unidad)?(escapeHtml(datos.depto||'')+( datos.depto&&datos.unidad?' · ':'')+escapeHtml(datos.unidad||'')):'—')+'</div></div>'+
+            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Edificio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(obtenerDireccionEdificio(datos))+'</div></div>'+
+            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Canal</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+escapeHtml(datos.canalIcon)+' '+escapeHtml(datos.canal)+'</div></div>'+
+            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Hora inicio</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.when||'—')+'</div></div>'+
+            (datos.estKey === 'resuelto' && datos.hora_fin ? '<div style="background:#E7F4EC;border:1px solid #C3E6D0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#1B7A43;text-transform:uppercase;letter-spacing:.04em">✅ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#14532D">'+escapeHtml(datos.hora_fin)+'</div></div>' : '<div style="background:#FBF3DE;border:1px solid #E8D9A0;border-radius:12px;padding:11px 13px;grid-column:span 2"><div style="font-size:10px;font-weight:700;color:#8A6410;text-transform:uppercase;letter-spacing:.04em">⏳ Hora finalización</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#8A6410">Sin registrar (Evento en curso)</div></div>')+
           '</div>'+
-          chatInnerHtml+
+          (function(){
+            var invList = parseInvolucrados(datos);
+            if (!invList.length) return '';
+            return '<div style="margin-bottom:18px;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px">'+
+              '<div style="font-size:12.5px;font-weight:800;color:#16233B;margin-bottom:10px;display:flex;align-items:center;gap:6px">👥 Contactos Involucrados (' + invList.length + ')</div>'+
+              '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">'+
+                invList.map(function(c) {
+                  var rolBadgeBg = '#EAF1FB', rolBadgeFg = '#1E5FB4';
+                  if (/titular|propietario/i.test(c.rol)) { rolBadgeBg = '#E7F4EC'; rolBadgeFg = '#1B7A43'; }
+                  else if (/familiar/i.test(c.rol)) { rolBadgeBg = '#FBF3DE'; rolBadgeFg = '#8A6410'; }
+                  var telHtml = c.telefono ? '<a href="https://wa.me/' + escapeHtml(c.telefono.replace(/[^0-9]/g, '')) + '" target="_blank" style="font-size:12px;color:#2E6FC0;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:3px" class="hv-soft">💬 ' + escapeHtml(c.telefono) + '</a>' : '<span style="font-size:12px;color:#8595AD">Sin teléfono</span>';
+                  return '<div style="background:#fff;border:1px solid #E7ECF3;border-radius:11px;padding:9px 12px;display:flex;align-items:center;gap:10px">'+
+                    '<span style="width:34px;height:34px;border-radius:50%;background:#EEF2F8;color:#2E6FC0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13.5px;flex-shrink:0">' + escapeHtml((c.nombre || 'V').charAt(0).toUpperCase()) + '</span>'+
+                    '<div style="flex:1;min-width:0">'+
+                      '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
+                        '<span style="font-size:13px;font-weight:800;color:#16233B;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(c.nombre) + '</span>'+
+                        '<span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:' + rolBadgeBg + ';color:' + rolBadgeFg + '">' + escapeHtml(c.rol) + '</span>'+
+                      '</div>'+
+                      '<div style="margin-top:2px">' + telHtml + (c.depto ? ' · <span style="font-size:11.5px;color:#64748B;font-weight:600">🏠 ' + escapeHtml(c.depto) + '</span>' : '') + '</div>'+
+                    '</div>'+
+                  '</div>';
+                }).join('')+
+              '</div>'+
+            '</div>';
+          })()+
+          '<div style="margin-top:16px">'+
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">'+
+              '<div style="font-size:13px;font-weight:800;color:#334259">💬 Conversación Vecino y Marcos IA</div>'+
+              '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
+                bulkBtn+
+                '<button onclick="descargarResumenEvento(&quot;vecino&quot;)" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar TXT Vecino</button>'+
+              '</div>'+
+            '</div>'+
+            chatVecinoHtml+
+          '</div>'+
+        '</div>'+
+        '<div id="panel-chat-proveedor" style="display:block;margin-top:20px">'+
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'+
+            '<div class="drawer-grid-card" style="grid-column:span 2;background:#FFFDF5;border:1px solid #FDE68A">'+
+              '<div style="font-size:10px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.04em">🔧 Técnico / Proveedor Asignado</div>'+
+              '<div style="font-size:15px;font-weight:800;margin-top:3px;color:#78350F">'+escapeHtml(datos.tecnico||'Sin asignación aún')+'</div>'+
+            '</div>'+
+            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Teléfono Técnico</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+telTecnicoLink+'</div></div>'+
+            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Rubro / Especialidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.rubro_tecnico||datos.tecnico||'—')+'</div></div>'+
+          '</div>'+
+          '<div style="margin-top:16px">'+
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">'+
+              '<div style="font-size:13px;font-weight:800;color:#334259">🛠️ Conversación Técnico y Marcos IA</div>'+
+              '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
+                '<button onclick="descargarResumenEvento(&quot;proveedor&quot;)" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar TXT Proveedor</button>'+
+              '</div>'+
+            '</div>'+
+            chatProveedorHtml+
+          '</div>'+
         '</div>';
       })()+
 
@@ -3128,9 +3498,9 @@ function parseStaffClient(namesStr, telsStr) {
     var estado = 'activo';
     var horario = '';
 
-    var isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
+    var isScheduleFragment = new RegExp('^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\\d{1,2}:)', 'i').test(str.replace(new RegExp('^[^a-z0-9]+', 'i'), ''));
     if (isScheduleFragment && res.length > 0) {
-      var cleanHor = str.replace(/\\[[^\\]]*\\]/g, '').replace(/\\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
+      var cleanHor = str.replace(new RegExp('\\[[^\\]]*\\]', 'g'), '').replace(new RegExp('\\]', 'g'), '').replace(new RegExp('^[^a-z0-9]+', 'i'), '').trim();
       if (cleanHor) {
         res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
           ? cleanHor
@@ -3139,14 +3509,14 @@ function parseStaffClient(namesStr, telsStr) {
       continue;
     }
 
-    var matchMeta = str.match(/\\[(activo|licencia|vacaciones)?\\s*\\|?\\s*([^\\]]*)\\]/i);
+    var matchMeta = str.match(new RegExp('\\[(activo|licencia|vacaciones)?\\s*\\|?\\s*([^\\]]*)\\]', 'i'));
     if (matchMeta) {
       if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
       if (matchMeta[2]) horario = matchMeta[2].trim();
-      str = str.replace(/\\[[^\\]]*\\]/g, '').trim();
+      str = str.replace(new RegExp('\\[[^\\]]*\\]', 'g'), '').trim();
     }
 
-    var matchTel = str.match(/\\(([^)]+)\\)/);
+    var matchTel = str.match(new RegExp('\\(([^)]+)\\)'));
     if (matchTel && (!tel || tel === '—')) {
       tel = matchTel[1].trim();
       str = str.replace(/\\([^)]+\\)/g, '').trim();
@@ -4165,6 +4535,8 @@ function shell(req, d, activeKey, contenido) {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.css"/>
+<script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js"></script>
 <style>${CSS}</style>
 <script>(function(){if(localStorage.getItem('marcos_theme')==='dark'){document.documentElement.classList.add('dark-theme');document.addEventListener('DOMContentLoaded',function(){if(document.body)document.body.classList.add('dark-theme');});}})();</script>
 </head>
@@ -4344,6 +4716,56 @@ ${(() => {
       </div>
     </div>`;
 })()}
+
+<!-- Widget Asistente Virtual AC -->
+<div id="ac-ai-widget-container" data-tour="ai-widget" style="position:fixed;bottom:24px;left:24px;z-index:9999;font-family:'Hanken Grotesk',sans-serif">
+  <!-- Ventana Chat Desplegable -->
+  <div id="ac-ai-chat-box" style="display:none;flex-direction:column;width:340px;height:460px;background:#ffffff;border:1px solid #DCE4F0;border-radius:18px;box-shadow:0 12px 32px rgba(16,35,59,.22);overflow:hidden;margin-bottom:12px">
+    <div style="background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:20px">✨</span>
+        <div>
+          <div style="font-weight:800;font-size:14.5px">Asistente Virtual AC</div>
+          <div style="font-size:11px;opacity:0.9">Ayuda interactiva en tiempo real</div>
+        </div>
+      </div>
+      <button onclick="toggleAsistenteWidget()" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">✕</button>
+    </div>
+    
+    <div style="padding:10px 12px;background:#F8FAFD;border-bottom:1px solid #EEF2F8;display:flex;gap:6px">
+      <button onclick="checkAndRunFirstTimeTour(true)" style="flex:1;height:32px;border:1px solid #DCE4F0;border-radius:8px;background:#fff;color:#17408B;font-weight:700;font-size:11.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px" class="hv-soft">
+        📍 Recorrer este panel (Tour)
+      </button>
+    </div>
+
+    <div id="ac-ai-messages" style="flex:1;padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;background:#FAFCFF;font-size:13px">
+      <div class="ac-ai-msg bot">
+        ¡Hola! 👋 Soy tu Asistente Virtual. ¿En qué te puedo ayudar sobre el funcionamiento del panel?
+      </div>
+    </div>
+
+    <div style="padding:10px 12px;background:#ffffff;border-top:1px solid #EEF2F8;display:flex;gap:8px">
+      <input id="ac-ai-input" type="text" placeholder="Escribí tu duda aquí..." onkeypress="if(event.key==='Enter')enviarPreguntaAsistente()" style="flex:1;height:38px;border:1px solid #DCE4F0;border-radius:9px;padding:0 12px;font-size:13px;outline:none" />
+      <button onclick="enviarPreguntaAsistente()" style="width:38px;height:38px;border:none;border-radius:9px;background:#17408B;color:#fff;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center">➤</button>
+    </div>
+  </div>
+
+  <!-- Botón Flotante Principal -->
+  <button onclick="toggleAsistenteWidget()" style="height:48px;padding:0 18px;border:none;border-radius:999px;background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;font-weight:800;font-size:14px;box-shadow:0 8px 24px rgba(23,64,139,.35);cursor:pointer;display:flex;align-items:center;gap:8px;transition:all .2s ease" class="hv-navy">
+    <span style="font-size:18px">✨</span> Asistente IA
+  </button>
+</div>
+
+<style>
+.ac-ai-msg { padding: 9px 12px; border-radius: 12px; max-width: 85%; line-height: 1.45; word-wrap: break-word; }
+.ac-ai-msg.bot { background: #EAF1FB; color: #16233B; border-bottom-left-radius: 4px; align-self: flex-start; }
+.ac-ai-msg.user { background: #17408B; color: #ffffff; border-bottom-right-radius: 4px; align-self: flex-end; }
+.ac-ai-msg.loading { font-style: italic; color: #64748B; background: #F1F5FB; }
+.dark-theme #ac-ai-chat-box { background: #0B132B !important; border-color: #2A3A5E !important; }
+.dark-theme #ac-ai-messages { background: #151F38 !important; }
+.dark-theme .ac-ai-msg.bot { background: #1C2B4E !important; color: #F1F5F9 !important; }
+.dark-theme #ac-ai-input { background: #1C2B4E !important; border-color: #2A3A5E !important; color: #ffffff !important; }
+</style>
 
 <script>
   window.onerror = function(msg, url, line, col, err) {
@@ -4793,8 +5215,8 @@ router.get('/', async (req, res) => {
             </div>
             <a href="/admin/eventos" style="display:inline-flex;align-items:center;height:42px;padding:0 20px;border-radius:11px;background:#fff;color:#17408B;font-weight:700;font-size:14px" class="hv-blue">Ver todo →</a>
           </div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px">${kpiHtml}</div>
-          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden;margin-bottom:26px">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px" data-tour="metrics">${kpiHtml}</div>
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden;margin-bottom:26px" data-tour="event-table">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #EEF1F6">
               <div style="font-size:16px;font-weight:800">Novedades desde tu ausencia</div>
               <div style="font-size:13px;color:#8595AD;font-weight:600">${novedadesPropios.length} nuevas</div>
