@@ -4584,7 +4584,7 @@ ${(() => {
 })()}
 
 <!-- Widget Asistente Virtual AC -->
-<div id="ac-ai-widget-container" data-tour="ai-widget" style="position:fixed;bottom:24px;right:24px;z-index:9999;font-family:'Hanken Grotesk',sans-serif">
+<div id="ac-ai-widget-container" data-tour="ai-widget" style="position:fixed;bottom:24px;left:24px;z-index:9999;font-family:'Hanken Grotesk',sans-serif">
   <!-- Ventana Chat Desplegable -->
   <div id="ac-ai-chat-box" style="display:none;flex-direction:column;width:340px;height:460px;background:#ffffff;border:1px solid #DCE4F0;border-radius:18px;box-shadow:0 12px 32px rgba(16,35,59,.22);overflow:hidden;margin-bottom:12px">
     <div style="background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
