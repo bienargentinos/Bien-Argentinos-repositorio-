@@ -1797,10 +1797,24 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     }
   });
 
+  function posicionPorDefecto(){
+    // En desktop el sidebar (236px, con la tarjeta "Enviar sugerencia" en modo
+    // cliente) queda tapado por el globo si arranca pegado a la izquierda.
+    // En mobile ese sidebar se oculta (@media max-width:900px), asi que ahi
+    // no hay conflicto. Se calcula en vivo en lugar de un valor fijo.
+    var sidebar = document.querySelector('nav.sidebar-nav');
+    var sidebarVisible = !!(sidebar && sidebar.offsetWidth > 0 && getComputedStyle(sidebar).display !== 'none');
+    var left = sidebarVisible ? (sidebar.getBoundingClientRect().right + 16) : 16;
+    var top = window.innerHeight - (widget.offsetHeight || 48) - 24;
+    applyPosition(left, top);
+  }
+
   try {
     var saved = JSON.parse(localStorage.getItem('marcos_ai_widget_pos') || 'null');
     if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
       applyPosition(saved.left, saved.top);
+    } else {
+      posicionPorDefecto();
     }
   } catch(e){}
 })();
