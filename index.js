@@ -640,35 +640,54 @@ function validarYSanitizarNombre(nombre) {
     function buscarEdificioEnTexto(texto, listaEdificios) {
         if (!texto || !listaEdificios || listaEdificios.length === 0) return null;
         const txtNorm = normalizarTextoEdificio(texto);
+        if (!txtNorm) return null;
+
         const numerosEnMensaje = txtNorm.match(/\d+/g) || [];
 
-        // 1. Si el mensaje incluye un número de calle (ej: 159), priorizar coincidencia por número exacto en dirección/nombre/aliases
+        // 1. REGLA POR NÚMERO DE CALLE/ALTURA (ej: 159 o 270)
         if (numerosEnMensaje.length > 0) {
             for (const num of numerosEnMensaje) {
-                const matchNum = listaEdificios.find(e => {
-                    const dirNorm = normalizarTextoEdificio(e.direccion || e.nombre || '');
-                    const aliasNorm = Array.isArray(e.aliases) ? e.aliases.map(normalizarTextoEdificio).join(' ') : String(e.aliases || '');
-                    const numsEdif = (dirNorm + ' ' + aliasNorm).match(/\d+/g) || [];
-                    return numsEdif.includes(num);
-                });
-                if (matchNum) return matchNum;
-            }
-        }
+                for (const e of listaEdificios) {
+                    const todosLosCampos = [
+                        e.nombre,
+                        e.direccion,
+                        ...(Array.isArray(e.aliases) ? e.aliases : String(e.aliases || '').split(','))
+                    ].map(normalizarTextoEdificio).filter(Boolean);
 
-        // 2. Coincidencia completa por nombre, dirección o aliases
-        for (const e of listaEdificios) {
-            const nombreNorm = normalizarTextoEdificio(e.nombre);
-            const dirNorm = normalizarTextoEdificio(e.direccion);
-            if (nombreNorm && (txtNorm.includes(nombreNorm) || (nombreNorm.length > 6 && txtNorm.includes(nombreNorm)))) return e;
-            if (dirNorm && (txtNorm.includes(dirNorm) || (dirNorm.length > 6 && txtNorm.includes(dirNorm)))) return e;
-
-            if (e.aliases && Array.isArray(e.aliases)) {
-                for (const alias of e.aliases) {
-                    const aliasNorm = normalizarTextoEdificio(alias);
-                    if (aliasNorm && txtNorm.includes(aliasNorm)) return e;
+                    for (const campo of todosLosCampos) {
+                        const numsCampo = campo.match(/\d+/g) || [];
+                        if (numsCampo.includes(num)) {
+                            console.log(`🎯 Edificio matcheado por número ${num}: "${e.nombre}" (campo: "${campo}")`);
+                            return e;
+                        }
+                    }
                 }
             }
         }
+
+        // 2. BÚSQUEDA BIDIRECCIONAL COMPLETA
+        for (const e of listaEdificios) {
+            const variaciones = [
+                e.nombre,
+                e.direccion,
+                ...(Array.isArray(e.aliases) ? e.aliases : String(e.aliases || '').split(','))
+            ].map(normalizarTextoEdificio).filter(Boolean);
+
+            for (const v of variaciones) {
+                if (v.length < 3) continue;
+                if (txtNorm.includes(v) || v.includes(txtNorm)) {
+                    console.log(`🎯 Edificio matcheado por variación bidireccional "${v}": "${e.nombre}"`);
+                    return e;
+                }
+
+                const palabrasVar = v.split(' ').filter(p => p.length >= 4);
+                if (palabrasVar.length > 0 && palabrasVar.every(p => txtNorm.includes(p))) {
+                    console.log(`🎯 Edificio matcheado por palabras clave de variación "${v}": "${e.nombre}"`);
+                    return e;
+                }
+            }
+        }
+
         return null;
     }
 
@@ -712,7 +731,7 @@ function validarYSanitizarNombre(nombre) {
 
     // Si aún no tenemos edificioId (y es vecino), dejamos que Marcos-Cara lo pida naturalmente
     if (!session.edificioId && datosEmisor.rol === 'vecino') {
-        const respuestaCara = await responderVecino({
+        const resCara = await responderVecino({
             historial,
             vecino: session.datosVecino || (session.pushName ? { nombre: session.pushName } : null),
             opcionesEdificio: session.opcionesEdificio,
@@ -721,7 +740,10 @@ function validarYSanitizarNombre(nombre) {
             datosEmisor
         });
         delete session.opcionesEdificio;
-        await despacharRespuesta(recipient, respuestaCara, msgType);
+        const respuestaCaraStr = (typeof resCara === 'object' && resCara !== null && resCara.texto)
+            ? String(resCara.texto)
+            : String(resCara || '');
+        await despacharRespuesta(recipient, respuestaCaraStr, msgType);
         return;
     }
 
@@ -890,7 +912,7 @@ function validarYSanitizarNombre(nombre) {
 
     // ── FASE 3: RESPUESTA (Marcos-Cara) ───────────────────────────────────────────
 
-    let respuesta = await responderVecino({
+    const resCara = await responderVecino({
         historial,
         vecino,
         memoriaVecino,
@@ -902,6 +924,10 @@ function validarYSanitizarNombre(nombre) {
         edificiosConocidos: edificiosConocidos,
         datosEmisor
     });
+
+    let respuesta = (typeof resCara === 'object' && resCara !== null && resCara.texto)
+        ? String(resCara.texto)
+        : String(resCara || '');
 
     // Filtro de seguridad: eliminar rastro de "opciones" si la IA se desvía
     respuesta = respuesta.replace(/Opción \d:?/gi, '')

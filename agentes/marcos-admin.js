@@ -1,5 +1,5 @@
 const { GoogleGenAI } = require('@google/genai');
-const { guardarEvento, actualizarMemoriaVecino } = require('../sheets');
+const { guardarReporte, guardarMemoriaVecino } = require('../sheets');
 const { enviarWhatsApp } = require('./marcos-ops');
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -20,33 +20,35 @@ async function reportarAlAdmin({
 
         let idEvento = `CASO-${Date.now().toString().slice(-4)}`;
 
-        // 1. Guardar evento en la planilla Google Sheets
-        await guardarEvento({
-            id_evento: idEvento,
-            fecha: new Date().toLocaleDateString('es-AR'),
-            hora: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
-            edificio: vecino?.edificio || 'No especificado',
-            departamento: vecino?.departamento || vecino?.depto || '',
-            vecino_nombre: vecino?.nombre || 'Desconocido',
-            vecino_telefono: vecino?.telefono || '',
-            tipo_problema: decisionCaso?.tipo_problema || 'otro',
-            resumen_problema: decisionCaso?.resumen_problema || 'Sin descripción',
-            urgencia: decisionCaso?.urgencia || 'baja',
-            estado_emocional: decisionCaso?.estado_emocional || 'normal',
-            tecnico_asignado: tecnicoAsignado?.nombre || 'No requerido',
-            tecnico_telefono: tecnicoAsignado?.telefono || '',
-            estado: decisionCaso?.cerrar_caso ? 'Cerrado' : 'Abierto',
-            motivo_cierre: decisionCaso?.motivo_cierre || '',
-            factura_proveedor: datosFactura?.proveedor || '',
-            factura_monto: datosFactura?.monto || '',
-            factura_url: datosFactura?.url_archivo || '',
-            audio_url: audio_url || '',
-            transcripcion: transcripcion || ''
-        });
+        // 1. Guardar reporte en la planilla Google Sheets
+        if (typeof guardarReporte === 'function') {
+            await guardarReporte({
+                id_evento: idEvento,
+                fecha: new Date().toLocaleDateString('es-AR'),
+                hora: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+                edificio: vecino?.edificio || 'No especificado',
+                departamento: vecino?.departamento || vecino?.depto || '',
+                vecino_nombre: vecino?.nombre || 'Desconocido',
+                vecino_telefono: vecino?.telefono || '',
+                tipo_problema: decisionCaso?.tipo_problema || 'otro',
+                resumen_problema: decisionCaso?.resumen_problema || 'Sin descripción',
+                urgencia: decisionCaso?.urgencia || 'baja',
+                estado_emocional: decisionCaso?.estado_emocional || 'normal',
+                tecnico_asignado: tecnicoAsignado?.nombre || 'No requerido',
+                tecnico_telefono: tecnicoAsignado?.telefono || '',
+                estado: decisionCaso?.cerrar_caso ? 'Cerrado' : 'Abierto',
+                motivo_cierre: decisionCaso?.motivo_cierre || '',
+                factura_proveedor: datosFactura?.proveedor || '',
+                factura_monto: datosFactura?.monto || '',
+                factura_url: datosFactura?.url_archivo || '',
+                audio_url: audio_url || '',
+                transcripcion: transcripcion || ''
+            });
+        }
 
         // 2. Actualizar memoria de 60 días del vecino si hay datos nuevos
-        if (vecino?.telefono && decisionCaso?.resumen_para_memoria) {
-            await actualizarMemoriaVecino({
+        if (vecino?.telefono && decisionCaso?.resumen_para_memoria && typeof guardarMemoriaVecino === 'function') {
+            await guardarMemoriaVecino({
                 telefono: vecino.telefono,
                 nuevoResumen: decisionCaso.resumen_para_memoria,
                 nuevasNotasTrato: decisionCaso.notas_trato || ''
