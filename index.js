@@ -644,45 +644,42 @@ function validarYSanitizarNombre(nombre) {
 
         const numerosEnMensaje = txtNorm.match(/\d+/g) || [];
 
-        // 1. REGLA POR NÚMERO DE CALLE/ALTURA (ej: 159 o 270)
+        // 1. REGLA POR NÚMERO DE CALLE EXACTO DE ESE EDIFICIO
         if (numerosEnMensaje.length > 0) {
             for (const num of numerosEnMensaje) {
-                for (const e of listaEdificios) {
-                    const todosLosCampos = [
+                const edificioConNum = listaEdificios.find(e => {
+                    const todosLosCamposDeEsteEdificio = [
                         e.nombre,
                         e.direccion,
                         ...(Array.isArray(e.aliases) ? e.aliases : String(e.aliases || '').split(','))
                     ].map(normalizarTextoEdificio).filter(Boolean);
 
-                    for (const campo of todosLosCampos) {
-                        const numsCampo = campo.match(/\d+/g) || [];
-                        if (numsCampo.includes(num)) {
-                            console.log(`🎯 Edificio matcheado por número ${num}: "${e.nombre}" (campo: "${campo}")`);
-                            return e;
-                        }
-                    }
+                    return todosLosCamposDeEsteEdificio.some(campo => {
+                        const nums = campo.match(/\d+/g) || [];
+                        return nums.includes(num);
+                    });
+                });
+
+                if (edificioConNum) {
+                    console.log(`🎯 Coincidencia exacta por número de altura ${num} -> Edificio: "${edificioConNum.nombre}"`);
+                    return edificioConNum;
                 }
             }
         }
 
-        // 2. BÚSQUEDA BIDIRECCIONAL COMPLETA
+        // 2. REGLA POR COINCIDENCIA DE ALIAS / DIRECCIÓN / NOMBRE PROPIO DE ESE EDIFICIO
         for (const e of listaEdificios) {
-            const variaciones = [
+            const variacionesPropias = [
                 e.nombre,
                 e.direccion,
                 ...(Array.isArray(e.aliases) ? e.aliases : String(e.aliases || '').split(','))
             ].map(normalizarTextoEdificio).filter(Boolean);
 
-            for (const v of variaciones) {
+            for (const v of variacionesPropias) {
                 if (v.length < 3) continue;
-                if (txtNorm.includes(v) || v.includes(txtNorm)) {
-                    console.log(`🎯 Edificio matcheado por variación bidireccional "${v}": "${e.nombre}"`);
-                    return e;
-                }
-
-                const palabrasVar = v.split(' ').filter(p => p.length >= 4);
-                if (palabrasVar.length > 0 && palabrasVar.every(p => txtNorm.includes(p))) {
-                    console.log(`🎯 Edificio matcheado por palabras clave de variación "${v}": "${e.nombre}"`);
+                // El mensaje del usuario debe contener la variación/alias propio de este edificio
+                if (txtNorm.includes(v)) {
+                    console.log(`🎯 Coincidencia por alias/dirección exacta "${v}" -> Edificio: "${e.nombre}"`);
                     return e;
                 }
             }
