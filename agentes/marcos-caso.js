@@ -42,7 +42,7 @@ Tu respuesta SIEMPRE debe ser este JSON (completá cada campo):
   "tipo_problema": "electricidad" | "plomería" | "gas" | "ascensor" | "cerrajería" | "limpieza" | "administración" | "otro",
   "resumen_problema": "descripción breve en una oración",
   "ofrecer_propuesta_informada": true | false,
-  "texto_propuesta": "Una ÚNICA propuesta directa y clara para el vecino. Nunca des opciones numeradas ni variantes.",
+  "texto_propuesta": "Una ÚNICA propuesta directa y clara para el vecino (ej: '¿Quiere que mande al técnico ahora o prefiere esperar a mañana?'). Nunca des opciones numeradas ni variantes.",
   "contactar_tecnico": true | false,
   "contactar_encargado": true | false,
   "cerrar_caso": true | false,
@@ -67,18 +67,21 @@ REGLA CLAVE — ÁREAS COMUNES VS ÁREAS PRIVADAS Y CLASIFICACIÓN DE URGENCIA:
    - El Consorcio responde 100%. Poner 'contactar_tecnico: true' SOLO si el problema específico ya está identificado.
    - JAMÁS sugieras que el vecino lo cambie o lo resuelva por su cuenta en áreas comunes.
    - Si la falla en área común involucra riesgo físico, oscuridad en pasillos de tránsito, puerta sin traba o ascensor -> Clasificar como 'urgencia: "alta"' o 'media'.
-   - ELEVACIÓN POR EL VECINO: Si el vecino aclara o confirma que para él es URGENTE (por seguridad, visibilidad o prevención de accidentes), ELEVAR a 'urgencia: "alta"' y 'contactar_tecnico: true'.
+   - ELEVACIÓN POR EL VECINO: Si en un principio parecía un arreglo menor (ej: una lámpara quemada en palier), pero el vecino aclara o confirma que para él es URGENTE (por seguridad, visibilidad, edad o prevención de accidentes), ELEVAR INMEDIATAMENTE a 'urgencia: "alta"' y 'contactar_tecnico: true'.
 
 2. ÁREAS PRIVADAS (Dentro del departamento): Canillas interiores, enchufes propios, artefactos del departamento.
    - Poner 'contactar_tecnico: false'. El consorcio no se hace cargo de reparaciones privadas.
+   - Ofrecer asesoramiento empático y recomendar derivar el contacto de los proveedores asignados para contratación particular del vecino.
 
 3. CONSULTAS GENERALES / SALUDOS:
    - Si el vecino solo hace un saludo genérico ("Hola", "Buenas noches") o consulta algo administrativo (expensas, reglamento), poner 'contactar_tecnico: false', 'urgencia: "baja"'.
 
-REGLA DE CIERRE Y ESTADO DEL CASO [CASO-XXXX]:
+REGLA DE CIERRE Y ESTADO DEL CASO:
 60. UN CASO TÉCNICO O RECLAMO JAMÁS SE CIERRA NI SE MARCA COMO RESUELTO MIENTRAS ESTÉ PENDIENTE DE REVISIÓN, VISITA TÉCNICA O RECOLECCIÓN DE DATOS.
-61. Si el cliente o técnico dice "ya está listo", "terminé" o "se arregló", NO CERRAR TODOS LOS CASOS DEL EDIFICIO. Verificar a cuál [CASO-XXXX] específico corresponde. Si hay dudas o múltiples casos activos en el edificio, mantener 'cerrar_caso: false' para que Marcos indague cuál es el caso finalizado.
-62. Poner 'cerrar_caso: true' ÚNICAMENTE si se confirmó de forma explícita el código de caso [CASO-XXXX] o si es el único caso abierto y el trabajo está concluido.
+61. Si se identificó un problema técnico (ej: puerta de entrada rota, cortocircuito, filtración) o se contactó a un proveedor o se está solicitando foto/información al vecino, MANTENER OBLIGATORIAMENTE 'cerrar_caso: false'.
+62. Poner 'cerrar_caso: true' ÚNICAMENTE en consultas administrativas simples respondidas inmediatamente (ej: consultar horario de expensas) que NO requieran intervención ni visita técnica posterior.
+63. JAMÁS poner 'cerrar_caso: true' si el caso requiere reparación, envío de técnico, o recolección de fotos/videos.
+64. CRITICAL: NUNCA uses listas, viñetas, guiones, ni la palabra 'opciones' en el texto_propuesta. Solo una frase directa de acción o consulta única.
 `.trim();
 
     const prompt = `CONTEXTO DEL EDIFICIO:
@@ -101,17 +104,21 @@ Analizá la conversación y devolvé el JSON de evaluación.`;
             contents: [{ text: prompt }],
             config: {
                 systemInstruction: systemPrompt,
-                temperature: 0.2,
+                temperature: 0.2, // baja temperatura para decisiones consistentes
             },
         });
 
-        let texto = response.text.trim().replace(/```json|```/g, '').trim();
+        let texto = response.text.trim();
+        // Limpiar posibles backticks que Gemini a veces agrega igual
+        texto = texto.replace(/```json|```/g, '').trim();
+
         const decision = JSON.parse(texto);
         console.log('🧠 Marcos-Caso evaluó:', JSON.stringify(decision, null, 2));
         return decision;
 
     } catch (err) {
         console.error('Error en Marcos-Caso:', err.message);
+        // Fallback seguro si falla el parseo
         return {
             urgencia: 'media',
             tipo_problema: 'otro',

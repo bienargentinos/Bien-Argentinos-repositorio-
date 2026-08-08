@@ -20,12 +20,7 @@
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
-let google = null;
-try {
-    google = require('googleapis').google;
-} catch (e) {
-    console.log('⚠️ googleapis no disponible en dashboard, continuando...');
-}
+const { google } = require('googleapis');
 
 const router = express.Router();
 
@@ -1849,13 +1844,146 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
 })();
 
 window.checkAndRunFirstTimeTour = function checkAndRunFirstTimeTour(force){
-  if(typeof toast === 'function'){
-    toast('📍 Recorrido iniciado: explorá las secciones del menú lateral.', 'ok');
-  } else if(typeof showToast === 'function'){
-    showToast('📍 Recorrido iniciado: explorá las secciones del menú lateral.', '📍');
+  var TOUR_STEPS = [
+    { sel: '[data-tour="nav-resumen"]', title: 'Resumen', desc: 'Acá tenés el pantallazo general: reclamos activos, urgencias y lo último que pasó en tus edificios.' },
+    { sel: '[data-tour="nav-eventos"]', title: 'Eventos', desc: 'Todos los reclamos e incidentes reportados por los vecinos, con su estado y el detalle completo de cada caso.' },
+    { sel: '[data-tour="nav-edificio"]', title: 'Mi Edificio', desc: 'Los datos de tu edificio: personal de guardia, proveedores asignados y toda la información de contacto.' },
+    { sel: '[data-tour="nav-proveedores"]', title: 'Proveedores', desc: 'Tu lista de técnicos y proveedores de servicio, con sus datos de contacto y especialidad.' },
+    { sel: '[data-tour="nav-facturas"]', title: 'Facturas/Fotos', desc: 'Facturas y fotos que se van adjuntando a los casos, todo organizado en un solo lugar.' },
+    { sel: '[data-tour="nav-expensas"]', title: 'Expensas', desc: 'Consultá el estado de las expensas de tu edificio.' },
+    { sel: '[data-tour="nav-sugerencias"]', title: 'Sugerencias', desc: 'Ideas y pedidos que dejás para mejorar el servicio.' },
+    { sel: '[data-tour="nav-consumos"]', title: 'Consumos', desc: 'El consumo y la actividad de cada uno de tus edificios.' },
+    { sel: '[data-tour="nav-edificios"]', title: 'Clientes', desc: 'Todos los clientes y edificios que administrás, organizados para encontrar cualquiera rápido.' },
+    { sel: '[data-tour="nav-solicitudes"]', title: 'Solicitudes', desc: 'Pedidos de tus clientes pendientes de aprobación.' },
+    { sel: '[data-tour="nav-suscripciones"]', title: 'Planes y Pagos', desc: 'El estado de los planes y pagos de cada cliente.' },
+    { sel: '[data-tour="metrics"]', title: 'Métricas rápidas', desc: 'Un pantallazo rápido: reclamos abiertos, urgencias y edificios activos.' },
+    { sel: '[data-tour="event-table"]', title: 'Últimos eventos', desc: 'Acá aparecen los eventos más recientes, a medida que Marcos los va reportando en tiempo real.' },
+    { sel: '[data-tour="ai-widget"]', title: 'Asistente Virtual', desc: 'Volvé acá cuando quieras: preguntame lo que necesites sobre cómo usar el panel.' }
+  ];
+
+  var pasos = TOUR_STEPS.filter(function (p) {
+    var el = document.querySelector(p.sel);
+    return el && el.offsetParent !== null;
+  });
+
+  if (pasos.length === 0) {
+    if (typeof toast === 'function') toast('No hay nada para recorrer en esta pantalla todavía.', 'err');
+    return;
   }
+
+  iniciarRecorridoTour(pasos);
 };
 var checkAndRunFirstTimeTour = window.checkAndRunFirstTimeTour;
+
+function iniciarRecorridoTour(pasos) {
+  var idx = 0;
+  var overlay = document.createElement('div');
+  overlay.id = 'tour-overlay-bg';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;background:transparent;';
+
+  var spot = document.createElement('div');
+  spot.id = 'tour-spotlight';
+  spot.style.cssText = 'position:fixed;z-index:100001;border-radius:12px;box-shadow:0 0 0 9999px rgba(10,18,35,.6);transition:all .35s ease;pointer-events:none;';
+
+  var card = document.createElement('div');
+  card.id = 'tour-card';
+  card.style.cssText = 'position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:100002;width:320px;max-width:92vw;background:#fff;border-radius:16px;box-shadow:0 20px 50px -12px rgba(16,35,59,.45);padding:18px 20px;font-family:"Hanken Grotesk",sans-serif;';
+
+  var stepLabel = document.createElement('div');
+  stepLabel.style.cssText = 'font-size:11px;font-weight:800;color:#2E6FC0;letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px;';
+
+  var titleEl = document.createElement('div');
+  titleEl.style.cssText = 'font-size:15.5px;font-weight:800;color:#16233B;margin-bottom:6px;';
+
+  var descEl = document.createElement('div');
+  descEl.style.cssText = 'font-size:13.5px;color:#475569;line-height:1.5;margin-bottom:16px;';
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;align-items:center;';
+
+  var btnSaltar = document.createElement('button');
+  btnSaltar.textContent = 'Saltar';
+  btnSaltar.style.cssText = 'background:none;border:none;color:#94A3B8;font-weight:700;font-size:13px;cursor:pointer;padding:8px 4px;';
+
+  var spacer = document.createElement('div');
+  spacer.style.cssText = 'flex:1;';
+
+  var btnAnterior = document.createElement('button');
+  btnAnterior.textContent = '← Atrás';
+  btnAnterior.style.cssText = 'background:#F1F5FB;border:none;color:#17408B;font-weight:700;font-size:13px;cursor:pointer;padding:9px 14px;border-radius:9px;';
+
+  var btnSiguiente = document.createElement('button');
+  btnSiguiente.style.cssText = 'background:linear-gradient(180deg,#2E6FC0,#1E5FB4);border:none;color:#fff;font-weight:700;font-size:13px;cursor:pointer;padding:9px 16px;border-radius:9px;';
+
+  btnRow.appendChild(btnSaltar);
+  btnRow.appendChild(spacer);
+  btnRow.appendChild(btnAnterior);
+  btnRow.appendChild(btnSiguiente);
+
+  card.appendChild(stepLabel);
+  card.appendChild(titleEl);
+  card.appendChild(descEl);
+  card.appendChild(btnRow);
+
+  document.body.appendChild(overlay);
+  document.body.appendChild(spot);
+  document.body.appendChild(card);
+
+  function posicionarEnElemento(el) {
+    var r = el.getBoundingClientRect();
+    var pad = 8;
+    spot.style.top = (r.top - pad) + 'px';
+    spot.style.left = (r.left - pad) + 'px';
+    spot.style.width = (r.width + pad * 2) + 'px';
+    spot.style.height = (r.height + pad * 2) + 'px';
+  }
+
+  function render() {
+    if (idx >= pasos.length) { cerrar(); return; }
+    var p = pasos[idx];
+    var el = document.querySelector(p.sel);
+    if (!el) { idx++; render(); return; }
+
+    stepLabel.textContent = 'Paso ' + (idx + 1) + ' de ' + pasos.length;
+    titleEl.textContent = p.title;
+    descEl.textContent = p.desc;
+    btnAnterior.style.visibility = idx === 0 ? 'hidden' : 'visible';
+    btnSiguiente.textContent = idx === pasos.length - 1 ? 'Listo ✓' : 'Siguiente →';
+
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(function () { posicionarEnElemento(el); }, 280);
+  }
+
+  function reposicionarActual() {
+    var p = pasos[idx];
+    if (!p) return;
+    var el = document.querySelector(p.sel);
+    if (el) posicionarEnElemento(el);
+  }
+
+  function cerrar() {
+    window.removeEventListener('resize', reposicionarActual);
+    if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    if (spot.parentNode) spot.parentNode.removeChild(spot);
+    if (card.parentNode) card.parentNode.removeChild(card);
+  }
+
+  btnSiguiente.onclick = function () {
+    if (idx === pasos.length - 1) { cerrar(); return; }
+    idx++;
+    render();
+  };
+  btnAnterior.onclick = function () {
+    if (idx === 0) return;
+    idx--;
+    render();
+  };
+  btnSaltar.onclick = cerrar;
+  overlay.onclick = cerrar;
+
+  window.addEventListener('resize', reposicionarActual);
+  render();
+}
 
 window.enviarPreguntaAsistente = async function enviarPreguntaAsistente(){
   var input = document.getElementById('ac-ai-input');
@@ -4480,7 +4608,7 @@ function shell(req, d, activeKey, contenido) {
   const navHtml = nav.map((n) => {
     const active = n.key === activeKey;
     return `
-      <a href="${n.href}" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;border-radius:11px;background:${active ? '#EAF1FB' : 'transparent'};color:${active ? '#17408B' : '#475569'};font-weight:${active ? '800' : '600'};font-size:14.5px;text-align:left;position:relative" class="hv-soft">
+      <a href="${n.href}" data-tour="nav-${n.key}" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;border-radius:11px;background:${active ? '#EAF1FB' : 'transparent'};color:${active ? '#17408B' : '#475569'};font-weight:${active ? '800' : '600'};font-size:14.5px;text-align:left;position:relative" class="hv-soft">
         <span style="font-size:17px;width:22px;text-align:center">${n.icon}</span>
         <span style="flex:1">${n.label}</span>
         ${n.badge ? `<span style="min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#E5484D;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${n.badge}</span>` : ''}
@@ -4595,33 +4723,33 @@ function shell(req, d, activeKey, contenido) {
     </main>
   <!-- BARRA DE NAVEGACION INFERIOR PARA MOVIL -->
   <div class="mobile-bottom-nav">
-    <a href="/admin" class="${activeKey === 'resumen' ? 'active' : ''}">
+    <a href="/admin" data-tour="nav-resumen" class="${activeKey === 'resumen' ? 'active' : ''}">
       <span class="nav-icon">📊</span>
       <span class="nav-label">Resumen</span>
     </a>
-    <a href="/admin/mi-edificio" class="${activeKey === 'edificio' ? 'active' : ''}">
+    <a href="/admin/mi-edificio" data-tour="nav-edificio" class="${activeKey === 'edificio' ? 'active' : ''}">
       <span class="nav-icon">🏢</span>
       <span class="nav-label">Edificio</span>
     </a>
-    <a href="/admin/eventos" class="${activeKey === 'eventos' ? 'active' : ''}">
+    <a href="/admin/eventos" data-tour="nav-eventos" class="${activeKey === 'eventos' ? 'active' : ''}">
       <span class="nav-icon">📋</span>
       <span class="nav-label">Eventos</span>
     </a>
     ${dueno ? `
-    <a href="/admin/clientes" class="${activeKey === 'clientes' ? 'active' : ''}">
+    <a href="/admin/clientes" data-tour="nav-edificios" class="${activeKey === 'clientes' ? 'active' : ''}">
       <span class="nav-icon">👥</span>
       <span class="nav-label">Clientes</span>
     </a>
-    <a href="/admin/suscripciones" class="${activeKey === 'suscripciones' ? 'active' : ''}">
+    <a href="/admin/suscripciones" data-tour="nav-suscripciones" class="${activeKey === 'suscripciones' ? 'active' : ''}">
       <span class="nav-icon">💳</span>
       <span class="nav-label">Planes</span>
     </a>
     ` : `
-    <a href="/admin/archivos" class="${activeKey === 'archivos' ? 'active' : ''}">
+    <a href="/admin/archivos" data-tour="nav-facturas" class="${activeKey === 'archivos' ? 'active' : ''}">
       <span class="nav-icon">🧾</span>
       <span class="nav-label">Facturas</span>
     </a>
-    <a href="/admin/sugerencias" class="${activeKey === 'sugerencias' ? 'active' : ''}">
+    <a href="/admin/sugerencias" data-tour="nav-sugerencias" class="${activeKey === 'sugerencias' ? 'active' : ''}">
       <span class="nav-icon">💡</span>
       <span class="nav-label">Ideas</span>
     </a>

@@ -5,14 +5,6 @@ const fs = require('fs');
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-/**
- * MARCOS-OPS
- * Contacta encargados y técnicos.
- * Gestiona estados de la orden de trabajo [CASO-XXXX].
- * Reenvía imágenes y videos relevantes del vecino al técnico.
- * Cancela temporizadores cuando el técnico confirma o solicita datos.
- */
-
 if (!global.colasProveedores) global.colasProveedores = new Map();
 if (!global.timersEscalacionProveedores) global.timersEscalacionProveedores = new Map();
 
@@ -28,7 +20,6 @@ async function gestionarOperaciones({
     const mensajesEnviados = [];
     const idCasoFinal = id_evento || `CASO-${Date.now().toString().slice(-4)}`;
 
-    // ── 1. CONTACTAR ENCARGADO si está de turno y hay que avisarle ──
     if (decisionCaso.contactar_encargado && personalDeTurno?.telefono) {
         const mensajeEncargado = await generarMensajeEncargado({ vecino, decisionCaso, personalDeTurno, id_evento: idCasoFinal });
         await enviarWhatsApp(personalDeTurno.telefono, mensajeEncargado, phoneNumberId, accessToken);
@@ -36,7 +27,6 @@ async function gestionarOperaciones({
         console.log(`👷 Encargado ${personalDeTurno.nombre} notificado de ${idCasoFinal}.`);
     }
 
-    // ── 2. CONTACTAR TÉCNICO con sistema de Cola de Espera y plantilla ──
     if (decisionCaso.contactar_tecnico && tecnicoAsignado?.telefono) {
         const resQueue = await notificarProveedorConCola({
             vecino,
@@ -55,10 +45,8 @@ async function gestionarOperaciones({
             console.log(`🔧 Técnico ${tecnicoAsignado.nombre} notificado del [${idCasoFinal}].`);
         }
 
-        // Programar temporizador de escalación si no responde en 20 min
         programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, phoneNumberId, accessToken, paso: 1, id_evento: idCasoFinal });
 
-        // ── 3. COORDINACIÓN DE ACCESO ──
         if (tecnicoAsignado.acceso &&
             !tecnicoAsignado.acceso.toLowerCase().includes('qr') &&
             !tecnicoAsignado.acceso.toLowerCase().includes('llave') &&
@@ -77,7 +65,6 @@ async function gestionarOperaciones({
     return mensajesEnviados;
 }
 
-// ── COLA DE PROVEEDORES & CONVERSACIÓN ACTIVA ──
 async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, id_evento }) {
     const telTech = String(tecnicoAsignado.telefono).replace(/\D/g, '');
     if (!global.colasProveedores.has(telTech)) {
@@ -89,12 +76,6 @@ async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado
     }
 
     const estadoProv = global.colasProveedores.get(telTech);
-
-    // Si ya le enviamos notificación de este mismo caso recientemente, no reenviar compulsivamente
-    if (estadoProv.eventoActivoId === id_evento && estadoProv.notificado) {
-        console.log(`ℹ️ Proveedor ${tecnicoAsignado.nombre} ya fue notificado previamente del [${id_evento}].`);
-        return { encolado: false, yaNotificado: true };
-    }
 
     estadoProv.eventoActivoId = id_evento;
     estadoProv.edificioActivo = vecino?.edificio;
@@ -110,6 +91,11 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
     const perfilEdif = await buscarPerfilEdificio(vecino?.edificio);
     const direccionExacta = perfilEdif?.direccion || vecino?.direccion || vecino?.edificio || 'Consorcio';
 
+    const rawNombre = (vecino?.nombre && vecino?.nombre !== 'Vecino' && vecino?.nombre !== 'Desconocido') ? vecino.nombre : 'Vecino';
+    const rawDepto = vecino?.departamento || vecino?.depto || '';
+    const deptoStr = rawDepto ? `(${rawDepto})` : '';
+    const vecinoConDepto = `${rawNombre} ${deptoStr}`.trim();
+
     const textoProblemaConCaso = `[${id_evento}] ${decisionCaso.resumen_problema || 'Requerimiento técnico'}`;
 
     const componentesPlantilla = [
@@ -117,8 +103,8 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
             type: 'body',
             parameters: [
                 { type: 'text', text: tecnicoAsignado.nombre || 'Técnico' },
-                { type: 'text', text: `${direccionExacta}${vecino?.departamento ? ' (Depto ' + vecino.departamento + ')' : ''}` },
-                { type: 'text', text: textoProblemaConCaso },
+                { type: 'text', text: direccionExacta },
+                { type: 'text', text: `${vecinoConDepto} — ${textoProblemaConCaso}` },
                 { type: 'text', text: (decisionCaso.urgencia || 'media').toUpperCase() },
                 { type: 'text', text: tecnicoAsignado.acceso || 'Coordinar ingreso con administración' }
             ]
@@ -151,7 +137,6 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
     }
 }
 
-// ── CANCELAR ESCALACIÓN CUANDO EL PROVEEDOR RESPONDE ──
 function cancelarEscalacionProveedor(telefonoProveedor) {
     const telClean = String(telefonoProveedor).replace(/\D/g, '');
     for (const [key, timer] of global.timersEscalacionProveedores.entries()) {
@@ -163,7 +148,6 @@ function cancelarEscalacionProveedor(telefonoProveedor) {
     }
 }
 
-// ── REENVÍO DE FOTOS / VIDEOS VALIDADOS AL PROVEEDOR ──
 async function retransmitirMediaAlProveedor({ tecnicoTelefono, filePath, mimeType, id_evento, edificio, caption, phoneNumberId, accessToken }) {
     try {
         if (!tecnicoTelefono || !filePath || !fs.existsSync(filePath)) return false;
@@ -190,10 +174,14 @@ async function retransmitirMediaAlProveedor({ tecnicoTelefono, filePath, mimeTyp
 
 async function generarMensajeEncargado({ vecino, decisionCaso, personalDeTurno, id_evento }) {
     const emojiUrgencia = decisionCaso.urgencia === 'alta' ? '🚨' : '📋';
+    const nombreVecinoBase = (vecino?.nombre && vecino?.nombre !== 'Vecino' && vecino?.nombre !== 'Desconocido') ? vecino.nombre : 'Vecino';
+    const deptoStr = vecino?.departamento ? `(${vecino.departamento})` : '';
+    const vecinoConDepto = `${nombreVecinoBase} ${deptoStr}`.trim();
+
     return `${emojiUrgencia} *MARCOS — AVISO INTERNO [${id_evento}]*\n\n` +
         `Hola ${personalDeTurno.nombre}, te cuento que acabo de recibir un reclamo:\n\n` +
         `📍 *Edificio:* ${vecino?.edificio || 'No especificado'}\n` +
-        `🏠 *Depto:* ${vecino?.departamento || 'Por confirmar'}\n` +
+        `👤 *Solicitante:* ${vecinoConDepto}\n` +
         `⚠️ *Problema:* [${id_evento}] ${decisionCaso.resumen_problema}\n` +
         `🚦 *Urgencia:* ${decisionCaso.urgencia.toUpperCase()}\n\n` +
         `¿Podés revisar? Avisame cuando puedas.`;
@@ -203,15 +191,17 @@ async function generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id
     const { buscarPerfilEdificio } = require('../sheets');
     const perfilEdif = await buscarPerfilEdificio(vecino?.edificio);
     const direccionExacta = perfilEdif?.direccion || vecino?.direccion || vecino?.edificio || 'Consorcio';
-    const nombreVecinoLimpio = (vecino?.nombre && vecino?.nombre !== 'Vecino' && vecino?.nombre !== 'Desconocido') ? vecino.nombre : 'A confirmar';
+    
+    const nombreVecinoBase = (vecino?.nombre && vecino?.nombre !== 'Vecino' && vecino?.nombre !== 'Desconocido') ? vecino.nombre : 'Vecino a confirmar';
+    const deptoStr = vecino?.departamento ? `(${vecino.departamento})` : '';
+    const vecinoConDepto = `${nombreVecinoBase} ${deptoStr}`.trim();
 
     const emojiUrgencia = decisionCaso.urgencia === 'alta' ? '🚨' : '🛠️';
     return `${emojiUrgencia} *MARCOS — ORDEN DE TRABAJO [${id_evento}]*\n\n` +
         `Hola ${tecnicoAsignado.nombre}, te mando los detalles de una nueva asistencia:\n\n` +
         `📍 *Dirección:* ${direccionExacta}\n` +
-        `🏠 *Depto:* ${vecino?.departamento || 'A confirmar'}\n` +
-        `👤 *Vecino:* ${nombreVecinoLimpio}\n` +
-        `⚠️ *Problema:* ${decisionCaso.resumen_problema}\n` +
+        `👤 *Solicitante:* ${vecinoConDepto}\n` +
+        `⚠️ *Sector y Requerimiento:* ${decisionCaso.resumen_problema}\n` +
         `🚦 *Urgencia:* ${decisionCaso.urgencia.toUpperCase()}\n` +
         `🔑 *Acceso:* ${tecnicoAsignado.acceso || 'Consultar con encargado'}\n\n` +
         `Por favor confirmame si podés pasar. ¡Gracias!`;
@@ -231,13 +221,16 @@ function normalizarTelefonoWhatsApp(telefono) {
 async function enviarWhatsApp(to, text, phoneNumberId, accessToken) {
     try {
         const telefonoDestino = normalizarTelefonoWhatsApp(to);
+        const textoLimpio = (typeof text === 'object' && text !== null) 
+            ? (text.body || text.texto || text.respuesta || JSON.stringify(text)) 
+            : String(text || '');
         const res = await axios({
             method: 'POST',
             url: `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`,
             data: {
                 messaging_product: 'whatsapp',
                 to: telefonoDestino,
-                text: { body: text },
+                text: { body: textoLimpio },
             },
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -254,6 +247,7 @@ async function enviarWhatsApp(to, text, phoneNumberId, accessToken) {
 async function enviarPlantillaWhatsApp(to, templateName, languageCode, components, phoneNumberId, accessToken) {
     try {
         const telefonoDestino = normalizarTelefonoWhatsApp(to);
+        console.log(`📤 Enviando Plantilla Meta '${templateName}' (${languageCode}) a ${telefonoDestino}...`);
         const res = await axios({
             method: 'POST',
             url: `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`,
@@ -272,9 +266,10 @@ async function enviarPlantillaWhatsApp(to, templateName, languageCode, component
                 'Content-Type': 'application/json',
             },
         });
+        console.log(`✅ Plantilla '${templateName}' enviada con éxito a ${telefonoDestino}. Message ID:`, res.data?.messages?.[0]?.id);
         return true;
     } catch (error) {
-        console.error(`⚠️ Error enviando plantilla '${templateName}':`, error.response?.data || error.message);
+        console.error(`⚠️ Error enviando plantilla '${templateName}' (${languageCode}):`, error.response?.data || error.message);
         return false;
     }
 }

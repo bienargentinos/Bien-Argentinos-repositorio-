@@ -197,7 +197,7 @@ app.post('/webhook', async (req, res) => {
                     WHATSAPP_ACCESS_TOKEN
                 );
             });
-        }, 10000); // 10 segundos de espera para reunir ráfagas de mensajes del vecino sin demorar la respuesta
+        }, 15000); // 15 segundos de espera para reunir ráfagas de mensajes del vecino (audio + texto) sin demorar la respuesta
 
     } catch (err) {
         console.error('Error en webhook:', err.message);
@@ -368,9 +368,14 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pus
         const { transcribirAudio } = require('./stt');
         const transcripcion = await transcribirAudio(media.filePath, media.mimeType);
         if (transcripcion) {
-            textoFinal = transcripcion;
             transcripcionFinal = transcripcion;
-            console.log(`🎙️ Marcos escuchó: "${textoFinal}"`);
+            const textoAdicional = String(msgBody || '').replace(/\(Nota de voz\)/gi, '').trim();
+            if (textoAdicional) {
+                textoFinal = `${transcripcion} ${textoAdicional}`.trim();
+            } else {
+                textoFinal = transcripcion;
+            }
+            console.log(`🎙️ Marcos escuchó y combinó audio + texto: "${textoFinal}"`);
         }
     }
 
@@ -751,10 +756,10 @@ function validarYSanitizarNombre(nombre) {
         buscarPersonalDeTurno({ edificio: session.nombreEdificio }),
     ]);
 
-    // Construir objeto vecino con el edificio de la sesión activa
-    const nombreVecinoFinal = (session.datosVecino && session.datosVecino.nombre) 
+    // Construir objeto vecino con el edificio de la sesión activa (NUNCA usar pushName de WhatsApp como nombre agendado)
+    const nombreVecinoFinal = (session.datosVecino && session.datosVecino.nombre && session.datosVecino.nombre !== 'Vecino' && session.datosVecino.nombre !== 'Desconocido') 
         ? session.datosVecino.nombre 
-        : (session.pushName && session.pushName !== 'Vecino' ? session.pushName : "Vecino");
+        : "Vecino";
 
     const vecino = { 
         nombre: nombreVecinoFinal, 
@@ -907,6 +912,22 @@ function validarYSanitizarNombre(nombre) {
 
     console.log(`🧠 DECISIÓN IA: Urgencia=${decisionCaso.urgencia}, Cerrar=${decisionCaso.cerrar_caso}, Problema=${decisionCaso.tipo_problema}`);
 
+    // Buscar técnico si el caso lo requiere (ANTES de llamar a responderVecino para informar disponibilidad real)
+    let tecnicoAsignado = null;
+    const edificioFinalBusqueda = session.nombreEdificio || vecino?.edificio;
+    if (decisionCaso.contactar_tecnico && edificioFinalBusqueda && decisionCaso.tipo_problema) {
+        tecnicoAsignado = await buscarTecnicoAsignado({
+            edificio:     edificioFinalBusqueda,
+            especialidad: decisionCaso.tipo_problema,
+            esUrgente:    decisionCaso.urgencia === 'alta',
+        });
+        if (tecnicoAsignado) {
+            console.log(`🔧 Técnico encontrado previamente: ${tecnicoAsignado.nombre} (${tecnicoAsignado.telefono})`);
+        } else {
+            console.warn(`⚠️ No se encontró técnico disponible en Sheets para especialidad '${decisionCaso.tipo_problema}' en '${edificioFinalBusqueda}'`);
+        }
+    }
+
     // ── FASE 3: RESPUESTA (Marcos-Cara) ───────────────────────────────────────────
 
     const resCara = await responderVecino({
@@ -915,10 +936,12 @@ function validarYSanitizarNombre(nombre) {
         memoriaVecino,
         personalDeTurno,
         decisionCaso,
+        tecnicoAsignado,
         media,
         opcionesEdificio: null,
         edificioPendiente: null,
         edificiosConocidos: edificiosConocidos,
+        session,
         datosEmisor
     });
 
@@ -1066,17 +1089,6 @@ function validarYSanitizarNombre(nombre) {
     }
 
     // ── FASE 4: OPERACIONES INTERNAS (en paralelo, no bloquean al vecino) ───
-
-    // Buscar técnico si el caso lo requiere
-    let tecnicoAsignado = null;
-    const edificioFinalBusqueda = session.nombreEdificio || vecino?.edificio;
-    if (decisionCaso.contactar_tecnico && edificioFinalBusqueda && decisionCaso.tipo_problema) {
-        tecnicoAsignado = await buscarTecnicoAsignado({
-            edificio:     edificioFinalBusqueda,
-            especialidad: decisionCaso.tipo_problema,
-            esUrgente:    decisionCaso.urgencia === 'alta',
-        });
-    }
 
     // Si no tenemos depto registrado para el vecino, intentar extraerlo ahora del historial
     if (session.nombreEdificio && (!session.datosVecino || !session.datosVecino.departamento)) {

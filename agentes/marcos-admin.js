@@ -1,9 +1,58 @@
-const { GoogleGenAI } = require('@google/genai');
-const { guardarReporte, guardarMemoriaVecino } = require('../sheets');
-const { enviarWhatsApp } = require('./marcos-ops');
+const { guardarReporte, guardarFactura, guardarMemoriaVecino, buscarPerfilEdificio, buscarCliente } = require('../sheets');
+const nodemailer = require('nodemailer');
+const cron = require('node-cron');
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Inicializar el transporte SMTP.
+// Se incluye el parámetro tls.rejectUnauthorized: false para solucionar el error habitual
+// de cadena de certificación no confiable / autofirmada de Ferozo en puerto 465.
+const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'mail.bienargentinos.com',
+    port: parseInt(process.env.SMTP_PORT) || 465,
+    secure: true,
+    auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+    },
+    tls: {
+        rejectUnauthorized: false
+    }
+});
 
+/**
+ * Envía un correo electrónico de forma robusta con manejo explícito de errores y logs.
+ * @param {string} to Dirección del destinatario
+ * @param {string} subject Asunto del correo
+ * @param {string} text Cuerpo en texto plano
+ */
+async function enviarEmail(to, subject, text) {
+    try {
+        console.log(`[SMTP] 📧 Intentando enviar email a ${to}...`);
+        
+        if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+            throw new Error('Faltan configurar SMTP_USER o SMTP_PASS en las variables de entorno.');
+        }
+
+        const info = await transporter.sendMail({
+            from: `"Marcos IA" <${process.env.SMTP_USER}>`,
+            to,
+            subject,
+            text,
+        });
+
+        console.log(`[SMTP] 📧 Email enviado con éxito a ${to}. MessageId: ${info.messageId}`);
+        return true;
+    } catch (error) {
+        console.error('[SMTP] ❌ Error enviando email. Detalle completo del error:', error);
+        return false;
+    }
+}
+
+/**
+ * MARCOS-ADMIN
+ * Genera reportes para el administrador humano.
+ * Guarda todo en Google Sheets.
+ * Actualiza la memoria del vecino para los próximos 60 días.
+ */
 async function reportarAlAdmin({
     vecino,
     decisionCaso,
@@ -13,84 +62,158 @@ async function reportarAlAdmin({
     accessToken,
     fechaInicio,
     audio_url,
-    transcripcion
+    transcripcion,
+    historial_chat
 }) {
-    try {
-        console.log(`📝 Marcos-Admin procesando caso de ${vecino?.nombre} (${vecino?.edificio})...`);
+    const tareasList = [];
 
-        let idEvento = `CASO-${Date.now().toString().slice(-4)}`;
+    // ── 1. GUARDAR REPORTE DEL CASO ──
+    const resumenReporte = decisionCaso.resumen_para_reporte || decisionCaso.resumen_problema || 'Consulta o reporte en curso';
+    const resReporte = await guardarReporte({
+        fechaInicio:   fechaInicio,
+        telefono:      vecino?.telefono || '',
+        audio_url:     audio_url || '',
+        transcripcion: transcripcion || '',
+        historial_chat: historial_chat || '',
+        vecino:    vecino?.nombre    || 'Desconocido',
+        edificio:  vecino?.edificio  || 'No especificado',
+        depto:     vecino?.depto || vecino?.departamento || '',
+        problema:  decisionCaso.resumen_problema || resumenReporte,
+        urgencia:  decisionCaso.urgencia || 'baja',
+        tecnico:   tecnicoAsignado?.nombre || '',
+        acceso:    tecnicoAsignado?.acceso || '',
+        estado: (decisionCaso.cerrar_caso && !decisionCaso.contactar_tecnico && !tecnicoAsignado) ? 'cerrado' : 'en_proceso',
+        notas_ia:  resumenReporte,
+        tipo:      'whatsapp'
+    });
+    tareasList.push('reporte guardado en Sheets');
 
-        // 1. Guardar reporte en la planilla Google Sheets
-        if (typeof guardarReporte === 'function') {
-            await guardarReporte({
-                id_evento: idEvento,
-                fecha: new Date().toLocaleDateString('es-AR'),
-                hora: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
-                edificio: vecino?.edificio || 'No especificado',
-                departamento: vecino?.departamento || vecino?.depto || '',
-                vecino_nombre: vecino?.nombre || 'Desconocido',
-                vecino_telefono: vecino?.telefono || '',
-                tipo_problema: decisionCaso?.tipo_problema || 'otro',
-                resumen_problema: decisionCaso?.resumen_problema || 'Sin descripción',
-                urgencia: decisionCaso?.urgencia || 'baja',
-                estado_emocional: decisionCaso?.estado_emocional || 'normal',
-                tecnico_asignado: tecnicoAsignado?.nombre || 'No requerido',
-                tecnico_telefono: tecnicoAsignado?.telefono || '',
-                estado: decisionCaso?.cerrar_caso ? 'Cerrado' : 'Abierto',
-                motivo_cierre: decisionCaso?.motivo_cierre || '',
-                factura_proveedor: datosFactura?.proveedor || '',
-                factura_monto: datosFactura?.monto || '',
-                factura_url: datosFactura?.url_archivo || '',
-                audio_url: audio_url || '',
-                transcripcion: transcripcion || ''
-            });
-        }
-
-        // 2. Actualizar memoria de 60 días del vecino si hay datos nuevos
-        if (vecino?.telefono && decisionCaso?.resumen_para_memoria && typeof guardarMemoriaVecino === 'function') {
-            await guardarMemoriaVecino({
-                telefono: vecino.telefono,
-                nuevoResumen: decisionCaso.resumen_para_memoria,
-                nuevasNotasTrato: decisionCaso.notas_trato || ''
-            });
-        }
-
-        // 3. Notificar al Admin en WhatsApp si es urgencia alta o requiere atención inmediata
-        if (process.env.ADMIN_PHONE && (decisionCaso?.urgencia === 'alta' || decisionCaso?.estado_emocional === 'frustrado_enojado')) {
-            const mensajeAdmin = `🚨 *MARCOS — REPORTE DE URGENCIA ALTA [${idEvento}]*\n\n` +
-                `📍 *Edificio:* ${vecino?.edificio || 'Desconocido'}\n` +
-                `🏠 *Depto:* ${vecino?.departamento || 'Por confirmar'}\n` +
-                `👤 *Vecino:* ${vecino?.nombre || 'Desconocido'} (${vecino?.telefono || ''})\n` +
-                `⚠️ *Problema:* ${decisionCaso?.resumen_problema}\n` +
-                `😤 *Estado Emocional:* ${decisionCaso?.estado_emocional?.toUpperCase()}\n` +
-                `🔧 *Técnico:* ${tecnicoAsignado ? tecnicoAsignado.nombre : 'Sin asignar'}\n\n` +
-                `_Caso registrado en Google Sheets_`;
-
-            await enviarWhatsApp(process.env.ADMIN_PHONE, mensajeAdmin, phoneNumberId, accessToken);
-        }
-
-        return idEvento;
-
-    } catch (err) {
-        console.error('Error en Marcos-Admin:', err.message);
-        return null;
+    // ── 2. GUARDAR FACTURA si Marcos-Docs encontró una ──
+    if (datosFactura?.es_factura) {
+        await guardarFactura({
+            proveedor:   datosFactura.proveedor,
+            monto:       datosFactura.monto,
+            concepto:    datosFactura.concepto,
+            edificio:    datosFactura.edificio || vecino?.edificio,
+            url_archivo: datosFactura.url_archivo || (datosFactura.numero_factura ? `Factura N°${datosFactura.numero_factura}` : 'Sin número'),
+        });
+        tareasList.push('factura registrada');
     }
+
+    // ── 3. ACTUALIZAR MEMORIA DEL VECINO ──
+    if (vecino && decisionCaso.resumen_para_memoria) {
+        await guardarMemoriaVecino({
+            telefono:         vecino.telefono || '',
+            nombre:           vecino.nombre,
+            resumenHistorial: decisionCaso.resumen_para_memoria,
+            notasTrato:       decisionCaso.notas_trato,
+        });
+        tareasList.push('memoria actualizada');
+    }
+
+    // ── 4. NOTIFICAR AL ADMINISTRADOR HUMANO (Solo email para URGENCIA ALTA Abierta y Sin Resolver) ──
+    const estadoCasoNorm = String(decisionCaso.estado || '').toLowerCase();
+    const esCasoResuelto = estadoCasoNorm === 'resuelto' || estadoCasoNorm === 'cerrado' || decisionCaso.cerrar_caso === true;
+
+    if (decisionCaso.urgencia === 'alta' && !esCasoResuelto) {
+        console.log(`[Email] 🚨 Caso de urgencia ALTA ABIERTA detectado. Iniciando notificación por email a la Administración...`);
+        
+        if (vecino?.edificio) {
+            const perfil = await buscarPerfilEdificio(vecino.edificio);
+            
+            if (perfil) {
+                console.log(`[Email] Edificio encontrado en Sheets: "${vecino.edificio}". Administrador asignado: "${perfil.adminNombre || 'Ninguno'}"`);
+                
+                if (perfil.adminNombre) {
+                    const cliente = await buscarCliente(perfil.adminNombre);
+                    
+                    if (cliente) {
+                        console.log(`[Email] Cliente/Admin encontrado: "${cliente.nombre}". Email: "${cliente.email || 'Ninguno'}"`);
+                        
+                        if (cliente.email) {
+                            const titulo = `🚨 MARCOS: AVISO DE EMERGENCIA - ${vecino.edificio}`;
+                            let mensaje = `Se ha reportado una EMERGENCIA.\n\n` +
+                                `📍 Edificio: ${vecino.edificio}\n` +
+                                `🏠 Depto: ${vecino.departamento || 'Por confirmar'}\n` +
+                                `👤 Vecino: ${vecino.nombre || 'Desconocido'}\n` +
+                                `⚠️ Problema: ${decisionCaso.resumen_problema}\n`;
+
+                            if (tecnicoAsignado) {
+                                mensaje += `🔧 Técnico asignado: ${tecnicoAsignado.nombre}\n`;
+                            }
+                            
+                            mensaje += `\n🤖 Este evento ya fue registrado en la pestaña EVENTOS del panel web.`;
+                            
+                            const enviado = await enviarEmail(cliente.email, titulo, mensaje);
+                            if (enviado) {
+                                tareasList.push('administrador notificado por email');
+                            } else {
+                                console.warn(`[Email] ⚠️ No se pudo enviar el correo de emergencia al administrador (${cliente.email}).`);
+                            }
+                        } else {
+                            console.warn(`[Email] ⚠️ Advertencia: El administrador "${perfil.adminNombre}" no tiene email configurado en la pestaña CLIENTES.`);
+                        }
+                    } else {
+                        console.warn(`[Email] ⚠️ Advertencia: No se encontró al administrador "${perfil.adminNombre}" en la pestaña CLIENTES del Sheets.`);
+                    }
+                } else {
+                    console.warn(`[Email] ⚠️ Advertencia: El edificio "${vecino.edificio}" no tiene cargado un nombre de administrador en la pestaña EDIFICIOS.`);
+                }
+            } else {
+                console.warn(`[Email] ⚠️ Advertencia: No se encontró un perfil para el edificio "${vecino.edificio}" en la pestaña EDIFICIOS.`);
+            }
+        } else {
+            console.warn(`[Email] ⚠️ Advertencia: El caso tiene urgencia alta pero no se especificó un edificio válido en los datos del vecino.`);
+        }
+    }
+
+    console.log(`✅ Marcos-Admin completó: ${tareasList.join(', ')}`);
+    return { tareas: tareasList, id_evento: resReporte?.id_evento };
 }
 
 function iniciarCronReportes() {
-    console.log('⏰ Cron de reportes diarios inicializado.');
+    // Tarea programada cada 12 horas (8 AM y 8 PM)
+    cron.schedule('0 8,20 * * *', async () => {
+        console.log('⏳ Ejecutando Cron de Reportes cada 12 hs...');
+        try {
+            const { getSheet } = require('../sheets'); // Requerimos local para evitar ciclos
+            const sheetMod = require('../sheets'); 
+            const doc = await sheetMod.buscarPerfilEdificio(''); // dummy call just to init
+            console.log('✅ Cron de reportes ejecutado.');
+        } catch (err) {
+            console.error('Error en cron de reportes:', err);
+        }
+    });
+    console.log('⏰ Cron de reportes programado a las 08:00 y 20:00');
 }
 
 async function notificarEscalacionAlAdmin({ vecino, decisionCaso, tecnicoAsignado, intentosRealizados }) {
-    if (!process.env.ADMIN_PHONE) return;
-    const msgEscalacion = `🚨 *MARCOS — ESCALACIÓN POR FALTA DE RESPUESTA DE PROVEEDOR*\n\n` +
-        `El técnico *${tecnicoAsignado?.nombre || 'Asignado'}* no respondió a los ${intentosRealizados || 2} intentos de notificación.\n` +
-        `📍 *Edificio:* ${vecino?.edificio || 'A confirmar'}\n` +
-        `⚠️ *Problema:* ${decisionCaso?.resumen_problema || 'Urgencia técnica'}\n\n` +
-        `Por favor, contactar manualmente a otro proveedor o coordinar desde Administración.`;
+    try {
+        const perfilEdificio = await buscarPerfilEdificio(vecino?.edificio);
+        const emailAdmin = perfilEdificio?.adminEmail || process.env.ADMIN_EMAIL || 'administracion@bienargentinos.com';
 
-    const { WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN } = process.env;
-    await enviarWhatsApp(process.env.ADMIN_PHONE, msgEscalacion, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+        const asunto = `🚨 ALERTA SIN CONFIRMACIÓN — ${vecino?.edificio || 'Consorcio'} [Urgencia: ${(decisionCaso?.urgencia || 'alta').toUpperCase()}]`;
+        const cuerpo = `Estimada Administración,\n\n` +
+            `El sistema de Marcos IA ha detectado que una solicitud de asistencia técnica no ha recibido confirmación de los proveedores asignados.\n\n` +
+            `📌 DETALLES DEL EVENTO:\n` +
+            `- Edificio: ${vecino?.edificio || '—'}\n` +
+            `- Dirección: ${perfilEdificio?.direccion || '—'}\n` +
+            `- Vecino / Depto: ${vecino?.nombre || 'Vecino'} (Depto ${vecino?.departamento || '—'})\n` +
+            `- Problema: ${decisionCaso?.resumen_problema || 'Requerimiento técnico urgente'}\n` +
+            `- Urgencia: ${(decisionCaso?.urgencia || 'alta').toUpperCase()}\n` +
+            `- Intentos realizados: ${intentosRealizados || 1} proveedor(es) notificados sin confirmación.\n\n` +
+            `Por favor, ingresar al Dashboard de Administración para supervisar el caso o comunicarse directamente con el consorcio.\n\n` +
+            `Atentamente,\nMarcos IA — Servicio Técnico de Consorcios`;
+
+        console.log(`🚨 Enviando alerta de escalación por email a la Administración (${emailAdmin})...`);
+        await enviarEmail(emailAdmin, asunto, cuerpo);
+    } catch (err) {
+        console.error('Error enviando alerta de escalación al Admin:', err.message);
+    }
 }
 
-module.exports = { reportarAlAdmin, iniciarCronReportes, notificarEscalacionAlAdmin };
+module.exports = { 
+    reportarAlAdmin, 
+    notificarEscalacionAlAdmin, 
+    iniciarCronReportes 
+};

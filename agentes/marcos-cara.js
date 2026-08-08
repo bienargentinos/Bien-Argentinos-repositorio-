@@ -12,7 +12,6 @@ function getPersona() {
     if (hour >= 13 && hour < 20) saludo = 'Buenas tardes';
     if (hour >= 20 || hour < 6) saludo = 'Buenas noches';
     
-    // 08:00 a 19:59 = Susana, resto Marcos
     if (hour >= 8 && hour < 20) {
         return { nombre: 'Susana', voz: 'femenina', trato: 'sumamente profesional, resolutiva y cálida', saludo };
     } else {
@@ -20,10 +19,6 @@ function getPersona() {
     }
 }
 
-/**
- * Evalúa con Gemini Vision si una imagen o video adjuntado por el vecino
- * se relaciona con el problema del edificio reportado.
- */
 async function evaluarImagenConProblema({ mediaPath, mimeType, problemaResumen }) {
     if (!mediaPath || !fs.existsSync(mediaPath)) return { esRelacionada: true, razon: '' };
 
@@ -52,7 +47,7 @@ Devolvé ÚNICAMENTE este formato JSON válido:
         return jsonRes;
     } catch (e) {
         console.error('Error evaluando imagen visualmente:', e.message);
-        return { esRelacionada: true, razon: '' }; // fallback a admitirla por defecto
+        return { esRelacionada: true, razon: '' };
     }
 }
 
@@ -66,10 +61,11 @@ async function responderVecino({
     opcionesEdificio,
     edificioPendiente,
     edificiosConocidos,
+    session,
+    datosEmisor
 }) {
     const persona = getPersona();
 
-    // ── Evaluación de imagen visual adjunta (si la hay) ──
     let instruccionImagenIrrelevante = '';
     let imagenEsValida = true;
 
@@ -90,20 +86,25 @@ DEBES indicarle amablemente y de forma empática que la imagen recibida no parec
         }
     }
 
-    const contextoVecino = vecino
+    const contextoVecino = (vecino && vecino.edificio)
         ? `
-Nombre: ${vecino.nombre}
-Edificio: ${vecino.edificio} — Depto: ${vecino.departamento}
+Nombre: ${vecino.nombre || 'Vecino'}
+Edificio / Consorcio Identificado: ${vecino.edificio} — Depto: ${vecino.departamento || 'No especificado aún'}
 ${personalDeTurno
     ? `Personal de guardia activo: ${personalDeTurno.nombre} (${personalDeTurno.rol}) hasta las ${personalDeTurno.horario.split(' a ')[1]}.`
     : 'No hay personal de guardia activo ahora.'}
 ${vecino.tablero  ? `Tablero eléctrico: ${vecino.tablero}` : ''}
 ${vecino.llaves   ? `Llaves/accesos: ${vecino.llaves}` : ''}
 ${vecino.notas    ? `Notas internas: ${vecino.notas}` : ''}
+
+📌 INSTRUCCIÓN CRÍTICA DE EDIFICIO IDENTIFICADO:
+- El edificio/dirección del vecino YA FUE IDENTIFICADO CORRECTAMENTE como "${vecino.edificio}".
+- TENES ESTRICTAMENTE PROHIBIDO volver a pedir la dirección o preguntar de qué edificio habla.
+- En tu respuesta, confirmale al vecino de forma natural que sabés que te contacta por "${vecino.edificio}".
 `.trim()
         : 'Vecino no identificado todavía.';
 
-    const instruccionIdentificacion = !vecino ? `
+    const instruccionIdentificacion = (!vecino || !vecino.edificio) ? `
 INSTRUCCIÓN — IDENTIFICACIÓN NATURAL:
 ${opcionesEdificio
     ? `El vecino figura en varios edificios: ${opcionesEdificio.join(', ')}. Preguntale amablemente por cuál de ellos te escribe.`
@@ -124,10 +125,36 @@ Cómo tratar a esta persona: ${memoriaVecino.notasTrato}
     const listaEdificios = (edificiosConocidos && edificiosConocidos.length > 0)
         ? `
 # NUESTRA CARTERA DE EDIFICIOS ADMINISTRADOS
-${edificiosConocidos.map(e => e.nombre).join(', ')}
+${edificiosConocidos.map(e => {
+    const aliasStr = Array.isArray(e.aliases) ? e.aliases.join(', ') : (e.aliases || '');
+    return `• ${e.nombre} | Dirección exacta: ${e.direccion || e.nombre}${aliasStr ? ` | Alturas y nombres conocidos: ${aliasStr}` : ''}`;
+}).join('\n')}
 
-REGLA ESTRICTA: Si el vecino reporta un problema en un edificio o dirección que NO ESTÁ en esta lista explícita, DEBES informarle cortésmente que la Administración no gestiona ese consorcio y NO debes tomarle el reclamo.
+REGLA ESTRICTA DE CARTERA:
+- Todas las direcciones, calles y números de altura listados arriba (incluyendo "San Patricio 159", "SAN PATRICIO 159", "San Patricio 270", etc.) PERTENECEN 100% a nuestra administración.
+- NUNCA rechaces ni digas que "San Patricio 159" u otras direcciones de la lista no pertenecen al consorcio.
+- Solo debes informar que no gestionamos el consorcio si el vecino menciona una ciudad o dirección totalmente ajena que no guarde ninguna relación con la lista.
 `.trim()
+        : '';
+
+    const esNombreGenerico = !vecino?.nombre || vecino.nombre === 'Vecino' || vecino.nombre === 'Desconocido' || (datosEmisor?.rol === 'vecino' && vecino.nombre === session?.pushName);
+    const faltaNombre = esNombreGenerico;
+    const faltaDepto = !vecino?.departamento || vecino.departamento === '' || vecino.departamento === '—';
+
+    const instruccionDatosFaltantes = (faltaNombre || faltaDepto)
+        ? `
+🚨 INSTRUCCIÓN OBLIGATORIA DE REGISTRO DE VECINO:
+- El vecino aún NO tiene registrado su ${faltaNombre ? 'Nombre Completo y Apellido' : ''}${faltaNombre && faltaDepto ? ' ni su ' : ''}${faltaDepto ? 'Número de Departamento' : ''} en la ficha del consorcio.
+- DEBES PEDIRLE EXPRESAMENTE que te indique su ${faltaNombre ? 'nombre completo (nombre y apellido)' : ''}${faltaNombre && faltaDepto ? ' y su ' : ''}${faltaDepto ? 'número de departamento' : ''} para formalizar la atención en la ficha del edificio.
+- Ejemplo de respuesta: "Por favor, para registrar adecuadamente su reclamo en la ficha del consorcio, ¿me indicaría su nombre y apellido completo y número de departamento?"
+- NUNCA des por sentado el nombre como "Vecino".
+`.trim()
+        : '';
+
+    const instruccionTecnicoDisponibilidad = (decisionCaso?.contactar_tecnico)
+        ? (tecnicoAsignado
+            ? `- DISPONIBILIDAD TÉCNICA: Se encontró al técnico asignado (${tecnicoAsignado.nombre}). Podés informarle al vecino que se está contactando al servicio técnico de guardia para coordinar la visita.`
+            : `- DISPONIBILIDAD TÉCNICA: En este momento NO figura un técnico de ${decisionCaso.tipo_problema} de guardia en la planilla. PROHIBIDO decir "ya le enviamos un técnico". Informale al vecino que el reclamo fue registrado con prioridad y escalado de inmediato a la Administración para coordinar el envío del profesional.`)
         : '';
 
     const systemPrompt = `# QUIÉN SOS
@@ -157,6 +184,8 @@ ${contextoMemoria ? contextoMemoria : 'Primera vez que contacta.'}
 ${contextoVecino}
 
 ${instruccionIdentificacion}
+${instruccionDatosFaltantes}
+${instruccionTecnicoDisponibilidad}
 
 # EVALUACIÓN INTERNA DEL CASO
 Urgencia detectada: ${decisionCaso?.urgencia || 'por determinar'}
