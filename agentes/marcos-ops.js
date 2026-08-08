@@ -214,6 +214,12 @@ function normalizarTelefonoWhatsApp(telefono) {
     if (num.length === 10) num = '549' + num;
     else if (num.length === 12 && num.startsWith('54') && !num.startsWith('549')) num = '549' + num.substring(2);
     else if (num.length === 11 && num.startsWith('1115')) num = '54911' + num.substring(4);
+    // "54" + área (2 dígitos) + "15" (viejo prefijo de móvil) + local (8 dígitos) = 14 dígitos.
+    // Ej: 54111550542005 -> 5491150542005. Sin esto, el mismo abonado normaliza
+    // distinto según llegue con o sin el "15", y termina con dos sesiones separadas.
+    else if (num.length === 14 && num.startsWith('54') && num.substring(4, 6) === '15') {
+        num = num.substring(0, 2) + '9' + num.substring(2, 4) + num.substring(6);
+    }
     else if (!num.startsWith('54')) num = '549' + num;
     return num;
 }
