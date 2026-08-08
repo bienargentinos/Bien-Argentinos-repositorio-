@@ -1118,33 +1118,43 @@ function validarYSanitizarNombre(nombre) {
         datosFactura?.es_factura
     ) {
         console.log('📝 Ejecutando reportarAlAdmin...');
-        resAdmin = await reportarAlAdmin({
-            vecino: { ...vecino, telefono: from, depto: session.datosVecino?.departamento || vecino?.departamento || '' },
-            decisionCaso,
-            tecnicoAsignado,
-            datosFactura,
-            phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
-            accessToken:   WHATSAPP_ACCESS_TOKEN,
-            fechaInicio:   session.fechaInicio,
-            audio_url:     session.audio_url || '',
-            transcripcion: session.transcripcion || '',
-            historial_chat: session.historial || []
-        });
+        try {
+            resAdmin = await reportarAlAdmin({
+                vecino: { ...vecino, telefono: from, depto: session.datosVecino?.departamento || vecino?.departamento || '' },
+                decisionCaso,
+                tecnicoAsignado,
+                datosFactura,
+                phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
+                accessToken:   WHATSAPP_ACCESS_TOKEN,
+                fechaInicio:   session.fechaInicio,
+                audio_url:     session.audio_url || '',
+                transcripcion: session.transcripcion || '',
+                historial_chat: session.historial || []
+            });
+        } catch (errAdmin) {
+            // No dejamos que un error guardando el reporte (Sheets/email) tumbe el resto del flujo:
+            // el técnico tiene que ser notificado igual aunque falle el registro administrativo.
+            console.error('⚠️ Error en reportarAlAdmin (no bloquea notificación a técnico/encargado):', errAdmin.message);
+        }
     }
 
     const idEventoAsignado = resAdmin?.id_evento || null;
 
     // 2. Marcos-Ops: contacta técnico y encargado incluyendo el id_evento (CASO-XXXX)
     if (decisionCaso.contactar_tecnico || decisionCaso.contactar_encargado) {
-        await gestionarOperaciones({
-            vecino,
-            decisionCaso,
-            tecnicoAsignado,
-            personalDeTurno,
-            phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
-            accessToken:   WHATSAPP_ACCESS_TOKEN,
-            id_evento:     idEventoAsignado
-        });
+        try {
+            await gestionarOperaciones({
+                vecino,
+                decisionCaso,
+                tecnicoAsignado,
+                personalDeTurno,
+                phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
+                accessToken:   WHATSAPP_ACCESS_TOKEN,
+                id_evento:     idEventoAsignado
+            });
+        } catch (errOps) {
+            console.error('⚠️ Error en gestionarOperaciones (notificación a técnico/encargado):', errOps.message);
+        }
     }
 
     // ── FASE 5: REGISTRAR VECINO NUEVO ──────────────────────────────────────
