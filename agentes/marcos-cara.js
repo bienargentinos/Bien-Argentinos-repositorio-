@@ -61,6 +61,7 @@ async function responderVecino({
     opcionesEdificio,
     edificioPendiente,
     edificiosConocidos,
+    tecnicoAsignado,
     session,
     datosEmisor
 }) {
