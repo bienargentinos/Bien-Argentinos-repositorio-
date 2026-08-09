@@ -152,9 +152,13 @@ REGLA ESTRICTA DE CARTERA:
 `.trim()
         : '';
 
+    const instruccionGestionAcceso = (!personalDeTurno && decisionCaso?.contactar_tecnico)
+        ? `- GESTIÓN DE ACCESO OBLIGATORIA: En este momento NO hay encargado de turno activo en el edificio. DEBES preguntarle amablemente al vecino si él o alguien de su departamento estará disponible en el lugar para recibir al técnico y facilitarle el ingreso.`
+        : '';
+
     const instruccionTecnicoDisponibilidad = (decisionCaso?.contactar_tecnico)
         ? (tecnicoAsignado
-            ? `- DISPONIBILIDAD TÉCNICA: Se encontró al técnico asignado (${tecnicoAsignado.nombre}). Podés informarle al vecino que se está contactando al servicio técnico de guardia para coordinar la visita.`
+            ? `- DISPONIBILIDAD TÉCNICA: Se encontró al técnico asignado (${tecnicoAsignado.nombre}). Podés informarle al vecino que se está contactando al servicio técnico de guardia para coordinar la visita. ${instruccionGestionAcceso}`
             : `- DISPONIBILIDAD TÉCNICA: En este momento NO figura un técnico de ${decisionCaso.tipo_problema} de guardia en la planilla. PROHIBIDO decir "ya le enviamos un técnico". Informale al vecino que el reclamo fue registrado con prioridad y escalado de inmediato a la Administración para coordinar el envío del profesional.`)
         : '';
 

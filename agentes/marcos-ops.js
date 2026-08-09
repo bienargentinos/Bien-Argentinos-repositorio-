@@ -98,6 +98,10 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
 
     const textoProblemaConCaso = `[${id_evento}] ${decisionCaso.resumen_problema || 'Requerimiento técnico'}`;
 
+    const accesoFinal = personalDeTurno 
+        ? `Encargado ${personalDeTurno.nombre} (${personalDeTurno.horario})` 
+        : `Coordinar ingreso directamente con el solicitante ${vecinoConDepto}`;
+
     const componentesPlantilla = [
         {
             type: 'body',
@@ -106,7 +110,7 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
                 { type: 'text', text: direccionExacta },
                 { type: 'text', text: `${vecinoConDepto} — ${textoProblemaConCaso}` },
                 { type: 'text', text: (decisionCaso.urgencia || 'media').toUpperCase() },
-                { type: 'text', text: tecnicoAsignado.acceso || 'Coordinar ingreso con administración' }
+                { type: 'text', text: tecnicoAsignado.acceso || accesoFinal }
             ]
         }
     ];

@@ -74,7 +74,9 @@ app.post('/webhook', async (req, res) => {
 
         const message  = entry.messages[0];
         const msgId    = message.id;
-        const from     = message.from;
+        const { normalizarTelefonoWhatsApp } = require('./agentes/marcos-ops');
+        const fromRaw  = message.from;
+        const from     = normalizarTelefonoWhatsApp(fromRaw);
         const msgType  = message.type;
         const pushName = entry?.contacts?.[0]?.profile?.name || '';
 
@@ -143,9 +145,8 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
-        // Corrección de número para Argentina (número de prueba Meta)
+        // Telefono normalizado para sesión y envío
         let recipient = from;
-        if (recipient === '5491150542005') recipient = '54111550542005';
 
         console.log(`📨 Mensaje de ${recipient} (${pushName || 'Sin PushName'}): ${msgBody}`);
 
