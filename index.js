@@ -1037,6 +1037,7 @@ function validarYSanitizarNombre(nombre) {
         personalDeTurno,
         decisionCaso,
         tecnicoAsignado,
+        perfilEdificio,
         media,
         opcionesEdificio: null,
         edificioPendiente: null,
@@ -1500,6 +1501,7 @@ app.post('/vapi', async (req, res) => {
             memoriaVecino,
             personalDeTurno,
             decisionCaso,
+            perfilEdificio,
             media: null,
             opcionesEdificio: vecinosEnSheets.length > 1
                 ? vecinosEnSheets.map(v => v.edificio)

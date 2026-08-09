@@ -62,6 +62,7 @@ async function responderVecino({
     edificioPendiente,
     edificiosConocidos,
     tecnicoAsignado,
+    perfilEdificio,
     session,
     datosEmisor
 }) {
@@ -87,10 +88,17 @@ DEBES indicarle amablemente y de forma empática que la imagen recibida no parec
         }
     }
 
+    // El vecino/técnico NUNCA debe escuchar el "nombre" interno del edificio (la clave que usamos
+    // internamente para buscar/matchear en Sheets, que puede ser algo largo tipo "Consorcio de
+    // administradores del edificio San Patricio 159, Capital Federal, Provincia de Buenos Aires").
+    // Para lo que se le dice a la persona siempre usamos la dirección limpia (ej. "San Patricio
+    // 159"), cayendo al nombre interno solo si todavía no tenemos la dirección cargada en Sheets.
+    const direccionParaVecino = perfilEdificio?.direccion || vecino?.edificio;
+
     const contextoVecino = (vecino && vecino.edificio)
         ? `
 Nombre: ${vecino.nombre || 'Vecino'}
-Edificio / Consorcio Identificado: ${vecino.edificio} — Depto: ${vecino.departamento || 'No especificado aún'}
+Edificio / Consorcio Identificado: ${direccionParaVecino} — Depto: ${vecino.departamento || 'No especificado aún'}
 ${personalDeTurno
     ? `Personal de guardia activo: ${personalDeTurno.nombre} (${personalDeTurno.rol}) hasta las ${personalDeTurno.horario.split(' a ')[1]}.`
     : 'No hay personal de guardia activo ahora.'}
@@ -99,9 +107,12 @@ ${vecino.llaves   ? `Llaves/accesos: ${vecino.llaves}` : ''}
 ${vecino.notas    ? `Notas internas: ${vecino.notas}` : ''}
 
 📌 INSTRUCCIÓN CRÍTICA DE EDIFICIO IDENTIFICADO:
-- El edificio/dirección del vecino YA FUE IDENTIFICADO CORRECTAMENTE como "${vecino.edificio}".
+- El edificio/dirección del vecino YA FUE IDENTIFICADO CORRECTAMENTE como "${direccionParaVecino}".
 - TENES ESTRICTAMENTE PROHIBIDO volver a pedir la dirección o preguntar de qué edificio habla.
-- En tu respuesta, confirmale al vecino de forma natural que sabés que te contacta por "${vecino.edificio}".
+- En tu respuesta, confirmale al vecino de forma natural que sabés que te contacta por "${direccionParaVecino}".
+- NUNCA menciones el nombre interno/administrativo del consorcio (el que usamos para buscarlo en el
+  sistema, ej. "Consorcio de administradores del edificio...") -- para el vecino/técnico el edificio
+  es simplemente la dirección de arriba, nada más.
 `.trim()
         : 'Vecino no identificado todavía.';
 
