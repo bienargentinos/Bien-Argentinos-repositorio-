@@ -38,27 +38,33 @@ async function gestionarOperaciones({
             id_evento: idCasoFinal
         });
 
-        if (resQueue.encolado) {
-            mensajesEnviados.push({ destinatario: tecnicoAsignado.nombre, rol: 'tecnico', mensaje: `Notificación encolada (${idCasoFinal})` });
+        if (resQueue.yaNotificado) {
+            // Mismo caso ya notificado antes -- no repetimos plantilla, no reprogramamos
+            // escalación de nuevo, ni volvemos a pedirle al encargado que coordine el acceso.
+            mensajesEnviados.push({ destinatario: tecnicoAsignado.nombre, rol: 'tecnico', mensaje: `Ya notificado previamente (${idCasoFinal}), sin reenvío` });
         } else {
-            mensajesEnviados.push({ destinatario: tecnicoAsignado.nombre, rol: 'tecnico', mensaje: `Notificación enviada (${idCasoFinal})` });
-            console.log(`🔧 Técnico ${tecnicoAsignado.nombre} notificado del [${idCasoFinal}].`);
-        }
+            if (resQueue.encolado) {
+                mensajesEnviados.push({ destinatario: tecnicoAsignado.nombre, rol: 'tecnico', mensaje: `Notificación encolada (${idCasoFinal})` });
+            } else {
+                mensajesEnviados.push({ destinatario: tecnicoAsignado.nombre, rol: 'tecnico', mensaje: `Notificación enviada (${idCasoFinal})` });
+                console.log(`🔧 Técnico ${tecnicoAsignado.nombre} notificado del [${idCasoFinal}].`);
+            }
 
-        programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, paso: 1, id_evento: idCasoFinal });
+            programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, paso: 1, id_evento: idCasoFinal });
 
-        if (tecnicoAsignado.acceso &&
-            !tecnicoAsignado.acceso.toLowerCase().includes('qr') &&
-            !tecnicoAsignado.acceso.toLowerCase().includes('llave') &&
-            personalDeTurno?.telefono) {
+            if (tecnicoAsignado.acceso &&
+                !tecnicoAsignado.acceso.toLowerCase().includes('qr') &&
+                !tecnicoAsignado.acceso.toLowerCase().includes('llave') &&
+                personalDeTurno?.telefono) {
 
-            const mensajeAcceso = `🔑 *MARCOS — COORDINACIÓN DE ACCESO [${idCasoFinal}]*\n\n` +
-                `${personalDeTurno.nombre}, el técnico ${tecnicoAsignado.nombre} necesita acceso al edificio ` +
-                `para el [${idCasoFinal}] en depto ${vecino?.departamento || 'a confirmar'}.\n` +
-                `¿Podés coordinar la apertura cuando llegue? Avisame si hay inconvenientes.`;
+                const mensajeAcceso = `🔑 *MARCOS — COORDINACIÓN DE ACCESO [${idCasoFinal}]*\n\n` +
+                    `${personalDeTurno.nombre}, el técnico ${tecnicoAsignado.nombre} necesita acceso al edificio ` +
+                    `para el [${idCasoFinal}] en depto ${vecino?.departamento || 'a confirmar'}.\n` +
+                    `¿Podés coordinar la apertura cuando llegue? Avisame si hay inconvenientes.`;
 
-            await enviarWhatsApp(personalDeTurno.telefono, mensajeAcceso, phoneNumberId, accessToken);
-            mensajesEnviados.push({ destinatario: personalDeTurno.nombre, rol: 'coordinacion_acceso', mensaje: mensajeAcceso });
+                await enviarWhatsApp(personalDeTurno.telefono, mensajeAcceso, phoneNumberId, accessToken);
+                mensajesEnviados.push({ destinatario: personalDeTurno.nombre, rol: 'coordinacion_acceso', mensaje: mensajeAcceso });
+            }
         }
     }
 
@@ -76,6 +82,16 @@ async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado
     }
 
     const estadoProv = global.colasProveedores.get(telTech);
+
+    // Si ya notificamos al técnico este MISMO caso, no le reenviamos la plantilla formal de
+    // Meta de nuevo. Cada mensaje del vecino que reafirma el mismo reclamo (ej. "sí, estoy yo"
+    // confirmando que va a estar para recibirlo) hace que Marcos-Caso vuelva a marcar
+    // contactar_tecnico=true, y sin este chequeo el técnico recibía la plantilla completa
+    // duplicada por cada mensaje nuevo del vecino en el mismo caso.
+    if (estadoProv.notificado && estadoProv.eventoActivoId === id_evento) {
+        console.log(`ℹ️ Técnico ya notificado del [${id_evento}], se omite el reenvío duplicado de la plantilla.`);
+        return { encolado: false, yaNotificado: true };
+    }
 
     estadoProv.eventoActivoId = id_evento;
     estadoProv.edificioActivo = vecino?.edificio;
@@ -98,9 +114,12 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
 
     const textoProblemaConCaso = `[${id_evento}] ${decisionCaso.resumen_problema || 'Requerimiento técnico'}`;
 
-    const accesoFinal = personalDeTurno 
-        ? `Encargado ${personalDeTurno.nombre} (${personalDeTurno.horario})` 
-        : `Coordinar ingreso directamente con el solicitante ${vecinoConDepto}`;
+    // Nota: esto va como parámetro dinámico dentro de la plantilla de Meta "notificacion_servicio_consorcio".
+    // Nunca debe leerse como una tarea que el técnico tiene que gestionar por su cuenta -- el acceso lo
+    // coordina Marcos (en representación de la Administración/edificio) directamente con el vecino, no el técnico.
+    const accesoFinal = personalDeTurno
+        ? `Encargado ${personalDeTurno.nombre} (${personalDeTurno.horario})`
+        : `Ya coordinado por Marcos con ${vecinoConDepto} — lo va a estar esperando`;
 
     const componentesPlantilla = [
         {
@@ -207,7 +226,7 @@ async function generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id
         `👤 *Solicitante:* ${vecinoConDepto}\n` +
         `⚠️ *Sector y Requerimiento:* ${decisionCaso.resumen_problema}\n` +
         `🚦 *Urgencia:* ${decisionCaso.urgencia.toUpperCase()}\n` +
-        `🔑 *Acceso:* ${tecnicoAsignado.acceso || 'Consultar con encargado'}\n\n` +
+        `🔑 *Acceso:* ${tecnicoAsignado.acceso || `Ya coordinado por Marcos con ${vecinoConDepto} — lo va a estar esperando`}\n\n` +
         `Por favor confirmame si podés pasar. ¡Gracias!`;
 }
 
