@@ -970,8 +970,19 @@ function validarYSanitizarNombre(nombre) {
             session
         });
         const edifNomCatchAll = vecinoActivoCatchAll?.edificio || session.nombreEdificio || 'Consorcio';
+        const perfilEdifCatchAll = await buscarPerfilEdificio(edifNomCatchAll);
 
-        const respGenericaProveedor = `Recibido, ${datosEmisor.nombre}. Cualquier novedad o si necesitás algo más para la visita, escribime por acá.`;
+        // Respuesta generada con el contexto real del caso (quién es el vecino, depto, acceso) en
+        // vez de una frase enlatada fija -- así, si el técnico pregunta algo puntual ("¿Quién me
+        // recibe en el edificio?", "¿a qué hora puedo pasar?", etc.), Marcos le contesta de verdad
+        // en lugar de repetir siempre "Recibido, cualquier novedad avisame".
+        const respGenericaProveedor = await generarRespuestaTecnicoLibre({
+            mensajeTecnico: msgBody,
+            nombreTecnico: datosEmisor.nombre,
+            vecino: vecinoActivoCatchAll,
+            edificio: edifNomCatchAll,
+            perfilEdificio: perfilEdifCatchAll
+        });
         await despacharRespuesta(recipient, respGenericaProveedor, msgType);
         historial.push(`Marcos: ${respGenericaProveedor}`);
 
@@ -1316,6 +1327,53 @@ function validarYSanitizarNombre(nombre) {
     }
 
     console.log(`✅ Mensaje procesado para ${recipient} | Urgencia: ${decisionCaso.urgencia} | Cierre: ${decisionCaso.cerrar_caso}`);
+}
+
+// ── Utilidad: Respuesta libre a un técnico/proveedor, con contexto real del caso ────────────
+// Se usa para cualquier mensaje del técnico que no sea "pide foto/datos" ni "manda factura"
+// (confirmaciones, preguntas puntuales como "¿quién me recibe?", quejas, etc.), para que Marcos
+// conteste lo que realmente le preguntaron en vez de una frase enlatada fija.
+async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vecino, edificio, perfilEdificio }) {
+    try {
+        const nomVecino = (vecino?.nombre && vecino.nombre !== 'Vecino' && vecino.nombre !== 'Desconocido') ? vecino.nombre : '';
+        const identVecino = nomVecino
+            ? `${nomVecino}${vecino?.departamento ? ' (Depto ' + vecino.departamento + ')' : ''}`
+            : (vecino?.departamento ? `el vecino del Depto ${vecino.departamento}` : 'el vecino que hizo el reclamo (todavía sin datos de contacto claros)');
+        const direccion = perfilEdificio?.direccion || edificio || 'el edificio';
+        const accesoInfo = perfilEdificio?.tel_seguridad
+            ? `Hay portería/seguridad en la entrada (tel: ${perfilEdificio.tel_seguridad}).`
+            : `El acceso lo coordina Marcos directamente con ${identVecino}; el vecino va a estar disponible para recibirlo.`;
+
+        const { GoogleGenAI } = require('@google/genai');
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const prompt = `Sos Marcos, representante de la Administración de consorcios, escribiendo por WhatsApp a un TÉCNICO/PROVEEDOR (no a un vecino) que está atendiendo un reclamo.
+
+El técnico ${nombreTecnico} te escribió: "${mensajeTecnico}"
+
+Datos reales del caso que tenés disponibles:
+- Vecino/solicitante: ${identVecino}
+- Dirección: ${direccion}
+- Acceso: ${accesoInfo}
+
+Instrucciones:
+- Respondé de forma breve (1-2 oraciones), profesional, en "usted".
+- Si te pregunta algo puntual (quién lo recibe, dirección, acceso, horario, etc.), contestale con el dato real de arriba. No inventes datos que no tenés: si no sabés algo puntual que pide, decile que lo estás confirmando y le respondés en breve.
+- NUNCA le pidas nombre/departamento al técnico -- eso es del vecino, no de él.
+- No saludes ni te vuelvas a presentar (ya es una conversación en curso).
+- Devolvé ÚNICAMENTE el texto de la respuesta, sin comillas ni formato adicional.`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [{ text: prompt }],
+            config: { temperature: 0.3 },
+        });
+
+        const texto = (response.text || '').trim();
+        return texto || `Recibido, ${nombreTecnico}. Cualquier novedad o si necesitás algo más para la visita, escribime por acá.`;
+    } catch (e) {
+        console.error('Error generando respuesta libre a técnico:', e.message);
+        return `Recibido, ${nombreTecnico}. Cualquier novedad o si necesitás algo más para la visita, escribime por acá.`;
+    }
 }
 
 // ── Utilidad: Extrae nombre y depto del historial usando IA ─────────────────
