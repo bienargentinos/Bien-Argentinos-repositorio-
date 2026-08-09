@@ -822,6 +822,15 @@ function validarYSanitizarNombre(nombre) {
 
             await despacharRespuesta(recipient, respFactura, msgType);
             historial.push(`Marcos: ${respFactura}`);
+
+            try {
+                const { guardarReporte } = require('./sheets');
+                await guardarReporte({
+                    edificio: session.nombreEdificio || datosFactura?.edificio || 'Consorcio',
+                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respFactura}`])
+                });
+            } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
+
             return; // DETENER Y RESPONDER NATURALMENTE
         }
 
@@ -849,9 +858,17 @@ function validarYSanitizarNombre(nombre) {
                 : (deptoVecino ? `del Depto ${deptoVecino}` : 'del consorcio');
 
             const respTecnico = `Perfecto ${datosEmisor.nombre}, ya mismo me contacto con el vecino (${identVecinoMsg}) en ${dirExacta} para solicitarle la foto, video o detalles indicados y te los reenvío apenas me responda.`;
-            
+
             await despacharRespuesta(recipient, respTecnico, msgType);
             historial.push(`Marcos: ${respTecnico}`);
+
+            try {
+                const { guardarReporte } = require('./sheets');
+                await guardarReporte({
+                    edificio: edifNom,
+                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respTecnico}`])
+                });
+            } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
             if (telVecino && String(telVecino).replace(/\D/g, '') !== String(from).replace(/\D/g, '')) {
                 const saludoNombre = nomVecino || 'estimado/a vecino/a';
@@ -896,6 +913,31 @@ function validarYSanitizarNombre(nombre) {
             }
             return; // DETENER PROCESAMIENTO AQUÍ PARA NO RE-ENVIAR PLANTILLA
         }
+
+        // C. CUALQUIER OTRO MENSAJE DEL TÉCNICO (confirmaciones tipo "Recibido/En camino",
+        // quejas, preguntas puntuales, etc.) — NUNCA debe caer al flujo genérico de vecinos,
+        // que le pediría nombre/departamento sin sentido a un proveedor.
+        const vecinoActivoCatchAll = await obtenerVecinoActivoDeProveedor({
+            telTech: from,
+            edificioNombre: session.nombreEdificio,
+            datosEmisor,
+            session
+        });
+        const edifNomCatchAll = vecinoActivoCatchAll?.edificio || session.nombreEdificio || 'Consorcio';
+
+        const respGenericaProveedor = `Recibido, ${datosEmisor.nombre}. Cualquier novedad o si necesitás algo más para la visita, escribime por acá.`;
+        await despacharRespuesta(recipient, respGenericaProveedor, msgType);
+        historial.push(`Marcos: ${respGenericaProveedor}`);
+
+        try {
+            const { guardarReporte } = require('./sheets');
+            await guardarReporte({
+                edificio: edifNomCatchAll,
+                historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respGenericaProveedor}`])
+            });
+        } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
+
+        return; // DETENER — un proveedor jamás debe seguir al flujo de vecinos
     }
 
     // Si se detectó una factura o comprobante, guardarla en el árbol permanente por Administrador / Edificio / Facturas

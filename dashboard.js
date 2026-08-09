@@ -226,8 +226,8 @@ function mapEvento(r) {
     tecnico: pick(r, ['tecnico', 'proveedor', 'tecnico_nombre', 'nombre_tecnico', 'proveedor_nombre', 'nombre_proveedor']),
     tel_tecnico: pick(r, ['tel_tecnico', 'telefono_tecnico', 'celular_tecnico', 'tecnico_telefono', 'proveedor_telefono', 'tel_proveedor', 'telefono_proveedor']),
     rubro_tecnico: pick(r, ['rubro_tecnico', 'rubro_proveedor', 'especialidad_tecnico', 'especialidad_proveedor', 'rubro', 'especialidad']),
-    historial_chat_vecino: pick(r, ['historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
-    historial_chat_proveedor: pick(r, ['historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
+    historial_chat_vecino: pick(r, ['chat_vecino_json', 'historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
+    historial_chat_proveedor: pick(r, ['chat_proveedor_json', 'historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
     historial_chat: pick(r, ['historial_chat', 'historial', 'chat_log', 'conversacion']),
   };
