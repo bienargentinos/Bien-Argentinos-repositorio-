@@ -34,7 +34,12 @@ El sistema de notificaciones por email está configurado de forma robusta en `ag
 ---
 
 ## ☁️ Protocolo de Despliegue en VPS y Git Flow Obligatorio
-* **REGLA DE SINCRO OBLIGATORIA (GIT FIRST):** Jamás se debe desplegar o editar código directamente en el VPS sin antes haber realizado `git commit` y `git push` a la rama activa correspondiente de GitHub (`claude/marcos-ia-whatsapp-template-vpg8gw`). Todos los agentes de IA (Antigravity, Claude, ChatGPT, etc.) deben compartir y mantener la misma rama como fuente única de verdad.
+* **REGLA DE SINCRO OBLIGATORIA (GIT FIRST):** Jamás se debe desplegar o editar código directamente en el VPS sin antes haber realizado el flujo estricto en la rama oficial de GitHub (`claude/marcos-ia-whatsapp-template-vpg8gw`):
+  1. `git pull origin claude/marcos-ia-whatsapp-template-vpg8gw` (OBLIGATORIO siempre antes de hacer cambios o push, para evitar rechazos non-fast-forward o sobrescribir commits recientes de otros agentes).
+  2. `git commit`
+  3. `git push origin claude/marcos-ia-whatsapp-template-vpg8gw`
+  4. Despliegue/copia al VPS y reinicio de PM2.
+* Todos los agentes de IA (Antigravity, Claude, ChatGPT, etc.) deben compartir y mantener esta misma rama como fuente única de verdad.
 * **Acceso VPS:** El servidor corre bajo Linux y se gestiona mediante PM2 (nombre del proceso: `marcos-ai`).
 * **Verificación Pre-Despliegue:** Antes de reiniciar el servidor en producción, verificá la sintaxis localmente (`node --check`) y ejecutá la sincronización.
 * **Reinicio de Servicios:** Tras sincronizar los archivos en el servidor, reiniciá el bot usando:
