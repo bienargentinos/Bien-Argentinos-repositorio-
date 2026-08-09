@@ -18,7 +18,7 @@ const {
 const { descargarMedia, guardarArchivoEstructurado } = require('./media');
 const { evaluarCaso }        = require('./agentes/marcos-caso');
 const { responderVecino }    = require('./agentes/marcos-cara');
-const { gestionarOperaciones, enviarWhatsApp, subirMediaWhatsApp, enviarAudioWhatsApp, procesarSiguienteEventoProveedor, normalizarTelefonoWhatsApp } = require('./agentes/marcos-ops');
+const { gestionarOperaciones, enviarWhatsApp, subirMediaWhatsApp, enviarAudioWhatsApp, procesarSiguienteEventoProveedor } = require('./agentes/marcos-ops');
 const { procesarDocumento }  = require('./agentes/marcos-docs');
 const { reportarAlAdmin, iniciarCronReportes }    = require('./agentes/marcos-admin');
 
@@ -837,8 +837,6 @@ function validarYSanitizarNombre(nombre) {
             });
 
             const telVecino = vecinoActivo?.telefono;
-            // Clave normalizada para el Map de sesiones (ver nota más arriba sobre "15 vs 9").
-            const claveVecino = normalizarTelefonoWhatsApp(telVecino) || telVecino;
             const nomVecino = (vecinoActivo?.nombre && vecinoActivo.nombre !== 'Vecino' && vecinoActivo.nombre !== 'Desconocido') ? vecinoActivo.nombre : '';
             const deptoVecino = vecinoActivo?.departamento || '';
             const edifNom = vecinoActivo?.edificio || session.nombreEdificio || 'Consorcio';
@@ -863,25 +861,25 @@ function validarYSanitizarNombre(nombre) {
                 await enviarWhatsApp(telVecino, msgParaVecino, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
 
                 if (!global.marcosSesiones) global.marcosSesiones = new Map();
-                let sesVecino = global.marcosSesiones.get(claveVecino);
+                let sesVecino = global.marcosSesiones.get(telVecino);
                 if (!sesVecino) {
                     sesVecino = { historial: [], fechaInicio: new Date().toLocaleString('es-AR'), ultimoMensajeTimestamp: Date.now() };
-                    global.marcosSesiones.set(claveVecino, sesVecino);
+                    global.marcosSesiones.set(telVecino, sesVecino);
                 }
                 sesVecino.esperandoDatosVecinoParaProveedor = { telTech: from, nomTech: datosEmisor.nombre };
                 console.log(`📩 Solicitud de foto/video enviada al vecino ${telVecino} (${identVecinoMsg}) a pedido del técnico ${datosEmisor.nombre}`);
 
                 // Programar temporizador de 10 minutos si el vecino no responde
                 if (!global.timersFotoVecino) global.timersFotoVecino = new Map();
-                if (global.timersFotoVecino.has(claveVecino)) {
-                    clearTimeout(global.timersFotoVecino.get(claveVecino));
+                if (global.timersFotoVecino.has(telVecino)) {
+                    clearTimeout(global.timersFotoVecino.get(telVecino));
                 }
 
                 const telTecnico = from;
                 const nomTecnico = datosEmisor.nombre;
 
                 const timerId = setTimeout(async () => {
-                    const sesCheck = global.marcosSesiones.get(claveVecino);
+                    const sesCheck = global.marcosSesiones.get(telVecino);
                     if (sesCheck && sesCheck.esperandoDatosVecinoParaProveedor) {
                         sesCheck.esperandoDatosVecinoParaProveedor = null;
                         const msgSinFoto = `⚠️ *MARCOS — ACTUALIZACIÓN DE SERVICIO*\n\n` +
@@ -892,7 +890,7 @@ function validarYSanitizarNombre(nombre) {
                     }
                 }, 10 * 60 * 1000);
 
-                global.timersFotoVecino.set(claveVecino, timerId);
+                global.timersFotoVecino.set(telVecino, timerId);
             } else {
                 console.warn(`⚠️ No se pudo obtener el teléfono del vecino activo para el técnico ${datosEmisor.nombre} (edificio: ${dirExacta})`);
             }
@@ -1077,10 +1075,10 @@ function validarYSanitizarNombre(nombre) {
             console.log(`➡️ Novedad/texto del vecino reenviada al técnico ${telTech}`);
         }
 
-        // Cancelar temporizador de 10 min si existía (misma clave normalizada con la que se guardó)
-        if (global.timersFotoVecino && global.timersFotoVecino.has(recipient)) {
-            clearTimeout(global.timersFotoVecino.get(recipient));
-            global.timersFotoVecino.delete(recipient);
+        // Cancelar temporizador de 10 min si existía
+        if (global.timersFotoVecino && global.timersFotoVecino.has(from)) {
+            clearTimeout(global.timersFotoVecino.get(from));
+            global.timersFotoVecino.delete(from);
         }
 
         delete session.esperandoDatosVecinoParaProveedor;
