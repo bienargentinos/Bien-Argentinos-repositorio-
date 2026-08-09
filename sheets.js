@@ -722,7 +722,7 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
 // FACTURAS / CONTABILIDAD
 // ─────────────────────────────────────────────
 
-async function guardarFactura({ proveedor, monto, concepto, edificio, url_archivo }) {
+async function guardarFactura({ proveedor, monto, concepto, edificio, url_archivo, numero_factura = '' }) {
     try {
         const doc = await getSheet();
         let sheet = doc.sheetsByTitle['facturas'];
@@ -730,22 +730,73 @@ async function guardarFactura({ proveedor, monto, concepto, edificio, url_archiv
         if (!sheet) {
             sheet = await doc.addSheet({
                 title: 'facturas',
-                headerValues: ['fecha', 'proveedor', 'monto', 'concepto', 'edificio', 'url_archivo'],
+                headerValues: ['fecha', 'proveedor', 'monto', 'concepto', 'edificio', 'url_archivo', 'numero_factura', 'estado'],
             });
+        }
+        // Si la pestaña ya existía de antes sin estas columnas, se agregan solas (mismo patrón
+        // que usa "edificios"/"EVENTOS" -- las columnas nuevas se crean sin romper filas existentes).
+        await sheet.loadHeaderRow().catch(() => {});
+        const headersActuales = sheet.headerValues || [];
+        if (!headersActuales.includes('numero_factura') || !headersActuales.includes('estado')) {
+            const nuevosHeaders = Array.from(new Set([...headersActuales, 'numero_factura', 'estado']));
+            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
         }
 
         await sheet.addRow({
-            fecha:       new Date().toLocaleString('es-AR'),
-            proveedor:   proveedor  || 'Desconocido',
-            monto:       monto      || '0',
-            concepto:    concepto   || '',
-            edificio:    edificio   || 'No especificado',
-            url_archivo: url_archivo|| '',
+            fecha:          new Date().toLocaleString('es-AR'),
+            proveedor:      proveedor  || 'Desconocido',
+            monto:          monto      || '0',
+            concepto:       concepto   || '',
+            edificio:       edificio   || 'No especificado',
+            url_archivo:    url_archivo|| '',
+            numero_factura: numero_factura || '',
+            estado:         'Pendiente',
         });
 
-        console.log(`💸 Factura de ${proveedor} por ${monto} guardada.`);
+        console.log(`💸 Factura de ${proveedor} por ${monto} guardada${numero_factura ? ` (N° ${numero_factura})` : ''}.`);
     } catch (err) {
         console.error('Error guardando factura:', err.message);
+    }
+}
+
+// Busca facturas de un proveedor (opcionalmente filtrando por edificio y/o número de
+// comprobante) para que Marcos pueda contestar "¿ya me pagaron la factura X?" con el estado
+// real cargado en Sheets, en vez de inventar una respuesta.
+async function buscarFacturasProveedor({ proveedor, edificio = '', numeroFactura = '' }) {
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['facturas'];
+        if (!sheet) return [];
+
+        const rows = await sheet.getRows();
+        const provBuscado = String(proveedor || '').toLowerCase().trim();
+        const edifBuscado = String(edificio || '').toLowerCase().trim();
+        const numBuscado = String(numeroFactura || '').replace(/\D/g, '');
+
+        const coincidencias = rows.filter(r => {
+            const rProv = String(r.get('proveedor') || '').toLowerCase().trim();
+            const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
+            const rNum = String(r.get('numero_factura') || '').replace(/\D/g, '');
+
+            const matchProv = provBuscado && (rProv.includes(provBuscado) || provBuscado.includes(rProv));
+            if (!matchProv) return false;
+
+            if (numBuscado) return rNum && rNum === numBuscado;
+            if (edifBuscado) return rEdif.includes(edifBuscado) || edifBuscado.includes(rEdif);
+            return true;
+        });
+
+        return coincidencias.map(r => ({
+            fecha: r.get('fecha'),
+            monto: r.get('monto'),
+            concepto: r.get('concepto'),
+            edificio: r.get('edificio'),
+            numero_factura: r.get('numero_factura'),
+            estado: r.get('estado') || 'Pendiente',
+        })).reverse(); // más reciente primero
+    } catch (err) {
+        console.error('Error buscando facturas del proveedor:', err.message);
+        return [];
     }
 }
 
@@ -992,6 +1043,7 @@ module.exports = {
     guardarMemoriaVecino,
     guardarReporte,
     guardarFactura,
+    buscarFacturasProveedor,
     buscarRolPorTelefono,
     obtenerEventosPendientesAdmin,
     obtenerCasosAbiertosEdificio,

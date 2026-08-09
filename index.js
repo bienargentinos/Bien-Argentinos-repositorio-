@@ -864,7 +864,8 @@ function validarYSanitizarNombre(nombre) {
                 monto: datosFactura?.monto || 'Según comprobante',
                 concepto: datosFactura?.concepto || 'Servicio técnico realizado',
                 edificio: session.nombreEdificio || datosFactura?.edificio || 'Consorcio',
-                url_archivo: datosFactura?.url_archivo || ''
+                url_archivo: datosFactura?.url_archivo || '',
+                numero_factura: datosFactura?.numero_factura || ''
             });
 
             const confirmacionesFactura = [
@@ -886,6 +887,54 @@ function validarYSanitizarNombre(nombre) {
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
             return; // DETENER Y RESPONDER NATURALMENTE
+        }
+
+        // A2. CONSULTA DE ESTADO DE PAGO ("¿ya me pagaron la factura X?", "¿cuándo cobro?", etc.)
+        // Es una pregunta sobre un comprobante YA ENVIADO antes -- no se confunde con "esFacturaODoc"
+        // porque parecePreguntaSinAdjunto ya la excluyó de ahí arriba. Se responde con el estado
+        // REAL guardado en Sheets (que el dueño/administración marca manualmente como Pagada desde
+        // el dashboard), nunca inventando si se pagó o no.
+        const esConsultaPago = parecePreguntaSinAdjunto && /pag|cobr|abon/i.test(txtLow);
+
+        if (esConsultaPago) {
+            const numeroMencionado = (txtLow.match(/\b\d{3,}\b/) || [])[0] || '';
+            const { buscarFacturasProveedor } = require('./sheets');
+            const facturasEncontradas = await buscarFacturasProveedor({
+                proveedor: datosEmisor.nombre,
+                edificio: session.nombreEdificio,
+                numeroFactura: numeroMencionado
+            });
+
+            let respPago;
+            if (facturasEncontradas.length === 0) {
+                respPago = numeroMencionado
+                    ? `No encuentro registrada ninguna factura N° ${numeroMencionado} a tu nombre todavía, ${datosEmisor.nombre}. Si ya la mandaste y no figura, avisame y lo reviso con la Administración.`
+                    : `No tengo facturas tuyas registradas todavía para confirmarte el estado, ${datosEmisor.nombre}. Si me la mandás (foto o PDF) la registro para que la Administración la procese.`;
+            } else if (facturasEncontradas.length === 1) {
+                const f = facturasEncontradas[0];
+                const pagada = /pagad/i.test(f.estado);
+                respPago = pagada
+                    ? `Sí ${datosEmisor.nombre}, la factura${f.numero_factura ? ' N° ' + f.numero_factura : ''} (${f.concepto || 'sin concepto'}, ${f.monto || 'monto s/d'}) figura *pagada* en el sistema.`
+                    : `Todavía figura *pendiente de pago* la factura${f.numero_factura ? ' N° ' + f.numero_factura : ''} (${f.concepto || 'sin concepto'}, ${f.monto || 'monto s/d'}), ${datosEmisor.nombre}. En cuanto la Administración confirme el pago te aviso.`;
+            } else {
+                const pendientes = facturasEncontradas.filter(f => !/pagad/i.test(f.estado));
+                respPago = pendientes.length > 0
+                    ? `Tenés ${facturasEncontradas.length} facturas registradas, ${pendientes.length} todavía *pendientes de pago*${numeroMencionado ? '' : ' -- decime el número de comprobante puntual y te confirmo ese'}.`
+                    : `Tenés ${facturasEncontradas.length} facturas registradas y todas figuran *pagadas*, ${datosEmisor.nombre}.`;
+            }
+
+            await despacharRespuesta(recipient, respPago, msgType);
+            historial.push(`Marcos: ${respPago}`);
+
+            try {
+                const { guardarReporte } = require('./sheets');
+                await guardarReporte({
+                    edificio: session.nombreEdificio,
+                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respPago}`])
+                });
+            } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
+
+            return;
         }
 
         // B. MANEJO DE SOLICITUD DE DATOS/FOTOS/VIDEOS AL VECINO
