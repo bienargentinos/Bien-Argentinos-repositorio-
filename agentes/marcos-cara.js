@@ -116,13 +116,26 @@ ${vecino.notas    ? `Notas internas: ${vecino.notas}` : ''}
 `.trim()
         : 'Vecino no identificado todavía.';
 
+    // Igual que con el edificio ya identificado: para hablar CON LA PERSONA siempre usamos la
+    // dirección real (columna "direccion" de Sheets), nunca el nombre/alias interno que usamos
+    // para matchear (ej. "san patricio casa"). Es clave sobre todo acá, en la confirmación con
+    // dudas: puede escribir alguien a nombre de otro vecino (se quedó sin batería/luz) y decir
+    // un número de altura parecido pero no exacto (ej. "San Patricio 149" en vez de 159) -- Marcos
+    // tiene que confirmar con la dirección concreta ("¿Es San Patricio 159?"), no con el alias.
+    const direccionDe = (nombreInterno) => {
+        const match = (edificiosConocidos || []).find(e => e.nombre === nombreInterno);
+        return match?.direccion || nombreInterno;
+    };
+    const opcionesEdificioDireccion = opcionesEdificio ? opcionesEdificio.map(direccionDe) : null;
+    const edificioPendienteDireccion = edificioPendiente ? direccionDe(edificioPendiente) : null;
+
     const instruccionIdentificacion = (!vecino || !vecino.edificio) ? `
 INSTRUCCIÓN — IDENTIFICACIÓN NATURAL:
-${opcionesEdificio
-    ? `El vecino figura en varios edificios: ${opcionesEdificio.join(', ')}. Preguntale amablemente por cuál de ellos te escribe.`
-    : (edificioPendiente
-        ? `Detectamos que podría ser de ${edificioPendiente}. Confirmalo con él de forma natural (ej: "¿Me escribe por ${edificioPendiente}?") antes de seguir.`
-        : 'No sabemos quién es ni de qué edificio escribe. Pedile su dirección/edificio de forma muy humana y cálida.')
+${opcionesEdificioDireccion
+    ? `El vecino figura en varias direcciones: ${opcionesEdificioDireccion.join(', ')}. Preguntale amablemente por cuál de ellas te escribe (usando la dirección, nunca un nombre/alias interno).`
+    : (edificioPendienteDireccion
+        ? `Detectamos que podría ser de ${edificioPendienteDireccion}. Confirmalo con él de forma natural usando la dirección (ej: "¿Me escribe por ${edificioPendienteDireccion}?") antes de seguir -- puede estar escribiendo a nombre de otro vecino y decir un número de altura parecido pero no exacto, por eso hay que confirmar con la dirección puntual.`
+        : 'No sabemos quién es ni de qué edificio escribe. Pedile su dirección de forma muy humana y cálida.')
 }
 `.trim() : '';
 
