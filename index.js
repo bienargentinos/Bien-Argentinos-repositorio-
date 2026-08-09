@@ -196,8 +196,16 @@ app.post('/webhook', async (req, res) => {
             // transcribieron arriba, no hace falta volver a descargarlos en procesarMensaje.
             const ultimoMediaNoAudio = [...items].reverse().find(i => i.mediaId && i.tipo !== 'audio');
             const mediaIdFinal = ultimoMediaNoAudio ? ultimoMediaNoAudio.mediaId : null;
-            // Si hubo al menos un audio en la ráfaga, respondemos en modo audio (nota de voz)
-            const msgTypeFinal = items.some(i => i.tipo === 'audio') ? 'audio' : items[items.length - 1].tipo;
+            const huboAudio = items.some(i => i.tipo === 'audio');
+            // msgTypeFinal SIEMPRE debe ser coherente con mediaIdFinal (aguas abajo se decide
+            // "es imagen -> reenviar foto" mirando solo msgType). Si hubo audio, respondemos en
+            // modo audio (nota de voz). Si no, y hay una imagen/video/documento en la ráfaga, ese
+            // media manda el tipo -- NO el último texto suelto que haya llegado después (ej. una
+            // foto seguida de un mensaje de texto aparte no debe degradar a msgType:'text', o la
+            // imagen nunca se reenvía al técnico aunque su mediaId sí viaje).
+            const msgTypeFinal = huboAudio
+                ? 'audio'
+                : (ultimoMediaNoAudio ? ultimoMediaNoAudio.tipo : items[items.length - 1].tipo);
 
             logDebug(`[${recipient}] Procesando ráfaga acumulada (15s): "${msgBodyCompleto}"`);
 
@@ -1140,17 +1148,29 @@ function validarYSanitizarNombre(nombre) {
             console.log(`➡️ Novedad/texto del vecino reenviada al técnico ${telTech}`);
         }
 
-        // Cancelar temporizador de 10 min si existía
-        if (global.timersFotoVecino && global.timersFotoVecino.has(from)) {
-            clearTimeout(global.timersFotoVecino.get(from));
-            global.timersFotoVecino.delete(from);
+        // Solo dejamos de esperar más datos una vez que efectivamente llegó la foto/video
+        // pedido. Si el vecino responde primero con texto (ej. "ya te mandé, no la ves?"),
+        // seguimos esperando por si la foto llega en un mensaje/ráfaga aparte -- antes se
+        // borraba la bandera con la primera respuesta fuera cual fuera, y una foto que
+        // llegaba después ya no se reenviaba por este camino (se perdía para el técnico).
+        const llegoLoPedido = (msgType === 'image' || msgType === 'video') && media;
+
+        if (llegoLoPedido) {
+            // Cancelar temporizador de 10 min si existía
+            if (global.timersFotoVecino && global.timersFotoVecino.has(from)) {
+                clearTimeout(global.timersFotoVecino.get(from));
+                global.timersFotoVecino.delete(from);
+            }
+            delete session.esperandoDatosVecinoParaProveedor;
+
+            const respAgr = `Muchas gracias ${nomVecinoDisp}, ya le reenvié esa información/multimedia al técnico ${nomTech} para que lo evalúe y pueda coordinar la asistencia.`;
+            await despacharRespuesta(recipient, respAgr, msgType);
+            historial.push(`Marcos: ${respAgr}`);
+        } else {
+            const respAgr = `Gracias ${nomVecinoDisp}, ya le pasé eso al técnico ${nomTech}. Si podés mandarme también la foto/video que te pidió, se la reenvío enseguida.`;
+            await despacharRespuesta(recipient, respAgr, msgType);
+            historial.push(`Marcos: ${respAgr}`);
         }
-
-        delete session.esperandoDatosVecinoParaProveedor;
-
-        const respAgr = `Muchas gracias ${nomVecinoDisp}, ya le reenvié esa información/multimedia al técnico ${nomTech} para que lo evalúe y pueda coordinar la asistencia.`;
-        await despacharRespuesta(recipient, respAgr, msgType);
-        historial.push(`Marcos: ${respAgr}`);
         return; // Finalizar ciclo de respuesta al vecino
     }
 
