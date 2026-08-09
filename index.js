@@ -1243,6 +1243,48 @@ function validarYSanitizarNombre(nombre) {
         }
     }
 
+    // 2b. Reenvío automático de foto/video al técnico asignado del caso, aunque NO la haya
+    // pedido explícitamente ni este mensaje puntual haya disparado un nuevo contacto con él.
+    // Sin esto, una foto que el vecino manda espontáneamente (junto al reclamo inicial, o en
+    // cualquier mensaje posterior de un caso ya abierto) queda guardada en el servidor pero el
+    // técnico nunca la ve por WhatsApp -- solo se enteraba si él mismo la pedía primero
+    // (branch de esperandoDatosVecinoParaProveedor, más arriba en el flujo).
+    if ((msgType === 'image' || msgType === 'video') && media?.filePath) {
+        try {
+            let tecnicoParaFoto = tecnicoAsignado;
+            const edifParaFoto = session.nombreEdificio || vecino?.edificio;
+            if (!tecnicoParaFoto?.telefono && edifParaFoto && decisionCaso.tipo_problema) {
+                tecnicoParaFoto = await buscarTecnicoAsignado({
+                    edificio: edifParaFoto,
+                    especialidad: decisionCaso.tipo_problema,
+                    esUrgente: decisionCaso.urgencia === 'alta',
+                });
+            }
+
+            if (tecnicoParaFoto?.telefono) {
+                const nomVecinoAuto = (vecino?.nombre && vecino.nombre !== 'Vecino' && vecino.nombre !== 'Desconocido') ? vecino.nombre : 'El vecino';
+                const deptoAuto = vecino?.departamento ? ` (Depto ${vecino.departamento})` : '';
+                const edifAuto = edifParaFoto || 'el edificio';
+                const uploadMediaIdAuto = await subirMediaWhatsApp(media.filePath, media.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                if (uploadMediaIdAuto) {
+                    const comentarioAuto = (textoFinal && !/^\(Imagen adjunta\)$|^\(Video adjunto\)$/i.test(textoFinal.trim())) ? `\n\nComentario del vecino: "${textoFinal}"` : '';
+                    if (msgType === 'image') {
+                        const { enviarImagenWhatsApp } = require('./agentes/marcos-ops');
+                        const captionAuto = `📱 *MARCOS — FOTO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó esta foto del inconveniente.${comentarioAuto}`;
+                        await enviarImagenWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                    } else {
+                        const { enviarVideoWhatsApp } = require('./agentes/marcos-ops');
+                        const captionAuto = `📱 *MARCOS — VIDEO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó este video del inconveniente.${comentarioAuto}`;
+                        await enviarVideoWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                    }
+                    console.log(`📷 Foto/video del vecino reenviado automáticamente al técnico ${tecnicoParaFoto.nombre} (sin que lo pidiera explícitamente).`);
+                }
+            }
+        } catch (errFotoAuto) {
+            console.error('⚠️ Error reenviando foto/video automáticamente al técnico:', errFotoAuto.message);
+        }
+    }
+
     // ── FASE 5: REGISTRAR VECINO NUEVO ──────────────────────────────────────
     if (!session.datosVecino && session.nombreEdificio) {
         console.log(`👤 Registrando vecino nuevo automáticamente...`);
