@@ -793,12 +793,27 @@ function validarYSanitizarNombre(nombre) {
         ? session.datosVecino.nombre 
         : "Vecino";
 
-    const vecino = { 
-        nombre: nombreVecinoFinal, 
+    const vecino = {
+        nombre: nombreVecinoFinal,
         telefono: from,
         edificio: session.nombreEdificio,
         departamento: (session.datosVecino && session.datosVecino.edificio === session.nombreEdificio) ? (session.datosVecino.departamento || "") : ""
     };
+
+    // Si el vecino todavía no está identificado (nombre y/o depto), intentamos extraerlo del
+    // propio mensaje/ráfaga ACTUAL antes de generar la respuesta. Sin esto, si un vecino nuevo
+    // dice su nombre y depto en el mismo audio donde cuenta el problema, Marcos igual se lo
+    // vuelve a pedir en esa misma respuesta -- porque el registro formal en Sheets (FASE 5) recién
+    // corre DESPUÉS de contestarle, y hasta ese momento "vecino.nombre" sigue en "Vecino".
+    if (vecino.nombre === 'Vecino' || !vecino.departamento) {
+        try {
+            const extraidoTemprano = await extraerDatosVecinoNuevo(historial);
+            if (extraidoTemprano?.nombre && vecino.nombre === 'Vecino') vecino.nombre = extraidoTemprano.nombre;
+            if (extraidoTemprano?.departamento && !vecino.departamento) vecino.departamento = extraidoTemprano.departamento;
+        } catch (e) {
+            console.error('Error en extracción temprana de nombre/depto del vecino:', e.message);
+        }
+    }
 
     // ── FASE 2: ANÁLISIS EN PARALELO ────────────────────────────────────────
 
