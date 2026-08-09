@@ -153,34 +153,53 @@ app.post('/webhook', async (req, res) => {
         // ── SISTEMA DE ACUMULACIÓN (Humanización - 15 Segundos de Espera) ──
         // Si el usuario manda varios mensajes seguidos, esperamos 15 segundos para reunirlos todos en un solo contexto.
         if (!global.colasMensajes) global.colasMensajes = new Map();
-        
+
         if (!global.colasMensajes.has(recipient)) {
-            global.colasMensajes.set(recipient, { mensajes: [], mediaIds: [], tipos: [], pushName, timeout: null });
+            global.colasMensajes.set(recipient, { items: [], pushName, timeout: null });
         }
-        
+
         const cola = global.colasMensajes.get(recipient);
-        cola.mensajes.push(msgBody);
-        cola.tipos.push(msgType);
+        // Guardamos cada mensaje de la ráfaga en orden (tipo + texto + mediaId) para no perder
+        // ninguno al armar el contexto combinado.
+        cola.items.push({ tipo: msgType, texto: msgBody, mediaId });
         if (pushName && !cola.pushName) cola.pushName = pushName;
-        if (mediaId) cola.mediaIds.push({ id: mediaId, tipo: msgType });
 
         // Reiniciamos el tiempo de espera (15 segundos)
         if (cola.timeout) clearTimeout(cola.timeout);
-        
+
         cola.timeout = setTimeout(async () => {
-            const msgBodyCompleto = cola.mensajes.join(" ");
-            // Último audio o último media en general
-            const ultimoAudio = cola.mediaIds.filter(m => m.tipo === 'audio').pop();
-            const ultimoMedia = cola.mediaIds.length > 0 ? cola.mediaIds[cola.mediaIds.length - 1] : null;
-            const mediaIdFinal = ultimoAudio ? ultimoAudio.id : (ultimoMedia ? ultimoMedia.id : null);
-            // Si hubo al menos un audio en la ráfaga, el tipo es audio
-            const msgTypeFinal = cola.tipos.includes('audio') ? 'audio' : cola.tipos[cola.tipos.length - 1];
+            const items = cola.items;
             const pushNameFinal = cola.pushName;
 
-            logDebug(`[${recipient}] Procesando ráfaga acumulada (10s): "${msgBodyCompleto}"`);
-            
             // Limpiamos la cola antes de procesar
             global.colasMensajes.delete(recipient);
+
+            // Transcribimos TODOS los audios de la ráfaga (no solo el último), en orden, para no
+            // perder datos cuando el vecino/técnico manda varias notas de voz seguidas.
+            for (const item of items) {
+                if (item.tipo === 'audio' && item.mediaId) {
+                    try {
+                        const mediaAudio = await descargarMedia(item.mediaId);
+                        if (mediaAudio) {
+                            const { transcribirAudio } = require('./stt');
+                            const transcripcion = await transcribirAudio(mediaAudio.filePath, mediaAudio.mimeType);
+                            if (transcripcion) item.texto = transcripcion;
+                        }
+                    } catch (e) {
+                        console.error(`Error transcribiendo audio de la ráfaga (${item.mediaId}):`, e.message);
+                    }
+                }
+            }
+
+            const msgBodyCompleto = items.map(i => i.texto).filter(Boolean).join(' ');
+            // Último media NO-audio de la ráfaga (imagen/video/documento) — los audios ya se
+            // transcribieron arriba, no hace falta volver a descargarlos en procesarMensaje.
+            const ultimoMediaNoAudio = [...items].reverse().find(i => i.mediaId && i.tipo !== 'audio');
+            const mediaIdFinal = ultimoMediaNoAudio ? ultimoMediaNoAudio.mediaId : null;
+            // Si hubo al menos un audio en la ráfaga, respondemos en modo audio (nota de voz)
+            const msgTypeFinal = items.some(i => i.tipo === 'audio') ? 'audio' : items[items.length - 1].tipo;
+
+            logDebug(`[${recipient}] Procesando ráfaga acumulada (15s): "${msgBodyCompleto}"`);
 
             // Llamada al orquestador con el texto acumulado
             await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal }).catch(err => {
@@ -365,7 +384,11 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pus
 
     let textoFinal = msgBody;
     let transcripcionFinal = '';
-    if (msgType === 'audio' && media) {
+    // Nota: el sistema de acumulación de ráfagas (webhook) ya transcribe todos los audios de
+    // antemano y solo pasa mediaId aquí si es una imagen/video/documento. Se valida el mimeType
+    // real (no solo msgType) para no intentar transcribir un archivo que no es audio si una
+    // ráfaga trajo audio + foto juntos (msgType queda en 'audio' pero mediaId es de la foto).
+    if (msgType === 'audio' && media && String(media.mimeType || '').startsWith('audio')) {
         const { transcribirAudio } = require('./stt');
         const transcripcion = await transcribirAudio(media.filePath, media.mimeType);
         if (transcripcion) {
