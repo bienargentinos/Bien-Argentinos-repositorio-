@@ -833,9 +833,17 @@ function validarYSanitizarNombre(nombre) {
         const txtLow = (msgBody || '').toLowerCase();
 
         // A. MANEJO DE FACTURAS Y COMPROBANTES DE COBRO DEL PROVEEDOR
-        const esFacturaODoc = (datosFactura?.es_factura) || 
+        // Ojo: "factura"/"pago" aparecen tanto en una factura REAL entregada como en una PREGUNTA
+        // sobre el proceso (ej. "¿A quién le mando la factura?"). Sin distinguirlas, una pregunta
+        // sin ningún archivo adjunto se confirmaba como "ya recibí la factura" -- falso positivo.
+        // Si no hay media adjunta y el mensaje tiene forma de pregunta, NO se trata como entrega
+        // real (cae al ramal libre de abajo, que sí puede responder la pregunta con contexto real).
+        const parecePreguntaSinAdjunto = !media && /\?|qui[eé]n|c[oó]mo|cu[aá]ndo|d[oó]nde|puedo|debo|hay que/i.test(txtLow);
+        const esFacturaODoc = !parecePreguntaSinAdjunto && (
+            (datosFactura?.es_factura) ||
             /factura|comprobante|recibo|pago|cobro|remito|cbu|transferencia/i.test(txtLow) ||
-            (media && (msgType === 'document' || msgType === 'image') && !/foto|video|cerradura|especifi|aclarar|ver/.test(txtLow));
+            (media && (msgType === 'document' || msgType === 'image') && !/foto|video|cerradura|especifi|aclarar|ver/.test(txtLow))
+        );
 
         if (esFacturaODoc) {
             if (media?.filePath) {
@@ -1359,6 +1367,7 @@ Datos reales del caso que tenés disponibles:
 Instrucciones:
 - Respondé de forma breve (1-2 oraciones), profesional, en "usted".
 - Si te pregunta algo puntual (quién lo recibe, dirección, acceso, horario, etc.), contestale con el dato real de arriba. No inventes datos que no tenés: si no sabés algo puntual que pide, decile que lo estás confirmando y le respondés en breve.
+- Si te pregunta CÓMO o A QUIÉN entregar una factura/comprobante de pago (sin adjuntarla todavía, solo preguntando el procedimiento): decile que te la puede mandar directo por acá (foto o PDF) y vos la registrás para que la Administración la procese. NO le digas "ya recibí la factura" -- todavía no mandó nada, solo está preguntando.
 - NUNCA le pidas nombre/departamento al técnico -- eso es del vecino, no de él.
 - No saludes ni te vuelvas a presentar (ya es una conversación en curso).
 - Devolvé ÚNICAMENTE el texto de la respuesta, sin comillas ni formato adicional.`;
