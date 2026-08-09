@@ -45,7 +45,7 @@ async function gestionarOperaciones({
             console.log(`🔧 Técnico ${tecnicoAsignado.nombre} notificado del [${idCasoFinal}].`);
         }
 
-        programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, phoneNumberId, accessToken, paso: 1, id_evento: idCasoFinal });
+        programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, paso: 1, id_evento: idCasoFinal });
 
         if (tecnicoAsignado.acceso &&
             !tecnicoAsignado.acceso.toLowerCase().includes('qr') &&
@@ -82,11 +82,11 @@ async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado
     estadoProv.notificado = true;
     estadoProv.ultimoMensajeTimestamp = Date.now();
 
-    await ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, phoneNumberId, accessToken, id_evento });
+    await ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, id_evento });
     return { encolado: false };
 }
 
-async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, phoneNumberId, accessToken, id_evento }) {
+async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, id_evento }) {
     const { buscarPerfilEdificio } = require('../sheets');
     const perfilEdif = await buscarPerfilEdificio(vecino?.edificio);
     const direccionExacta = perfilEdif?.direccion || vecino?.direccion || vecino?.edificio || 'Consorcio';
@@ -413,7 +413,7 @@ async function enviarVideoWhatsApp(to, mediaId, caption, phoneNumberId, accessTo
     }
 }
 
-function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, phoneNumberId, accessToken, paso = 1, id_evento }) {
+function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, paso = 1, id_evento }) {
     const key = `${vecino?.edificio || 'edif'}_${tecnicoAsignado?.telefono || 'tech'}`;
     
     if (global.timersEscalacionProveedores.has(key)) {
@@ -446,8 +446,8 @@ function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, p
             });
 
             if (suplente) {
-                await ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado: suplente, phoneNumberId, accessToken, id_evento });
-                programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado: suplente, phoneNumberId, accessToken, paso: 2, id_evento });
+                await ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado: suplente, personalDeTurno, phoneNumberId, accessToken, id_evento });
+                programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado: suplente, personalDeTurno, phoneNumberId, accessToken, paso: 2, id_evento });
                 return;
             }
         }
@@ -458,7 +458,7 @@ function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, p
                 `¿Podrás asistir hoy o derivamos a otro servicio? Agradecemos tu respuesta.`;
 
             await enviarWhatsApp(tecnicoAsignado.telefono, msgInsistencia, phoneNumberId, accessToken);
-            programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, phoneNumberId, accessToken, paso: 3, id_evento });
+            programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, paso: 3, id_evento });
             return;
         }
 
