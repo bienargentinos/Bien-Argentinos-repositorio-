@@ -90,6 +90,7 @@ app.post('/webhook', async (req, res) => {
         // Extraer contenido según tipo
         let msgBody = '';
         let mediaId = null;
+        let contactosCompartidos = null;
 
         if (msgType === 'text') {
             msgBody = message.text.body;
@@ -117,6 +118,20 @@ app.post('/webhook', async (req, res) => {
             } else {
                 msgBody = '(Respuesta interactiva)';
             }
+        } else if (msgType === 'contacts') {
+            // Ficha de contacto compartida desde WhatsApp (el vecino comparte "el contacto de mi
+            // señora" para que le abran al técnico, el admin comparte el contacto de un proveedor,
+            // etc.). Antes caía en el `else { return }` de abajo y se descartaba en silencio.
+            const contactosRecibidos = (message.contacts || []).map(c => {
+                const nombreCto = c?.name?.formatted_name || [c?.name?.first_name, c?.name?.last_name].filter(Boolean).join(' ') || 'Contacto';
+                const telCto = (c?.phones || []).map(p => String(p?.wa_id || p?.phone || '').replace(/\D/g, '')).filter(Boolean)[0] || '';
+                return { nombre: nombreCto, telefono: telCto };
+            }).filter(c => c.telefono);
+
+            if (contactosRecibidos.length === 0) return;
+            contactosCompartidos = contactosRecibidos;
+            msgBody = `(Contacto compartido) ${contactosRecibidos.map(c => `${c.nombre}: ${c.telefono}`).join(', ')}`;
+            console.log(`👤 Ficha(s) de contacto recibida(s) de ${from}: ${msgBody}`);
         } else if (msgType === 'unsupported' || msgType === 'system') {
             console.log(`📞 Intento de llamada o evento de sistema detectado de ${from}`);
             await enviarWhatsApp(
@@ -164,7 +179,7 @@ app.post('/webhook', async (req, res) => {
         const cola = global.colasMensajes.get(recipient);
         // Guardamos cada mensaje de la ráfaga en orden (tipo + texto + mediaId) para no perder
         // ninguno al armar el contexto combinado.
-        cola.items.push({ tipo: msgType, texto: msgBody, mediaId });
+        cola.items.push({ tipo: msgType, texto: msgBody, mediaId, contactos: contactosCompartidos });
         if (pushName && !cola.pushName) cola.pushName = pushName;
 
         // Reiniciamos el tiempo de espera (25 segundos)
@@ -216,7 +231,10 @@ app.post('/webhook', async (req, res) => {
             logDebug(`[${recipient}] Procesando ráfaga acumulada (25s): "${msgBodyCompleto}"`);
 
             // Llamada al orquestador con el texto acumulado
-            await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal, preferirAudioRespuesta }).catch(err => {
+            // Fichas de contacto compartidas en la ráfaga (se acumulan todas, en orden)
+            const contactosFinal = items.flatMap(i => i.contactos || []);
+
+            await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal, preferirAudioRespuesta, contactosCompartidos: contactosFinal }).catch(err => {
                 console.error('Error procesando mensaje:', err.message);
                 const respuestasHumanas = [
                     'Aguárdeme un instante por favor, estoy actualizando el sistema y ya le respondo.',
@@ -388,7 +406,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
 }
 
 // ── ORQUESTADOR PRINCIPAL ─────────────────────────────────────────────────────
-async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pushName, preferirAudioRespuesta = false }) {
+async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pushName, preferirAudioRespuesta = false, contactosCompartidos = [] }) {
     // Modo en que le contestamos al usuario (nota de voz vs texto). Es independiente del tipo de
     // adjunto que trajo el mensaje: una ráfaga puede traer una foto (msgType 'image', para
     // reenviarla al técnico) y aun así merecer una respuesta hablada porque el vecino usó audios.
@@ -1139,6 +1157,14 @@ function validarYSanitizarNombre(nombre) {
     // 11...", "llamá al 11... que te abre"), lo guardamos en la sesión para poder dárselo al
     // técnico cuando pregunte cómo entrar. Antes Marcos decía "se lo paso al técnico" y no lo
     // pasaba a ningún lado -- el dato se perdía y el técnico quedaba sin forma de contactar.
+    // Una ficha de contacto compartida por el vecino es la señal más explícita de todas:
+    // literalmente está diciendo "hablá con esta persona". Se guarda como contacto de acceso.
+    if (datosEmisor.rol !== 'proveedor' && Array.isArray(contactosCompartidos) && contactosCompartidos.length > 0) {
+        const ctoAcceso = contactosCompartidos[0];
+        session.contactoAccesoExtra = `${ctoAcceso.nombre} (${ctoAcceso.telefono})`;
+        console.log(`📞 Contacto de acceso guardado desde ficha compartida: ${session.contactoAccesoExtra}`);
+    }
+
     if (datosEmisor.rol !== 'proveedor' && /pasal|pásal|pasale|llam[aá]|tel[eé]fono|celular|n[uú]mero/i.test(textoFinal || '')) {
         const telsMencionados = String(textoFinal || '').match(/\b\d{8,}\b/g) || [];
         const telPropio = String(from || '').replace(/\D/g, '');
