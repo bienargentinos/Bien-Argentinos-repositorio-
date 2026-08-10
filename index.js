@@ -1541,6 +1541,35 @@ function validarYSanitizarNombre(nombre) {
         }
     }
 
+    // 2c. Si el vecino dejó un contacto de acceso (ficha compartida o teléfono dictado), el técnico
+    // asignado tiene que RECIBIRLO de una, junto con la notificación del caso -- no solo si se le
+    // ocurre preguntar. Es el dato que evita que llegue y se quede sin poder entrar.
+    if (session.contactoAccesoExtra && !session.contactoAccesoAvisadoATecnico) {
+        try {
+            let tecnicoParaContacto = tecnicoAsignado;
+            const edifParaContacto = session.nombreEdificio || vecino?.edificio;
+            if (!tecnicoParaContacto?.telefono && edifParaContacto && decisionCaso.tipo_problema) {
+                tecnicoParaContacto = await buscarTecnicoAsignado({
+                    edificio: edifParaContacto,
+                    especialidad: decisionCaso.tipo_problema,
+                    esUrgente: decisionCaso.urgencia === 'alta',
+                });
+            }
+
+            if (tecnicoParaContacto?.telefono) {
+                const dirContacto = perfilEdificio?.direccion || edifParaContacto || 'el edificio';
+                const msgContactoAcceso = `📞 *MARCOS — CONTACTO PARA EL INGRESO*\n\n` +
+                    `Hola ${tecnicoParaContacto.nombre}, para la visita en ${dirContacto} el vecino dejó este contacto para que le abran: *${session.contactoAccesoExtra}*.\n` +
+                    `Si al llegar no te abren, comunicate directamente con esa persona y avisame cualquier inconveniente.`;
+                await enviarWhatsApp(tecnicoParaContacto.telefono, msgContactoAcceso, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                session.contactoAccesoAvisadoATecnico = true;
+                console.log(`📞 Contacto de acceso (${session.contactoAccesoExtra}) enviado proactivamente al técnico ${tecnicoParaContacto.nombre}.`);
+            }
+        } catch (errCtoAcceso) {
+            console.error('⚠️ Error enviando el contacto de acceso al técnico:', errCtoAcceso.message);
+        }
+    }
+
     // ── FASE 5: REGISTRAR VECINO NUEVO ──────────────────────────────────────
     if (!session.datosVecino && session.nombreEdificio) {
         console.log(`👤 Registrando vecino nuevo automáticamente...`);
