@@ -2541,7 +2541,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
     }
     chatLines = allGen.filter(function(line) {
       var str = typeof line === 'object' ? (line.emisor || '') + ': ' + (line.texto || '') : String(line);
-      return /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
+      return !/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
     });
   }
 
@@ -2555,7 +2555,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var isProveedor = /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
       var isEncargado = /^(Encargado|Seguridad|Portero|Portería)/i.test(str);
 
-      var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos|Susana|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería)(\s*\(.*\?\))?:\s*/i, '');
+      var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería)(\s*\(.*\?\))?:\s*/i, '');
       
       var senderLabel = 'Marcos IA';
       var align = 'margin-right:auto;background:#FFFFFF;color:#16233B;border:1px solid #E1E7F0;border-bottom-left-radius:2px;';
