@@ -1,17 +1,26 @@
-const Database = require('better-sqlite3');
+let Database;
+try {
+    Database = require('better-sqlite3');
+} catch (e) {
+    console.log('ℹ️ better-sqlite3 no instalado, usando conector PostgreSQL / Sheets fallback');
+}
+
 const path = require('path');
 const fs = require('fs');
 
 const DB_PATH = process.env.SQLITE_DB_PATH || path.join(__dirname, 'marcos_database.sqlite');
 let db;
 
-try {
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    console.log(`✅ Base de Datos SQLite conectada correctamente en: ${DB_PATH}`);
-} catch (err) {
-    console.error('❌ Error conectando a SQLite:', err.message);
+if (Database) {
+    try {
+        db = new Database(DB_PATH);
+        db.pragma('journal_mode = WAL');
+        console.log(`✅ Base de Datos SQLite conectada correctamente en: ${DB_PATH}`);
+    } catch (err) {
+        console.error('❌ Error conectando a SQLite:', err.message);
+    }
 }
+
 
 // ── Inicialización de Esquema SQL ───────────────────────────────────────────
 function initSchema() {
