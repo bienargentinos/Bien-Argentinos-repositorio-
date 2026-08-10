@@ -65,6 +65,10 @@ async function buscarVecinosPorTelefono(telefono) {
             seguridad:        row.get('seguridad')         || '',
             consejo:          row.get('consejo')           || '',
             notas:            row.get('notas')             || '',
+            // Autorización persistente para compartir su contacto con el técnico asignado a un
+            // caso. Una vez que el vecino la dio, se recuerda para los próximos eventos.
+            autorizaContacto:  String(row.get('autoriza_contacto') || '').toLowerCase().startsWith('s'),
+            contactoAcceso:    row.get('contacto_acceso')   || '',
         }));
     } catch (err) {
         console.error('Error buscando vecino en Sheets:', err.message);
@@ -107,6 +111,38 @@ async function agregarVecinoNuevo({ telefono, nombre, edificio, departamento }) 
         }
     } catch (err) {
         console.error('Error agregando vecino al Sheet:', err.message);
+    }
+}
+
+// Registra que un vecino autorizó a compartir su contacto (o un contacto alternativo) con el
+// técnico asignado. Queda persistido en la pestaña VECINOS, así en el próximo evento Marcos ya
+// sabe que puede pasar el dato sin volver a pedir permiso -- la confianza se acumula, no se
+// reinicia en cada caso.
+async function guardarAutorizacionContacto({ telefono, autoriza = true, contactoAcceso = '' }) {
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByIndex[0];
+        await sheet.loadHeaderRow().catch(() => {});
+        const headers = sheet.headerValues || [];
+        const necesarios = ['autoriza_contacto', 'contacto_acceso'];
+        const nuevos = Array.from(new Set([...headers, ...necesarios]));
+        if (nuevos.length > headers.length) {
+            await sheet.setHeaderRow(nuevos).catch(() => {});
+        }
+
+        const rows = await sheet.getRows();
+        const telBuscado = String(telefono || '').replace(/\D/g, '');
+        const fila = rows.find(r => String(r.get('telefono') || '').replace(/\D/g, '') === telBuscado);
+        if (!fila) return false;
+
+        if (autoriza) fila.set('autoriza_contacto', 'si');
+        if (contactoAcceso) fila.set('contacto_acceso', contactoAcceso);
+        await fila.save();
+        console.log(`🔓 Autorización de contacto guardada para ${telBuscado}${contactoAcceso ? ` (contacto de acceso: ${contactoAcceso})` : ''}`);
+        return true;
+    } catch (err) {
+        console.error('Error guardando autorización de contacto:', err.message);
+        return false;
     }
 }
 
@@ -1078,6 +1114,7 @@ module.exports = {
     buscarVecinoPorTelefono,
     buscarVecinosPorTelefono,
     agregarVecinoNuevo,
+    guardarAutorizacionContacto,
     buscarTecnicoAsignado,
     buscarTecnicoSuplente,
     buscarPersonalDeTurno,

@@ -1071,7 +1071,17 @@ function validarYSanitizarNombre(nombre) {
         const sesVecinoAcceso = vecinoActivoCatchAll?.telefono
             ? global.marcosSesiones?.get(String(vecinoActivoCatchAll.telefono))
             : null;
-        const contactoAccesoExtra = sesVecinoAcceso?.contactoAccesoExtra || '';
+        // Además de la sesión en RAM (caso actual), miramos la autorización PERSISTIDA en Sheets:
+        // si este vecino ya autorizó antes a compartir su contacto, esa confianza sigue vigente
+        // en los eventos siguientes y no hay que volver a pedirle permiso.
+        let contactoAccesoExtra = sesVecinoAcceso?.contactoAccesoExtra || '';
+        if (!contactoAccesoExtra && vecinoActivoCatchAll?.telefono) {
+            try {
+                const vecinosGuardados = await buscarVecinosPorTelefono(vecinoActivoCatchAll.telefono);
+                const conAutorizacion = (vecinosGuardados || []).find(v => v.autorizaContacto || v.contactoAcceso);
+                if (conAutorizacion?.contactoAcceso) contactoAccesoExtra = conAutorizacion.contactoAcceso;
+            } catch (e) { console.error('Error leyendo autorización de contacto guardada:', e.message); }
+        }
 
         const respGenericaProveedor = await generarRespuestaTecnicoLibre({
             mensajeTecnico: msgBody,
@@ -1083,6 +1093,24 @@ function validarYSanitizarNombre(nombre) {
         });
         await despacharRespuesta(recipient, respGenericaProveedor, msgTypeRespuesta);
         historial.push(`Marcos: ${respGenericaProveedor}`);
+
+        // Sentido inverso: el técnico pide que le pasen SU teléfono al vecino ("pasale mi número
+        // así coordinamos directo"). Es el mismo criterio de siempre -- dato mínimo, con una
+        // necesidad operativa concreta -- solo que en la otra dirección.
+        const tecnicoOfreceSuTelefono = /pasal[ea]?\s*(le)?\s*mi|dale mi|mand[aá]le mi|d[aá]le mi|que me llame|puede llamarme|mi (tel|n[uú]mero|celular)/i.test(txtLow);
+        if (tecnicoOfreceSuTelefono && vecinoActivoCatchAll?.telefono) {
+            try {
+                const telTecnicoLimpio = String(from).replace(/\D/g, '');
+                const dirAvisoTel = perfilEdifCatchAll?.direccion || edifNomCatchAll;
+                const avisoTelTecnico = `📞 *MARCOS — CONTACTO DEL TÉCNICO*\n\n` +
+                    `${(vecinoActivoCatchAll.nombre && vecinoActivoCatchAll.nombre !== 'Vecino') ? vecinoActivoCatchAll.nombre : 'Hola'}, el técnico *${datosEmisor.nombre}* que va a atender el reclamo de ${dirAvisoTel} le deja su número para que puedan coordinar y despejar dudas directamente: *${telTecnicoLimpio}*.\n` +
+                    `Cualquier cosa, yo sigo acompañando el caso por acá.`;
+                await enviarWhatsApp(vecinoActivoCatchAll.telefono, avisoTelTecnico, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                console.log(`📞 Teléfono del técnico ${datosEmisor.nombre} compartido con el vecino ${vecinoActivoCatchAll.telefono} a pedido del propio técnico.`);
+            } catch (e) {
+                console.error('Error pasando el teléfono del técnico al vecino:', e.message);
+            }
+        }
 
         // Si el técnico avisa que ya llegó / que no le abren, no alcanza con contestarle a él:
         // hay que golpearle la puerta al vecino, que es quien tiene que bajar a abrir. Sin esto,
@@ -1163,6 +1191,10 @@ function validarYSanitizarNombre(nombre) {
         const ctoAcceso = contactosCompartidos[0];
         session.contactoAccesoExtra = `${ctoAcceso.nombre} (${ctoAcceso.telefono})`;
         console.log(`📞 Contacto de acceso guardado desde ficha compartida: ${session.contactoAccesoExtra}`);
+        try {
+            const { guardarAutorizacionContacto } = require('./sheets');
+            await guardarAutorizacionContacto({ telefono: from, autoriza: true, contactoAcceso: session.contactoAccesoExtra });
+        } catch (e) { console.error('Error persistiendo autorización de contacto:', e.message); }
     }
 
     if (datosEmisor.rol !== 'proveedor' && /pasal|pásal|pasale|llam[aá]|tel[eé]fono|celular|n[uú]mero/i.test(textoFinal || '')) {
@@ -1174,6 +1206,10 @@ function validarYSanitizarNombre(nombre) {
         if (telOtro) {
             session.contactoAccesoExtra = telOtro;
             console.log(`📞 Contacto alternativo de acceso guardado para el caso: ${telOtro}`);
+            try {
+                const { guardarAutorizacionContacto } = require('./sheets');
+                await guardarAutorizacionContacto({ telefono: from, autoriza: true, contactoAcceso: telOtro });
+            } catch (e) { console.error('Error persistiendo autorización de contacto:', e.message); }
         }
     }
 
