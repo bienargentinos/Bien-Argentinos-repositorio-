@@ -8476,8 +8476,39 @@ router.post('/api/servicio-gastos-toggle', async (req, res) => {
   }
 });
 
+// --- NUEVOS ENDPOINTS DE BASE DE DATOS Y VISOR DE CHATS ---
+router.get('/api/mensajes', async (req, res) => {
+  try {
+    const { eventoId, telefono } = req.query || {};
+    const { obtenerHistorialMensajes, obtenerHistorialChatTelefono } = require('./db');
+    if (eventoId) {
+      const msgs = obtenerHistorialMensajes(eventoId);
+      return res.json({ ok: true, mensajes: msgs });
+    }
+    if (telefono) {
+      const msgs = obtenerHistorialChatTelefono(telefono);
+      return res.json({ ok: true, mensajes: msgs });
+    }
+    res.json({ ok: true, mensajes: [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.get('/api/busqueda-global', async (req, res) => {
+  try {
+    const { q } = req.query || {};
+    const { busquedaGlobal } = require('./db');
+    const resBusqueda = busquedaGlobal(q);
+    res.json({ ok: true, resultados: resBusqueda });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
 /* ===================================================================
  * EXPORT
  * =================================================================== */
 
 module.exports = router;
+

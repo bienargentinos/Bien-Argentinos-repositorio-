@@ -60,3 +60,20 @@ El sistema de notificaciones por email está configurado de forma robusta en `ag
 
 5. **Fallos de Git:**
    * Si en algún momento Git falla (PATH, autenticación, etc.), se **AVISA INMEDIATAMENTE** en vez de buscar atajos. Se resuelve el problema de Git, nunca se lo esquiva.
+
+---
+
+## 🗄️ BASE DE DATOS LOCAL SQLITE EN VPS & REGLAS PARA AGENTES
+
+1. **PROHIBIDO PISAR `index.js`, `sheets.js` o `agentes/*.js` EN EL VPS**:
+   * Todos los agentes (Antigravity, Claude, Dash Chat) tienen prohibido subir archivos del motor directamente por copia local en el VPS.
+   * El despliegue de estos archivos se hace **únicamente vía Git (`git pull origin <rama>`)** en `/root/marcos/Consorcio-AI-Assistant`.
+   * Si se requiere subir una modificación puntual de frontend/panel, solo se actualizará `dashboard.js`.
+
+2. **Base de Datos SQLite (`db.js`)**:
+   * Toda la persistencia de datos (vecinos, edificios, reportes, mensajes de chat mensaje por mensaje, clientes, proveedores, llamadas) se maneja en la base de datos relacional local `marcos_database.sqlite` mediante `db.js`.
+   * `migrate-sheets-to-sql.js` permite importar todas las hojas de Google Sheets a la base de datos SQLite sin perder registros.
+
+3. **Retardo de Acumulación (25 Segundos)**:
+   * Marcos IA debe respetar obligatoriamente la ventana de acumulación de **25 segundos** (`25000 ms`) para ráfagas de mensajes de WhatsApp.
+

@@ -20,8 +20,8 @@
 
 ---
 
-## 3. ⏳ TIEMPO DE ESPERA Y ACUMULACIÓN (15 SEGUNDOS)
-- **Acumulación:** Marcos debe esperar **15 segundos** (`15000 ms`) acumulando mensajes o audios correlativos del mismo usuario.
+## 3. ⏳ TIEMPO DE ESPERA Y ACUMULACIÓN (25 SEGUNDOS)
+- **Acumulación:** Marcos debe esperar **25 segundos** (`25000 ms`) acumulando mensajes o audios correlativos del mismo usuario para permitir grabar/enviar audios o fotos sin cortar la ráfaga de contexto.
 - **Respuesta Única:** Prohibido responder a cada mensaje individualmente de forma inmediata. Se debe consolidar todo el contexto en un único mensaje claro y empático.
 
 ---

@@ -33,15 +33,24 @@ ssh -p5436 root@200.58.102.182
     -o /root/marcos/Consorcio-AI-Assistant/design/assets/logo.png
   ```
 
+## REGLA DE ORO DE DESPLIEGUE (GITHUB = FUENTE DE VERDAD)
+
+> [!CAUTION]
+> **PROHIBIDO PISAR ARCHIVOS DEL MOTOR EN EL VPS**:
+> - GitHub (`bienargentinos/Bien-Argentinos-repositorio-`) es la **única fuente de verdad**.
+> - **Navegadores o agentes NO deben subir `index.js`, `sheets.js` ni `agentes/*.js` manualmente por copia local al VPS.**
+> - El despliegue de estos archivos se realiza **únicamente mediante `git pull`** en el VPS.
+> - Si se requiere actualizar el panel sin tocar el motor, solo se actualizará `dashboard.js`.
+
 ## Stack técnico
 
-- **Runtime**: Node.js + Express — `index.js` es el servidor principal
+- **Runtime**: Node.js + Express — `index.js` es el servidor principal (acumulación de **25 segundos** en ráfagas).
 - **IA**: Google Gemini 2.5 Flash (multi-agente: marcos-caso, marcos-cara, marcos-ops, marcos-docs, marcos-admin)
 - **WhatsApp**: Meta WhatsApp Cloud API → webhook en `/webhook`
 - **Llamadas**: Vapi → endpoints `/vapi` y `/vapi/llamada-finalizada`
-- **Voz TTS**: ElevenLabs (solo primeros 2 audios por sesión, luego texto)
-- **Base de datos**: Google Sheets via `googleapis` + service account
-- **Dashboard**: `dashboard.js` montado en `/admin`
+- **Voz TTS**: ElevenLabs (solo primeros 2 audios por sesión en 24h, luego texto)
+- **Base de datos**: SQLite Local (`db.js`) en `marcos_database.sqlite` + Google Sheets (`sheets.js`) como respaldo.
+- **Dashboard**: `dashboard.js` montado en `/admin` (Visor de chats mensaje a mensaje y búsqueda global <10ms).
 
 ## Google Sheets
 
