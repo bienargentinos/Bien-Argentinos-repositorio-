@@ -60,8 +60,9 @@ async function migrarDatosPostgres() {
         try {
             const sheetVecinos = getSheetByNames(doc, ['vecinos', 'VECINOS']);
             if (sheetVecinos) {
+                await sheetVecinos.loadHeaderRow();
                 const rows = await sheetVecinos.getRows();
-                console.log(`➡️ Migrando ${rows.length} vecinos de la pestaña "${sheetVecinos.title}" a PostgreSQL...`);
+                console.log(`➡️ Pestaña "${sheetVecinos.title}": Cabeceras [${sheetVecinos.headerValues ? sheetVecinos.headerValues.join(', ') : 'sin cabecera'}] | ${rows.length} filas.`);
                 for (const r of rows) {
                     await client.query(`
                         INSERT INTO vecinos (telefono, nombre, edificio, departamento, encargado, tel_encargado, horario_encargado, tablero, llaves, seguridad, consejo, notas, autoriza_contacto, contacto_acceso)
@@ -88,6 +89,7 @@ async function migrarDatosPostgres() {
         } catch (e) {
             console.error('Error migrando vecinos:', e.message);
         }
+
 
         // B. Migrar EDIFICIOS
         try {
