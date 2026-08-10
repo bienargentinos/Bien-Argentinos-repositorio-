@@ -200,20 +200,23 @@ app.post('/webhook', async (req, res) => {
             const ultimoMediaNoAudio = [...items].reverse().find(i => i.mediaId && i.tipo !== 'audio');
             const mediaIdFinal = ultimoMediaNoAudio ? ultimoMediaNoAudio.mediaId : null;
             const huboAudio = items.some(i => i.tipo === 'audio');
-            // msgTypeFinal SIEMPRE debe ser coherente con mediaIdFinal (aguas abajo se decide
-            // "es imagen -> reenviar foto" mirando solo msgType). Si hubo audio, respondemos en
-            // modo audio (nota de voz). Si no, y hay una imagen/video/documento en la ráfaga, ese
-            // media manda el tipo -- NO el último texto suelto que haya llegado después (ej. una
-            // foto seguida de un mensaje de texto aparte no debe degradar a msgType:'text', o la
-            // imagen nunca se reenvía al técnico aunque su mediaId sí viaje).
-            const msgTypeFinal = huboAudio
-                ? 'audio'
-                : (ultimoMediaNoAudio ? ultimoMediaNoAudio.tipo : items[items.length - 1].tipo);
+            // msgTypeFinal describe QUÉ ADJUNTO viaja (mediaIdFinal), y tiene que ser coherente
+            // con él: aguas abajo se decide "es imagen -> reenviar la foto al técnico, guardarla
+            // en /imagenes" mirando msgType. Antes, si la ráfaga traía audios Y una foto (el caso
+            // más normal: el vecino cuenta el problema por audio y adjunta la foto), el tipo
+            // quedaba en 'audio' y la foto se volvía invisible -- se archivaba en la carpeta de
+            // audios y nunca se le reenviaba al técnico.
+            const msgTypeFinal = ultimoMediaNoAudio
+                ? ultimoMediaNoAudio.tipo
+                : (huboAudio ? 'audio' : items[items.length - 1].tipo);
+            // Que hubiera audio en la ráfaga define el MODO DE RESPUESTA (nota de voz), que es
+            // una decisión independiente de qué adjunto viaja.
+            const preferirAudioRespuesta = huboAudio;
 
             logDebug(`[${recipient}] Procesando ráfaga acumulada (25s): "${msgBodyCompleto}"`);
 
             // Llamada al orquestador con el texto acumulado
-            await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal }).catch(err => {
+            await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal, preferirAudioRespuesta }).catch(err => {
                 console.error('Error procesando mensaje:', err.message);
                 const respuestasHumanas = [
                     'Aguárdeme un instante por favor, estoy actualizando el sistema y ya le respondo.',
@@ -385,7 +388,11 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
 }
 
 // ── ORQUESTADOR PRINCIPAL ─────────────────────────────────────────────────────
-async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pushName }) {
+async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pushName, preferirAudioRespuesta = false }) {
+    // Modo en que le contestamos al usuario (nota de voz vs texto). Es independiente del tipo de
+    // adjunto que trajo el mensaje: una ráfaga puede traer una foto (msgType 'image', para
+    // reenviarla al técnico) y aun así merecer una respuesta hablada porque el vecino usó audios.
+    const msgTypeRespuesta = (preferirAudioRespuesta || msgType === 'audio') ? 'audio' : msgType;
 
     // ── FASE 0: DESCARGA Y TRANSCRIPCIÓN (si es audio) ───────────────────────
     let media = null;
@@ -481,6 +488,11 @@ function validarYSanitizarNombre(nombre) {
             tipo: 'audios'
         });
         session.audio_url = resEst?.relativeUrl || `/audios/${path.basename(media.filePath)}`;
+    }
+    // La transcripción se guarda aparte del archivo: en una ráfaga con audios + foto, el adjunto
+    // que viaja es la imagen (msgType 'image'), pero los audios igual fueron transcritos antes y
+    // esa transcripción no se debe perder.
+    if (transcripcionFinal) {
         session.transcripcion = transcripcionFinal;
     }
 
@@ -564,7 +576,7 @@ function validarYSanitizarNombre(nombre) {
     // Comando de REINICIO manual
     if (msgClean === 'reiniciar' || msgClean === 'limpiar' || msgClean === 'chau') {
         global.marcosSesiones.delete(recipient);
-        await despacharRespuesta(recipient, "✅ Memoria de sesión reiniciada. ¿En qué puedo ayudarte?", msgType);
+        await despacharRespuesta(recipient, "✅ Memoria de sesión reiniciada. ¿En qué puedo ayudarte?", msgTypeRespuesta);
         return;
     }
 
@@ -600,7 +612,7 @@ function validarYSanitizarNombre(nombre) {
             const resData = await marcarCasoResueltoPorId(casoElegido.id_evento);
             session.esperandoSeleccionCasoResuelto = null;
             const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, he marcado el caso *[${casoElegido.id_evento}]* (${casoElegido.problema}) como *RESUELTO* en *${session.nombreEdificio}*.\n\n¡Muchas gracias por confirmarnos!`;
-            await despacharRespuesta(recipient, confirmMsg, msgType);
+            await despacharRespuesta(recipient, confirmMsg, msgTypeRespuesta);
 
             if (resData && resData.telefono && resData.telefono !== from) {
                 try {
@@ -619,13 +631,13 @@ function validarYSanitizarNombre(nombre) {
         const casosAbiertos = await obtenerCasosAbiertosEdificio(session.nombreEdificio);
 
         if (casosAbiertos.length === 0) {
-            await despacharRespuesta(recipient, `Muchas gracias por avisar. En *${session.nombreEdificio || 'el consorcio'}* no tenemos reclamos pendientes abiertos en este momento.`, msgType);
+            await despacharRespuesta(recipient, `Muchas gracias por avisar. En *${session.nombreEdificio || 'el consorcio'}* no tenemos reclamos pendientes abiertos en este momento.`, msgTypeRespuesta);
             return;
         } else if (casosAbiertos.length === 1) {
             const cUnico = casosAbiertos[0];
             const resData = await marcarCasoResueltoPorId(cUnico.id_evento);
             const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, he marcado el caso *[${cUnico.id_evento}]* (${cUnico.problema}) como *RESUELTO* en *${session.nombreEdificio}*.\n\n¡Muchas gracias por tu confirmación!`;
-            await despacharRespuesta(recipient, confirmMsg, msgType);
+            await despacharRespuesta(recipient, confirmMsg, msgTypeRespuesta);
 
             if (resData && resData.telefono && resData.telefono !== from) {
                 try {
@@ -643,7 +655,7 @@ function validarYSanitizarNombre(nombre) {
             if (coincidenciaDirecta) {
                 const resData = await marcarCasoResueltoPorId(coincidenciaDirecta.id_evento);
                 const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, asocié tu mensaje al caso *[${coincidenciaDirecta.id_evento}]* (${coincidenciaDirecta.problema}) y lo he marcado como *RESUELTO* en *${session.nombreEdificio}*.\n\nLos demás reclamos del edificio continúan en curso.`;
-                await despacharRespuesta(recipient, confirmMsg, msgType);
+                await despacharRespuesta(recipient, confirmMsg, msgTypeRespuesta);
 
                 if (resData && resData.telefono && resData.telefono !== from) {
                     try {
@@ -660,7 +672,7 @@ function validarYSanitizarNombre(nombre) {
                 });
                 listaOpciones += `\n¿Cuál de estos inconvenientes es el que quedó solucionado? Podés responder con el número (ej: 1 o 2).`;
 
-                await despacharRespuesta(recipient, listaOpciones, msgType);
+                await despacharRespuesta(recipient, listaOpciones, msgTypeRespuesta);
                 return;
             }
         }
@@ -780,7 +792,7 @@ function validarYSanitizarNombre(nombre) {
         const respuestaCaraStr = (typeof resCara === 'object' && resCara !== null && resCara.texto)
             ? String(resCara.texto)
             : String(resCara || '');
-        await despacharRespuesta(recipient, respuestaCaraStr, msgType);
+        await despacharRespuesta(recipient, respuestaCaraStr, msgTypeRespuesta);
         return;
     }
 
@@ -878,7 +890,7 @@ function validarYSanitizarNombre(nombre) {
             ];
             const respFactura = confirmacionesFactura[Math.floor(Math.random() * confirmacionesFactura.length)];
 
-            await despacharRespuesta(recipient, respFactura, msgType);
+            await despacharRespuesta(recipient, respFactura, msgTypeRespuesta);
             historial.push(`Marcos: ${respFactura}`);
 
             try {
@@ -926,7 +938,7 @@ function validarYSanitizarNombre(nombre) {
                     : `Tenés ${facturasEncontradas.length} facturas registradas y todas figuran *pagadas*, ${datosEmisor.nombre}.`;
             }
 
-            await despacharRespuesta(recipient, respPago, msgType);
+            await despacharRespuesta(recipient, respPago, msgTypeRespuesta);
             historial.push(`Marcos: ${respPago}`);
 
             try {
@@ -965,7 +977,7 @@ function validarYSanitizarNombre(nombre) {
 
             const respTecnico = `Perfecto ${datosEmisor.nombre}, ya mismo me contacto con el vecino (${identVecinoMsg}) en ${dirExacta} para solicitarle la foto, video o detalles indicados y te los reenvío apenas me responda.`;
 
-            await despacharRespuesta(recipient, respTecnico, msgType);
+            await despacharRespuesta(recipient, respTecnico, msgTypeRespuesta);
             historial.push(`Marcos: ${respTecnico}`);
 
             try {
@@ -1043,7 +1055,7 @@ function validarYSanitizarNombre(nombre) {
             edificio: edifNomCatchAll,
             perfilEdificio: perfilEdifCatchAll
         });
-        await despacharRespuesta(recipient, respGenericaProveedor, msgType);
+        await despacharRespuesta(recipient, respGenericaProveedor, msgTypeRespuesta);
         historial.push(`Marcos: ${respGenericaProveedor}`);
 
         try {
@@ -1127,7 +1139,7 @@ function validarYSanitizarNombre(nombre) {
                          .replace(/\n+/g, ' ')
                          .trim();
 
-    await despacharRespuesta(recipient, respuesta, msgType);
+    await despacharRespuesta(recipient, respuesta, msgTypeRespuesta);
 
     // Guardar respuesta en historial de sesión
     historial.push(`Marcos: ${respuesta}`);
@@ -1261,11 +1273,11 @@ function validarYSanitizarNombre(nombre) {
             delete session.esperandoDatosVecinoParaProveedor;
 
             const respAgr = `Muchas gracias ${nomVecinoDisp}, ya le reenvié esa información/multimedia al técnico ${nomTech} para que lo evalúe y pueda coordinar la asistencia.`;
-            await despacharRespuesta(recipient, respAgr, msgType);
+            await despacharRespuesta(recipient, respAgr, msgTypeRespuesta);
             historial.push(`Marcos: ${respAgr}`);
         } else {
             const respAgr = `Gracias ${nomVecinoDisp}, ya le pasé eso al técnico ${nomTech}. Si podés mandarme también la foto/video que te pidió, se la reenvío enseguida.`;
-            await despacharRespuesta(recipient, respAgr, msgType);
+            await despacharRespuesta(recipient, respAgr, msgTypeRespuesta);
             historial.push(`Marcos: ${respAgr}`);
         }
         return; // Finalizar ciclo de respuesta al vecino
