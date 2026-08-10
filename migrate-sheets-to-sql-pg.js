@@ -4,6 +4,14 @@ const { JWT } = require('google-auth-library');
 const path = require('path');
 const { pool, initPgSchema } = require('./db-pg');
 
+function getSheetByNames(doc, names) {
+    for (const name of names) {
+        const found = doc.sheetsByIndex.find(s => s.title.toLowerCase().trim() === name.toLowerCase().trim());
+        if (found) return found;
+    }
+    return null;
+}
+
 async function migrarDatosPostgres() {
     console.log('🚀 Inicializando esquema PostgreSQL e importando datos de Google Sheets...');
 
@@ -28,15 +36,16 @@ async function migrarDatosPostgres() {
         const doc = new GoogleSpreadsheet(SHEET_ID, auth);
         await doc.loadInfo();
         console.log(`📊 Conectado a Sheets: "${doc.title}" (${doc.sheetCount} pestañas)`);
+        console.log(`📋 Pestañas detectadas: ${doc.sheetsByIndex.map(s => s.title).join(', ')}`);
 
         const client = await pool.connect();
 
         // A. Migrar VECINOS
         try {
-            const sheetVecinos = doc.sheetsByTitle['vecinos'] || doc.sheetsByIndex[0];
+            const sheetVecinos = getSheetByNames(doc, ['vecinos', 'VECINOS']) || doc.sheetsByIndex[0];
             if (sheetVecinos) {
                 const rows = await sheetVecinos.getRows();
-                console.log(`➡️ Migrando ${rows.length} vecinos a PostgreSQL...`);
+                console.log(`➡️ Migrando ${rows.length} vecinos de la pestaña "${sheetVecinos.title}" a PostgreSQL...`);
                 for (const r of rows) {
                     await client.query(`
                         INSERT INTO vecinos (telefono, nombre, edificio, departamento, encargado, tel_encargado, horario_encargado, tablero, llaves, seguridad, consejo, notas, autoriza_contacto, contacto_acceso)
@@ -66,10 +75,10 @@ async function migrarDatosPostgres() {
 
         // B. Migrar EDIFICIOS
         try {
-            const sheetEdificios = doc.sheetsByTitle['edificios'];
+            const sheetEdificios = getSheetByNames(doc, ['edificios', 'EDIFICIOS']);
             if (sheetEdificios) {
                 const rows = await sheetEdificios.getRows();
-                console.log(`➡️ Migrando ${rows.length} edificios a PostgreSQL...`);
+                console.log(`➡️ Migrando ${rows.length} edificios de la pestaña "${sheetEdificios.title}" a PostgreSQL...`);
                 for (const r of rows) {
                     const edifNom = r.get('edificio') || r.get('nombre') || '';
                     if (!edifNom) continue;
@@ -108,10 +117,10 @@ async function migrarDatosPostgres() {
 
         // C. Migrar REPORTES / EVENTOS
         try {
-            const sheetReportes = doc.sheetsByTitle['reportes'] || doc.sheetsByTitle['eventos'];
+            const sheetReportes = getSheetByNames(doc, ['reportes', 'REPORTES', 'eventos', 'EVENTOS']);
             if (sheetReportes) {
                 const rows = await sheetReportes.getRows();
-                console.log(`➡️ Migrando ${rows.length} reportes a PostgreSQL...`);
+                console.log(`➡️ Migrando ${rows.length} reportes/eventos de la pestaña "${sheetReportes.title}" a PostgreSQL...`);
                 for (const r of rows) {
                     const codigo = r.get('codigo_caso') || r.get('caso') || `CASO-${Math.floor(1000 + Math.random() * 9000)}`;
                     await client.query(`
@@ -140,10 +149,10 @@ async function migrarDatosPostgres() {
 
         // D. Migrar CLIENTES
         try {
-            const sheetClientes = doc.sheetsByTitle['clientes'];
+            const sheetClientes = getSheetByNames(doc, ['clientes', 'CLIENTES']);
             if (sheetClientes) {
                 const rows = await sheetClientes.getRows();
-                console.log(`➡️ Migrando ${rows.length} clientes a PostgreSQL...`);
+                console.log(`➡️ Migrando ${rows.length} clientes de la pestaña "${sheetClientes.title}" a PostgreSQL...`);
                 for (const r of rows) {
                     const usr = r.get('usuario');
                     if (!usr) continue;
