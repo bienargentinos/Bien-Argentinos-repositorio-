@@ -1048,15 +1048,40 @@ function validarYSanitizarNombre(nombre) {
         // vez de una frase enlatada fija -- así, si el técnico pregunta algo puntual ("¿Quién me
         // recibe en el edificio?", "¿a qué hora puedo pasar?", etc.), Marcos le contesta de verdad
         // en lugar de repetir siempre "Recibido, cualquier novedad avisame".
+        // Si el vecino dejó un contacto alternativo para el ingreso (ej. "llamá a mi señora al
+        // 11..." porque él se tiene que ir), se lo pasamos al técnico cuando pregunta cómo entrar.
+        const sesVecinoAcceso = vecinoActivoCatchAll?.telefono
+            ? global.marcosSesiones?.get(String(vecinoActivoCatchAll.telefono))
+            : null;
+        const contactoAccesoExtra = sesVecinoAcceso?.contactoAccesoExtra || '';
+
         const respGenericaProveedor = await generarRespuestaTecnicoLibre({
             mensajeTecnico: msgBody,
             nombreTecnico: datosEmisor.nombre,
             vecino: vecinoActivoCatchAll,
             edificio: edifNomCatchAll,
-            perfilEdificio: perfilEdifCatchAll
+            perfilEdificio: perfilEdifCatchAll,
+            contactoAccesoExtra
         });
         await despacharRespuesta(recipient, respGenericaProveedor, msgTypeRespuesta);
         historial.push(`Marcos: ${respGenericaProveedor}`);
+
+        // Si el técnico avisa que ya llegó / que no le abren, no alcanza con contestarle a él:
+        // hay que golpearle la puerta al vecino, que es quien tiene que bajar a abrir. Sin esto,
+        // el técnico quedaba en la calle esperando mientras el vecino nunca se enteraba.
+        const tecnicoEnPuerta = /llegu|llegue|estoy (aca|acá|afuera|en la puerta|abajo)|no hay nadie|no me abre|nadie (me )?abre|no sale nadie|toqu[eé] timbre/i.test(txtLow);
+        if (tecnicoEnPuerta && vecinoActivoCatchAll?.telefono) {
+            try {
+                const dirAvisoPuerta = perfilEdifCatchAll?.direccion || edifNomCatchAll;
+                const avisoPuerta = `🔔 *MARCOS — EL TÉCNICO ESTÁ EN LA PUERTA*\n\n` +
+                    `${(vecinoActivoCatchAll.nombre && vecinoActivoCatchAll.nombre !== 'Vecino') ? vecinoActivoCatchAll.nombre : 'Hola'}, el técnico *${datosEmisor.nombre}* ya llegó a ${dirAvisoPuerta} y avisa que no puede ingresar.\n` +
+                    `¿Podés bajar a abrirle o indicarme a quién puede llamar para que le abran? Gracias.`;
+                await enviarWhatsApp(vecinoActivoCatchAll.telefono, avisoPuerta, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                console.log(`🔔 Técnico ${datosEmisor.nombre} en la puerta sin acceso: avisado el vecino ${vecinoActivoCatchAll.telefono}.`);
+            } catch (e) {
+                console.error('Error avisando al vecino que el técnico está en la puerta:', e.message);
+            }
+        }
 
         try {
             const { guardarReporte } = require('./sheets');
@@ -1107,6 +1132,22 @@ function validarYSanitizarNombre(nombre) {
             console.log(`🔧 Técnico encontrado previamente: ${tecnicoAsignado.nombre} (${tecnicoAsignado.telefono})`);
         } else {
             console.warn(`⚠️ No se encontró técnico disponible en Sheets para especialidad '${decisionCaso.tipo_problema}' en '${edificioFinalBusqueda}'`);
+        }
+    }
+
+    // Si el vecino deja otro teléfono para que le abran al técnico ("pasale el de mi señora,
+    // 11...", "llamá al 11... que te abre"), lo guardamos en la sesión para poder dárselo al
+    // técnico cuando pregunte cómo entrar. Antes Marcos decía "se lo paso al técnico" y no lo
+    // pasaba a ningún lado -- el dato se perdía y el técnico quedaba sin forma de contactar.
+    if (datosEmisor.rol !== 'proveedor' && /pasal|pásal|pasale|llam[aá]|tel[eé]fono|celular|n[uú]mero/i.test(textoFinal || '')) {
+        const telsMencionados = String(textoFinal || '').match(/\b\d{8,}\b/g) || [];
+        const telPropio = String(from || '').replace(/\D/g, '');
+        const telOtro = telsMencionados
+            .map(t => t.replace(/\D/g, ''))
+            .find(t => t.length >= 8 && !telPropio.endsWith(t) && !t.endsWith(telPropio.slice(-8)));
+        if (telOtro) {
+            session.contactoAccesoExtra = telOtro;
+            console.log(`📞 Contacto alternativo de acceso guardado para el caso: ${telOtro}`);
         }
     }
 
@@ -1416,16 +1457,25 @@ function validarYSanitizarNombre(nombre) {
 // Se usa para cualquier mensaje del técnico que no sea "pide foto/datos" ni "manda factura"
 // (confirmaciones, preguntas puntuales como "¿quién me recibe?", quejas, etc.), para que Marcos
 // conteste lo que realmente le preguntaron en vez de una frase enlatada fija.
-async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vecino, edificio, perfilEdificio }) {
+async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vecino, edificio, perfilEdificio, contactoAccesoExtra = '' }) {
     try {
         const nomVecino = (vecino?.nombre && vecino.nombre !== 'Vecino' && vecino.nombre !== 'Desconocido') ? vecino.nombre : '';
         const identVecino = nomVecino
             ? `${nomVecino}${vecino?.departamento ? ' (Depto ' + vecino.departamento + ')' : ''}`
             : (vecino?.departamento ? `el vecino del Depto ${vecino.departamento}` : 'el vecino que hizo el reclamo (todavía sin datos de contacto claros)');
         const direccion = perfilEdificio?.direccion || edificio || 'el edificio';
+        // Teléfonos que el técnico SÍ puede usar para entrar: el del vecino que hizo el reclamo, y
+        // cualquier contacto adicional que el propio vecino haya autorizado (ej. "llamá a mi señora
+        // al 11...", cuando avisa que él no va a estar).
+        const telVecinoAcceso = vecino?.telefono ? String(vecino.telefono).replace(/\D/g, '') : '';
+        const telefonosAcceso = [
+            telVecinoAcceso ? `${identVecino}: ${telVecinoAcceso}` : '',
+            contactoAccesoExtra ? `Contacto adicional autorizado por el vecino: ${contactoAccesoExtra}` : '',
+            perfilEdificio?.tel_seguridad ? `Portería/seguridad de la entrada: ${perfilEdificio.tel_seguridad}` : ''
+        ].filter(Boolean).join(' | ') || 'Sin teléfono de contacto cargado todavía.';
         const accesoInfo = perfilEdificio?.tel_seguridad
             ? `Hay portería/seguridad en la entrada (tel: ${perfilEdificio.tel_seguridad}).`
-            : `El acceso lo coordina Marcos directamente con ${identVecino}; el vecino va a estar disponible para recibirlo.`;
+            : `El acceso ya fue coordinado por Marcos con ${identVecino}, que lo está esperando.`;
 
         const { GoogleGenAI } = require('@google/genai');
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -1437,10 +1487,13 @@ Datos reales del caso que tenés disponibles:
 - Vecino/solicitante: ${identVecino}
 - Dirección: ${direccion}
 - Acceso: ${accesoInfo}
+- Teléfonos de contacto para el ingreso: ${telefonosAcceso}
 
 Instrucciones:
 - Respondé de forma breve (1-2 oraciones), profesional, en "usted".
 - Si te pregunta algo puntual (quién lo recibe, dirección, acceso, horario, etc.), contestale con el dato real de arriba. No inventes datos que no tenés: si no sabés algo puntual que pide, decile que lo estás confirmando y le respondés en breve.
+- 🚨 SI EL TÉCNICO YA ESTÁ EN LA PUERTA, DICE QUE LLEGÓ, QUE NO HAY NADIE, QUE NO LE ABREN, O TE PIDE EL TELÉFONO DEL VECINO: DALE EL NÚMERO DE CONTACTO DE ARRIBA INMEDIATAMENTE, en ese mismo mensaje. Es una urgencia operativa: tiene que poder entrar. TENÉS TERMINANTEMENTE PROHIBIDO responderle "no es necesario que lo llame", "ya está coordinado" o cualquier variante que le niegue el teléfono -- eso lo deja parado en la calle sin poder trabajar. Si no tenés ningún teléfono cargado, decíselo con honestidad y avisale que estás contactando al vecino ahora mismo.
+- NUNCA repitas la misma respuesta que ya diste antes. Si el técnico insiste con un pedido, es porque tu respuesta anterior no le sirvió: cambiá de enfoque y resolvé el problema concreto que tiene.
 - Si te pregunta CÓMO o A QUIÉN entregar una factura/comprobante de pago (sin adjuntarla todavía, solo preguntando el procedimiento): decile que te la puede mandar directo por acá (foto o PDF) y vos la registrás para que la Administración la procese. NO le digas "ya recibí la factura" -- todavía no mandó nada, solo está preguntando.
 - NUNCA le pidas nombre/departamento al técnico -- eso es del vecino, no de él.
 - No saludes ni te vuelvas a presentar (ya es una conversación en curso).
