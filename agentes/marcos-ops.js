@@ -93,12 +93,24 @@ async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado
         return { encolado: false, yaNotificado: true };
     }
 
+    // Respaldo por si el proceso se reinició (pm2 restart) entre el primer aviso y este mensaje:
+    // la bandera en RAM (estadoProv) se pierde en cada reinicio, así que además chequeamos en
+    // Sheets si este mismo caso ya tiene la plantilla marcada como enviada.
+    const { fueTecnicoNotificado, marcarTecnicoNotificado } = require('../sheets');
+    if (await fueTecnicoNotificado(id_evento)) {
+        console.log(`ℹ️ [Sheets] Técnico ya notificado del [${id_evento}] (detectado tras reinicio), se omite el reenvío duplicado.`);
+        estadoProv.eventoActivoId = id_evento;
+        estadoProv.notificado = true;
+        return { encolado: false, yaNotificado: true };
+    }
+
     estadoProv.eventoActivoId = id_evento;
     estadoProv.edificioActivo = vecino?.edificio;
     estadoProv.notificado = true;
     estadoProv.ultimoMensajeTimestamp = Date.now();
 
     await ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, id_evento });
+    await marcarTecnicoNotificado(id_evento);
     return { encolado: false };
 }
 

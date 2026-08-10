@@ -33,16 +33,30 @@ El sistema de notificaciones por email está configurado de forma robusta en `ag
 
 ---
 
-## ☁️ Protocolo de Despliegue en VPS y Git Flow Obligatorio
-* **REGLA DE SINCRO OBLIGATORIA (GIT FIRST):** Jamás se debe desplegar o editar código directamente en el VPS sin antes haber realizado el flujo estricto en la rama oficial de GitHub (`claude/marcos-ia-whatsapp-template-vpg8gw`):
-  1. `git pull origin claude/marcos-ia-whatsapp-template-vpg8gw` (OBLIGATORIO siempre antes de hacer cambios o push, para evitar rechazos non-fast-forward o sobrescribir commits recientes de otros agentes).
-  2. `git commit`
-  3. `git push origin claude/marcos-ia-whatsapp-template-vpg8gw`
-  4. Despliegue/copia al VPS y reinicio de PM2.
-* Todos los agentes de IA (Antigravity, Claude, ChatGPT, etc.) deben compartir y mantener esta misma rama como fuente única de verdad.
-* **Acceso VPS:** El servidor corre bajo Linux y se gestiona mediante PM2 (nombre del proceso: `marcos-ai`).
-* **Verificación Pre-Despliegue:** Antes de reiniciar el servidor en producción, verificá la sintaxis localmente (`node --check`) y ejecutá la sincronización.
-* **Reinicio de Servicios:** Tras sincronizar los archivos en el servidor, reiniciá el bot usando:
-  ```bash
-  pm2 restart marcos-ai
-  ```
+## ☁️ REGLA INREFUTABLE — FLUJO DE TRABAJO CON GIT & DESPLIEGUE
+
+1. **Directorio Único de Trabajo:**
+   * A partir de ahora se trabaja **únicamente** en `C:\Users\Daniel\Downloads\Consorcio-AI-Assistant\repo-sync` (repositorio Git conectado a `bienargentinos/bien-argentinos-repositorio-`, rama `claude/marcos-ia-whatsapp-template-vpg8gw`).
+   * La carpeta vieja (`Consorcio-AI-Assistant` raíz) queda solo de referencia — **PROHIBIDO** volver a editarla o usarla para desplegar.
+
+2. **Antes de tocar cualquier archivo (OBLIGATORIO):**
+   ```bash
+   git pull --rebase origin claude/marcos-ia-whatsapp-template-vpg8gw
+   ```
+   * Si esto falla o marca conflictos: **PARAR Y AVISAR AL USUARIO**. Nunca resolver un conflicto borrando o forzando cambios sin mostrarlo primero.
+
+3. **Ciclo de Cambios (Orden Estricto):**
+   ```bash
+   git add -A
+   git commit -m "descripción clara del cambio"
+   git pull --rebase origin claude/marcos-ia-whatsapp-template-vpg8gw
+   git push origin claude/marcos-ia-whatsapp-template-vpg8gw
+   ```
+
+4. **Despliegue al VPS:**
+   * Recién **después** de un `git push` exitoso (confirmado, sin errores) se despliega al VPS.
+   * **PROHIBIDO TERMINANTEMENTE:** Usar `upload.js`, `scp`, `FTP` o cualquier método que copie archivos al VPS sin que ese mismo cambio ya esté pusheado a la rama de Git. Si el archivo no está en el `git log` de la rama, **NO SE SUBE AL VPS**.
+   * **PROHIBIDO `git push --force`** sobre la rama compartida bajo cualquier circunstancia.
+
+5. **Fallos de Git:**
+   * Si en algún momento Git falla (PATH, autenticación, etc.), se **AVISA INMEDIATAMENTE** en vez de buscar atajos. Se resuelve el problema de Git, nunca se lo esquiva.

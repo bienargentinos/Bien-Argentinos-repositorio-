@@ -145,10 +145,14 @@ async function buscarTecnicoAsignado({ edificio, especialidad, esUrgente = false
 
             if (coincide) {
                 console.log(`🔧 Técnico encontrado en 'proveedor_asignaciones': ${coincide.get('proveedor')} (${coincide.get('telefono')})`);
+                // "acceso" viaja tal cual en la plantilla de Meta que recibe el técnico -- nunca
+                // debe leerse como que el técnico tiene que gestionarlo por su cuenta. Es Marcos
+                // quien coordina el acceso con el vecino, no el técnico. (No puede ser dinámico
+                // acá porque todavía no sabemos quién es el vecino en este punto de la búsqueda.)
                 return {
                     nombre:    coincide.get('proveedor'),
                     telefono:  coincide.get('telefono'),
-                    acceso:    'Coordinar con consorcio',
+                    acceso:    'Coordinado por Marcos con el vecino',
                     puntaje:   '5',
                     urgencia:  true
                 };
@@ -174,7 +178,7 @@ async function buscarTecnicoAsignado({ edificio, especialidad, esUrgente = false
                 return {
                     nombre:    coincideProv.get('nombre'),
                     telefono:  coincideProv.get('telefono'),
-                    acceso:    'Coordinar con consorcio',
+                    acceso:    'Coordinado por Marcos con el vecino',
                     puntaje:   '5',
                     urgencia:  true
                 };
@@ -538,7 +542,7 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
         const headers = sheet.headerValues || [];
 
         // Asegurar que los headers tengan los campos requeridos incluyendo id_evento, audios_json, involucrados_json, chat_vecino_json y chat_proveedor_json
-        const headersNecesarios = ['id_evento', 'fecha', 'edificio', 'vecino', 'depto', 'unidad', 'mensaje', 'tipo', 'urgencia', 'estado', 'notas', 'feedback', 'telefono', 'hora_fin', 'audio_url', 'transcripcion', 'historial_chat', 'audios_json', 'involucrados_json', 'chat_vecino_json', 'chat_proveedor_json'];
+        const headersNecesarios = ['id_evento', 'fecha', 'edificio', 'vecino', 'depto', 'unidad', 'mensaje', 'tipo', 'urgencia', 'estado', 'notas', 'feedback', 'telefono', 'hora_fin', 'audio_url', 'transcripcion', 'historial_chat', 'audios_json', 'involucrados_json', 'chat_vecino_json', 'chat_proveedor_json', 'tecnico_notificado'];
         const nuevosHeaders = Array.from(new Set([...headers, ...headersNecesarios]));
         if (nuevosHeaders.length > headers.length) {
             await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
@@ -715,6 +719,47 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
     } catch (err) {
         console.error('Error guardando reporte:', err.message);
         return null;
+    }
+}
+
+// Chequeo de plantilla ya enviada al técnico, persistido en Sheets (no solo en memoria RAM).
+// La deduplicación en memoria (global.colasProveedores) se pierde en cada reinicio de PM2 --
+// muy frecuente durante desarrollo activo -- y eso hacía que el técnico recibiera la misma
+// plantilla de Meta de nuevo apenas se reiniciaba el proceso entre dos mensajes del mismo caso.
+async function fueTecnicoNotificado(id_evento) {
+    if (!id_evento) return false;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        return !!(row && row.get('tecnico_notificado'));
+    } catch (err) {
+        console.error('Error chequeando tecnico_notificado:', err.message);
+        return false;
+    }
+}
+
+async function marcarTecnicoNotificado(id_evento) {
+    if (!id_evento) return;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return;
+        await sheet.loadHeaderRow().catch(() => {});
+        if (!(sheet.headerValues || []).includes('tecnico_notificado')) {
+            const nuevosHeaders = Array.from(new Set([...(sheet.headerValues || []), 'tecnico_notificado']));
+            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
+        }
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        if (row) {
+            row.set('tecnico_notificado', new Date().toLocaleString('es-AR'));
+            await row.save();
+        }
+    } catch (err) {
+        console.error('Error marcando tecnico_notificado:', err.message);
     }
 }
 
@@ -1042,6 +1087,8 @@ module.exports = {
     buscarMemoriaVecino,
     guardarMemoriaVecino,
     guardarReporte,
+    fueTecnicoNotificado,
+    marcarTecnicoNotificado,
     guardarFactura,
     buscarFacturasProveedor,
     buscarRolPorTelefono,
