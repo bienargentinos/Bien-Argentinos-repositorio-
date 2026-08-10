@@ -192,7 +192,23 @@ function iniciarCronReportes() {
 async function notificarEscalacionAlAdmin({ vecino, decisionCaso, tecnicoAsignado, intentosRealizados }) {
     try {
         const perfilEdificio = await buscarPerfilEdificio(vecino?.edificio);
-        const emailAdmin = perfilEdificio?.adminEmail || process.env.ADMIN_EMAIL || 'administracion@bienargentinos.com';
+        // El email del administrador NO vive en el perfil del edificio (ahí solo está su nombre):
+        // hay que buscarlo en la pestaña "clientes", igual que hace reportarAlAdmin más arriba.
+        // Antes se leía perfilEdificio.adminEmail -- un campo que no existe -- así que SIEMPRE
+        // caía al fallback hardcodeado 'administracion@bienargentinos.com', una casilla que no
+        // existe en el servidor de correo: cada alerta de escalación moría con "550 No Such User
+        // Here" y la Administración nunca se enteraba de un caso urgente sin confirmar.
+        let emailAdmin = '';
+        if (perfilEdificio?.adminNombre) {
+            const clienteEsc = await buscarCliente(perfilEdificio.adminNombre);
+            if (clienteEsc?.email) emailAdmin = clienteEsc.email;
+        }
+        emailAdmin = emailAdmin || perfilEdificio?.adminEmail || process.env.ADMIN_EMAIL || '';
+
+        if (!emailAdmin) {
+            console.warn(`[Email] ⚠️ Escalación de ${vecino?.edificio || 'consorcio'} sin destinatario: el administrador no tiene email cargado en la pestaña CLIENTES ni hay ADMIN_EMAIL configurado.`);
+            return;
+        }
 
         const asunto = `🚨 ALERTA SIN CONFIRMACIÓN — ${vecino?.edificio || 'Consorcio'} [Urgencia: ${(decisionCaso?.urgencia || 'alta').toUpperCase()}]`;
         const cuerpo = `Estimada Administración,\n\n` +
