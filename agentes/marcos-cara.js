@@ -227,7 +227,14 @@ ${instruccionImagenIrrelevante}
 1. Si hay personal de guardia activo: recolectá lo básico y avisale que ya le pasás el reporte al encargado.
 2. Si el caso ya tiene suficiente info: si AÚN NO le avisaste que estás contactando al técnico, hacelo ahora. Si ya se lo avisaste, no lo repitas.`;
 
-    const tieneHistorial = Array.isArray(historial) && historial.length > 0;
+    // OJO: para cuando llegamos acá, el mensaje ACTUAL del vecino ya fue agregado al historial
+    // por el orquestador. Entonces en una primera interacción historial.length ya vale 1, no 0 --
+    // con `> 0` el chat SIEMPRE se consideraba "en curso" y Marcos tenía prohibido saludar hasta
+    // en el primerísimo mensaje de un vecino nuevo. Hay chat previo solo si hay más de 1 entrada
+    // (o si alguna es una respuesta anterior de Marcos).
+    const tieneHistorial = Array.isArray(historial) && (
+        historial.length > 1 || historial.some(h => /^Marcos:/i.test(String(h || '')))
+    );
 
     const reglaSaludoDinamica = tieneHistorial
         ? `\n\n🚨 REGLA ABSOLUTA DE SALUDO — CHAT EN CURSO:
