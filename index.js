@@ -1054,7 +1054,13 @@ function validarYSanitizarNombre(nombre) {
         return; // DETENER — un proveedor jamás debe seguir al flujo de vecinos
     }
 
-    // Si se detectó una factura o comprobante, guardarla en el árbol permanente por Administrador / Edificio / Facturas
+    // Si se detectó una factura o comprobante, guardarla en el árbol permanente por Administrador / Edificio / Facturas.
+    // El guardado en la pestaña "facturas" de Sheets para este camino (vecino/encargado/admin, no
+    // proveedor) lo hace reportarAlAdmin() más abajo (FASE 4, marcos-admin.js) -- NO se duplica acá.
+    // Solo enriquecemos datosFactura antes de que le llegue, para el caso típico de un vecino que
+    // contrató SU propio electricista/plomero por fuera de la cartera de Marcos y reenvía esa
+    // factura externa: si el documento no trae un emisor claro, dejamos rastro de que la trajo el
+    // vecino en vez de guardarla como "Desconocido".
     if (datosFactura?.es_factura && media?.filePath) {
         const resEstFactura = guardarArchivoEstructurado({
             filePath: media.filePath,
@@ -1064,6 +1070,10 @@ function validarYSanitizarNombre(nombre) {
         });
         if (resEstFactura) {
             datosFactura.url_archivo = resEstFactura.relativeUrl;
+        }
+        if (!datosFactura.proveedor) {
+            const nomVecinoFactura = (vecino?.nombre && vecino.nombre !== 'Vecino' && vecino.nombre !== 'Desconocido') ? vecino.nombre : '';
+            datosFactura.proveedor = nomVecinoFactura ? `Proveedor externo (enviado por ${nomVecinoFactura})` : 'Proveedor externo del vecino';
         }
     }
 

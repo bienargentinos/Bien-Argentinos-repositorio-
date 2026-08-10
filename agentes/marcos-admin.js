@@ -96,6 +96,7 @@ async function reportarAlAdmin({
             concepto:    datosFactura.concepto,
             edificio:    datosFactura.edificio || vecino?.edificio,
             url_archivo: datosFactura.url_archivo || (datosFactura.numero_factura ? `Factura N°${datosFactura.numero_factura}` : 'Sin número'),
+            numero_factura: datosFactura.numero_factura || '',
         });
         tareasList.push('factura registrada');
     }
