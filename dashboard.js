@@ -183,7 +183,8 @@ function pick(obj, keys, fallback = '') {
 function mapEvento(r) {
   const tipoRaw = String(pick(r, ['tipo', 'canal', 'tipo_mensaje', 'medio'])).toLowerCase();
   let tipo = 'texto';
-  if (/audio|voz|nota/.test(tipoRaw)) tipo = 'audio';
+  if (/trabajo_externo|externo/i.test(tipoRaw)) tipo = 'trabajo_externo';
+  else if (/audio|voz|nota/.test(tipoRaw)) tipo = 'audio';
   else if (/llamad|call|telefono|voice/.test(tipoRaw)) tipo = 'llamada';
   else if (/imagen|foto|image/.test(tipoRaw)) tipo = 'imagen';
 
@@ -727,9 +728,11 @@ const CATEGORIAS_EVENTO = {
   seguridad: { label: 'Seguridad', icon: '📹', bg: '#EDEEFB' },
   mensaje: { label: 'Aviso', icon: '💬', bg: '#EAF1FB' },
   mantenimiento: { label: 'Mantenimiento', icon: '🧰', bg: '#FBF3DE' },
+  trabajo_externo: { label: 'Trabajo externo', icon: '🧾', bg: '#FEF3C7' },
 };
 
 function clasificarEvento(e) {
+  if (e.tipo === 'trabajo_externo' || /trabajo_externo|externo/i.test(e.tipo || '')) return 'trabajo_externo';
   const txt = `${e.mensaje || ''} ${e.notas || ''}`.toLowerCase();
   if (/reserva|sum\b|quincho|salon|cumplea/.test(txt)) return 'reserva';
   if (/camara|cámara|seguridad|cerradura|robo|alarma|magnetica|magnética/.test(txt)) return 'seguridad';
@@ -2718,12 +2721,17 @@ function abrirDrawerEvento(idx){
       '<button onclick="guardarFeedbackDrawer(this,'+datos.row+')" style="height:44px;padding:0 16px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">Guardar</button>'+
       '</div></div>';
   }
+  
+  var esTrabajoExterno = datos.catKey === 'trabajo_externo' || datos.tipo === 'trabajo_externo' || /trabajo_externo|externo/i.test(datos.tipo || '');
+  var badgeExterno = esTrabajoExterno ? '<span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:#FEF3C7;color:#92400E;border:1px solid #F59E0B">🧾 Trabajo externo</span>' : '';
+  var bannerExterno = esTrabajoExterno ? '<div style="background:#FFFDF5;border:1px solid #FDE68A;border-radius:12px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:#78350F;display:flex;align-items:center;gap:10px"><span style="font-size:22px">🧾</span><div><strong style="display:block;margin-bottom:2px">Trabajo coordinado fuera del sistema</strong>Este caso fue coordinado por el encargado/administración directamente con el proveedor y no ingresó previamente por Marcos IA.</div></div>' : '';
 
   panel.innerHTML=
     '<div style="background:'+escapeHtml(datos.catBg)+';padding:22px 24px 20px;position:relative" class="drawer-header-box">'+
-      '<button onclick="cerrarDrawerEvento()" style="position:absolute;top:16px;right:16px;width:34px;height:34px;border:none;border-radius:9px;background:rgba(255,255,255,.7);cursor:pointer;font-size:17px" class="drawer-close-btn">✕</button>'+
+      '<button onclick="cerrarDrawerEvento()" style="position:absolute;top:16px;right:16px;width:34px;height:34px;border:none;border-radius:999px;background:rgba(255,255,255,.7);cursor:pointer;font-size:17px" class="drawer-close-btn">✕</button>'+
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
         '<span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:#EAF1FB;color:#1E5FB4;border:1px solid #C9D5E8">📋 ' + escapeHtml(casoCode) + '</span>'+
+        badgeExterno+
         '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:'+escapeHtml(datos.urgBg)+';color:'+escapeHtml(datos.urgFg)+'">'+escapeHtml(datos.urgLabel)+'</span>'+
         '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:'+escapeHtml(datos.estBg)+';color:'+escapeHtml(datos.estFg)+'">'+escapeHtml(datos.estLabel)+'</span>'+
       '</div>'+
@@ -2734,6 +2742,7 @@ function abrirDrawerEvento(idx){
       '</div>'+
     '</div>'+
     '<div style="padding:22px 24px">'+
+      bannerExterno+
       // ── Bloques de Comunicación (Vecino vs Proveedor) ──
       (function(){
         var chatVecinoHtml = renderizarBloqueChat(datos.historial_chat_vecino || datos.historial_chat, 'vecino', datos);
@@ -4479,6 +4488,7 @@ function vistaEvento(e, filterFn, listaEdificios) {
     })(),
     feedback: e.feedback, nuevo,
     historial_chat: e.historial_chat || '',
+    tipo: e.tipo || '',
   };
 }
 
@@ -4488,6 +4498,9 @@ function filaEvento(v, idx, chipEdificio) {
   else if (v.urgKey === 'alta') rowClass = 'ev-urgente';
   else if (v.nuevo) rowClass = 'ev-nuevo';
 
+  const esTrabajoExterno = v.catKey === 'trabajo_externo' || v.tipo === 'trabajo_externo' || /trabajo_externo|externo/i.test(v.tipo || '');
+  const badgeExternoHtml = esTrabajoExterno ? `<span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:#FEF3C7;color:#92400E;border:1px solid #F59E0B">🧾 Trabajo externo</span>` : '';
+
   return `
     <button onclick="abrirDrawerEvento(${idx})" data-evrow data-nuevo="${v.nuevo ? '1' : '0'}" data-urg="${esc(v.urgKey)}" data-est="${esc(v.estKey)}"
       style="width:100%;display:flex;align-items:flex-start;gap:14px;padding:16px 20px 16px 16px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left;font-family:inherit;position:relative" class="hv-row ${rowClass}">
@@ -4495,6 +4508,7 @@ function filaEvento(v, idx, chipEdificio) {
       <span style="flex:1;min-width:0">
         <span style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
           <span style="font-size:15px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
+          ${badgeExternoHtml}
           <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
           ${chipEdificio ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 ${esc(v.edificio)}</span>` : ''}
           ${!chipEdificio && v.nuevo ? '<span style="font-size:11px;font-weight:800;color:#2E6FC0">● NUEVO</span>' : ''}
