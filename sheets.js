@@ -759,6 +759,47 @@ async function guardarFactura({ proveedor, monto, concepto, edificio, url_archiv
     }
 }
 
+// Busca facturas de un proveedor (opcionalmente filtrando por edificio y/o número de
+// comprobante) para que Marcos pueda contestar "¿ya me pagaron la factura X?" con el estado
+// real cargado en Sheets, en vez de inventar una respuesta.
+async function buscarFacturasProveedor({ proveedor, edificio = '', numeroFactura = '' }) {
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['facturas'];
+        if (!sheet) return [];
+
+        const rows = await sheet.getRows();
+        const provBuscado = String(proveedor || '').toLowerCase().trim();
+        const edifBuscado = String(edificio || '').toLowerCase().trim();
+        const numBuscado = String(numeroFactura || '').replace(/\D/g, '');
+
+        const coincidencias = rows.filter(r => {
+            const rProv = String(r.get('proveedor') || '').toLowerCase().trim();
+            const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
+            const rNum = String(r.get('numero_factura') || '').replace(/\D/g, '');
+
+            const matchProv = provBuscado && (rProv.includes(provBuscado) || provBuscado.includes(rProv));
+            if (!matchProv) return false;
+
+            if (numBuscado) return rNum && rNum === numBuscado;
+            if (edifBuscado) return rEdif.includes(edifBuscado) || edifBuscado.includes(rEdif);
+            return true;
+        });
+
+        return coincidencias.map(r => ({
+            fecha: r.get('fecha'),
+            monto: r.get('monto'),
+            concepto: r.get('concepto'),
+            edificio: r.get('edificio'),
+            numero_factura: r.get('numero_factura'),
+            estado: r.get('estado') || 'Pendiente',
+        })).reverse(); // más reciente primero
+    } catch (err) {
+        console.error('Error buscando facturas del proveedor:', err.message);
+        return [];
+    }
+}
+
 // ─────────────────────────────────────────────
 // LLAMADAS TELEFÓNICAS
 // Pestaña: llamadas
@@ -1002,6 +1043,7 @@ module.exports = {
     guardarMemoriaVecino,
     guardarReporte,
     guardarFactura,
+    buscarFacturasProveedor,
     buscarRolPorTelefono,
     obtenerEventosPendientesAdmin,
     obtenerCasosAbiertosEdificio,
