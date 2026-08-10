@@ -226,8 +226,8 @@ function mapEvento(r) {
     tecnico: pick(r, ['tecnico', 'proveedor', 'tecnico_nombre', 'nombre_tecnico', 'proveedor_nombre', 'nombre_proveedor']),
     tel_tecnico: pick(r, ['tel_tecnico', 'telefono_tecnico', 'celular_tecnico', 'tecnico_telefono', 'proveedor_telefono', 'tel_proveedor', 'telefono_proveedor']),
     rubro_tecnico: pick(r, ['rubro_tecnico', 'rubro_proveedor', 'especialidad_tecnico', 'especialidad_proveedor', 'rubro', 'especialidad']),
-    historial_chat_vecino: pick(r, ['chat_vecino_json', 'historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
-    historial_chat_proveedor: pick(r, ['chat_proveedor_json', 'historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
+    historial_chat_vecino: pick(r, ['historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
+    historial_chat_proveedor: pick(r, ['historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
     historial_chat: pick(r, ['historial_chat', 'historial', 'chat_log', 'conversacion']),
   };
@@ -2930,6 +2930,34 @@ async function marcarEventoResuelto(btn,row){
     setTimeout(function(){ location.reload(); }, 1200);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
+}
+
+async function toggleFacturaEstado(btn, row, nuevoEstado){
+  if(btn.disabled)return;
+  var esPagada = nuevoEstado === 'pagada';
+  btn.disabled = true;
+  var oldHtml = btn.innerHTML;
+  btn.textContent = '...';
+  try{
+    var r = await fetch('/admin/api/factura-estado', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row: row, estado: nuevoEstado })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error');
+    toast(esPagada ? 'Factura marcada como Pagada' : 'Factura marcada como Pendiente', 'ok');
+    btn.setAttribute('onclick', "event.stopPropagation(); toggleFacturaEstado(this, " + row + ", '" + (esPagada ? 'pendiente' : 'pagada') + "')");
+    btn.style.background = esPagada ? '#E7F4EC' : '#FBF3DE';
+    btn.style.color = esPagada ? '#1B7A43' : '#8A6410';
+    btn.style.borderColor = esPagada ? '#A3D9B1' : '#F7D070';
+    btn.innerHTML = esPagada ? '✓ Pagada' : '⏳ Pendiente';
+  }catch(e){
+    toast('Error: ' + e.message, 'err');
+    btn.innerHTML = oldHtml;
+  }finally{
+    btn.disabled = false;
+  }
 }
 
 // --- chips de filtro de eventos (cliente) ---
@@ -6388,8 +6416,19 @@ router.get('/archivos', async (req, res) => {
     const cards = facturas.map((f) => {
       const mon = monStyle(f.moneda);
       const pagada = /pagad/i.test(f.estado);
+      const esFactura = f.tipo === 'Factura' || /factura/i.test(f.tipo);
+      const nuevoEstado = pagada ? 'pendiente' : 'pagada';
       const thumbBg = f.tipo === 'Foto' ? 'linear-gradient(135deg,#E7F4EC,#D5EADD)' : 'linear-gradient(135deg,#EAF1FB,#DCE9FA)';
       const abrir = f.url && /^https?:/i.test(f.url) ? `onclick="window.open('${escJs(f.url)}','_blank')" style="cursor:pointer"` : '';
+
+      const btnEstadoHtml = esFactura ? `
+        <button type="button" onclick="event.stopPropagation(); toggleFacturaEstado(this, ${f._row}, '${nuevoEstado}')"
+                style="font-size:11.5px;font-weight:700;padding:4px 12px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'};border:1px solid ${pagada ? '#A3D9B1' : '#F7D070'};cursor:pointer;transition:all .15s ease"
+                title="Haz clic para cambiar estado a ${pagada ? 'Pendiente' : 'Pagada'}">
+          ${pagada ? '✓ Pagada' : '⏳ Pendiente'}
+        </button>`
+        : `<span style="font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'}">${esc(f.estado || 'Pendiente')}</span>`;
+
       return `
         <div ${abrir ? abrir.replace('style="cursor:pointer"', '') : ''} style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden${abrir ? ';cursor:pointer' : ''}">
           <div style="height:120px;background:${thumbBg};display:flex;align-items:center;justify-content:center;position:relative">
@@ -6403,7 +6442,7 @@ router.get('/archivos', async (req, res) => {
             <div style="font-size:13px;color:#8595AD;margin-bottom:12px">${esc(f.proveedor)} · ${esc(fechaCorta(parseFecha(f.fecha)) || f.fecha)}</div>
             <div style="display:flex;align-items:center;justify-content:space-between">
               <span style="font-size:19px;font-weight:800;letter-spacing:-.02em">${esc(f.monto || '—')}</span>
-              <span style="font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'}">${esc(f.estado || 'Pendiente')}</span>
+              ${btnEstadoHtml}
             </div>
           </div>
         </div>`;
@@ -7459,6 +7498,37 @@ router.post('/api/evento-resolver', async (req, res) => {
     
     await writeCell(TAB_EVENTOS, plan.col, rowNum, 'resuelto');
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Marcar estado de factura (Pagada / Pendiente).
+router.post('/api/factura-estado', async (req, res) => {
+  try {
+    const { row, estado } = req.body || {};
+    if (!row || isNaN(Number(row))) return res.status(400).json({ error: 'Fila inválida' });
+
+    const rowNum = Number(row);
+    const { rows } = await readTab(TAB_ARCHIVOS);
+    const facturas = rows.map(mapFactura);
+    const f = facturas.find((x) => x._row === rowNum);
+    if (!f) return res.status(404).json({ error: 'Comprobante no encontrado' });
+
+    // Verificar permisos por edificio
+    if (!esDueno(req)) {
+      const permitidos = edificiosPermitidos(req);
+      if (!permitidos || !permitidos.includes(f.edificio)) {
+        return res.status(403).json({ error: 'Sin permiso para este edificio' });
+      }
+    }
+
+    const nuevoEstado = String(estado).toLowerCase() === 'pagada' ? 'Pagada' : 'Pendiente';
+    const plan = await findOrPlanColumn(TAB_ARCHIVOS, ['estado', 'status', 'pago']);
+    if (plan.create) await ensureHeader(TAB_ARCHIVOS, plan.col, 'estado', false);
+
+    await writeCell(TAB_ARCHIVOS, plan.col, rowNum, nuevoEstado);
+    res.json({ ok: true, estado: nuevoEstado });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }

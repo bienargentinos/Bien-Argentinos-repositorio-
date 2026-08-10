@@ -153,61 +153,34 @@ app.post('/webhook', async (req, res) => {
         // ── SISTEMA DE ACUMULACIÓN (Humanización - 15 Segundos de Espera) ──
         // Si el usuario manda varios mensajes seguidos, esperamos 15 segundos para reunirlos todos en un solo contexto.
         if (!global.colasMensajes) global.colasMensajes = new Map();
-
+        
         if (!global.colasMensajes.has(recipient)) {
-            global.colasMensajes.set(recipient, { items: [], pushName, timeout: null });
+            global.colasMensajes.set(recipient, { mensajes: [], mediaIds: [], tipos: [], pushName, timeout: null });
         }
-
+        
         const cola = global.colasMensajes.get(recipient);
-        // Guardamos cada mensaje de la ráfaga en orden (tipo + texto + mediaId) para no perder
-        // ninguno al armar el contexto combinado.
-        cola.items.push({ tipo: msgType, texto: msgBody, mediaId });
+        cola.mensajes.push(msgBody);
+        cola.tipos.push(msgType);
         if (pushName && !cola.pushName) cola.pushName = pushName;
+        if (mediaId) cola.mediaIds.push({ id: mediaId, tipo: msgType });
 
         // Reiniciamos el tiempo de espera (15 segundos)
         if (cola.timeout) clearTimeout(cola.timeout);
-
+        
         cola.timeout = setTimeout(async () => {
-            const items = cola.items;
+            const msgBodyCompleto = cola.mensajes.join(" ");
+            // Último audio o último media en general
+            const ultimoAudio = cola.mediaIds.filter(m => m.tipo === 'audio').pop();
+            const ultimoMedia = cola.mediaIds.length > 0 ? cola.mediaIds[cola.mediaIds.length - 1] : null;
+            const mediaIdFinal = ultimoAudio ? ultimoAudio.id : (ultimoMedia ? ultimoMedia.id : null);
+            // Si hubo al menos un audio en la ráfaga, el tipo es audio
+            const msgTypeFinal = cola.tipos.includes('audio') ? 'audio' : cola.tipos[cola.tipos.length - 1];
             const pushNameFinal = cola.pushName;
 
+            logDebug(`[${recipient}] Procesando ráfaga acumulada (10s): "${msgBodyCompleto}"`);
+            
             // Limpiamos la cola antes de procesar
             global.colasMensajes.delete(recipient);
-
-            // Transcribimos TODOS los audios de la ráfaga (no solo el último), en orden, para no
-            // perder datos cuando el vecino/técnico manda varias notas de voz seguidas.
-            for (const item of items) {
-                if (item.tipo === 'audio' && item.mediaId) {
-                    try {
-                        const mediaAudio = await descargarMedia(item.mediaId);
-                        if (mediaAudio) {
-                            const { transcribirAudio } = require('./stt');
-                            const transcripcion = await transcribirAudio(mediaAudio.filePath, mediaAudio.mimeType);
-                            if (transcripcion) item.texto = transcripcion;
-                        }
-                    } catch (e) {
-                        console.error(`Error transcribiendo audio de la ráfaga (${item.mediaId}):`, e.message);
-                    }
-                }
-            }
-
-            const msgBodyCompleto = items.map(i => i.texto).filter(Boolean).join(' ');
-            // Último media NO-audio de la ráfaga (imagen/video/documento) — los audios ya se
-            // transcribieron arriba, no hace falta volver a descargarlos en procesarMensaje.
-            const ultimoMediaNoAudio = [...items].reverse().find(i => i.mediaId && i.tipo !== 'audio');
-            const mediaIdFinal = ultimoMediaNoAudio ? ultimoMediaNoAudio.mediaId : null;
-            const huboAudio = items.some(i => i.tipo === 'audio');
-            // msgTypeFinal SIEMPRE debe ser coherente con mediaIdFinal (aguas abajo se decide
-            // "es imagen -> reenviar foto" mirando solo msgType). Si hubo audio, respondemos en
-            // modo audio (nota de voz). Si no, y hay una imagen/video/documento en la ráfaga, ese
-            // media manda el tipo -- NO el último texto suelto que haya llegado después (ej. una
-            // foto seguida de un mensaje de texto aparte no debe degradar a msgType:'text', o la
-            // imagen nunca se reenvía al técnico aunque su mediaId sí viaje).
-            const msgTypeFinal = huboAudio
-                ? 'audio'
-                : (ultimoMediaNoAudio ? ultimoMediaNoAudio.tipo : items[items.length - 1].tipo);
-
-            logDebug(`[${recipient}] Procesando ráfaga acumulada (15s): "${msgBodyCompleto}"`);
 
             // Llamada al orquestador con el texto acumulado
             await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal }).catch(err => {
@@ -392,11 +365,7 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pus
 
     let textoFinal = msgBody;
     let transcripcionFinal = '';
-    // Nota: el sistema de acumulación de ráfagas (webhook) ya transcribe todos los audios de
-    // antemano y solo pasa mediaId aquí si es una imagen/video/documento. Se valida el mimeType
-    // real (no solo msgType) para no intentar transcribir un archivo que no es audio si una
-    // ráfaga trajo audio + foto juntos (msgType queda en 'audio' pero mediaId es de la foto).
-    if (msgType === 'audio' && media && String(media.mimeType || '').startsWith('audio')) {
+    if (msgType === 'audio' && media) {
         const { transcribirAudio } = require('./stt');
         const transcripcion = await transcribirAudio(media.filePath, media.mimeType);
         if (transcripcion) {
@@ -877,15 +846,6 @@ function validarYSanitizarNombre(nombre) {
 
             await despacharRespuesta(recipient, respFactura, msgType);
             historial.push(`Marcos: ${respFactura}`);
-
-            try {
-                const { guardarReporte } = require('./sheets');
-                await guardarReporte({
-                    edificio: session.nombreEdificio || datosFactura?.edificio || 'Consorcio',
-                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respFactura}`])
-                });
-            } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
-
             return; // DETENER Y RESPONDER NATURALMENTE
         }
 
@@ -961,17 +921,9 @@ function validarYSanitizarNombre(nombre) {
                 : (deptoVecino ? `del Depto ${deptoVecino}` : 'del consorcio');
 
             const respTecnico = `Perfecto ${datosEmisor.nombre}, ya mismo me contacto con el vecino (${identVecinoMsg}) en ${dirExacta} para solicitarle la foto, video o detalles indicados y te los reenvío apenas me responda.`;
-
+            
             await despacharRespuesta(recipient, respTecnico, msgType);
             historial.push(`Marcos: ${respTecnico}`);
-
-            try {
-                const { guardarReporte } = require('./sheets');
-                await guardarReporte({
-                    edificio: edifNom,
-                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respTecnico}`])
-                });
-            } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
             if (telVecino && String(telVecino).replace(/\D/g, '') !== String(from).replace(/\D/g, '')) {
                 const saludoNombre = nomVecino || 'estimado/a vecino/a';
@@ -1016,7 +968,6 @@ function validarYSanitizarNombre(nombre) {
             }
             return; // DETENER PROCESAMIENTO AQUÍ PARA NO RE-ENVIAR PLANTILLA
         }
-
         // C. CUALQUIER OTRO MENSAJE DEL TÉCNICO (confirmaciones tipo "Recibido/En camino",
         // quejas, preguntas puntuales, etc.) — NUNCA debe caer al flujo genérico de vecinos,
         // que le pediría nombre/departamento sin sentido a un proveedor.
@@ -1242,29 +1193,17 @@ function validarYSanitizarNombre(nombre) {
             console.log(`➡️ Novedad/texto del vecino reenviada al técnico ${telTech}`);
         }
 
-        // Solo dejamos de esperar más datos una vez que efectivamente llegó la foto/video
-        // pedido. Si el vecino responde primero con texto (ej. "ya te mandé, no la ves?"),
-        // seguimos esperando por si la foto llega en un mensaje/ráfaga aparte -- antes se
-        // borraba la bandera con la primera respuesta fuera cual fuera, y una foto que
-        // llegaba después ya no se reenviaba por este camino (se perdía para el técnico).
-        const llegoLoPedido = (msgType === 'image' || msgType === 'video') && media;
-
-        if (llegoLoPedido) {
-            // Cancelar temporizador de 10 min si existía
-            if (global.timersFotoVecino && global.timersFotoVecino.has(from)) {
-                clearTimeout(global.timersFotoVecino.get(from));
-                global.timersFotoVecino.delete(from);
-            }
-            delete session.esperandoDatosVecinoParaProveedor;
-
-            const respAgr = `Muchas gracias ${nomVecinoDisp}, ya le reenvié esa información/multimedia al técnico ${nomTech} para que lo evalúe y pueda coordinar la asistencia.`;
-            await despacharRespuesta(recipient, respAgr, msgType);
-            historial.push(`Marcos: ${respAgr}`);
-        } else {
-            const respAgr = `Gracias ${nomVecinoDisp}, ya le pasé eso al técnico ${nomTech}. Si podés mandarme también la foto/video que te pidió, se la reenvío enseguida.`;
-            await despacharRespuesta(recipient, respAgr, msgType);
-            historial.push(`Marcos: ${respAgr}`);
+        // Cancelar temporizador de 10 min si existía
+        if (global.timersFotoVecino && global.timersFotoVecino.has(from)) {
+            clearTimeout(global.timersFotoVecino.get(from));
+            global.timersFotoVecino.delete(from);
         }
+
+        delete session.esperandoDatosVecinoParaProveedor;
+
+        const respAgr = `Muchas gracias ${nomVecinoDisp}, ya le reenvié esa información/multimedia al técnico ${nomTech} para que lo evalúe y pueda coordinar la asistencia.`;
+        await despacharRespuesta(recipient, respAgr, msgType);
+        historial.push(`Marcos: ${respAgr}`);
         return; // Finalizar ciclo de respuesta al vecino
     }
 
@@ -1334,48 +1273,6 @@ function validarYSanitizarNombre(nombre) {
             });
         } catch (errOps) {
             console.error('⚠️ Error en gestionarOperaciones (notificación a técnico/encargado):', errOps.message);
-        }
-    }
-
-    // 2b. Reenvío automático de foto/video al técnico asignado del caso, aunque NO la haya
-    // pedido explícitamente ni este mensaje puntual haya disparado un nuevo contacto con él.
-    // Sin esto, una foto que el vecino manda espontáneamente (junto al reclamo inicial, o en
-    // cualquier mensaje posterior de un caso ya abierto) queda guardada en el servidor pero el
-    // técnico nunca la ve por WhatsApp -- solo se enteraba si él mismo la pedía primero
-    // (branch de esperandoDatosVecinoParaProveedor, más arriba en el flujo).
-    if ((msgType === 'image' || msgType === 'video') && media?.filePath) {
-        try {
-            let tecnicoParaFoto = tecnicoAsignado;
-            const edifParaFoto = session.nombreEdificio || vecino?.edificio;
-            if (!tecnicoParaFoto?.telefono && edifParaFoto && decisionCaso.tipo_problema) {
-                tecnicoParaFoto = await buscarTecnicoAsignado({
-                    edificio: edifParaFoto,
-                    especialidad: decisionCaso.tipo_problema,
-                    esUrgente: decisionCaso.urgencia === 'alta',
-                });
-            }
-
-            if (tecnicoParaFoto?.telefono) {
-                const nomVecinoAuto = (vecino?.nombre && vecino.nombre !== 'Vecino' && vecino.nombre !== 'Desconocido') ? vecino.nombre : 'El vecino';
-                const deptoAuto = vecino?.departamento ? ` (Depto ${vecino.departamento})` : '';
-                const edifAuto = edifParaFoto || 'el edificio';
-                const uploadMediaIdAuto = await subirMediaWhatsApp(media.filePath, media.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                if (uploadMediaIdAuto) {
-                    const comentarioAuto = (textoFinal && !/^\(Imagen adjunta\)$|^\(Video adjunto\)$/i.test(textoFinal.trim())) ? `\n\nComentario del vecino: "${textoFinal}"` : '';
-                    if (msgType === 'image') {
-                        const { enviarImagenWhatsApp } = require('./agentes/marcos-ops');
-                        const captionAuto = `📱 *MARCOS — FOTO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó esta foto del inconveniente.${comentarioAuto}`;
-                        await enviarImagenWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                    } else {
-                        const { enviarVideoWhatsApp } = require('./agentes/marcos-ops');
-                        const captionAuto = `📱 *MARCOS — VIDEO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó este video del inconveniente.${comentarioAuto}`;
-                        await enviarVideoWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                    }
-                    console.log(`📷 Foto/video del vecino reenviado automáticamente al técnico ${tecnicoParaFoto.nombre} (sin que lo pidiera explícitamente).`);
-                }
-            }
-        } catch (errFotoAuto) {
-            console.error('⚠️ Error reenviando foto/video automáticamente al técnico:', errFotoAuto.message);
         }
     }
 
