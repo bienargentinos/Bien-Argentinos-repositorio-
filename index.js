@@ -879,11 +879,24 @@ function validarYSanitizarNombre(nombre) {
         );
 
         if (esFacturaODoc) {
+            // TRABAJO RESUELTO POR FUERA DEL CIRCUITO: el encargado/administrador llamó al técnico
+            // directo, se resolvió, y la factura llega a Marcos sin que exista ningún evento previo
+            // (nunca hubo un reclamo de vecino por WhatsApp). Antes la factura se guardaba con
+            // edificio "Consorcio" genérico y sin evento asociado -> un gasto huérfano en el
+            // dashboard que nadie podía rastrear. Ahora intentamos identificar el edificio por lo
+            // que escribió el técnico (o por lo que dice el propio comprobante) y damos de alta el
+            // evento retroactivamente, ya cerrado.
+            const edifDetectadoTexto = buscarEdificioEnTexto(msgClean, edificiosConocidos);
+            const edificioFactura = session.nombreEdificio
+                || edifDetectadoTexto?.nombre
+                || datosFactura?.edificio
+                || '';
+
             if (media?.filePath) {
                 const resEstFactura = guardarArchivoEstructurado({
                     filePath: media.filePath,
                     adminNombre: perfilEdificio?.adminNombre,
-                    edificioNombre: session.nombreEdificio || datosFactura?.edificio || 'Consorcio',
+                    edificioNombre: edificioFactura || 'Consorcio',
                     tipo: 'facturas'
                 });
                 if (resEstFactura && datosFactura) {
@@ -896,17 +909,48 @@ function validarYSanitizarNombre(nombre) {
                 proveedor: datosEmisor.nombre || datosFactura?.proveedor || 'Proveedor',
                 monto: datosFactura?.monto || 'Según comprobante',
                 concepto: datosFactura?.concepto || 'Servicio técnico realizado',
-                edificio: session.nombreEdificio || datosFactura?.edificio || 'Consorcio',
+                edificio: edificioFactura || 'Consorcio',
                 url_archivo: datosFactura?.url_archivo || '',
                 numero_factura: datosFactura?.numero_factura || ''
             });
+
+            // Si no había un caso abierto de este técnico y sí pudimos identificar el edificio,
+            // registramos el trabajo como evento nuevo YA RESUELTO, para que quede la trazabilidad
+            // completa (qué se hizo, dónde, quién, con qué comprobante) aunque el reclamo nunca
+            // haya pasado por Marcos.
+            let respExtra = '';
+            const huboEventoPrevio = !!session.nombreEdificio;
+            if (!huboEventoPrevio && edificioFactura) {
+                try {
+                    const { guardarReporte } = require('./sheets');
+                    await guardarReporte({
+                        edificio: edificioFactura,
+                        vecino: 'Trabajo coordinado fuera del sistema',
+                        problema: datosFactura?.concepto || 'Trabajo técnico resuelto y facturado',
+                        urgencia: 'baja',
+                        estado: 'resuelto',
+                        tecnico: datosEmisor.nombre || '',
+                        tipo: 'trabajo_externo',
+                        telefono: from,
+                        notas_ia: `Trabajo informado directamente por el técnico ${datosEmisor.nombre} al enviar la factura. No hubo reclamo previo de un vecino por este canal (lo coordinaron el encargado/administración con el técnico de forma directa).`,
+                        historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`])
+                    });
+                    console.log(`🧾 Evento retroactivo creado (trabajo externo ya resuelto) para ${edificioFactura} a partir de la factura de ${datosEmisor.nombre}.`);
+                    respExtra = ` También dejé registrado el trabajo en ${edifDetectadoTexto?.direccion || edificioFactura} como resuelto, así queda el antecedente completo.`;
+                } catch (e) {
+                    console.error('Error creando evento retroactivo desde factura:', e.message);
+                }
+            } else if (!huboEventoPrevio && !edificioFactura) {
+                // Sin edificio no podemos imputar el gasto a nadie: se lo pedimos al técnico.
+                respExtra = ` Para poder imputarla al consorcio correcto, ¿me confirmás la dirección donde hiciste el trabajo?`;
+            }
 
             const confirmacionesFactura = [
                 `Muchas gracias ${datosEmisor.nombre}, ya recibí y archivé la documentación/factura. Queda registrada para la Administración.`,
                 `Perfecto ${datosEmisor.nombre}, recibida la factura/comprobante. Ya la adjuntamos al expediente del consorcio para la Administración. ¡Gracias!`,
                 `Excelente ${datosEmisor.nombre}, comprobante registrado correctamente. Que tengas un buen día.`
             ];
-            const respFactura = confirmacionesFactura[Math.floor(Math.random() * confirmacionesFactura.length)];
+            const respFactura = confirmacionesFactura[Math.floor(Math.random() * confirmacionesFactura.length)] + respExtra;
 
             await despacharRespuesta(recipient, respFactura, msgTypeRespuesta);
             historial.push(`Marcos: ${respFactura}`);
