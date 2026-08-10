@@ -34,6 +34,31 @@ function logDebug(msg) {
     fs.appendFileSync('debug_marcos.log', `[${t}] ${msg}\n`);
 }
 
+// ── REGISTRO DEL CHAT EN POSTGRES (Visor de Chat en Vivo) ────────────────────
+// Hasta ahora la conversación real no se guardaba en ningún lado: la pestaña `reportes` solo
+// tiene el resumen final que escribe la IA (`notas_ia`), así que el drawer del dashboard nunca
+// podía mostrar el ida y vuelta mensaje por mensaje. Esto persiste cada mensaje —del vecino y de
+// Marcos— en la tabla `mensajes` de PostgreSQL.
+//
+// Regla innegociable: registrar el chat NUNCA puede tumbar la atención de un vecino. Por eso todo
+// va envuelto en try/catch y sin `await` bloqueante en el camino crítico de la respuesta.
+function registrarMensajeChat({ eventoId, edificio, telefono, remitente, mensaje, tipoCanal, urlMedia }) {
+    try {
+        const { guardarMensaje } = require('./db-pg');
+        guardarMensaje({ eventoId, edificio, telefono, remitente, mensaje, tipoCanal, urlMedia })
+            .catch(err => console.error('Error registrando mensaje del chat:', err.message));
+    } catch (err) {
+        console.error('Error registrando mensaje del chat:', err.message);
+    }
+}
+
+// Datos de contexto que solo conoce la sesión en RAM (edificio y caso activo), para etiquetar
+// cada mensaje sin tener que ir a buscarlos a la base en cada línea del chat.
+function contextoChat(telefono) {
+    const s = global.marcosSesiones?.get(telefono) || sesiones.get(telefono) || {};
+    return { edificio: s.nombreEdificio || '', eventoId: s.idEventoActual || null };
+}
+
 // ── Memoria de sesión (RAM) ──────────────────────────────────────────────────
 // Historial de la conversación activa (se pierde al reiniciar, pero la memoria
 // de largo plazo vive en Google Sheets)
@@ -209,6 +234,22 @@ app.post('/webhook', async (req, res) => {
                 }
             }
 
+            // Registramos cada mensaje de la ráfaga por separado y en orden, no el texto pegado:
+            // el visor del dashboard tiene que mostrar las mismas burbujas que vio el vecino
+            // (su audio ya transcripto, su texto, su foto), no un bloque único.
+            const ctxEntrada = contextoChat(recipient);
+            for (const item of items) {
+                registrarMensajeChat({
+                    eventoId:  ctxEntrada.eventoId,
+                    edificio:  ctxEntrada.edificio,
+                    telefono:  recipient,
+                    remitente: 'vecino',
+                    mensaje:   item.texto || '',
+                    tipoCanal: item.tipo === 'audio' ? 'whatsapp-audio' : 'whatsapp',
+                    urlMedia:  item.mediaId ? `media:${item.mediaId}` : ''
+                });
+            }
+
             const msgBodyCompleto = items.map(i => i.texto).filter(Boolean).join(' ');
             // Último media NO-audio de la ráfaga (imagen/video/documento) — los audios ya se
             // transcribieron arriba, no hace falta volver a descargarlos en procesarMensaje.
@@ -259,7 +300,19 @@ app.post('/webhook', async (req, res) => {
 // ── DESPACHADOR DE RESPUESTAS (Modo Espejo / TTS) ─────────────────────────────
 async function despacharRespuesta(recipient, texto, msgType) {
     if (!texto) return;
-    
+
+    // Registramos la respuesta de Marcos en el chat. Guardamos siempre el TEXTO, aunque salga
+    // como nota de voz: el visor necesita leer qué dijo, no reproducir el ogg.
+    const ctxSalida = contextoChat(recipient);
+    registrarMensajeChat({
+        eventoId:  ctxSalida.eventoId,
+        edificio:  ctxSalida.edificio,
+        telefono:  recipient,
+        remitente: 'marcos',
+        mensaje:   texto,
+        tipoCanal: msgType === 'audio' ? 'whatsapp-audio' : 'whatsapp'
+    });
+
     // Simular tiempo de escritura humano (60ms por caracter, máx 10 segundos)
     const demora = Math.min(texto.length * 60, 10000);
     await new Promise(resolve => setTimeout(resolve, demora));
@@ -1481,6 +1534,22 @@ function validarYSanitizarNombre(nombre) {
     }
 
     const idEventoAsignado = resAdmin?.id_evento || null;
+
+    // El [CASO-XXXX] recién existe ahora, pero los mensajes que lo originaron ya se registraron
+    // sin código (cuando el vecino escribió, el caso todavía no estaba creado). Los enganchamos
+    // hacia atrás para que el visor muestre la conversación desde el primer mensaje, y dejamos el
+    // código en la sesión para que el resto del chat quede etiquetado de una.
+    if (idEventoAsignado) {
+        session.idEventoActual = idEventoAsignado;
+        try {
+            const { asignarEventoAMensajes } = require('./db-pg');
+            asignarEventoAMensajes({ telefono: from, eventoId: idEventoAsignado })
+                .then(n => { if (n) console.log(`🗂️ ${n} mensaje(s) del chat asociados a ${idEventoAsignado}`); })
+                .catch(err => console.error('Error asociando mensajes al caso:', err.message));
+        } catch (err) {
+            console.error('Error asociando mensajes al caso:', err.message);
+        }
+    }
 
     // 2. Marcos-Ops: contacta técnico y encargado incluyendo el id_evento (CASO-XXXX)
     if (decisionCaso.contactar_tecnico || decisionCaso.contactar_encargado) {

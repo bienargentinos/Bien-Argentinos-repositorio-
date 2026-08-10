@@ -8480,13 +8480,15 @@ router.post('/api/servicio-gastos-toggle', async (req, res) => {
 router.get('/api/mensajes', async (req, res) => {
   try {
     const { eventoId, telefono } = req.query || {};
-    const { obtenerHistorialMensajes, obtenerHistorialChatTelefono } = require('./db');
+    // PostgreSQL es la base oficial del sistema: el motor escribe el chat ahí (db-pg), no en el
+    // SQLite de db.js. Apuntar a db.js dejaba este visor vacío para siempre.
+    const { obtenerHistorialMensajes, obtenerHistorialChatTelefono } = require('./db-pg');
     if (eventoId) {
-      const msgs = obtenerHistorialMensajes(eventoId);
+      const msgs = await obtenerHistorialMensajes(eventoId);
       return res.json({ ok: true, mensajes: msgs });
     }
     if (telefono) {
-      const msgs = obtenerHistorialChatTelefono(telefono);
+      const msgs = await obtenerHistorialChatTelefono(telefono);
       return res.json({ ok: true, mensajes: msgs });
     }
     res.json({ ok: true, mensajes: [] });
@@ -8498,8 +8500,8 @@ router.get('/api/mensajes', async (req, res) => {
 router.get('/api/busqueda-global', async (req, res) => {
   try {
     const { q } = req.query || {};
-    const { busquedaGlobal } = require('./db');
-    const resBusqueda = busquedaGlobal(q);
+    const { busquedaGlobal } = require('./db-pg');
+    const resBusqueda = await busquedaGlobal(q);
     res.json({ ok: true, resultados: resBusqueda });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });

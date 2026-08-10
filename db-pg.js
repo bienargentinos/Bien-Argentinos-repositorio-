@@ -202,6 +202,10 @@ async function initPgSchema() {
             CREATE INDEX IF NOT EXISTS idx_pg_vecinos_tel ON vecinos(telefono);
             CREATE INDEX IF NOT EXISTS idx_pg_reportes_codigo ON reportes(codigo_caso);
             CREATE INDEX IF NOT EXISTS idx_pg_mensajes_evento ON mensajes(evento_id);
+            -- El visor de chat busca por teléfono y hace backfill de los mensajes que todavía no
+            -- tienen caso asignado: los dos caminos necesitan índice propio.
+            CREATE INDEX IF NOT EXISTS idx_pg_mensajes_tel ON mensajes(telefono);
+            CREATE INDEX IF NOT EXISTS idx_pg_mensajes_sin_caso ON mensajes(telefono) WHERE evento_id IS NULL;
         `);
         console.log('✅ Esquema PostgreSQL con pgvector inicializado exitosamente.');
     } catch (e) {
@@ -211,8 +215,27 @@ async function initPgSchema() {
     }
 }
 
-// Inicializar en segundo plano si está disponible
-initPgSchema().catch(() => {});
+// Inicializar en segundo plano si está disponible.
+// Guardamos la promesa: las escrituras que lleguen en los primeros milisegundos de vida del
+// proceso (un mensaje de WhatsApp entrando justo cuando PM2 reinició) tienen que esperar a que
+// las tablas existan en vez de fallar contra un esquema a medio crear.
+const esquemaListo = initPgSchema().catch(() => {});
+
+// Si Postgres se cae, no queremos inundar los logs de PM2 con el mismo error por cada mensaje:
+// avisamos una vez y volvemos a avisar recién cuando se recupera.
+let pgDegradado = false;
+function avisarFalloPg(operacion, err) {
+    if (!pgDegradado) {
+        pgDegradado = true;
+        console.error(`⚠️ PostgreSQL no disponible (${operacion}): ${err.message}. Marcos sigue funcionando; se deja de registrar el chat hasta que vuelva.`);
+    }
+}
+function avisarRecuperacionPg() {
+    if (pgDegradado) {
+        pgDegradado = false;
+        console.log('✅ PostgreSQL respondió de nuevo: se retoma el registro del chat.');
+    }
+}
 
 // ── MÉTODOS DE BÚSQUEDA VECTORIAL PARA MARCOS IA ────────────────────────────
 
@@ -233,8 +256,150 @@ async function buscarSimilitudVectorial(embeddingVector, limite = 5) {
     }
 }
 
+// ── MENSAJES: VISOR DE CHAT EN VIVO ─────────────────────────────────────────
+// La tabla `mensajes` guarda la conversación real mensaje por mensaje (lo que hasta ahora no se
+// guardaba en ningún lado: la pestaña `reportes` solo tiene el resumen final que escribe la IA).
+// Todas estas funciones son a prueba de fallos a propósito: si Postgres no responde, devuelven
+// vacío o false, nunca lanzan. Registrar el chat es importante, pero jamás puede tumbar la
+// atención de un vecino.
+
+/**
+ * Guarda un mensaje suelto de la conversación.
+ * @param {string} [eventoId]  Código [CASO-XXXX]; puede venir vacío y asignarse después.
+ * @param {string} remitente   'vecino' | 'marcos' | 'tecnico' | 'encargado' | 'admin'
+ */
+async function guardarMensaje({ eventoId, edificio, telefono, remitente, mensaje, tipoCanal, urlMedia }) {
+    if (!mensaje && !urlMedia) return false;
+    try {
+        await esquemaListo;
+        await pool.query(
+            `INSERT INTO mensajes (evento_id, edificio, telefono, remitente, mensaje, tipo_canal, url_media)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+                eventoId || null,
+                edificio || '',
+                String(telefono || '').replace(/\D/g, ''),
+                remitente || 'vecino',
+                mensaje || '',
+                tipoCanal || 'whatsapp',
+                urlMedia || ''
+            ]
+        );
+        avisarRecuperacionPg();
+        return true;
+    } catch (err) {
+        avisarFalloPg('guardarMensaje', err);
+        return false;
+    }
+}
+
+/**
+ * Cuando Marcos-Admin recién crea el [CASO-XXXX], los mensajes que originaron ese caso ya están
+ * guardados sin `evento_id` (el código todavía no existía cuando el vecino escribió). Esto los
+ * engancha hacia atrás para que el visor muestre la conversación completa desde el primer
+ * mensaje y no desde la mitad.
+ */
+async function asignarEventoAMensajes({ telefono, eventoId }) {
+    if (!telefono || !eventoId) return 0;
+    try {
+        await esquemaListo;
+        // Acotado a las últimas 12 horas: si un vecino dejó mensajes sueltos hace días que nunca
+        // derivaron en un caso, no tienen que terminar colgados de un reclamo nuevo que no es el
+        // suyo. Es el mismo criterio de "conversación activa" que usa la sesión en RAM.
+        const res = await pool.query(
+            `UPDATE mensajes SET evento_id = $1
+             WHERE telefono = $2 AND evento_id IS NULL
+               AND timestamp > NOW() - INTERVAL '12 hours'`,
+            [eventoId, String(telefono).replace(/\D/g, '')]
+        );
+        avisarRecuperacionPg();
+        return res.rowCount || 0;
+    } catch (err) {
+        avisarFalloPg('asignarEventoAMensajes', err);
+        return 0;
+    }
+}
+
+async function obtenerHistorialMensajes(eventoId) {
+    if (!eventoId) return [];
+    try {
+        await esquemaListo;
+        const res = await pool.query(
+            `SELECT id, evento_id, edificio, telefono, remitente, mensaje, tipo_canal, url_media, timestamp
+             FROM mensajes WHERE evento_id = $1 ORDER BY timestamp ASC, id ASC`,
+            [eventoId]
+        );
+        avisarRecuperacionPg();
+        return res.rows;
+    } catch (err) {
+        avisarFalloPg('obtenerHistorialMensajes', err);
+        return [];
+    }
+}
+
+async function obtenerHistorialChatTelefono(telefono) {
+    if (!telefono) return [];
+    try {
+        await esquemaListo;
+        const res = await pool.query(
+            `SELECT id, evento_id, edificio, telefono, remitente, mensaje, tipo_canal, url_media, timestamp
+             FROM mensajes WHERE telefono = $1 ORDER BY timestamp ASC, id ASC`,
+            [String(telefono).replace(/\D/g, '')]
+        );
+        avisarRecuperacionPg();
+        return res.rows;
+    } catch (err) {
+        avisarFalloPg('obtenerHistorialChatTelefono', err);
+        return [];
+    }
+}
+
+// ── BÚSQUEDA GLOBAL ─────────────────────────────────────────────────────────
+
+async function busquedaGlobal(query) {
+    const vacio = { reportes: [], vecinos: [], edificios: [], mensajes: [] };
+    if (!query || !String(query).trim()) return vacio;
+    try {
+        await esquemaListo;
+        const q = `%${String(query).toLowerCase().trim()}%`;
+        const [reportes, vecinos, edificios, mensajes] = await Promise.all([
+            pool.query(
+                `SELECT * FROM reportes
+                 WHERE LOWER(problema) LIKE $1 OR LOWER(vecino) LIKE $1 OR LOWER(edificio) LIKE $1 OR LOWER(codigo_caso) LIKE $1
+                 ORDER BY id DESC LIMIT 20`, [q]),
+            pool.query(
+                `SELECT * FROM vecinos
+                 WHERE LOWER(nombre) LIKE $1 OR LOWER(edificio) LIKE $1 OR telefono LIKE $1
+                 LIMIT 20`, [q]),
+            pool.query(
+                `SELECT * FROM edificios
+                 WHERE LOWER(edificio) LIKE $1 OR LOWER(direccion) LIKE $1 OR LOWER(aliases) LIKE $1
+                 LIMIT 20`, [q]),
+            pool.query(
+                `SELECT id, evento_id, edificio, telefono, remitente, mensaje, timestamp FROM mensajes
+                 WHERE LOWER(mensaje) LIKE $1
+                 ORDER BY timestamp DESC LIMIT 20`, [q])
+        ]);
+        avisarRecuperacionPg();
+        return {
+            reportes:  reportes.rows,
+            vecinos:   vecinos.rows,
+            edificios: edificios.rows,
+            mensajes:  mensajes.rows
+        };
+    } catch (err) {
+        avisarFalloPg('busquedaGlobal', err);
+        return vacio;
+    }
+}
+
 module.exports = {
     pool,
     initPgSchema,
-    buscarSimilitudVectorial
+    buscarSimilitudVectorial,
+    guardarMensaje,
+    asignarEventoAMensajes,
+    obtenerHistorialMensajes,
+    obtenerHistorialChatTelefono,
+    busquedaGlobal
 };
