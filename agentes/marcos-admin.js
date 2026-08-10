@@ -91,12 +91,13 @@ async function reportarAlAdmin({
     // ── 2. GUARDAR FACTURA si Marcos-Docs encontró una ──
     if (datosFactura?.es_factura) {
         await guardarFactura({
-            proveedor:   datosFactura.proveedor,
-            monto:       datosFactura.monto,
-            concepto:    datosFactura.concepto,
-            edificio:    datosFactura.edificio || vecino?.edificio,
-            url_archivo: datosFactura.url_archivo || (datosFactura.numero_factura ? `Factura N°${datosFactura.numero_factura}` : 'Sin número'),
+            proveedor:      datosFactura.proveedor || (vecino?.nombre && vecino.nombre !== 'Vecino' ? `Vecino ${vecino.nombre}` : 'Comprobante Particular'),
+            monto:          datosFactura.monto || 'Según comprobante',
+            concepto:       datosFactura.concepto || 'Reembolso / Trabajo en consorcio',
+            edificio:       datosFactura.edificio || vecino?.edificio || 'No especificado',
+            url_archivo:    datosFactura.url_archivo || '',
             numero_factura: datosFactura.numero_factura || '',
+            estado:         'Pendiente'
         });
         tareasList.push('factura registrada');
     }
