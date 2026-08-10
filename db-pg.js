@@ -1,11 +1,12 @@
 const { Pool } = require('pg');
 
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/marcos_db',
+    connectionString: process.env.DATABASE_URL || 'postgresql://marcos:marcos2024@127.0.0.1:5432/marcos_db',
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 3000,
 });
+
 
 // Inicialización de Esquema PostgreSQL + pgvector
 async function initPgSchema() {
