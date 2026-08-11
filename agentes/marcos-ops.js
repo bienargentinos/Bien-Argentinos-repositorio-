@@ -8,6 +8,87 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 if (!global.colasProveedores) global.colasProveedores = new Map();
 if (!global.timersEscalacionProveedores) global.timersEscalacionProveedores = new Map();
 
+// ── FILTRO DE LO QUE SALE HACIA AFUERA ───────────────────────────────────────
+// Todo lo que se le manda a un técnico o a un encargado pasa por acá antes de salir.
+//
+// El problema real que resuelve: `resumen_problema` lo redacta una IA a partir de la conversación,
+// y cuando el vecino contestaba de mala manera ("otra vez lo mismo", "no vienen nunca", un insulto
+// suelto), esa IA copiaba sus palabras y terminaban impresas en la orden de trabajo del técnico.
+// El vecino no se entera de lo que le mandamos al proveedor, así que un roce social filtrado
+// destruye una relación que él ni sabe que está en juego -- y el administrador de consorcio, con
+// razón, lo cobraría como una falla del servicio.
+//
+// Instruir a la IA no alcanza: los modelos obedecen casi siempre, y "casi siempre" no sirve cuando
+// el costo de una sola fuga es perder un cliente. Esto es el segundo cerrojo, determinístico.
+
+const INSULTOS = /\b(pelotud\w*|bolud\w*|forr\w+|hij\w+\s+de\s+put\w+|put\w+|mierd\w*|cag\w+|jod\w+|carajo|choto\w*|pajer\w*|in[úu]til(es)?|verg[üu]enza|estaf\w+|chorr\w+|ladr[oó]n\w*|ladrones|incompetent\w*|desastr\w*|inservible\w*|verg\w+)\b/i;
+
+// Frases con las que alguien se queja del SERVICIO. No describen una falla técnica: describen una
+// relación. El técnico no tiene nada que hacer con esto.
+const QUEJAS = /\b(otra vez|una vez m[aá]s|siempre lo mismo|de nuevo lo mismo|nunca vien\w+|no vien\w+ nunca|nadie (me |nos )?(soluciona|responde|atiende|contesta|hace nada)|hace\s+\S+\s+(d[ií]as?|semanas?|meses?|horas?)\s+que|ya (te|les|le|lo) (dije|avis[eé]|reclam[eé])|no sirv\w+ para nada|(estoy|estamos|me tienen|nos tienen)\s+(cansad\w+|hart\w+|podrid\w+)|no se puede vivir|es (una|un) (falta de respeto|tomada de pelo))\b/i;
+
+// Marcas de que la oración está reproduciendo lo que dijo alguien, en vez de describir la falla.
+const CITA = /["“”«»]|\b(vecin\w+|propietari\w+|inquilin\w+|se[ñn]or\w*|se[ñn]ora|encargad\w+)\s+(dice|dijo|coment[oó]|manifiesta|manifest[oó]|expresa|expres[oó]|se queja|reclama|insiste|aclara|remarca)\b|\btextual(es|mente)?\b/i;
+
+/**
+ * Deja el texto en condiciones de ser leído por un tercero.
+ *
+ * Trabaja por ORACIONES COMPLETAS, no palabra por palabra: si una oración tiene un insulto, una
+ * queja sobre el servicio o está citando a alguien, se descarta entera. Recortar palabras sueltas
+ * dejaba restos como "el plomero es un." -- peor que no filtrar, porque el técnico completa el
+ * insulto solo y encima queda escrito por nosotros.
+ *
+ * Devuelve '' si no sobrevive nada utilizable, para que el llamador use un genérico.
+ */
+function limpiarParaTerceros(texto) {
+    if (!texto) return '';
+
+    const oraciones = String(texto)
+        .replace(/\s+/g, ' ')
+        .split(/(?<=[.;!?])\s+|\n+/)
+        .map(o => o.trim())
+        .filter(Boolean);
+
+    const limpias = [];
+    for (let o of oraciones) {
+        if (INSULTOS.test(o) || QUEJAS.test(o) || CITA.test(o)) continue;
+
+        // Gritos: una orden de trabajo no lleva mayúsculas sostenidas ni signos repetidos.
+        const letras = o.replace(/[^a-zA-ZáéíóúñÁÉÍÓÚÑ]/g, '');
+        const mayus = o.replace(/[^A-ZÁÉÍÓÚÑ]/g, '');
+        if (letras.length > 0 && mayus.length / letras.length > 0.6) {
+            o = o.charAt(0) + o.slice(1).toLowerCase();
+        }
+        o = o.replace(/[!¡]+/g, '.').replace(/\?{2,}/g, '?').replace(/\.{2,}/g, '.');
+
+        if (o.replace(/[^a-záéíóúñ]/gi, '').length < 8) continue;
+        limpias.push(o.trim());
+    }
+
+    let t = limpias.join(' ').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:])/g, '$1').trim();
+    if (t.replace(/[^a-záéíóúñ]/gi, '').length < 12) return '';
+    if (t.length > 300) t = t.slice(0, 297).replace(/\s+\S*$/, '') + '...';
+    if (!/[.?]$/.test(t)) t += '.';
+
+    return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/**
+ * Descripción del requerimiento lista para mandar afuera, con un genérico por rubro cuando lo que
+ * venía no era utilizable.
+ */
+function requerimientoParaTerceros(decisionCaso) {
+    const limpio = limpiarParaTerceros(decisionCaso?.resumen_problema);
+    if (limpio) return limpio;
+
+    const rubro = decisionCaso?.tipo_problema;
+    const generico = (rubro && rubro !== 'otro')
+        ? `Requerimiento de ${rubro} en el edificio — a verificar en el lugar`
+        : 'Requerimiento técnico a verificar en el lugar';
+    console.log(`🧹 El resumen del caso no era apto para enviar afuera. Se usa el genérico: "${generico}"`);
+    return generico;
+}
+
 async function gestionarOperaciones({
     vecino,
     decisionCaso,
@@ -124,7 +205,7 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
     const deptoStr = rawDepto ? `(${rawDepto})` : '';
     const vecinoConDepto = `${rawNombre} ${deptoStr}`.trim();
 
-    const textoProblemaConCaso = `[${id_evento}] ${decisionCaso.resumen_problema || 'Requerimiento técnico'}`;
+    const textoProblemaConCaso = `[${id_evento}] ${requerimientoParaTerceros(decisionCaso)}`;
 
     // Nota: esto va como parámetro dinámico dentro de la plantilla de Meta "notificacion_servicio_consorcio".
     // Nunca debe leerse como una tarea que el técnico tiene que gestionar por su cuenta -- el acceso lo
@@ -217,7 +298,7 @@ async function generarMensajeEncargado({ vecino, decisionCaso, personalDeTurno, 
         `Hola ${personalDeTurno.nombre}, te cuento que acabo de recibir un reclamo:\n\n` +
         `📍 *Edificio:* ${vecino?.edificio || 'No especificado'}\n` +
         `👤 *Solicitante:* ${vecinoConDepto}\n` +
-        `⚠️ *Problema:* [${id_evento}] ${decisionCaso.resumen_problema}\n` +
+        `⚠️ *Problema:* [${id_evento}] ${requerimientoParaTerceros(decisionCaso)}\n` +
         `🚦 *Urgencia:* ${decisionCaso.urgencia.toUpperCase()}\n\n` +
         `¿Podés revisar? Avisame cuando puedas.`;
 }
@@ -236,7 +317,7 @@ async function generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id
         `Hola ${tecnicoAsignado.nombre}, te mando los detalles de una nueva asistencia:\n\n` +
         `📍 *Dirección:* ${direccionExacta}\n` +
         `👤 *Solicitante:* ${vecinoConDepto}\n` +
-        `⚠️ *Sector y Requerimiento:* ${decisionCaso.resumen_problema}\n` +
+        `⚠️ *Sector y Requerimiento:* ${requerimientoParaTerceros(decisionCaso)}\n` +
         `🚦 *Urgencia:* ${decisionCaso.urgencia.toUpperCase()}\n` +
         `🔑 *Acceso:* ${tecnicoAsignado.acceso || `Ya coordinado por Marcos con ${vecinoConDepto} — lo va a estar esperando`}\n\n` +
         `Por favor confirmame si podés pasar. ¡Gracias!`;
