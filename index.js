@@ -702,6 +702,25 @@ function validarYSanitizarNombre(nombre) {
                 cancelarEscalacionProveedor(from);
                 console.log(`✅ El técnico ${datosEmisor.nombre} confirmó la visita${lectura.eta ? ` (${lectura.eta})` : ''}. Recordatorios cancelados.`);
 
+                // Confirmar no es haber ido. Se agenda un control para después del plazo que dio:
+                // antes, con la confirmación se cancelaba el temporizador y nadie volvía a
+                // preguntar nunca -- si el técnico se olvidaba, el caso quedaba abierto para
+                // siempre sin que nadie se enterara. Queda guardado en el caso, no en memoria, así
+                // que un reinicio no lo pierde.
+                const idCasoConf = stProv.eventoActivoId;
+                if (idCasoConf) {
+                    try {
+                        const { programarSeguimiento } = require('./datos');
+                        const { calcularPrimerControl } = require('./seguimiento');
+                        await programarSeguimiento({
+                            id_evento: idCasoConf,
+                            cuando: calcularPrimerControl(lectura.eta),
+                            paso: 1,
+                            nota: lectura.eta ? `El técnico dijo: ${lectura.eta}` : 'Confirmó sin dar horario'
+                        });
+                    } catch (e) { console.error('Error programando el seguimiento de la visita:', e.message); }
+                }
+
                 // El vecino tiene que poder enterarse cuando pregunte, aunque no le mandemos un
                 // aviso en ese momento.
                 const telVecinoConf = stProv.vecinoActivo?.telefono;
@@ -2365,6 +2384,29 @@ ${conocimiento}
         return res.status(500).json({ error: 'No se pudo procesar la consulta en este momento.' });
     }
 });
+
+// Barrido de seguimientos vencidos. Cada 5 minutos, y no con temporizadores en memoria: así un
+// `pm2 restart` -- que este proceso tuvo más de 150 veces -- ya no borra escalaciones pendientes.
+setInterval(() => {
+    try {
+        const { revisarSeguimientos } = require('./seguimiento');
+        const datos = require('./datos');
+        const ops = require('./agentes/marcos-ops');
+        const { notificarEscalacionAlAdmin } = require('./agentes/marcos-admin');
+        revisarSeguimientos({
+            obtenerSeguimientosVencidos: datos.obtenerSeguimientosVencidos,
+            programarSeguimiento: datos.programarSeguimiento,
+            buscarTecnicoAsignado: datos.buscarTecnicoAsignado,
+            buscarTecnicoSuplente: datos.buscarTecnicoSuplente,
+            enviarWhatsApp: ops.enviarWhatsApp,
+            notificarEscalacionAlAdmin,
+            phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
+            accessToken: WHATSAPP_ACCESS_TOKEN,
+        }).catch(err => console.error('Error en el barrido de seguimientos:', err.message));
+    } catch (err) {
+        console.error('Error iniciando el barrido de seguimientos:', err.message);
+    }
+}, 5 * 60 * 1000);
 
 iniciarCronReportes();
 const dashboard = require('./dashboard');

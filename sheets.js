@@ -1110,6 +1110,108 @@ async function buscarRolPorTelefono(telefono) {
 }
 
 // ─────────────────────────────────────────────
+// SEGUIMIENTO DE CASOS (a prueba de reinicios)
+//
+// Los temporizadores de escalación vivían únicamente en `setTimeout`, es decir en memoria RAM. Cada
+// `pm2 restart` los borraba a todos en silencio -- y el proceso lleva más de 150 reinicios. En la
+// práctica eso significa que muchas escalaciones simplemente nunca ocurrieron: ni el suplente, ni
+// el aviso al administrador, sin que quedara rastro de que se habían perdido.
+//
+// La fecha del próximo control se guarda en el propio caso, y un barrido periódico levanta los
+// vencidos. Sobrevive a los reinicios y, de paso, queda a la vista en la planilla qué caso está
+// esperando qué.
+// ─────────────────────────────────────────────
+
+async function programarSeguimiento({ id_evento, cuando, paso = 1, nota = '' }) {
+    try {
+        if (!id_evento || !cuando) return false;
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+
+        await sheet.loadHeaderRow().catch(() => {});
+        const headers = sheet.headerValues || [];
+        const necesarios = ['proximo_seguimiento', 'seguimiento_paso', 'seguimiento_nota'];
+        const completos = Array.from(new Set([...headers, ...necesarios]));
+        if (completos.length > headers.length) await sheet.setHeaderRow(completos).catch(() => {});
+
+        const rows = await sheet.getRows();
+        const buscado = String(id_evento).toUpperCase().trim();
+        const fila = rows.find(r => String(r.get('id_evento') || '').toUpperCase().trim() === buscado);
+        if (!fila) return false;
+
+        fila.set('proximo_seguimiento', new Date(cuando).toISOString());
+        fila.set('seguimiento_paso', String(paso));
+        if (nota) fila.set('seguimiento_nota', nota);
+        await fila.save();
+
+        const enMin = Math.round((new Date(cuando).getTime() - Date.now()) / 60000);
+        console.log(`⏱️ Seguimiento de [${id_evento}] programado para dentro de ${enMin} min (paso ${paso}).`);
+        return true;
+    } catch (err) {
+        console.error('Error programando seguimiento:', err.message);
+        return false;
+    }
+}
+
+/** Quita el control pendiente: el caso se resolvió o dejó de requerirlo. */
+async function cancelarSeguimiento(id_evento) {
+    try {
+        if (!id_evento) return false;
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+        const rows = await sheet.getRows();
+        const buscado = String(id_evento).toUpperCase().trim();
+        const fila = rows.find(r => String(r.get('id_evento') || '').toUpperCase().trim() === buscado);
+        if (!fila) return false;
+        fila.set('proximo_seguimiento', '');
+        fila.set('seguimiento_paso', '');
+        await fila.save();
+        return true;
+    } catch (err) {
+        console.error('Error cancelando seguimiento:', err.message);
+        return false;
+    }
+}
+
+/** Casos abiertos cuyo control ya venció. */
+async function obtenerSeguimientosVencidos() {
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return [];
+        const rows = await sheet.getRows();
+        const ahora = Date.now();
+
+        return rows
+            .filter(r => {
+                const estado = String(r.get('estado') || '').toLowerCase();
+                if (estado === 'resuelto' || estado === 'cerrado') return false;
+                const prox = r.get('proximo_seguimiento');
+                if (!prox) return false;
+                const t = new Date(prox).getTime();
+                return Number.isFinite(t) && t <= ahora;
+            })
+            .map(r => ({
+                id_evento:   r.get('id_evento') || '',
+                edificio:    r.get('edificio') || '',
+                vecino:      r.get('vecino') || '',
+                telefono:    r.get('telefono') || '',
+                depto:       r.get('depto') || '',
+                problema:    r.get('mensaje') || r.get('problema') || '',
+                urgencia:    r.get('urgencia') || '',
+                tecnico:     r.get('tecnico') || '',
+                paso:        parseInt(r.get('seguimiento_paso') || '1', 10) || 1,
+                nota:        r.get('seguimiento_nota') || '',
+            }));
+    } catch (err) {
+        console.error('Error obteniendo seguimientos vencidos:', err.message);
+        return [];
+    }
+}
+
+// ─────────────────────────────────────────────
 // ACCESOS E INSTALACIONES DEL EDIFICIO
 //
 // Dónde está cada cosa y quién tiene la llave: sala de medidores, tablero eléctrico, sala de
@@ -1228,6 +1330,9 @@ module.exports = {
     buscarTecnicoSuplente,
     buscarPersonalDeTurno,
     buscarPerfilEdificio,
+    programarSeguimiento,
+    cancelarSeguimiento,
+    obtenerSeguimientosVencidos,
     buscarAccesosEdificio,
     guardarAccesoEdificio,
     buscarCliente,
