@@ -44,53 +44,25 @@ function logDebug(msg) {
 // Marcos los anota a medida que aparecen, con constancia de quién los aportó. No pregunta por
 // ellos: solo escucha.
 
-const PISTAS_ACCESO = /\b(llave|llaves|candado|tablero|medidor(es)?|sala de m[aá]quinas|sala de electricidad|sala el[eé]ctrica|bomba(s)?|tanque|terraza|azotea|s[oó]tano|subsuelo|palanca de gas|llave de gas|acceso|abrir|abro|le abro|qr|llavero)\b/i;
-
 async function aprenderAccesosDeConversacion({ texto, edificio, quienLoDijo, telefono }) {
-    if (!texto || !edificio || !PISTAS_ACCESO.test(texto)) return;
-
+    if (!texto || !edificio) return;
     try {
-        const { GoogleGenAI } = require('@google/genai');
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-        const prompt = `Leé este mensaje de alguien de un consorcio y extraé SOLO datos concretos sobre instalaciones del edificio y sus accesos.
-
-Mensaje de ${quienLoDijo || 'una persona del edificio'}:
-"""
-${texto}
-"""
-
-Devolvé SOLO un array JSON (sin markdown ni backticks). Cada elemento:
-{"lugar":"nombre normalizado del lugar","ubicacion":"dónde está, si lo dice","quien_abre":"quién tiene la llave o puede abrir","tipo_acceso":"llave|candado|qr|llavero magnetico|libre","notas":"detalle util"}
-
-Usá para "lugar" nombres normalizados: "sala de medidores", "tablero electrico", "sala de maquinas",
-"sala de bombas", "llave de gas", "terraza", "tanque de agua", "sotano", "puerta de entrada".
-
-REGLAS:
-- Solo extraé lo que la persona AFIRMA como un hecho. Si pregunta algo, no es un dato.
-- Si dice que ella misma tiene la llave, poné su nombre en "quien_abre".
-- Si no hay ningún dato concreto de instalaciones o accesos, devolvé exactamente: []`;
-
-        const resp = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-        const crudo = String(resp?.text || '').replace(/```json|```/g, '').trim();
-        if (!crudo || crudo === '[]') return;
-
-        let datos;
-        try { datos = JSON.parse(crudo); } catch { return; }
-        if (!Array.isArray(datos) || datos.length === 0) return;
+        const { extraerAccesosDeTexto } = require('./accesos');
+        const datos = await extraerAccesosDeTexto({ texto, quienLoDijo });
+        if (!datos.length) return;
 
         const { guardarAccesoEdificio } = require('./datos');
         const origen = `${quienLoDijo || 'vecino'}${telefono ? ` (${String(telefono).replace(/\D/g, '')})` : ''}`;
 
         for (const d of datos) {
-            if (!d?.lugar) continue;
             await guardarAccesoEdificio({
                 edificio,
-                lugar:      String(d.lugar).toLowerCase().trim(),
-                ubicacion:  d.ubicacion || '',
-                quienAbre:  d.quien_abre || '',
-                tipoAcceso: d.tipo_acceso || '',
-                notas:      d.notas || '',
+                lugar:      d.lugar,
+                ubicacion:  d.ubicacion,
+                quienAbre:  d.quien_abre,
+                telefono:   d.telefono,
+                tipoAcceso: d.tipo_acceso,
+                notas:      d.notas,
                 origen:     `Aportado por ${origen}`
             });
         }
