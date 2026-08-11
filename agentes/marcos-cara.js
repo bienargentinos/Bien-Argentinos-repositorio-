@@ -65,7 +65,8 @@ async function responderVecino({
     perfilEdificio,
     session,
     datosEmisor,
-    contactoAccesoExtra = ''
+    contactoAccesoExtra = '',
+    confirmacionTecnico = null
 }) {
     const persona = getPersona();
 
@@ -108,6 +109,20 @@ DEBES indicarle amablemente y de forma empática que la imagen recibida no parec
 - Esto YA está confirmado y ya se le pasó al técnico. NO vuelvas a pedir que lo confirme.
 - Si te preguntan quién espera al técnico, respondé ${contactoAccesoExtra} -- NUNCA el nombre del
   vecino que escribe, aunque sea el titular del reclamo.
+`.trim()
+        : '';
+
+    // Lo que el técnico ya contestó. Sin esto, Marcos decía "estoy consultando con el técnico
+    // para darle un horario" cuando el técnico había confirmado hacía media hora y hasta había
+    // dado el plazo. El vecino no lo lee como un olvido: lo lee como que le mienten.
+    const instruccionConfirmacionTecnico = confirmacionTecnico?.confirmado
+        ? `
+📌 EL TÉCNICO YA CONFIRMÓ — NO DIGAS QUE ESTÁS CONSULTANDO:
+- ${confirmacionTecnico.tecnico || 'El técnico'} confirmó la visita el ${confirmacionTecnico.cuando}${confirmacionTecnico.eta ? `, y avisó que llega ${confirmacionTecnico.eta}` : ''}.
+- Si te preguntan si coordinaste, a qué hora viene o si ya está confirmado, respondé con ESTO.
+- TENÉS PROHIBIDO decir "estoy consultando", "estoy esperando la confirmación" o "le aviso cuando
+  me responda": ya te respondió, y decir lo contrario es mentirle al vecino.
+${confirmacionTecnico.eta ? '' : '- No dio un horario exacto, así que decí que confirmó la visita y que el horario todavía no lo precisó. No inventes una hora.'}
 `.trim()
         : '';
 
@@ -233,6 +248,7 @@ ${contextoMemoria ? contextoMemoria : 'Primera vez que contacta.'}
 # DATOS DEL VECINO
 ${contextoVecino}
 ${instruccionContactoAcceso}
+${instruccionConfirmacionTecnico}
 
 ${instruccionIdentificacion}
 ${instruccionDatosFaltantes}

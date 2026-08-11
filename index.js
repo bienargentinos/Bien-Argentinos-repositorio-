@@ -34,6 +34,25 @@ function logDebug(msg) {
     fs.appendFileSync('debug_marcos.log', `[${t}] ${msg}\n`);
 }
 
+/**
+ * La confirmación del técnico puede haber llegado antes de que existiera la sesión de este vecino,
+ * o después de un reinicio de PM2. En ese caso vive en el estado del proveedor: se la busca ahí por
+ * el vecino al que está atendiendo, para no contestarle "estoy consultando" a alguien cuya visita
+ * ya está confirmada.
+ */
+function confirmacionDesdeProveedor(telefonoVecino) {
+    try {
+        const tel = String(telefonoVecino || '').replace(/\D/g, '');
+        if (!tel || !global.colasProveedores) return null;
+        for (const st of global.colasProveedores.values()) {
+            if (!st?.confirmacion?.confirmado) continue;
+            const telAtendido = String(st.vecinoActivo?.telefono || '').replace(/\D/g, '');
+            if (telAtendido && telAtendido.endsWith(tel.slice(-8))) return st.confirmacion;
+        }
+    } catch (_) { /* si falla, simplemente no hay confirmación conocida */ }
+    return null;
+}
+
 // ── APRENDIZAJE DE ACCESOS DEL EDIFICIO ──────────────────────────────────────
 // El administrador rara vez tiene cargado todo: dónde está la sala de medidores, quién tiene la
 // llave del tablero, si la sala de máquinas está con candado. Esos datos aparecen solos en la
@@ -663,6 +682,42 @@ function validarYSanitizarNombre(nombre) {
         const stProv = global.colasProveedores.get(telTech);
         stProv.chatActivo = true;
         stProv.ultimoMensajeTimestamp = Date.now();
+
+        // ¿El técnico está confirmando la visita? Si confirma, hay que dejar constancia y frenar
+        // los recordatorios. Antes no se registraba en ningún lado: el técnico confirmaba, le
+        // seguían llegando avisos pidiéndole la confirmación que ya había dado, y cuando el vecino
+        // preguntaba a qué hora venía, Marcos contestaba "estoy consultando con el técnico"
+        // teniendo la respuesta hacía rato. Para el vecino eso es una mentira lisa y llana.
+        try {
+            const { interpretarRespuestaTecnico, cancelarEscalacionProveedor } = require('./agentes/marcos-ops');
+            const lectura = await interpretarRespuestaTecnico({ mensaje: msgBody });
+
+            if (lectura.confirma) {
+                stProv.confirmacion = {
+                    confirmado: true,
+                    eta: lectura.eta || '',
+                    cuando: new Date().toLocaleString('es-AR'),
+                    tecnico: datosEmisor.nombre || ''
+                };
+                cancelarEscalacionProveedor(from);
+                console.log(`✅ El técnico ${datosEmisor.nombre} confirmó la visita${lectura.eta ? ` (${lectura.eta})` : ''}. Recordatorios cancelados.`);
+
+                // El vecino tiene que poder enterarse cuando pregunte, aunque no le mandemos un
+                // aviso en ese momento.
+                const telVecinoConf = stProv.vecinoActivo?.telefono;
+                if (telVecinoConf) {
+                    if (!global.marcosSesiones) global.marcosSesiones = new Map();
+                    const sesV = global.marcosSesiones.get(String(telVecinoConf).replace(/\D/g, ''))
+                        || global.marcosSesiones.get(String(telVecinoConf));
+                    if (sesV) sesV.confirmacionTecnico = { ...stProv.confirmacion };
+                }
+            } else if (lectura.rechaza) {
+                stProv.confirmacion = { confirmado: false, rechazado: true, cuando: new Date().toLocaleString('es-AR') };
+                console.log(`🚫 El técnico ${datosEmisor.nombre} no puede tomar el caso.`);
+            }
+        } catch (errConf) {
+            console.error('Error interpretando la confirmación del técnico:', errConf.message);
+        }
 
         // Buscar edificio del evento activo del proveedor (en RAM o Sheets EVENTOS)
         let edifDetectado = stProv.edificioActivo || stProv.vecinoActivo?.edificio;
@@ -1427,7 +1482,10 @@ function validarYSanitizarNombre(nombre) {
         // `session` pero nunca leía nada de ella, así que este dato -- que sí le llegaba al
         // técnico -- no existía para el agente que le habla al vecino: al preguntarle quién
         // esperaba, contestaba el que había escrito, que era justamente el que se iba.
-        contactoAccesoExtra: session.contactoAccesoExtra || ''
+        contactoAccesoExtra: session.contactoAccesoExtra || '',
+        // Lo que el técnico ya respondió sobre esta visita, para no volver a decir que se está
+        // consultando algo que ya está contestado.
+        confirmacionTecnico: session.confirmacionTecnico || confirmacionDesdeProveedor(from)
     });
 
     let respuesta = (typeof resCara === 'object' && resCara !== null && resCara.texto)
@@ -1821,9 +1879,18 @@ async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vec
         // cualquier contacto adicional que el propio vecino haya autorizado (ej. "llamá a mi señora
         // al 11...", cuando avisa que él no va a estar).
         const telVecinoAcceso = vecino?.telefono ? String(vecino.telefono).replace(/\D/g, '') : '';
+        // Cuando el vecino dejó un contacto de acceso es porque él NO va a estar. Su propio
+        // teléfono deja de ser "el que le abre" y pasa a ser secundario: ofrecerlo primero hacía
+        // que Marcos le dijera al técnico "llamá a Daniel, él te espera" justo después de que
+        // Daniel avisara que se iba, y el técnico terminaba preguntando a cuál de los dos números
+        // tenía que llamar.
         const telefonosAcceso = [
-            telVecinoAcceso ? `${identVecino}: ${telVecinoAcceso}` : '',
-            contactoAccesoExtra ? `Contacto adicional autorizado por el vecino: ${contactoAccesoExtra}` : '',
+            contactoAccesoExtra ? `PARA ENTRAR, llamar a: ${contactoAccesoExtra}` : '',
+            telVecinoAcceso
+                ? (contactoAccesoExtra
+                    ? `${identVecino} (hizo el reclamo, NO está en el edificio): ${telVecinoAcceso}`
+                    : `${identVecino}: ${telVecinoAcceso}`)
+                : '',
             perfilEdificio?.tel_seguridad ? `Portería/seguridad de la entrada: ${perfilEdificio.tel_seguridad}` : ''
         ].filter(Boolean).join(' | ') || 'Sin teléfono de contacto cargado todavía.';
         // Dónde está cada instalación y quién tiene la llave. Es lo que el técnico pregunta cuando
@@ -1840,9 +1907,11 @@ async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vec
             }).join('\n')
             : '  (todavía no hay datos cargados de instalaciones ni de llaves en este edificio)';
 
-        const accesoInfo = perfilEdificio?.tel_seguridad
-            ? `Hay portería/seguridad en la entrada (tel: ${perfilEdificio.tel_seguridad}).`
-            : `El acceso ya fue coordinado por Marcos con ${identVecino}, que lo está esperando.`;
+        const accesoInfo = contactoAccesoExtra
+            ? `Quien le abre es ${contactoAccesoExtra}. ${identVecino} hizo el reclamo pero NO va a estar en el edificio: no lo mandes a llamarlo para entrar.`
+            : (perfilEdificio?.tel_seguridad
+                ? `Hay portería/seguridad en la entrada (tel: ${perfilEdificio.tel_seguridad}).`
+                : `El acceso ya fue coordinado por Marcos con ${identVecino}, que lo está esperando.`);
 
         const { GoogleGenAI } = require('@google/genai');
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });

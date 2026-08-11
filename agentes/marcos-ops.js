@@ -142,6 +142,57 @@ Devolvé SOLO el texto a reenviar al técnico, sin comillas ni encabezados, sigu
 }
 
 /**
+ * Qué dijo realmente el técnico: ¿confirmó la visita? ¿dio un horario?
+ *
+ * Sin esto, Marcos recibía "Ok, confirmo, llego en 2 horas" y no le quedaba registro de nada: le
+ * seguía mandando recordatorios pidiéndole la confirmación que ya había dado, y cuando el vecino
+ * preguntaba a qué hora venía el técnico contestaba "estoy consultando" -- teniendo la respuesta
+ * hacía rato. Para el vecino eso es una mentira, y para el técnico es que no le prestan atención.
+ *
+ * Primero se resuelven por texto las respuestas de los botones de la plantilla, que son fijas y no
+ * merecen una llamada al modelo. Solo el texto libre pasa por la IA.
+ */
+const BOTON_CONFIRMA = /^\s*(recibido\s*\/?\s*en camino|en camino|recibido|voy en camino)\s*$/i;
+const BOTON_RECHAZA  = /^\s*(no puedo|no disponible|rechazar|no voy)\s*$/i;
+
+async function interpretarRespuestaTecnico({ mensaje }) {
+    const texto = String(mensaje || '').trim();
+    if (!texto) return { confirma: false, rechaza: false, eta: '' };
+
+    if (BOTON_CONFIRMA.test(texto)) return { confirma: true, rechaza: false, eta: '' };
+    if (BOTON_RECHAZA.test(texto))  return { confirma: false, rechaza: true, eta: '' };
+
+    try {
+        const prompt = `Un técnico de mantenimiento le respondió a la administración de un consorcio sobre una visita.
+
+Mensaje del técnico:
+"""
+${texto}
+"""
+
+Devolvé SOLO un objeto JSON (sin markdown ni backticks):
+{"confirma": true|false, "rechaza": true|false, "eta": "el horario o plazo que dio, tal como lo dijo, o cadena vacía"}
+
+- "confirma": true si acepta ir, dice que va, que está en camino o que ya llegó.
+- "rechaza": true si dice que no puede ir, que no está disponible o que lo derive a otro.
+- "eta": el plazo u horario que menciona ("en 2 horas", "hoy a la tarde", "mañana temprano"). Vacío si no dijo ninguno.
+- Si solo hace una pregunta y no se compromete, los dos van en false.`;
+
+        const resp = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+        const crudo = String(resp?.text || '').replace(/```json|```/g, '').trim();
+        const d = JSON.parse(crudo);
+        return {
+            confirma: !!d.confirma && !d.rechaza,
+            rechaza:  !!d.rechaza,
+            eta:      String(d.eta || '').trim(),
+        };
+    } catch (err) {
+        console.error('Error interpretando la respuesta del técnico:', err.message);
+        return { confirma: false, rechaza: false, eta: '' };
+    }
+}
+
+/**
  * Cómo se le describe al técnico DÓNDE tiene que ir.
  *
  * El departamento del vecino ubica a la persona, no al problema. Un vecino del 1A que reporta la
@@ -659,6 +710,7 @@ module.exports = {
     enviarVideoWhatsApp,
     normalizarTelefonoWhatsApp,
     ubicacionParaTecnico,
+    interpretarRespuestaTecnico,
     redactarNovedadParaTecnico,
     requerimientoParaTerceros,
     programarEscalacionProveedor,
