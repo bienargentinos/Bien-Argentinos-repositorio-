@@ -283,6 +283,9 @@ app.post('/webhook', async (req, res) => {
                             const { transcribirAudio } = require('./stt');
                             const transcripcion = await transcribirAudio(mediaAudio.filePath, mediaAudio.mimeType);
                             if (transcripcion) item.texto = transcripcion;
+                            // La ruta web con la que el panel puede reproducir el audio. `/audios`
+                            // sirve la carpeta temp, donde media.js deja el archivo.
+                            item.urlWeb = `/audios/${require('path').basename(mediaAudio.filePath)}`;
                         }
                     } catch (e) {
                         console.error(`Error transcribiendo audio de la ráfaga (${item.mediaId}):`, e.message);
@@ -302,7 +305,11 @@ app.post('/webhook', async (req, res) => {
                     remitente: 'vecino',
                     mensaje:   item.texto || '',
                     tipoCanal: item.tipo === 'audio' ? 'whatsapp-audio' : 'whatsapp',
-                    urlMedia:  item.mediaId ? `media:${item.mediaId}` : ''
+                    // Una ruta que el panel pueda reproducir o abrir. Antes se guardaba
+                    // `media:<id>`, que no es una ruta ni un archivo: el visor mostraba la burbuja
+                    // del audio pero no tenía con qué reproducirlo. Si todavía no se descargó el
+                    // adjunto, va el identificador de Meta pelado, que al menos es resoluble.
+                    urlMedia:  item.urlWeb || item.mediaId || ''
                 });
             }
 
@@ -330,8 +337,13 @@ app.post('/webhook', async (req, res) => {
             // Llamada al orquestador con el texto acumulado
             // Fichas de contacto compartidas en la ráfaga (se acumulan todas, en orden)
             const contactosFinal = items.flatMap(i => i.contactos || []);
+            // Rutas reproducibles de todos los audios de la ráfaga. Hacen falta más adelante para
+            // etiquetarlos en el historial del caso: `session.audio_url` solo se llenaba cuando el
+            // mensaje era PURO audio, así que en la ráfaga más común -- varias notas de voz y una
+            // foto -- el adjunto que viajaba era la imagen y los audios quedaban sin etiqueta.
+            const audiosRafaga = items.filter(i => i.tipo === 'audio' && i.urlWeb).map(i => i.urlWeb);
 
-            await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal, preferirAudioRespuesta, contactosCompartidos: contactosFinal }).catch(err => {
+            await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal, preferirAudioRespuesta, contactosCompartidos: contactosFinal, audiosRafaga }).catch(err => {
                 console.error('Error procesando mensaje:', err.message);
                 const respuestasHumanas = [
                     'Aguárdeme un instante por favor, estoy actualizando el sistema y ya le respondo.',
@@ -515,7 +527,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
 }
 
 // ── ORQUESTADOR PRINCIPAL ─────────────────────────────────────────────────────
-async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pushName, preferirAudioRespuesta = false, contactosCompartidos = [] }) {
+async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pushName, preferirAudioRespuesta = false, contactosCompartidos = [], audiosRafaga = [] }) {
     // Modo en que le contestamos al usuario (nota de voz vs texto). Es independiente del tipo de
     // adjunto que trajo el mensaje: una ráfaga puede traer una foto (msgType 'image', para
     // reenviarla al técnico) y aun así merecer una respuesta hablada porque el vecino usó audios.
@@ -790,6 +802,18 @@ function validarYSanitizarNombre(nombre) {
         messageText = `[VIDEO:${videoUrl}]` + (textoFinal && textoFinal !== '(Video adjunto)' ? ' ' + textoFinal : '');
     } else if (msgType === 'audio' && session.audio_url) {
         messageText = `[AUDIO:${session.audio_url}]` + (textoFinal && textoFinal !== '(Nota de voz)' ? ' ' + textoFinal : '');
+    }
+
+    // Los audios que vinieron en la misma ráfaga que una foto: el bloque de arriba no los alcanza
+    // porque ahí `msgType` es 'image'. Sin esto, el panel muestra la transcripción pero no tiene
+    // con qué reproducir lo que el vecino realmente dijo.
+    if (Array.isArray(audiosRafaga) && audiosRafaga.length > 0) {
+        const faltantes = audiosRafaga.filter(u => !messageText.includes(u));
+        if (faltantes.length > 0) {
+            messageText = faltantes.map(u => `[AUDIO:${u}]`).join(' ') + (messageText ? ' ' + messageText : '');
+        }
+        // El reporte guarda una sola url de audio: la del último, que es el criterio que ya usaba.
+        if (!session.audio_url) session.audio_url = audiosRafaga[audiosRafaga.length - 1];
     }
     historial.push(`${datosEmisor.rol === 'proveedor' ? 'Proveedor (' + datosEmisor.nombre + ')' : (datosEmisor.rol === 'encargado' ? 'Encargado' : 'Vecino')}: ${messageText}`);
     if (historial.length > 30) historial.shift();
