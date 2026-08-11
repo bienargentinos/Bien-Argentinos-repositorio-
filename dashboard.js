@@ -2253,6 +2253,11 @@ function normalizarUrlAudio(pathOrUrl) {
     return u;
   }
 
+  if (/^media[:_]/i.test(u)) {
+    var mediaId = u.replace(/^media[:_]/i, '').trim();
+    u = '/audios/media_' + mediaId + '.ogg';
+  }
+
   // Quitar prefijos del sistema de archivos local o del servidor VPS
   if (u.indexOf('/root/marcos/Consorcio-AI-Assistant/') !== -1) {
     u = u.replace('/root/marcos/Consorcio-AI-Assistant/', '');
@@ -2275,7 +2280,7 @@ function normalizarUrlAudio(pathOrUrl) {
       u = '/audios/' + filename.substring(5);
     } else if (filename.startsWith('almacenamiento/')) {
       u = '/archivos/' + filename.substring(15);
-    } else {
+    } else if (!filename.startsWith('audios/') && !filename.startsWith('/audios/')) {
       u = '/audios/' + filename;
     }
   }
@@ -2786,11 +2791,25 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         }
       }
 
-      var objAudioUrl = typeof line === 'object' ? (line.audio_url || line.url || line.audio || '') : '';
-      if (objAudioUrl && !audioUrl) {
-        audioUrl = normalizarUrlAudio(objAudioUrl);
-        var lastSlashObj = objAudioUrl.lastIndexOf('/');
-        audioFilename = lastSlashObj !== -1 ? objAudioUrl.substring(lastSlashObj + 1) : objAudioUrl;
+      var rawObjMedia = typeof line === 'object' ? (line.url_media || line.audio_url || line.url || line.audio || '') : '';
+      if (rawObjMedia && !audioUrl && !visualUrl) {
+        var normObjUrl = normalizarUrlAudio(rawObjMedia);
+        var lastSlashObj = rawObjMedia.lastIndexOf('/');
+        var fnObj = lastSlashObj !== -1 ? rawObjMedia.substring(lastSlashObj + 1) : rawObjMedia;
+        var extObj = fnObj.split('.').pop().toLowerCase();
+
+        if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
+          visualUrl = normObjUrl;
+          visualType = 'image';
+          visualFilename = fnObj;
+        } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1) {
+          visualUrl = normObjUrl;
+          visualType = 'video';
+          visualFilename = fnObj;
+        } else {
+          audioUrl = normObjUrl;
+          audioFilename = fnObj;
+        }
       }
 
       if (!audioUrl && datos.audio_url && !audioFallbackUsado && (isVecino || isFamiliar || isProveedor)) {
@@ -3041,6 +3060,29 @@ function abrirDrawerEvento(idx){
     '</div>';
   overlay.classList.add('open');
   panel.classList.add('open');
+
+  if (casoCode && typeof fetch === 'function') {
+    fetch('/admin/api/mensajes?eventoId=' + encodeURIComponent(casoCode))
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        if (j && j.ok && Array.isArray(j.mensajes) && j.mensajes.length > 0) {
+          var msgsVecino = j.mensajes.filter(function(m) { return m.remitente !== 'tecnico' && m.remitente !== 'proveedor'; });
+          var msgsProveedor = j.mensajes.filter(function(m) { return m.remitente === 'tecnico' || m.remitente === 'proveedor'; });
+
+          var panelV = document.getElementById('panel-chat-vecino');
+          if (panelV && msgsVecino.length > 0) {
+            var chatVBox = panelV.querySelector('.chat-box');
+            if (chatVBox) chatVBox.outerHTML = renderizarBloqueChat(msgsVecino, 'vecino', datos);
+          }
+          var panelP = document.getElementById('panel-chat-proveedor');
+          if (panelP && msgsProveedor.length > 0) {
+            var chatPBox = panelP.querySelector('.chat-box');
+            if (chatPBox) chatPBox.outerHTML = renderizarBloqueChat(msgsProveedor, 'proveedor', datos);
+          }
+        }
+      })
+      .catch(function(e) { console.warn('Error cargando mensajes de PostgreSQL:', e); });
+  }
 }
 
 function cerrarDrawerEvento(){
