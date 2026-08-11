@@ -15,12 +15,67 @@ const execPromise = util.promisify(exec);
  * @param {string} fileName - Nombre del archivo de salida.
  * @returns {Promise<string>} - Ruta del archivo generado.
  */
+/**
+ * Prepara el texto para que una voz sintética lo diga bien.
+ *
+ * Los números de teléfono largos descalabran a cualquier TTS: los pronuncia a los tropezones, se
+ * come dígitos y suena a persona masticando. Y además es información inútil dicha en voz: nadie
+ * anota un número de trece cifras escuchando un audio de WhatsApp. Ese número YA viaja escrito en
+ * el mensaje de texto y en la plantilla que recibe el técnico, así que decirlo es redundante.
+ *
+ * Se saca el número y se conserva a quién pertenece, que es lo único que la persona necesita oír:
+ * "el contacto de Natalia Zeballos" en vez de "el contacto de Natalia Zeballos cinco cuatro nueve
+ * uno uno seis siete tres cinco cero cuatro tres seis".
+ *
+ * Solo afecta a la voz. El texto escrito sale completo, con el número incluido.
+ */
+function prepararTextoParaVoz(texto) {
+    if (!texto) return '';
+    let t = String(texto);
+
+    // Teléfonos, con o sin +54, guiones, puntos, espacios o paréntesis. Se lleva puesta también la
+    // preposición que los introduce ("al 11...", "su número 11...") para no dejar la frase coja.
+    const TELEFONO = /(?:\b(?:al|a\s+el|su|un|este|el)\s+)?(?:\b(?:tel(?:[ée]fono)?|cel(?:ular)?|whats?app|wsp|n[úu]mero|nro)\b\s*\.?\s*:?\s*)?\+?\s*(?:\d[\d\s().\-]{6,}\d)/gi;
+
+    // Un teléfono entre paréntesis detrás de un nombre -- "Natalia Zeballos (5491167350436)" -- se
+    // borra entero, paréntesis incluidos.
+    t = t.replace(/\(\s*\+?\s*\d[\d\s().\-]{6,}\d\s*\)/g, '');
+    t = t.replace(TELEFONO, ' ');
+
+    // El código del caso se lee horrible con corchetes y guion ("corchete caso guion..."). Si la
+    // frase ya venía diciendo "el caso", no se repite la palabra.
+    t = t.replace(/(\bcaso\s+)?\[?\s*CASO\s*-\s*(\d+)\s*\]?/gi,
+        (_, previo, numero) => (previo ? `${previo}${numero}` : `caso ${numero}`));
+
+    // Marcas de formato de WhatsApp y emojis: la voz los pronuncia o tropieza con ellos.
+    t = t.replace(/[*_~`]/g, '');
+    t = t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2190}-\u{21FF}]/gu, '');
+
+    // Limpieza de lo que queda: espacios dobles, signos sueltos y frases que quedaron colgando.
+    t = t.replace(/\s{2,}/g, ' ')
+         .replace(/\s+([.,;:!?])/g, '$1')
+         .replace(/([(,:;])\s*([.,;:])/g, '$2')
+         .replace(/\(\s*\)/g, '')
+         .replace(/\s*,\s*\./g, '.')
+         .replace(/\.{2,}/g, '.')
+         .replace(/,{2,}/g, ',')
+         .trim();
+
+    return t;
+}
+
 async function generarAudio(texto, fileName = 'audio_marcos.ogg') {
     const tempDir = path.join(__dirname, 'temp');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
     
     const filePath = path.join(tempDir, fileName);
     const tempRawPath = path.join(tempDir, `raw_${Date.now()}_${fileName}`);
+
+    // Lo que se dice en voz no es literalmente lo que se escribe: los teléfonos se omiten.
+    const textoParaVoz = prepararTextoParaVoz(texto);
+    if (textoParaVoz !== texto) {
+        console.log('🔇 Se omitieron números de teléfono en la nota de voz (van escritos igual).');
+    }
 
     const options = { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', hour12: false };
     const formatter = new Intl.DateTimeFormat('es-AR', options);
@@ -39,7 +94,7 @@ async function generarAudio(texto, fileName = 'audio_marcos.ogg') {
             method: 'POST',
             url: `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}?output_format=opus_48000_128`,
             data: {
-                text: texto,
+                text: textoParaVoz,
                 model_id: MODEL_ID,
                 voice_settings: {
                     stability: 0.65,
@@ -99,4 +154,4 @@ async function generarAudio(texto, fileName = 'audio_marcos.ogg') {
     }
 }
 
-module.exports = { generarAudio };
+module.exports = { generarAudio, prepararTextoParaVoz };
