@@ -2502,6 +2502,7 @@ function cambiarTabChatEvento(tab) {
 
 function renderizarBloqueChat(rawChat, tipoBloque, datos) {
   var chatLines = [];
+  var audioFallbackUsado = false;
   if (typeof rawChat === 'string' && rawChat.trim()) {
     if (rawChat.trim().startsWith('[')) {
       try { chatLines = JSON.parse(rawChat); } catch(e) { chatLines = [rawChat]; }
@@ -2588,50 +2589,64 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
 
       var mediaRes = procesarLineaMultimediaChat(cleanText);
       cleanText = mediaRes.cleanText;
-      var mediaLinkHtml = '';
 
-      var finalWebUrl = mediaRes.webUrl;
-      var finalMediaType = mediaRes.mediaType;
-      var finalFilename = mediaRes.filename;
+      var visualUrl = '';
+      var visualType = '';
+      var visualFilename = '';
+      var audioUrl = '';
+      var audioFilename = '';
 
-      var objAudioUrl = typeof line === 'object' ? (line.audio_url || line.url || line.audio || '') : '';
-      if (objAudioUrl && !finalWebUrl) {
-        finalWebUrl = normalizarUrlAudio(objAudioUrl);
-        finalMediaType = 'audio';
-        var lastSlashObj = objAudioUrl.lastIndexOf('/');
-        finalFilename = lastSlashObj !== -1 ? objAudioUrl.substring(lastSlashObj + 1) : objAudioUrl;
+      if (mediaRes.webUrl) {
+        if (mediaRes.mediaType === 'image' || mediaRes.mediaType === 'video') {
+          visualUrl = mediaRes.webUrl;
+          visualType = mediaRes.mediaType;
+          visualFilename = mediaRes.filename;
+        } else if (mediaRes.mediaType === 'audio') {
+          audioUrl = mediaRes.webUrl;
+          audioFilename = mediaRes.filename;
+        }
       }
 
-      if (!finalWebUrl && datos.audio_url && tipoBloque === 'vecino') {
+      var objAudioUrl = typeof line === 'object' ? (line.audio_url || line.url || line.audio || '') : '';
+      if (objAudioUrl && !audioUrl) {
+        audioUrl = normalizarUrlAudio(objAudioUrl);
+        var lastSlashObj = objAudioUrl.lastIndexOf('/');
+        audioFilename = lastSlashObj !== -1 ? objAudioUrl.substring(lastSlashObj + 1) : objAudioUrl;
+      }
+
+      if (!audioUrl && datos.audio_url && !audioFallbackUsado && (isVecino || isFamiliar || isProveedor)) {
         var rawAudioUrl = String(datos.audio_url).trim();
         if (rawAudioUrl.length > 3) {
           var ext = rawAudioUrl.split('.').pop().toLowerCase();
-          var lowerTxt = cleanText.toLowerCase();
-          if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/imagenes/') !== -1 || lowerTxt.indexOf('imagen') !== -1 || lowerTxt.indexOf('foto') !== -1) {
-            finalWebUrl = normalizarUrlAudio(rawAudioUrl);
-            finalMediaType = 'image';
+          if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/imagenes/') !== -1) {
+            if (!visualUrl) {
+              visualUrl = normalizarUrlAudio(rawAudioUrl);
+              visualType = 'image';
+              var lastSlash = rawAudioUrl.lastIndexOf('/');
+              visualFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+            }
+          } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/videos/') !== -1) {
+            if (!visualUrl) {
+              visualUrl = normalizarUrlAudio(rawAudioUrl);
+              visualType = 'video';
+              var lastSlash = rawAudioUrl.lastIndexOf('/');
+              visualFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+            }
+          } else {
+            audioUrl = normalizarUrlAudio(rawAudioUrl);
             var lastSlash = rawAudioUrl.lastIndexOf('/');
-            finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-          } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/videos/') !== -1 || lowerTxt.indexOf('video') !== -1) {
-            finalWebUrl = normalizarUrlAudio(rawAudioUrl);
-            finalMediaType = 'video';
-            var lastSlash = rawAudioUrl.lastIndexOf('/');
-            finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-          } else if (['ogg', 'mp3', 'wav', 'm4a', 'aac'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/audios/') !== -1 || lowerTxt.indexOf('nota de voz') !== -1 || lowerTxt.indexOf('audio') !== -1) {
-            finalWebUrl = normalizarUrlAudio(rawAudioUrl);
-            finalMediaType = 'audio';
-            var lastSlash = rawAudioUrl.lastIndexOf('/');
-            finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+            audioFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+            audioFallbackUsado = true;
           }
         }
       }
 
-      if (finalWebUrl) {
-        var urlEsc = escapeHtml(finalWebUrl);
-        var fnEsc = escapeHtml(finalFilename);
-
-        if (finalMediaType === 'image') {
-          mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
+      var visualMediaHtml = '';
+      if (visualUrl) {
+        var urlEsc = escapeHtml(visualUrl);
+        var fnEsc = escapeHtml(visualFilename);
+        if (visualType === 'image') {
+          visualMediaHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
             '<div style="position:relative;max-width:280px;max-height:200px;border-radius:8px;overflow:hidden;margin-bottom:6px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.12);background:#000" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)">' +
               '<img src="' + urlEsc + '" style="width:100%;height:100%;object-fit:cover;display:block" alt="Imagen adjunta">' +
               '<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.65);color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;backdrop-filter:blur(4px)">🔍 Ver HD</div>' +
@@ -2641,35 +2656,42 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
               '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
             '</div>' +
           '</div>';
-        } else if (finalMediaType === 'video') {
-          mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
+        } else if (visualType === 'video') {
+          visualMediaHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
             '<video src="' + urlEsc + '" controls style="width:100%;max-height:220px;border-radius:8px;margin-bottom:6px"></video>' +
             '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
               '<button data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="video" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;cursor:pointer" class="hv-soft">🎥 Ampliar video</button>' +
               '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
             '</div>' +
           '</div>';
-        } else if (isFamiliar || isVecino || isProveedor || isEncargado) {
-          var dias = datos.audioDiasRestantes;
-          if (dias === null || dias === undefined) dias = 30;
-          var diasBadgeHtml = (dias <= 0)
-            ? '<span style="font-size:10px;font-weight:800;background:#FBF3DE;color:#8A6410;padding:2px 7px;border-radius:999px;border:1px solid #E8D9A0;margin-left:4px">⏳ Expirado</span>'
-            : (dias <= 7
-              ? '<span style="font-size:10px;font-weight:800;background:#FDECEC;color:#C0392B;padding:2px 7px;border-radius:999px;border:1px solid #F8B4B4;margin-left:4px">' + dias + 'd restantes</span>'
-              : '<span style="font-size:10px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:2px 7px;border-radius:999px;border:1px solid #C3E6D0;margin-left:4px">' + dias + 'd restantes</span>');
-
-          mediaLinkHtml = '<div style="margin-top:6px;padding:8px 12px;background:rgba(46,111,192,.08);border-radius:10px;border:1px solid rgba(46,111,192,.2)">' +
-            '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
-              '<div style="display:flex;align-items:center;gap:4px">' +
-                '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + fnEsc + '</span>' +
-                diasBadgeHtml +
-              '</div>' +
-              '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
-            '</div>' +
-            '<audio controls preload="metadata" style="width:100%;height:36px;border-radius:6px;outline:none"><source src="' + urlEsc + '" type="audio/ogg"><source src="' + urlEsc + '" type="audio/mpeg"><source src="' + urlEsc + '"></audio>' +
-          '</div>';
         }
       }
+
+      var audioMediaHtml = '';
+      if (audioUrl) {
+        var urlEscAud = escapeHtml(audioUrl);
+        var fnEscAud = escapeHtml(audioFilename || 'nota_de_voz.ogg');
+        var dias = datos.audioDiasRestantes;
+        if (dias === null || dias === undefined) dias = 30;
+        var diasBadgeHtml = (dias <= 0)
+          ? '<span style="font-size:10px;font-weight:800;background:#FBF3DE;color:#8A6410;padding:2px 7px;border-radius:999px;border:1px solid #E8D9A0;margin-left:4px">⏳ Expirado</span>'
+          : (dias <= 7
+            ? '<span style="font-size:10px;font-weight:800;background:#FDECEC;color:#C0392B;padding:2px 7px;border-radius:999px;border:1px solid #F8B4B4;margin-left:4px">' + dias + 'd restantes</span>'
+            : '<span style="font-size:10px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:2px 7px;border-radius:999px;border:1px solid #C3E6D0;margin-left:4px">' + dias + 'd restantes</span>');
+
+        audioMediaHtml = '<div style="margin-top:6px;padding:8px 12px;background:rgba(46,111,192,.08);border-radius:10px;border:1px solid rgba(46,111,192,.2)">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
+            '<div style="display:flex;align-items:center;gap:4px">' +
+              '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + fnEscAud + '</span>' +
+              diasBadgeHtml +
+            '</div>' +
+            '<a href="' + urlEscAud + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
+          '</div>' +
+          '<audio controls preload="metadata" style="width:100%;height:36px;border-radius:6px;outline:none"><source src="' + urlEscAud + '" type="audio/ogg"><source src="' + urlEscAud + '" type="audio/mpeg"><source src="' + urlEscAud + '"></audio>' +
+        '</div>';
+      }
+
+      var mediaLinkHtml = visualMediaHtml + audioMediaHtml;
 
       return '<div style="max-width:88%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.06);' + align + '" class="chat-bubble">' +
         '<div style="font-size:10.5px;font-weight:800;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
