@@ -8,8 +8,20 @@ const pool = new Pool({
 });
 
 
-// Inicialización de Esquema PostgreSQL + pgvector
-async function initPgSchema() {
+// Inicialización de Esquema PostgreSQL + pgvector.
+//
+// Memoizada a propósito: los scripts sueltos llaman a initPgSchema() de forma explícita y el
+// módulo ya la dispara al cargarse, con lo cual dos corridas de los mismos CREATE TABLE salían en
+// paralelo y chocaban entre sí ("duplicate key value violates unique constraint
+// pg_class_relname_nsp_index"). Ese choque era inofensivo, pero caía en el mismo catch que
+// reportaría una falla real del esquema y la dejaba indistinguible del ruido.
+let promesaEsquema = null;
+function initPgSchema() {
+    if (!promesaEsquema) promesaEsquema = _initPgSchema();
+    return promesaEsquema;
+}
+
+async function _initPgSchema() {
     let client;
     try {
         client = await pool.connect();
