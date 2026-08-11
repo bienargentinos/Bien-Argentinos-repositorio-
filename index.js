@@ -13,7 +13,7 @@ const {
     buscarTecnicoAsignado,
     guardarLlamada,
     buscarRolPorTelefono,
-} = require('./sheets');
+} = require('./datos');
 
 const { descargarMedia, guardarArchivoEstructurado } = require('./media');
 const { evaluarCaso }        = require('./agentes/marcos-caso');
@@ -383,7 +383,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
 
     // 3. Nivel Sheets EVENTOS (Último caso abierto)
     try {
-        const { getSheet } = require('./sheets');
+        const { getSheet } = require('./datos');
         const doc = await getSheet();
         const sheet = doc.sheetsByTitle['EVENTOS'];
         if (sheet) {
@@ -425,7 +425,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
 
     // 4. Nivel Sheets VECINOS (Último vecino del edificio)
     try {
-        const { getSheet } = require('./sheets');
+        const { getSheet } = require('./datos');
         const doc = await getSheet();
         const sheetVec = doc.sheetsByTitle['VECINOS'] || doc.sheetsByIndex[0];
         if (sheetVec && edificioNombre) {
@@ -611,7 +611,7 @@ function validarYSanitizarNombre(nombre) {
         let edifDetectado = stProv.edificioActivo || stProv.vecinoActivo?.edificio;
         if (!edifDetectado) {
             try {
-                const { getSheet } = require('./sheets');
+                const { getSheet } = require('./datos');
                 const doc = await getSheet();
                 const sheet = doc.sheetsByTitle['EVENTOS'];
                 if (sheet) {
@@ -679,7 +679,7 @@ function validarYSanitizarNombre(nombre) {
         }
 
         if (casoElegido) {
-            const { marcarCasoResueltoPorId } = require('./sheets');
+            const { marcarCasoResueltoPorId } = require('./datos');
             const resData = await marcarCasoResueltoPorId(casoElegido.id_evento);
             session.esperandoSeleccionCasoResuelto = null;
             const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, he marcado el caso *[${casoElegido.id_evento}]* (${casoElegido.problema}) como *RESUELTO* en *${session.nombreEdificio}*.\n\n¡Muchas gracias por confirmarnos!`;
@@ -698,7 +698,7 @@ function validarYSanitizarNombre(nombre) {
     const esGatilloResolucion = /solucionad|resuelt|trabajo.*terminad|trabajo.*realizad|listo.*trabajo|ya qued. arreglad|ya qued. listo|ya arreglaron|ya funciona|ya lo repar/i.test(textoFinal);
     
     if (esGatilloResolucion) {
-        const { obtenerCasosAbiertosEdificio, marcarCasoResueltoPorId } = require('./sheets');
+        const { obtenerCasosAbiertosEdificio, marcarCasoResueltoPorId } = require('./datos');
         const casosAbiertos = await obtenerCasosAbiertosEdificio(session.nombreEdificio);
 
         if (casosAbiertos.length === 0) {
@@ -957,7 +957,7 @@ function validarYSanitizarNombre(nombre) {
                 }
             }
 
-            const { guardarFactura } = require('./sheets');
+            const { guardarFactura } = require('./datos');
             await guardarFactura({
                 proveedor: datosEmisor.nombre || datosFactura?.proveedor || 'Proveedor',
                 monto: datosFactura?.monto || 'Según comprobante',
@@ -975,7 +975,7 @@ function validarYSanitizarNombre(nombre) {
             const huboEventoPrevio = !!session.nombreEdificio;
             if (!huboEventoPrevio && edificioFactura) {
                 try {
-                    const { guardarReporte } = require('./sheets');
+                    const { guardarReporte } = require('./datos');
                     await guardarReporte({
                         edificio: edificioFactura,
                         vecino: 'Trabajo coordinado fuera del sistema',
@@ -1009,7 +1009,7 @@ function validarYSanitizarNombre(nombre) {
             historial.push(`Marcos: ${respFactura}`);
 
             try {
-                const { guardarReporte } = require('./sheets');
+                const { guardarReporte } = require('./datos');
                 await guardarReporte({
                     edificio: session.nombreEdificio || datosFactura?.edificio || 'Consorcio',
                     historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respFactura}`])
@@ -1028,7 +1028,7 @@ function validarYSanitizarNombre(nombre) {
 
         if (esConsultaPago) {
             const numeroMencionado = (txtLow.match(/\b\d{3,}\b/) || [])[0] || '';
-            const { buscarFacturasProveedor } = require('./sheets');
+            const { buscarFacturasProveedor } = require('./datos');
             const facturasEncontradas = await buscarFacturasProveedor({
                 proveedor: datosEmisor.nombre,
                 edificio: session.nombreEdificio,
@@ -1057,7 +1057,7 @@ function validarYSanitizarNombre(nombre) {
             historial.push(`Marcos: ${respPago}`);
 
             try {
-                const { guardarReporte } = require('./sheets');
+                const { guardarReporte } = require('./datos');
                 await guardarReporte({
                     edificio: session.nombreEdificio,
                     historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respPago}`])
@@ -1096,7 +1096,7 @@ function validarYSanitizarNombre(nombre) {
             historial.push(`Marcos: ${respTecnico}`);
 
             try {
-                const { guardarReporte } = require('./sheets');
+                const { guardarReporte } = require('./datos');
                 await guardarReporte({
                     edificio: edifNom,
                     historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respTecnico}`])
@@ -1227,7 +1227,7 @@ function validarYSanitizarNombre(nombre) {
         }
 
         try {
-            const { guardarReporte } = require('./sheets');
+            const { guardarReporte } = require('./datos');
             await guardarReporte({
                 edificio: edifNomCatchAll,
                 historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respGenericaProveedor}`])
@@ -1289,7 +1289,7 @@ function validarYSanitizarNombre(nombre) {
         session.contactoAccesoExtra = `${ctoAcceso.nombre} (${ctoAcceso.telefono})`;
         console.log(`📞 Contacto de acceso guardado desde ficha compartida: ${session.contactoAccesoExtra}`);
         try {
-            const { guardarAutorizacionContacto } = require('./sheets');
+            const { guardarAutorizacionContacto } = require('./datos');
             await guardarAutorizacionContacto({ telefono: from, autoriza: true, contactoAcceso: session.contactoAccesoExtra });
         } catch (e) { console.error('Error persistiendo autorización de contacto:', e.message); }
     }
@@ -1304,7 +1304,7 @@ function validarYSanitizarNombre(nombre) {
             session.contactoAccesoExtra = telOtro;
             console.log(`📞 Contacto alternativo de acceso guardado para el caso: ${telOtro}`);
             try {
-                const { guardarAutorizacionContacto } = require('./sheets');
+                const { guardarAutorizacionContacto } = require('./datos');
                 await guardarAutorizacionContacto({ telefono: from, autoriza: true, contactoAcceso: telOtro });
             } catch (e) { console.error('Error persistiendo autorización de contacto:', e.message); }
         }
@@ -1316,7 +1316,7 @@ function validarYSanitizarNombre(nombre) {
     // error que hay que evitar cuando el vecino avisó que se iba y dejaba a otra persona.
     if (!session.contactoAccesoExtra && datosEmisor.rol !== 'proveedor') {
         try {
-            const { buscarVecinosPorTelefono } = require('./sheets');
+            const { buscarVecinosPorTelefono } = require('./datos');
             const vecinosGuardados = await buscarVecinosPorTelefono(from);
             const conAutorizacion = (vecinosGuardados || []).find(v => v.contactoAcceso);
             if (conAutorizacion?.contactoAcceso) {
@@ -1412,7 +1412,7 @@ function validarYSanitizarNombre(nombre) {
 
         // 4. REENVIAR DOCUMENTO / EXPENSA A UN VECINO
         if (mediaId && (msgType === 'document' || msgType === 'image')) {
-            const { buscarVecinosPorTelefono } = require('./sheets');
+            const { buscarVecinosPorTelefono } = require('./datos');
             const vecinosCoincidentes = await buscarVecinosPorTelefono('');
             if (vecinosCoincidentes && vecinosCoincidentes.length > 0) {
                 const primerVecino = vecinosCoincidentes[0];

@@ -96,7 +96,7 @@ async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado
     // Respaldo por si el proceso se reinició (pm2 restart) entre el primer aviso y este mensaje:
     // la bandera en RAM (estadoProv) se pierde en cada reinicio, así que además chequeamos en
     // Sheets si este mismo caso ya tiene la plantilla marcada como enviada.
-    const { fueTecnicoNotificado, marcarTecnicoNotificado } = require('../sheets');
+    const { fueTecnicoNotificado, marcarTecnicoNotificado } = require('../datos');
     if (await fueTecnicoNotificado(id_evento)) {
         console.log(`ℹ️ [Sheets] Técnico ya notificado del [${id_evento}] (detectado tras reinicio), se omite el reenvío duplicado.`);
         estadoProv.eventoActivoId = id_evento;
@@ -115,7 +115,7 @@ async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado
 }
 
 async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, id_evento }) {
-    const { buscarPerfilEdificio } = require('../sheets');
+    const { buscarPerfilEdificio } = require('../datos');
     const perfilEdif = await buscarPerfilEdificio(vecino?.edificio);
     const direccionExacta = perfilEdif?.direccion || vecino?.direccion || vecino?.edificio || 'Consorcio';
 
@@ -223,7 +223,7 @@ async function generarMensajeEncargado({ vecino, decisionCaso, personalDeTurno, 
 }
 
 async function generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id_evento }) {
-    const { buscarPerfilEdificio } = require('../sheets');
+    const { buscarPerfilEdificio } = require('../datos');
     const perfilEdif = await buscarPerfilEdificio(vecino?.edificio);
     const direccionExacta = perfilEdif?.direccion || vecino?.direccion || vecino?.edificio || 'Consorcio';
     
@@ -466,7 +466,7 @@ function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, p
 
         console.log(`⚠️ TIMEOUT 20 MIN: Técnico ${tecnicoAsignado.nombre} no confirmó [${id_evento}]. Escalando...`);
 
-        const { buscarTecnicoSuplente } = require('../sheets');
+        const { buscarTecnicoSuplente } = require('../datos');
         const { notificarEscalacionAlAdmin } = require('./marcos-admin');
 
         if (paso === 1) {

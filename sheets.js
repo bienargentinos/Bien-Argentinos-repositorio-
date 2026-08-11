@@ -1128,6 +1128,10 @@ module.exports = {
     marcarTecnicoNotificado,
     guardarFactura,
     buscarFacturasProveedor,
+    // Estaba definida pero nunca exportada: index.js la importa y la llama al cerrar una llamada
+    // de Vapi, así que quedaba en undefined y toda llamada telefónica moría con
+    // "guardarLlamada is not a function" sin que se guardara nada.
+    guardarLlamada,
     buscarRolPorTelefono,
     obtenerEventosPendientesAdmin,
     obtenerCasosAbiertosEdificio,
