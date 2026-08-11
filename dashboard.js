@@ -718,6 +718,8 @@ function bloquearSiPreview(req, res) {
   return false;
 }
 
+router.use(require('./rutas-accesos')({ esDueno, edificiosPermitidos, bloquearSiPreview }));
+
 /* ===================================================================
  * CATEGORIAS / CANAL / ESTADO (identicos al prototipo)
  * =================================================================== */
@@ -1707,6 +1709,183 @@ function cerrarModal(id){
   var m=document.getElementById(id);
   if(m) m.classList.remove('open');
 }
+
+// --- INSTALACIONES Y ACCESOS CLIENT JS ---
+window.abrirModalAccesoNuevo = function(ed) {
+  var fields = ['acc-lugar', 'acc-ubicacion', 'acc-quien-abre', 'acc-tel', 'acc-tipo', 'acc-notas'];
+  fields.forEach(function(f) { var el = document.getElementById(f); if (el) el.value = ''; });
+  var m = document.getElementById('modal-acceso-nuevo');
+  if (m) m.classList.add('open');
+};
+
+window.renderTablaAccesosClient = function(lista) {
+  if (!lista || !lista.length) {
+    return '<div style="text-align:center;padding:24px 16px;color:#8595AD;font-size:13.5px;font-style:italic">No hay instalaciones o accesos cargados para este edificio. Escribí una descripción arriba o usá el botón + Añadir.</div>';
+  }
+  var filas = lista.map(function(a) {
+    var origHtml = a.origen
+      ? '<span style="font-size:10px;font-weight:600;color:#64748B;background:#F1F5FB;border:1px solid #E2E8F0;padding:2px 7px;border-radius:6px;margin-left:6px" title="Origen del dato">' + escapeHtml(a.origen) + '</span>'
+      : '';
+    var lugarEsc = escapeHtml(a.lugar || '—');
+    var ubEsc = escapeHtml(a.ubicacion || '—');
+    var qaEsc = escapeHtml(a.quienAbre || a.quien_abre || '—');
+    var telEsc = escapeHtml(a.telefono || '—');
+    var tipoEsc = escapeHtml(a.tipoAcceso || a.tipo_acceso || '—');
+    var lugarAttr = escapeHtml(a.lugar || '');
+
+    return '<tr style="border-bottom:1px solid #EEF1F6">' +
+      '<td style="padding:12px 14px;vertical-align:top">' +
+        '<div style="font-size:13.5px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:4px;flex-wrap:wrap">' +
+          '<span>' + lugarEsc + '</span>' + origHtml +
+        '</div>' +
+      '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;color:#334259;font-weight:600">' + ubEsc + '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;color:#334259">' + qaEsc + '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;color:#2E6FC0;font-weight:700">' + telEsc + '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;color:#334259">' + tipoEsc + '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;color:#64748B;font-size:12.5px">' + notasEsc + '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;text-align:right">' +
+        '<button data-lugar="' + lugarAttr + '" onclick="quitarAcceso(this.dataset.lugar)" style="font-size:12.5px;font-weight:700;color:#EF4444;background:none;border:none;cursor:pointer;padding:4px 8px" class="hv-red">Quitar</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  return '<div style="overflow-x:auto;border:1px solid #E7ECF3;border-radius:12px;background:#fff">' +
+    '<table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">' +
+      '<thead>' +
+        '<tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em">' +
+          '<th style="padding:12px 14px">Lugar / Instalación</th>' +
+          '<th style="padding:12px 14px">Dónde está</th>' +
+          '<th style="padding:12px 14px">Quién abre</th>' +
+          '<th style="padding:12px 14px">Teléfono</th>' +
+          '<th style="padding:12px 14px">Tipo de acceso</th>' +
+          '<th style="padding:12px 14px">Notas</th>' +
+          '<th style="padding:12px 14px;text-align:right">Acción</th>' +
+        '</tr>' +
+      '</thead>' +
+      '<tbody>' + filas + '</tbody>' +
+    '</table>' +
+  '</div>';
+};
+
+window.actualizarTablaAccesosUI = function(lista) {
+  var container = document.getElementById('tabla-accesos-container');
+  if (container) {
+    container.innerHTML = window.renderTablaAccesosClient(lista);
+  }
+};
+
+window.guardarRelatoAccesos = function(btn) {
+  var txtEl = document.getElementById('accesos-relato-texto');
+  var msgEl = document.getElementById('accesos-relato-msg');
+  var texto = txtEl ? txtEl.value.trim() : '';
+  if (!texto) {
+    toast('Escribí una descripción del edificio', 'err');
+    return;
+  }
+  var txtOrig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Analizando relato...';
+  if (msgEl) msgEl.style.display = 'none';
+
+  fetch('/admin/api/accesos-relato', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texto: texto })
+  })
+  .then(function(res){ return res.json(); })
+  .then(function(data){
+    btn.disabled = false;
+    btn.textContent = txtOrig;
+    if (data.error) {
+      toast(data.error, 'err');
+      return;
+    }
+    var cant = data.detectados || 0;
+    toast('Se detectaron ' + cant + ' instalaciones', 'ok');
+    if (msgEl) {
+      msgEl.textContent = '✨ Se detectaron ' + cant + ' instalaciones en la descripción';
+      msgEl.style.display = 'block';
+    }
+    if (data.accesos) window.actualizarTablaAccesosUI(data.accesos);
+  })
+  .catch(function(err){
+    btn.disabled = false;
+    btn.textContent = txtOrig;
+    toast('Error de conexión', 'err');
+  });
+};
+
+window.guardarAccesoNuevo = function(btn) {
+  var lugar = (document.getElementById('acc-lugar') || {}).value || '';
+  var ubicacion = (document.getElementById('acc-ubicacion') || {}).value || '';
+  var quien_abre = (document.getElementById('acc-quien-abre') || {}).value || '';
+  var telefono = (document.getElementById('acc-tel') || {}).value || '';
+  var tipo_acceso = (document.getElementById('acc-tipo') || {}).value || '';
+  var notas = (document.getElementById('acc-notas') || {}).value || '';
+
+  if (!lugar.trim()) {
+    toast('Ingresá el lugar de la instalación', 'err');
+    return;
+  }
+
+  var txtOrig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+
+  fetch('/admin/api/acceso', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      lugar: lugar.trim(),
+      ubicacion: ubicacion.trim(),
+      quien_abre: quien_abre.trim(),
+      telefono: telefono.trim(),
+      tipo_acceso: tipo_acceso.trim(),
+      notas: notas.trim()
+    })
+  })
+  .then(function(res){ return res.json(); })
+  .then(function(data){
+    btn.disabled = false;
+    btn.textContent = txtOrig;
+    if (data.error) {
+      toast(data.error, 'err');
+      return;
+    }
+    cerrarModal('modal-acceso-nuevo');
+    toast('Instalación guardada', 'ok');
+    if (data.accesos) window.actualizarTablaAccesosUI(data.accesos);
+  })
+  .catch(function(err){
+    btn.disabled = false;
+    btn.textContent = txtOrig;
+    toast('Error al guardar instalación', 'err');
+  });
+};
+
+window.quitarAcceso = function(lugar) {
+  if (!lugar) return;
+  if (!confirm('¿Quitar ' + lugar + ' de la lista?')) return;
+
+  fetch('/admin/api/acceso-quitar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lugar: lugar })
+  })
+  .then(function(res){ return res.json(); })
+  .then(function(data){
+    if (data.error) {
+      toast(data.error, 'err');
+      return;
+    }
+    toast('Instalación eliminada', 'ok');
+    if (data.accesos) window.actualizarTablaAccesosUI(data.accesos);
+  })
+  .catch(function(err){
+    toast('Error al quitar instalación', 'err');
+  });
+};
 
 // --- Asistente Virtual AC Widget ---
 window.__aiWidgetJustDragged = false;
@@ -6062,6 +6241,122 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
+    let accesosEdificio = [];
+    try {
+      const { buscarAccesosEdificio } = require('./datos');
+      accesosEdificio = await buscarAccesosEdificio(cur.nombre);
+    } catch (_) {}
+
+    const renderFilasAccesosHtml = (lista) => {
+      if (!lista || !lista.length) {
+        return `<div style="text-align:center;padding:24px 16px;color:#8595AD;font-size:13.5px;font-style:italic">No hay instalaciones o accesos cargados para este edificio. Escribí una descripción arriba o usá el botón + Añadir.</div>`;
+      }
+      const filas = lista.map((a) => {
+        const origHtml = a.origen
+          ? `<span style="font-size:10px;font-weight:600;color:#64748B;background:#F1F5FB;border:1px solid #E2E8F0;padding:2px 7px;border-radius:6px;margin-left:6px" title="Origen del dato">${esc(a.origen)}</span>`
+          : '';
+        return `
+          <tr style="border-bottom:1px solid #EEF1F6">
+            <td style="padding:12px 14px;vertical-align:top">
+              <div style="font-size:13.5px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+                <span>${esc(a.lugar || '—')}</span>
+                ${origHtml}
+              </div>
+            </td>
+            <td style="padding:12px 14px;vertical-align:top;color:#334259;font-weight:600">${esc(a.ubicacion || '—')}</td>
+            <td style="padding:12px 14px;vertical-align:top;color:#334259">${esc(a.quienAbre || a.quien_abre || '—')}</td>
+            <td style="padding:12px 14px;vertical-align:top;color:#2E6FC0;font-weight:700">${esc(a.telefono || '—')}</td>
+            <td style="padding:12px 14px;vertical-align:top;color:#334259">${esc(a.tipoAcceso || a.tipo_acceso || '—')}</td>
+            <td style="padding:12px 14px;vertical-align:top;color:#64748B;font-size:12.5px">${esc(a.notas || '—')}</td>
+            <td style="padding:12px 14px;vertical-align:top;text-align:right">
+              <button data-lugar="${esc(a.lugar || '')}" onclick="quitarAcceso(this.dataset.lugar)" style="font-size:12.5px;font-weight:700;color:#EF4444;background:none;border:none;cursor:pointer;padding:4px 8px" class="hv-red">Quitar</button>
+            </td>
+          </tr>`;
+      }).join('');
+
+      return `
+        <div style="overflow-x:auto;border:1px solid #E7ECF3;border-radius:12px;background:#fff">
+          <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+            <thead>
+              <tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em">
+                <th style="padding:12px 14px">Lugar / Instalación</th>
+                <th style="padding:12px 14px">Dónde está</th>
+                <th style="padding:12px 14px">Quién abre</th>
+                <th style="padding:12px 14px">Teléfono</th>
+                <th style="padding:12px 14px">Tipo de acceso</th>
+                <th style="padding:12px 14px">Notas</th>
+                <th style="padding:12px 14px;text-align:right">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filas}
+            </tbody>
+          </table>
+        </div>`;
+    };
+
+    const bloqueAccesosHtml = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:20px">🔑</span>
+            <div>
+              <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Instalaciones y Accesos</h2>
+            </div>
+          </div>
+          <button onclick="abrirModalAccesoNuevo('${escJs(cur.nombre)}')" style="display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 14px;border:none;border-radius:999px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13px;cursor:pointer" class="hv-primary">+ Añadir</button>
+        </div>
+
+        <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:16px 18px;margin-bottom:18px">
+          <div style="font-size:13.5px;font-weight:800;color:#16233B;margin-bottom:4px;display:flex;align-items:center;gap:6px">
+            <span>🗣️</span> <span>Descripción hablada / relato del edificio</span>
+          </div>
+          <p style="font-size:12.5px;color:#64748B;margin:0 0 10px">Escribí en un párrafo cómo están distribuidas las instalaciones y llaves. Marcos IA extraerá automáticamente cada lugar y completará la tabla abajo.</p>
+          <textarea id="accesos-relato-texto" class="inp" style="width:100%;height:80px;resize:vertical;margin-bottom:10px;font-size:13px;background:#fff" placeholder="Contame cómo es el edificio: dónde están la sala de máquinas, los medidores, el tablero, las bombas, la llave de gas, y quién tiene la llave de cada una."></textarea>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <div id="accesos-relato-msg" style="font-size:13px;font-weight:700;color:#1B7A43;display:none;background:#E7F4EC;padding:6px 12px;border-radius:8px;border:1px solid #A3D9B1"></div>
+            <button onclick="guardarRelatoAccesos(this)" style="height:38px;padding:0 18px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13px;cursor:pointer;margin-left:auto" class="hv-primary">Guardar descripción</button>
+          </div>
+        </div>
+
+        <div id="tabla-accesos-container">
+          ${renderFilasAccesosHtml(accesosEdificio)}
+        </div>
+      </div>`;
+
+    const modalAccesoNuevoHtml = `
+      <div id="modal-acceso-nuevo" class="modal-overlay" onclick="cerrarModal('modal-acceso-nuevo')">
+        <div class="modal-box" style="max-width:500px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Instalaciones y Accesos</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🔑 Añadir Instalación o Acceso</div>
+          </div>
+          <div style="padding:20px 24px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Lugar / Instalación <span style="color:#EF4444">*</span></div>
+            <input id="acc-lugar" class="inp" placeholder="Ej: Sala de máquinas, Llave de gas, Tablero principal" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Dónde está (Ubicación)</div>
+            <input id="acc-ubicacion" class="inp" placeholder="Ej: Subsuelo al fondo, Pasillo de entrada" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Quién abre / Tiene la llave</div>
+            <input id="acc-quien-abre" class="inp" placeholder="Ej: Encargado, Portería, Administración" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Teléfono de contacto</div>
+            <input id="acc-tel" class="inp" placeholder="Ej: 5491155554444" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Tipo de acceso</div>
+            <input id="acc-tipo" class="inp" placeholder="Ej: Llave física, Combinación, Candado, Libre" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas / Observaciones (opcional)</div>
+            <input id="acc-notas" class="inp" placeholder="Ej: Llave duplicada en administración">
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-acceso-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarAccesoNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar instalación</button>
+          </div>
+        </div>
+      </div>`;
+
     const planReqOptions = (planesList || []).map((p) => `<option value="${esc(p.nombre)}">${esc(p.nombre)}${Number(p.precio) > 0 ? ' ($' + Number(p.precio).toLocaleString('es-AR') + '/mes)' : ' (Gratis)'}</option>`).join('');
 
     const modalSolicitud = `
@@ -6302,7 +6597,7 @@ router.get('/mi-edificio', async (req, res) => {
       <div style="animation:mFade .3s ease both">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:12px">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">${esc(cur ? cur.nombre : 'Mi Edificio')}</h1>
+            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.01em;margin:0">${esc(cur ? cur.nombre : 'Mi Edificio')}</h1>
             ${selectorEdificioHtml(cur ? cur.nombre : 'Elegí edificio', 'Cambiar edificio', 'Mis Edificios', d.propios.map((x) => ({ label: x.nombre, sub: x.direccion, val: x.nombre, activo: cur && x.nombre === cur.nombre })), '/admin/set-filtro?volver=' + encodeURIComponent('/admin/mi-edificio'))}
             <button onclick="abrirModalPlanesAc('${escJs(cur ? cur.nombre : '')}')" style="height:34px;padding:0 13px;border:1px solid #C9D5E8;border-radius:999px;background:#EAF1FB;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" class="hv-blue">
               <span>💳 Plan: <strong>${esc(cur ? cur.plan : 'Base')}</strong></span>
@@ -6320,6 +6615,7 @@ router.get('/mi-edificio', async (req, res) => {
         ${bloqueBaseHtml}
         ${bloqueServiciosHtml}
         ${bloqueEspaciosHtml}
+        ${bloqueAccesosHtml}
         ${consejoCard}
         ${proveedoresCard}
       </div>
@@ -6330,6 +6626,7 @@ router.get('/mi-edificio', async (req, res) => {
       ${modalConsejoNuevoHtml}
       ${modalConsejoEditarHtml}
       ${modalStaffEditHtml}
+      ${modalAccesoNuevoHtml}
       ${modalPlanesAcHtml(planesList, d.propios)}
       <script>window.__CUR_BUILDING__=${JSON.stringify(cur)};window.__EDIFICIOS__=${JSON.stringify(d.propios)};window.__ES_DUENO__=false;</script>`;
 
