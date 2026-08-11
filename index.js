@@ -471,6 +471,26 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pus
         media = await descargarMedia(mediaId);
     }
 
+    // El adjunto se retiene desde que llega hasta que efectivamente sale hacia el tecnico.
+    // Marcos corta la vuelta cada vez que le falta un dato -- que edificio es, el apellido, el
+    // departamento para armar la ficha de un vecino nuevo -- y en cada uno de esos cortes se
+    // perdia la foto que el vecino ya habia mandado. Despues el tecnico se la pedia de nuevo, y
+    // con razon el vecino se molestaba. Retenerla en la sesion cubre todos los cortes, no solo el
+    // de identificar el edificio.
+    if ((msgType === 'image' || msgType === 'video') && media?.filePath) {
+        const ses = global.marcosSesiones?.get(recipient);
+        if (ses) {
+            ses.mediaPendiente = {
+                tipo: msgType,
+                filePath: media.filePath,
+                mimeType: media.mimeType,
+                texto: msgBody,
+                recibidoEn: Date.now()
+            };
+            console.log(`📎 Adjunto retenido hasta poder enviarlo al tecnico (${msgType}).`);
+        }
+    }
+
     let textoFinal = msgBody;
     let transcripcionFinal = '';
     // Nota: el sistema de acumulación de ráfagas (webhook) ya transcribe todos los audios de
@@ -863,22 +883,7 @@ function validarYSanitizarNombre(nombre) {
         const respuestaCaraStr = (typeof resCara === 'object' && resCara !== null && resCara.texto)
             ? String(resCara.texto)
             : String(resCara || '');
-        // La foto/video que vino en esta misma rafaga se guarda para despues. Aca cortamos
-        // porque todavia no sabemos de que edificio se trata, y sin esto el adjunto se perdia:
-        // cuando el vecino contestaba "si, 159" en un mensaje aparte, la imagen ya no existia y
-        // el tecnico nunca la recibia -- terminaba pidiendosela de nuevo a un vecino que ya la
-        // habia mandado.
-        if ((msgType === 'image' || msgType === 'video') && media?.filePath) {
-            session.mediaPendiente = {
-                tipo: msgType,
-                filePath: media.filePath,
-                mimeType: media.mimeType,
-                texto: textoFinal,
-                recibidoEn: Date.now()
-            };
-            console.log(`📎 Foto/video guardado a la espera de identificar el edificio (${msgType}).`);
-        }
-
+        // El adjunto ya quedó retenido en FASE 0, así que este corte no lo pierde.
         await despacharRespuesta(recipient, respuestaCaraStr, msgTypeRespuesta);
         return;
     }
@@ -1642,9 +1647,11 @@ function validarYSanitizarNombre(nombre) {
         // Media hora: pasado ese tiempo ya no es parte de esta conversacion.
         if (antiguedad < 30 * 60 * 1000 && fs.existsSync(session.mediaPendiente.filePath)) {
             mediaParaTecnico = session.mediaPendiente;
-            console.log(`📎 Se recupera la foto/video que el vecino habia mandado antes de identificar el edificio.`);
+            console.log(`📎 Se recupera el adjunto que el vecino habia mandado en una vuelta anterior.`);
+        } else {
+            // Vencido o ya no esta en disco: recien ahi se descarta.
+            delete session.mediaPendiente;
         }
-        delete session.mediaPendiente;
     }
 
     if (mediaParaTecnico?.filePath) {
@@ -1684,6 +1691,9 @@ function validarYSanitizarNombre(nombre) {
                         await enviarVideoWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                     }
                     console.log(`📷 Foto/video del vecino reenviado automáticamente al técnico ${tecnicoParaFoto.nombre} (sin que lo pidiera explícitamente).`);
+                    // Recien ahora se descarta: si el envio fallaba, el adjunto tenia que seguir
+                    // disponible para el proximo intento en vez de perderse en silencio.
+                    delete session.mediaPendiente;
                 }
             }
         } catch (errFotoAuto) {
