@@ -266,6 +266,161 @@ async function buscarRolPorTelefono(telefono) {
     return { rol: 'vecino' };
 }
 
+// ── TÉCNICOS ────────────────────────────────────────────────────────────────
+
+// Los rubros se escriben de mil maneras: "electricista", "electricidad", "luz". La equivalencia es
+// la misma que usa la planilla, copiada tal cual para no cambiar a quién se le deriva un caso.
+function coincideRubro(espNorm, rub) {
+    return rub.includes(espNorm) || espNorm.includes(rub) ||
+        ((espNorm.includes('electr') || espNorm.includes('luz')) && (rub.includes('electr') || rub.includes('luz') || rub.includes('electricista'))) ||
+        ((espNorm.includes('plom') || espNorm.includes('agua')) && (rub.includes('plom') || rub.includes('agua') || rub.includes('plomero'))) ||
+        ((espNorm.includes('cerraj') || espNorm.includes('llav')) && (rub.includes('cerraj') || rub.includes('port')));
+}
+
+async function buscarTecnicoAsignado({ edificio, especialidad, esUrgente = false }) {
+    const espNorm = String(especialidad || '').toLowerCase().trim();
+    const edifNorm = String(edificio || '').toLowerCase().trim();
+
+    // 1. Asignaciones del edificio: es la lista que arma el administrador, y manda sobre el resto.
+    const asigs = await filas('proveedor_asignaciones');
+    const coincide = asigs.find(r => {
+        const est = String(r.get('estado') || '').toLowerCase();
+        if (est === 'eliminado' || est === 'inactivo') return false;
+        const rub = String(r.get('rubro') || '').toLowerCase();
+        const edif = String(r.get('edificio') || '').toLowerCase();
+        const coincideEdificio = edif.includes(edifNorm) || edifNorm.includes(edif) || edif === '' || edif === 'todos';
+        return coincideRubro(espNorm, rub) && coincideEdificio;
+    });
+
+    if (coincide) {
+        console.log(`🔧 Técnico encontrado en 'proveedor_asignaciones': ${coincide.get('proveedor')} (${coincide.get('telefono')})`);
+        // "acceso" viaja tal cual en la plantilla de Meta que recibe el técnico: nunca debe leerse
+        // como que el técnico tiene que gestionarlo por su cuenta. Lo coordina Marcos con el vecino.
+        return {
+            nombre:   coincide.get('proveedor'),
+            telefono: coincide.get('telefono'),
+            acceso:   'Coordinado por Marcos con el vecino',
+            puntaje:  '5',
+            urgencia: true,
+        };
+    }
+
+    // 2. Lista maestra de proveedores del cliente.
+    const provs = await filas('proveedores');
+    const coincideProv = provs.find(r => {
+        const est = String(r.get('estado') || '').toLowerCase();
+        if (est === 'eliminado' || est === 'inactivo') return false;
+        return coincideRubro(espNorm, String(r.get('rubro') || '').toLowerCase());
+    });
+
+    if (coincideProv) {
+        console.log(`🔧 Técnico encontrado en 'proveedores': ${coincideProv.get('nombre')} (${coincideProv.get('telefono')})`);
+        return {
+            nombre:   coincideProv.get('nombre'),
+            telefono: coincideProv.get('telefono'),
+            acceso:   'Coordinado por Marcos con el vecino',
+            puntaje:  '5',
+            urgencia: true,
+        };
+    }
+
+    // 3. Tabla histórica de técnicos, con orden por prioridad y puntaje.
+    const tecs = await filas('tecnicos');
+    const candidatos = tecs.filter(r => {
+        const esp = String(r.get('especialidad') || '').toLowerCase();
+        const edifs = String(r.get('edificios') || '').toLowerCase();
+        const activo = String(r.get('activo') || '').toLowerCase();
+        if (activo !== 'si' && activo !== 'sí') return false;
+        const coincideEdificio = edifs.includes(edifNorm) || edifs.includes('todos') || edifs === '';
+        if (!coincideEdificio) return false;
+        return esp.includes(espNorm) || espNorm.includes(esp);
+    });
+
+    if (candidatos.length === 0) return null;
+
+    candidatos.sort(ordenarPorPrioridad);
+    const elegido = candidatos[0];
+    return {
+        nombre:   elegido.get('nombre'),
+        telefono: elegido.get('telefono'),
+        acceso:   elegido.get('acceso'),
+        puntaje:  elegido.get('puntaje_encuesta'),
+        urgencia: String(elegido.get('disponible_urgencia') || '').toLowerCase() === 'si',
+    };
+}
+
+function ordenarPorPrioridad(a, b) {
+    const pA = String(a.get('prioridad_admin') || '').toLowerCase() === 'si' ? 1 : 0;
+    const pB = String(b.get('prioridad_admin') || '').toLowerCase() === 'si' ? 1 : 0;
+    if (pB !== pA) return pB - pA;
+    return parseFloat(b.get('puntaje_encuesta') || 0) - parseFloat(a.get('puntaje_encuesta') || 0);
+}
+
+async function buscarTecnicoSuplente({ edificio, especialidad, telefonoTitular }) {
+    const rows = await filas('proveedor_asignaciones');
+    const edifNorm = String(edificio || '').toLowerCase();
+    const espNorm = String(especialidad || '').toLowerCase();
+    const telTitularNorm = String(telefonoTitular || '').replace(/\D/g, '');
+
+    const candidatos = rows.filter(r => {
+        const esp = String(r.get('especialidad') || '').toLowerCase();
+        const edifs = String(r.get('edificios') || '').toLowerCase();
+        const activo = String(r.get('activo') || '').toLowerCase();
+        const tel = String(r.get('telefono') || '').replace(/\D/g, '');
+
+        if (activo !== 'si' && activo !== 'sí') return false;
+        if (tel === telTitularNorm) return false;
+
+        const coincideEdificio = edifs.includes(edifNorm) || edifs.includes('todos') || edifs === '';
+        if (!coincideEdificio) return false;
+
+        return esp.includes(espNorm) || espNorm.includes(esp);
+    });
+
+    if (candidatos.length === 0) return null;
+
+    candidatos.sort(ordenarPorPrioridad);
+    const elegido = candidatos[0];
+    return {
+        nombre:   elegido.get('nombre'),
+        telefono: elegido.get('telefono'),
+        acceso:   elegido.get('acceso'),
+        puntaje:  elegido.get('puntaje_encuesta'),
+        urgencia: String(elegido.get('disponible_urgencia') || '').toLowerCase() === 'si',
+    };
+}
+
+// ── CLIENTES ────────────────────────────────────────────────────────────────
+
+async function buscarCliente(nombreAdmin) {
+    if (!nombreAdmin) return null;
+    const rows = await filas('clientes');
+    const row = rows.find(r =>
+        String(r.get('nombre') || '').toLowerCase().includes(String(nombreAdmin).toLowerCase())
+    );
+    if (!row) return null;
+
+    return {
+        nombre:     row.get('nombre') || '',
+        email:      row.get('email') || '',
+        wsp:        row.get('wsp') || '',
+        notifEmail: String(row.get('notif_email') || '').toLowerCase() === 'si',
+    };
+}
+
+// ── CASOS ───────────────────────────────────────────────────────────────────
+
+/** Si al técnico ya se le mandó la plantilla de este caso. Evita el envío duplicado. */
+async function fueTecnicoNotificado(id_evento) {
+    if (!id_evento) return false;
+    const res = await pool.query(
+        `SELECT tecnico_notificado FROM reportes WHERE upper(trim(codigo_caso)) = upper(trim($1)) LIMIT 1`,
+        [String(id_evento)]
+    );
+    if (!res.rowCount) return false;
+    return !!String(res.rows[0].tecnico_notificado || '').trim();
+}
+
 // ── ACCESOS ─────────────────────────────────────────────────────────────────
 
 async function buscarAccesosEdificio(nombreEdificio) {
@@ -296,4 +451,8 @@ module.exports = {
     buscarMemoriaVecino,
     buscarRolPorTelefono,
     buscarAccesosEdificio,
+    buscarTecnicoAsignado,
+    buscarTecnicoSuplente,
+    buscarCliente,
+    fueTecnicoNotificado,
 };

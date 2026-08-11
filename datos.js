@@ -151,6 +151,38 @@ async function buscarRolPorTelefono(telefono) {
     return sheets.buscarRolPorTelefono(telefono);
 }
 
+async function buscarTecnicoAsignado(args) {
+    return leer('buscarTecnicoAsignado', [args], 'buscarTecnicoAsignado', 'buscarTecnicoAsignado');
+}
+async function buscarTecnicoSuplente(args) {
+    return leer('buscarTecnicoSuplente', [args], 'buscarTecnicoSuplente', 'buscarTecnicoSuplente');
+}
+async function buscarCliente(nombreAdmin) {
+    return leer('buscarCliente', [nombreAdmin], 'buscarCliente', 'buscarCliente');
+}
+
+/**
+ * Si al técnico ya se le mandó la plantilla de este caso.
+ *
+ * Acá el respaldo va al revés que en el resto y por un motivo concreto: un `false` de PostgreSQL
+ * NO significa "no se le mandó", puede significar "este caso todavía no está en PostgreSQL"
+ * -- los casos anteriores a la escritura duplicada no están. Y confundir esas dos cosas hace que
+ * al técnico le llegue la plantilla de Meta por segunda vez, que es justo el bug que costó
+ * arreglar. Así que solo un `true` se toma como respuesta final; ante un `false` se le pregunta
+ * igual a Sheets. El error posible queda del lado de no molestar al técnico de más.
+ */
+async function fueTecnicoNotificado(id_evento) {
+    if (LECTURA_PG) {
+        try {
+            const yaEnPg = await require('./datos-pg').fueTecnicoNotificado(id_evento);
+            if (yaEnPg) return true;
+        } catch (err) {
+            console.error(`↩️ fueTecnicoNotificado: error leyendo de PostgreSQL (${err.message}). Se consulta Sheets.`);
+        }
+    }
+    return sheets.fueTecnicoNotificado(id_evento);
+}
+
 // ── ESCRITURAS (Sheets manda, PostgreSQL recibe copia) ──────────────────────
 
 async function guardarReporte(datos) {
@@ -371,4 +403,8 @@ module.exports = {
     buscarMemoriaVecino,
     buscarRolPorTelefono,
     buscarAccesosEdificio,
+    buscarTecnicoAsignado,
+    buscarTecnicoSuplente,
+    buscarCliente,
+    fueTecnicoNotificado,
 };
