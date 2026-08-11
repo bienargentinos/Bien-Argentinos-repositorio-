@@ -199,6 +199,101 @@ async function initPgSchema() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- ── TABLAS QUE EXISTEN EN LA PLANILLA Y FALTABAN ACA ──────────────────
+            -- Sin estas cuatro, migrar a PostgreSQL dejaba a Marcos sin datos que usa todos los
+            -- dias: buscarTecnicoSuplente() lee "tecnicos" y buscarPersonalDeTurno() lee
+            -- "personal". Las columnas son las cabeceras reales de la planilla.
+
+            CREATE TABLE IF NOT EXISTS tecnicos (
+                id SERIAL PRIMARY KEY,
+                nombre VARCHAR(150),
+                especialidad VARCHAR(100),
+                telefono VARCHAR(50),
+                edificios TEXT,
+                acceso TEXT,
+                prioridad_admin VARCHAR(50),
+                puntaje_encuesta VARCHAR(50),
+                activo VARCHAR(20),
+                disponible_urgencia VARCHAR(20),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS personal (
+                id SERIAL PRIMARY KEY,
+                edificio VARCHAR(150),
+                estado VARCHAR(50),
+                horario_inicio VARCHAR(50),
+                horario_fin VARCHAR(50),
+                nombre VARCHAR(150),
+                rol VARCHAR(100),
+                telefono VARCHAR(50),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS consejo (
+                id SERIAL PRIMARY KEY,
+                cliente VARCHAR(100),
+                edificio VARCHAR(150),
+                nombre VARCHAR(150),
+                cargo VARCHAR(100),
+                unidad VARCHAR(50),
+                telefono VARCHAR(50),
+                email VARCHAR(150),
+                notas TEXT,
+                estado VARCHAR(50),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS suscripciones_planes (
+                id SERIAL PRIMARY KEY,
+                nombre VARCHAR(100),
+                estado VARCHAR(50),
+                precio VARCHAR(50),
+                moneda VARCHAR(20),
+                edificios VARCHAR(50),
+                mensajes VARCHAR(50),
+                llamadas VARCHAR(50),
+                servicios TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- ── COLUMNAS QUE LA PLANILLA TIENE Y EL ESQUEMA ORIGINAL PERDIA ────────
+            -- La pestaña EVENTOS tiene 22 columnas y "reportes" solo cubria 11: migrar sin esto
+            -- borraba en silencio la transcripcion, los chats por canal y -- lo mas grave --
+            -- "tecnico_notificado", que es la marca que evita mandarle la plantilla al tecnico
+            -- cuatro veces cuando PM2 reinicia.
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS depto VARCHAR(50);
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS unidad VARCHAR(50);
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS mensaje TEXT;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS tipo VARCHAR(50);
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS notas TEXT;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS feedback TEXT;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS hora_fin VARCHAR(100);
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS audio_url TEXT;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS transcripcion TEXT;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS historial_chat TEXT;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS audios_json TEXT;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS involucrados_json TEXT;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS chat_vecino_json TEXT;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS chat_proveedor_json TEXT;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS tecnico_notificado VARCHAR(100);
+
+            -- La lista maestra de proveedores de la planilla tiene "edificio".
+            ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS edificio VARCHAR(150);
+
+            -- Preferencias de notificacion del cliente (a que canal avisarle).
+            ALTER TABLE clientes ADD COLUMN IF NOT EXISTS wsp VARCHAR(50);
+            ALTER TABLE clientes ADD COLUMN IF NOT EXISTS notif_email VARCHAR(20);
+            ALTER TABLE clientes ADD COLUMN IF NOT EXISTS notif_wsp VARCHAR(20);
+
+            -- La planilla de facturas ya trae estado (Pagada/Pendiente) y numero.
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS estado VARCHAR(50);
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS numero_factura VARCHAR(100);
+            -- "monto" estaba como NUMERIC, pero Marcos guarda literalmente "Según comprobante"
+            -- cuando el proveedor manda una foto sin importe legible: con NUMERIC ese INSERT
+            -- fallaba y la factura se perdia entera.
+            ALTER TABLE facturas ALTER COLUMN monto TYPE TEXT;
+
             CREATE INDEX IF NOT EXISTS idx_pg_vecinos_tel ON vecinos(telefono);
             CREATE INDEX IF NOT EXISTS idx_pg_reportes_codigo ON reportes(codigo_caso);
             CREATE INDEX IF NOT EXISTS idx_pg_mensajes_evento ON mensajes(evento_id);
