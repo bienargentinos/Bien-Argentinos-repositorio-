@@ -89,6 +89,58 @@ function requerimientoParaTerceros(decisionCaso) {
     return generico;
 }
 
+/**
+ * Reescribe en neutro lo que dijo el vecino, para poder reenviárselo al técnico.
+ *
+ * No alcanza con filtrar y listo: cuando el vecino contesta molesto suele decir igual cosas
+ * operativamente importantes ("es el hall, no mi departamento", "ya me fui, recibe otra persona").
+ * Borrar la oración entera por el tono le saca al técnico un dato que necesita; dejarla como está
+ * le manda el enojo. Así que se reescribe el contenido y se descarta la forma.
+ *
+ * El resultado igual pasa por el filtro determinístico: el modelo es quien entiende el sentido,
+ * pero no es quien decide si algo es publicable.
+ */
+async function redactarNovedadParaTecnico({ textoVecino, nombreVecino, direccion }) {
+    const limpioDirecto = limpiarParaTerceros(textoVecino);
+
+    try {
+        const prompt = `Sos el asistente de una administración de consorcios. Un vecino le escribió a la administración y hay que pasarle al técnico SOLO la información útil para su visita.
+
+Mensaje del vecino (${nombreVecino || 'vecino'} — ${direccion || 'edificio'}):
+"""
+${textoVecino}
+"""
+
+Devolvé SOLO el texto a reenviar al técnico, sin comillas ni encabezados, siguiendo estas reglas:
+- Reescribilo en tercera persona y en tono neutro de parte administrativa.
+- Conservá TODO dato operativo: ubicación exacta del problema, si el vecino va a estar o no, quién recibe, qué ya envió, horarios, accesos.
+- ELIMINÁ por completo el enojo, los reproches, las ironías, los insultos y las quejas sobre el servicio o sobre el técnico. El técnico NUNCA debe percibir que el vecino estaba molesto.
+- No cites ni parafrasees sus palabras textuales. No menciones su estado de ánimo.
+- Máximo 2 oraciones. Si no hay ningún dato útil para la visita, devolvé exactamente: SIN_DATOS`;
+
+        const resp = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+
+        const texto = String(resp?.text || '').trim();
+        if (texto && !/SIN_DATOS/i.test(texto)) {
+            const seguro = limpiarParaTerceros(texto);
+            if (seguro) return seguro;
+        }
+        if (/SIN_DATOS/i.test(texto)) {
+            console.log('🧹 La novedad del vecino no tenía datos útiles para el técnico: no se reenvía.');
+            return '';
+        }
+    } catch (err) {
+        console.error('Error redactando la novedad para el técnico:', err.message);
+    }
+
+    // Si el modelo falló, el filtro determinístico es el piso: peor es no avisarle nada al técnico,
+    // pero mucho peor es mandarle el texto crudo.
+    return limpioDirecto;
+}
+
 async function gestionarOperaciones({
     vecino,
     decisionCaso,
@@ -590,6 +642,8 @@ module.exports = {
     enviarImagenWhatsApp,
     enviarVideoWhatsApp,
     normalizarTelefonoWhatsApp,
+    redactarNovedadParaTecnico,
+    requerimientoParaTerceros,
     programarEscalacionProveedor,
     cancelarEscalacionProveedor,
     retransmitirMediaAlProveedor

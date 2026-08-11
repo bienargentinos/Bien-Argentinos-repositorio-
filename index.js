@@ -18,7 +18,7 @@ const {
 const { descargarMedia, guardarArchivoEstructurado } = require('./media');
 const { evaluarCaso }        = require('./agentes/marcos-caso');
 const { responderVecino }    = require('./agentes/marcos-cara');
-const { gestionarOperaciones, enviarWhatsApp, subirMediaWhatsApp, enviarAudioWhatsApp, procesarSiguienteEventoProveedor } = require('./agentes/marcos-ops');
+const { gestionarOperaciones, enviarWhatsApp, subirMediaWhatsApp, enviarAudioWhatsApp, procesarSiguienteEventoProveedor, redactarNovedadParaTecnico } = require('./agentes/marcos-ops');
 const { procesarDocumento }  = require('./agentes/marcos-docs');
 const { reportarAlAdmin, iniciarCronReportes }    = require('./agentes/marcos-admin');
 
@@ -1457,7 +1457,10 @@ function validarYSanitizarNombre(nombre) {
             const uploadMediaId = await subirMediaWhatsApp(media.filePath, media.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
             if (uploadMediaId) {
                 const { enviarImagenWhatsApp } = require('./agentes/marcos-ops');
-                const captionProv = `📱 *MARCOS — FOTO ENVIADA POR EL VECINO*\n\nHola ${nomTech}, ${nomVecinoDisp}${deptoDisp} en ${edifDisp} envió esta foto para la visita.` + (textoFinal && textoFinal !== '(Imagen adjunta)' ? `\n\nComentario del vecino: "${textoFinal}"` : '');
+                const comentarioFoto = (textoFinal && textoFinal !== '(Imagen adjunta)')
+                    ? await redactarNovedadParaTecnico({ textoVecino: textoFinal, nombreVecino: nomVecinoDisp, direccion: edifDisp })
+                    : '';
+                const captionProv = `📱 *MARCOS — FOTO ENVIADA POR EL VECINO*\n\nHola ${nomTech}, ${nomVecinoDisp}${deptoDisp} en ${edifDisp} envió esta foto para la visita.` + (comentarioFoto ? `\n\n${comentarioFoto}` : '');
                 await enviarImagenWhatsApp(telTech, uploadMediaId, captionProv, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                 console.log(`🖼️ Foto del vecino reenviada exitosamente al técnico ${telTech}`);
             }
@@ -1467,17 +1470,32 @@ function validarYSanitizarNombre(nombre) {
             const uploadMediaId = await subirMediaWhatsApp(media.filePath, media.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
             if (uploadMediaId) {
                 const { enviarVideoWhatsApp } = require('./agentes/marcos-ops');
-                const captionProv = `📱 *MARCOS — VIDEO ENVIADO POR EL VECINO*\n\nHola ${nomTech}, ${nomVecinoDisp}${deptoDisp} en ${edifDisp} envió este video para la visita.` + (textoFinal && textoFinal !== '(Video adjunto)' ? `\n\nComentario del vecino: "${textoFinal}"` : '');
+                const comentarioVideo = (textoFinal && textoFinal !== '(Video adjunto)')
+                    ? await redactarNovedadParaTecnico({ textoVecino: textoFinal, nombreVecino: nomVecinoDisp, direccion: edifDisp })
+                    : '';
+                const captionProv = `📱 *MARCOS — VIDEO ENVIADO POR EL VECINO*\n\nHola ${nomTech}, ${nomVecinoDisp}${deptoDisp} en ${edifDisp} envió este video para la visita.` + (comentarioVideo ? `\n\n${comentarioVideo}` : '');
                 await enviarVideoWhatsApp(telTech, uploadMediaId, captionProv, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                 console.log(`🎥 Video del vecino reenviado exitosamente al técnico ${telTech}`);
             }
         } 
         // Reenviar Texto / Audio transcrito
         else {
-            const infoReenvio = `📱 *MARCOS — NOVEDAD DEL VECINO*\n\n` +
-                `Hola ${nomTech}, ${nomVecinoDisp}${deptoDisp} en ${edifDisp} envió la siguiente información para tu visita:\n\n${messageText}`;
-            await enviarWhatsApp(telTech, infoReenvio, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-            console.log(`➡️ Novedad/texto del vecino reenviada al técnico ${telTech}`);
+            // El texto del vecino NO se reenvia crudo: se reescribe en neutro conservando los
+            // datos operativos. Aca es donde se filtraba el enojo al tecnico -- llego a leer
+            // textual "cuanto mas queres? Yo ya me fui del edificio".
+            const novedadNeutra = await redactarNovedadParaTecnico({
+                textoVecino: messageText,
+                nombreVecino: nomVecinoDisp,
+                direccion: edifDisp
+            });
+            if (novedadNeutra) {
+                const infoReenvio = `📱 *MARCOS — NOVEDAD DEL VECINO*\n\n` +
+                    `Hola ${nomTech}, sobre la visita a ${edifDisp}:\n\n${novedadNeutra}`;
+                await enviarWhatsApp(telTech, infoReenvio, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                console.log(`➡️ Novedad del vecino reenviada al técnico ${telTech} (reescrita en neutro)`);
+            } else {
+                console.log(`🧹 La respuesta del vecino no aportaba datos para el técnico: no se reenvía.`);
+            }
         }
 
         // Solo dejamos de esperar más datos una vez que efectivamente llegó la foto/video
@@ -1615,7 +1633,12 @@ function validarYSanitizarNombre(nombre) {
                 const edifAuto = edifParaFoto || 'el edificio';
                 const uploadMediaIdAuto = await subirMediaWhatsApp(media.filePath, media.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                 if (uploadMediaIdAuto) {
-                    const comentarioAuto = (textoFinal && !/^\(Imagen adjunta\)$|^\(Video adjunto\)$/i.test(textoFinal.trim())) ? `\n\nComentario del vecino: "${textoFinal}"` : '';
+                    // Igual que en el reenvio a pedido: el comentario del vecino se reescribe en
+                    // neutro antes de que lo lea el tecnico, nunca va entre comillas tal cual.
+                    const comentarioLimpio = (textoFinal && !/^\(Imagen adjunta\)$|^\(Video adjunto\)$/i.test(textoFinal.trim()))
+                        ? await redactarNovedadParaTecnico({ textoVecino: textoFinal, nombreVecino: nomVecinoAuto, direccion: edifAuto })
+                        : '';
+                    const comentarioAuto = comentarioLimpio ? `\n\n${comentarioLimpio}` : '';
                     if (msgType === 'image') {
                         const { enviarImagenWhatsApp } = require('./agentes/marcos-ops');
                         const captionAuto = `📱 *MARCOS — FOTO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó esta foto del inconveniente.${comentarioAuto}`;
