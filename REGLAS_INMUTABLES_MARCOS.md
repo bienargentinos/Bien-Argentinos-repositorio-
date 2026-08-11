@@ -7,10 +7,10 @@
 ## 1. 🏢 IDENTIFICACIÓN DE EDIFICIOS (AISLAMIENTO STRICTO 100%)
 - **Regla de Oro:** Cada edificio registrado en Google Sheets es un **universo totalmente aislado**.
 - **Ajuste de Coincidencia:** Un mensaje se asocia a un edificio **ÚNICAMENTE** si contiene el **Nombre**, la **Dirección exacta** o un **Alias propio** perteneciente al registro de ese edificio en Google Sheets.
-- **Prohibición de Solapamiento por Calle:** Si dos o más edificios comparten el mismo nombre de calle (ej. *San Patricio 159* y *San Patricio 270*):
-  - La altura `159` pertenece **EXCLUSIVAMENTE** a `san patricio casa` (Dirección: *SAN PATRICIO 159*).
-  - La altura `270` pertenece **EXCLUSIVAMENTE** a `san patricio 27'0 casa` (Dirección: *san patricio 270*).
-  - **NUNCA** cruzar los datos de un edificio a otro por compartir parte de la calle. Si la persona dice "159", jamas se debe asociar a "270" ni viceversa.
+- **Prohibición de Solapamiento por Calle:** Si dos o más edificios comparten el mismo nombre de calle, cada altura pertenece **EXCLUSIVAMENTE** a su edificio.
+  - **NUNCA** cruzar los datos de un edificio a otro por compartir parte de la calle. Si la persona dice "159", jamás se debe asociar a "270" ni viceversa.
+  - Ejemplo con los edificios de prueba actuales: *San Patricio 159* y *San Patricio 270* son dos consorcios distintos y sin relación entre sí.
+  - **Los valores concretos de la planilla son datos, no reglas.** Los nombres, alias y direcciones que hoy figuran en la pestaña `EDIFICIOS` son de prueba y van a cambiar cuando entren clientes reales. Ningún agente debe tratarlos como fijos, ni "corregirlos" porque parezcan mal escritos: los carga el administrador de consorcio y el sistema los usa tal cual para decidir a qué edificio pertenece un mensaje.
 
 ---
 

@@ -106,9 +106,11 @@ quedaría vacío para siempre sin dar ningún error.
   final es seguro.
 * **PROHIBIDO** repetir un nombre de encabezado dentro de una misma pestaña: la librería se niega a
   leer la pestaña entera y el dato desaparece del sistema sin aviso.
-* **PROHIBIDO** "corregir" los nombres de edificios y alias. En particular `san patricio 27'0 casa`
-  se escribe así a propósito (ver `REGLAS_INMUTABLES_MARCOS.md`, punto 1): tocarlo rompe el
-  aislamiento entre los dos edificios de la calle San Patricio.
+* **PROHIBIDO** "corregir" nombres de edificios, alias, direcciones o nombres de personas, aunque
+  parezcan mal escritos. Esos datos los carga el administrador de consorcio, y el sistema los usa
+  como clave para decidir a qué edificio pertenece un mensaje: un alias "arreglado" deja de
+  coincidir con lo que el vecino escribe y Marcos pierde el edificio. Si algo parece un error de
+  tipeo, avisale a Daniel en vez de cambiarlo.
 * Los nombres de las pestañas también son parte del contrato: `VECINOS`, `EVENTOS`, `EDIFICIOS`,
   `CLIENTES`, `proveedores`, `proveedor_asignaciones`, `memoria`, `facturas`, `tecnicos`,
   `personal`, `consejo`, `solicitudes`, `suscripciones_planes`.
