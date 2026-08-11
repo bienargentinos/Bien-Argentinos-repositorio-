@@ -281,6 +281,11 @@ async function initPgSchema() {
             -- La lista maestra de proveedores de la planilla tiene "edificio".
             ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS edificio VARCHAR(150);
 
+            -- La planilla guarda tambien el horario del suplente, y ademas el nombre corto del
+            -- edificio aparte del nombre largo que se usa para buscarlo en el sistema.
+            ALTER TABLE edificios ADD COLUMN IF NOT EXISTS suplente_horario TEXT;
+            ALTER TABLE edificios ADD COLUMN IF NOT EXISTS nombre VARCHAR(150);
+
             -- Preferencias de notificacion del cliente (a que canal avisarle).
             ALTER TABLE clientes ADD COLUMN IF NOT EXISTS wsp VARCHAR(50);
             ALTER TABLE clientes ADD COLUMN IF NOT EXISTS notif_email VARCHAR(20);
