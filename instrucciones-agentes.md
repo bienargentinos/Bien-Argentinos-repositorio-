@@ -117,9 +117,20 @@ quedaría vacío para siempre sin dar ningún error.
 
 ### Etapa actual de la migración a PostgreSQL
 1. ✅ Esquema alineado con la planilla real e import idempotente.
-2. ✅ **Escritura duplicada** (`datos.js`): Sheets es la fuente de verdad y recibe la escritura;
-   PostgreSQL recibe una copia que no puede romper nada.
-3. ⏳ **Pendiente**: pasar las lecturas a PostgreSQL, una función por vez.
+2. ✅ **Escritura duplicada** (`datos.js`): la escritura va a Sheets y una copia a PostgreSQL.
+3. ✅ **Lecturas desde PostgreSQL**, con Sheets como respaldo automático.
+4. ⏳ **Pendiente**: apagar Sheets, cuando `verificar-migracion.js` no reporte diferencias.
 
-> Hasta terminar el punto 3, **Google Sheets sigue siendo la fuente de verdad**. No borres datos de
+**Cómo leer y escribir datos desde ahora:** siempre a través de `datos.js`. Nunca importes
+`sheets.js` ni `datos-pg.js` directamente desde el motor. `datos.js` decide de dónde leer y se
+encarga de que la escritura llegue a las dos bases.
+
+**Si agregás una función que ESCRIBE**, tiene que quedar envuelta en `datos.js` para que también
+copie a PostgreSQL. Una escritura que solo va a Sheets se pierde cuando apaguemos Sheets, y el
+síntoma va a ser "el dato estaba y desapareció".
+
+**Palanca de emergencia:** `LECTURA_PG=off` en el `.env` hace que todo vuelva a salir de Sheets,
+sin tocar código ni desplegar nada.
+
+> Hasta terminar el punto 4, **Google Sheets sigue siendo la fuente de verdad**. No borres datos de
 > la planilla ni la des por reemplazada.
