@@ -863,6 +863,22 @@ function validarYSanitizarNombre(nombre) {
         const respuestaCaraStr = (typeof resCara === 'object' && resCara !== null && resCara.texto)
             ? String(resCara.texto)
             : String(resCara || '');
+        // La foto/video que vino en esta misma rafaga se guarda para despues. Aca cortamos
+        // porque todavia no sabemos de que edificio se trata, y sin esto el adjunto se perdia:
+        // cuando el vecino contestaba "si, 159" en un mensaje aparte, la imagen ya no existia y
+        // el tecnico nunca la recibia -- terminaba pidiendosela de nuevo a un vecino que ya la
+        // habia mandado.
+        if ((msgType === 'image' || msgType === 'video') && media?.filePath) {
+            session.mediaPendiente = {
+                tipo: msgType,
+                filePath: media.filePath,
+                mimeType: media.mimeType,
+                texto: textoFinal,
+                recibidoEn: Date.now()
+            };
+            console.log(`📎 Foto/video guardado a la espera de identificar el edificio (${msgType}).`);
+        }
+
         await despacharRespuesta(recipient, respuestaCaraStr, msgTypeRespuesta);
         return;
     }
@@ -1615,7 +1631,26 @@ function validarYSanitizarNombre(nombre) {
     // cualquier mensaje posterior de un caso ya abierto) queda guardada en el servidor pero el
     // técnico nunca la ve por WhatsApp -- solo se enteraba si él mismo la pedía primero
     // (branch de esperandoDatosVecinoParaProveedor, más arriba en el flujo).
-    if ((msgType === 'image' || msgType === 'video') && media?.filePath) {
+    // Ademas del adjunto de este mensaje, puede haber uno guardado de la rafaga anterior: el que
+    // llego antes de que supieramos el edificio. Se toma el actual si existe, y si no el pendiente.
+    let mediaParaTecnico = (media?.filePath && (msgType === 'image' || msgType === 'video'))
+        ? { tipo: msgType, filePath: media.filePath, mimeType: media.mimeType, texto: textoFinal }
+        : null;
+
+    if (!mediaParaTecnico && session.mediaPendiente?.filePath) {
+        const antiguedad = Date.now() - (session.mediaPendiente.recibidoEn || 0);
+        // Media hora: pasado ese tiempo ya no es parte de esta conversacion.
+        if (antiguedad < 30 * 60 * 1000 && fs.existsSync(session.mediaPendiente.filePath)) {
+            mediaParaTecnico = session.mediaPendiente;
+            console.log(`📎 Se recupera la foto/video que el vecino habia mandado antes de identificar el edificio.`);
+        }
+        delete session.mediaPendiente;
+    }
+
+    if (mediaParaTecnico?.filePath) {
+        const msgTypeMedia = mediaParaTecnico.tipo;
+        const media = { filePath: mediaParaTecnico.filePath, mimeType: mediaParaTecnico.mimeType };
+        const textoFinal = mediaParaTecnico.texto;
         try {
             let tecnicoParaFoto = tecnicoAsignado;
             const edifParaFoto = session.nombreEdificio || vecino?.edificio;
@@ -1639,7 +1674,7 @@ function validarYSanitizarNombre(nombre) {
                         ? await redactarNovedadParaTecnico({ textoVecino: textoFinal, nombreVecino: nomVecinoAuto, direccion: edifAuto })
                         : '';
                     const comentarioAuto = comentarioLimpio ? `\n\n${comentarioLimpio}` : '';
-                    if (msgType === 'image') {
+                    if (msgTypeMedia === 'image') {
                         const { enviarImagenWhatsApp } = require('./agentes/marcos-ops');
                         const captionAuto = `📱 *MARCOS — FOTO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó esta foto del inconveniente.${comentarioAuto}`;
                         await enviarImagenWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);

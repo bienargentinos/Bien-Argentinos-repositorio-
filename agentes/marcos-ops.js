@@ -141,6 +141,20 @@ Devolvé SOLO el texto a reenviar al técnico, sin comillas ni encabezados, sigu
     return limpioDirecto;
 }
 
+/**
+ * Cómo se le describe al técnico DÓNDE tiene que ir.
+ *
+ * El departamento del vecino ubica a la persona, no al problema. Un vecino del 1A que reporta la
+ * puerta del hall no tiene nada roto en su casa: mandarle al técnico "Depto 1A" lo hace tocar el
+ * timbre equivocado, y al vecino le llega una orden de trabajo que no reconoce como suya ("no sé
+ * para qué ponés departamento uno"). En áreas comunes se nombra el sector, no la unidad.
+ */
+function ubicacionParaTecnico({ vecino, decisionCaso }) {
+    const depto = vecino?.departamento || vecino?.depto || '';
+    if (decisionCaso?.area === 'comun') return 'Área común del edificio';
+    return depto ? `Depto ${depto}` : '';
+}
+
 async function gestionarOperaciones({
     vecino,
     decisionCaso,
@@ -254,7 +268,8 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
 
     const rawNombre = (vecino?.nombre && vecino?.nombre !== 'Vecino' && vecino?.nombre !== 'Desconocido') ? vecino.nombre : 'Vecino';
     const rawDepto = vecino?.departamento || vecino?.depto || '';
-    const deptoStr = rawDepto ? `(${rawDepto})` : '';
+    const ubicacionStr = ubicacionParaTecnico({ vecino, decisionCaso });
+    const deptoStr = ubicacionStr ? `(${ubicacionStr})` : '';
     const vecinoConDepto = `${rawNombre} ${deptoStr}`.trim();
 
     const textoProblemaConCaso = `[${id_evento}] ${requerimientoParaTerceros(decisionCaso)}`;
@@ -361,7 +376,8 @@ async function generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id
     const direccionExacta = perfilEdif?.direccion || vecino?.direccion || vecino?.edificio || 'Consorcio';
     
     const nombreVecinoBase = (vecino?.nombre && vecino?.nombre !== 'Vecino' && vecino?.nombre !== 'Desconocido') ? vecino.nombre : 'Vecino a confirmar';
-    const deptoStr = vecino?.departamento ? `(${vecino.departamento})` : '';
+    const ubicacionStr = ubicacionParaTecnico({ vecino, decisionCaso });
+    const deptoStr = ubicacionStr ? `(${ubicacionStr})` : '';
     const vecinoConDepto = `${nombreVecinoBase} ${deptoStr}`.trim();
 
     const emojiUrgencia = decisionCaso.urgencia === 'alta' ? '🚨' : '🛠️';
@@ -642,6 +658,7 @@ module.exports = {
     enviarImagenWhatsApp,
     enviarVideoWhatsApp,
     normalizarTelefonoWhatsApp,
+    ubicacionParaTecnico,
     redactarNovedadParaTecnico,
     requerimientoParaTerceros,
     programarEscalacionProveedor,
