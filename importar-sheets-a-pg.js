@@ -163,6 +163,19 @@ const MAPEOS = [
         },
     },
     {
+        // Quedó fuera del primer import porque la pestaña tenía la columna "estado" repetida y no
+        // se podía leer. Ya desduplicada, la segunda se llama "estado_gestion".
+        pestaña: 'solicitudes',
+        tabla: 'solicitudes',
+        clave: ['fecha', 'usuario', 'edificio', 'campo'],
+        columnas: {
+            fecha: 'fecha', usuario: 'usuario', edificio: 'edificio', campo: 'campo',
+            valor_actual: 'valor_actual', valor_nuevo: 'valor_nuevo',
+            estado: 'estado', estado_gestion: 'estado_gestion',
+            motivo_rechazo: 'motivo_rechazo',
+        },
+    },
+    {
         pestaña: 'suscripciones_planes',
         tabla: 'suscripciones_planes',
         clave: ['nombre'],
