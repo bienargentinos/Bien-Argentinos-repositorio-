@@ -29,6 +29,10 @@ const EQUIVALENCIAS = {
     expensas: 'expensas',
     sugerencias: 'sugerencias',
     solicitudes: 'solicitudes',
+    tecnicos: 'tecnicos',
+    personal: 'personal',
+    consejo: 'consejo',
+    suscripciones_planes: 'suscripciones_planes',
 };
 
 async function contarEnPostgres(tabla) {

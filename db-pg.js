@@ -284,6 +284,7 @@ async function initPgSchema() {
             -- La pestaña "solicitudes" tenia la columna "estado" repetida, lo que impedia leerla
             -- entera. Al desduplicarla, la segunda paso a llamarse "estado_gestion".
             ALTER TABLE solicitudes ADD COLUMN IF NOT EXISTS estado_gestion VARCHAR(50);
+            ALTER TABLE solicitudes ADD COLUMN IF NOT EXISTS motivo TEXT;
 
             -- La planilla guarda tambien el horario del suplente, y ademas el nombre corto del
             -- edificio aparte del nombre largo que se usa para buscarlo en el sistema.

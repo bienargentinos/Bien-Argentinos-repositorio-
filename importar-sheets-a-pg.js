@@ -167,12 +167,14 @@ const MAPEOS = [
         // se podía leer. Ya desduplicada, la segunda se llama "estado_gestion".
         pestaña: 'solicitudes',
         tabla: 'solicitudes',
-        clave: ['fecha', 'usuario', 'edificio', 'campo'],
+        // La pestaña NO tiene columna `fecha`, asi que la clave se arma con lo que si existe:
+        // quien pidio el cambio, sobre que edificio, que campo y a que valor.
+        clave: ['usuario', 'edificio', 'campo', 'valor_nuevo'],
         columnas: {
-            fecha: 'fecha', usuario: 'usuario', edificio: 'edificio', campo: 'campo',
+            usuario: 'usuario', edificio: 'edificio', campo: 'campo',
             valor_actual: 'valor_actual', valor_nuevo: 'valor_nuevo',
             estado: 'estado', estado_gestion: 'estado_gestion',
-            motivo_rechazo: 'motivo_rechazo',
+            motivo: 'motivo', motivo_rechazo: 'motivo_rechazo',
         },
     },
     {
