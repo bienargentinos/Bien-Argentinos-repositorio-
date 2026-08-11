@@ -1310,6 +1310,24 @@ function validarYSanitizarNombre(nombre) {
         }
     }
 
+    // Si la sesión no tiene el contacto de acceso pero el vecino ya lo había autorizado antes, lo
+    // recuperamos de la planilla. La sesión vive en RAM: un `pm2 restart` la borra entera, y ahí
+    // Marcos volvía a dar por sentado que quien recibe al técnico es quien escribe -- justo el
+    // error que hay que evitar cuando el vecino avisó que se iba y dejaba a otra persona.
+    if (!session.contactoAccesoExtra && datosEmisor.rol !== 'proveedor') {
+        try {
+            const { buscarVecinosPorTelefono } = require('./sheets');
+            const vecinosGuardados = await buscarVecinosPorTelefono(from);
+            const conAutorizacion = (vecinosGuardados || []).find(v => v.contactoAcceso);
+            if (conAutorizacion?.contactoAcceso) {
+                session.contactoAccesoExtra = conAutorizacion.contactoAcceso;
+                console.log(`📞 Contacto de acceso recuperado de la planilla para ${from}: ${session.contactoAccesoExtra}`);
+            }
+        } catch (e) {
+            console.error('Error recuperando contacto de acceso:', e.message);
+        }
+    }
+
     // ── FASE 3: RESPUESTA (Marcos-Cara) ───────────────────────────────────────────
 
     const resCara = await responderVecino({
@@ -1325,7 +1343,12 @@ function validarYSanitizarNombre(nombre) {
         edificioPendiente: null,
         edificiosConocidos: edificiosConocidos,
         session,
-        datosEmisor
+        datosEmisor,
+        // Quién va a recibir al técnico cuando NO es el vecino que escribe. Marcos-Cara recibía
+        // `session` pero nunca leía nada de ella, así que este dato -- que sí le llegaba al
+        // técnico -- no existía para el agente que le habla al vecino: al preguntarle quién
+        // esperaba, contestaba el que había escrito, que era justamente el que se iba.
+        contactoAccesoExtra: session.contactoAccesoExtra || ''
     });
 
     let respuesta = (typeof resCara === 'object' && resCara !== null && resCara.texto)

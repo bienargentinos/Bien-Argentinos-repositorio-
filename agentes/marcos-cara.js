@@ -64,7 +64,8 @@ async function responderVecino({
     tecnicoAsignado,
     perfilEdificio,
     session,
-    datosEmisor
+    datosEmisor,
+    contactoAccesoExtra = ''
 }) {
     const persona = getPersona();
 
@@ -94,6 +95,21 @@ DEBES indicarle amablemente y de forma empática que la imagen recibida no parec
     // Para lo que se le dice a la persona siempre usamos la dirección limpia (ej. "San Patricio
     // 159"), cayendo al nombre interno solo si todavía no tenemos la dirección cargada en Sheets.
     const direccionParaVecino = perfilEdificio?.direccion || vecino?.edificio;
+
+    // Quién recibe al técnico cuando NO es el vecino que escribe ("me voy, queda mi señora, este
+    // es su teléfono"). Es un dato que Marcos ya le mandaba al técnico, pero que nunca entraba en
+    // este prompt: al preguntarle al vecino quién esperaba, Marcos caía en lo obvio y nombraba a
+    // quien había escrito -- que era justo el que se iba. También evita que vuelva a pedir una
+    // confirmación que el vecino ya dio.
+    const instruccionContactoAcceso = contactoAccesoExtra
+        ? `
+📌 QUIÉN RECIBE AL TÉCNICO — DATO YA CONFIRMADO:
+- El vecino que escribe NO va a estar presente. Quien recibe al técnico es: *${contactoAccesoExtra}*.
+- Esto YA está confirmado y ya se le pasó al técnico. NO vuelvas a pedir que lo confirme.
+- Si te preguntan quién espera al técnico, respondé ${contactoAccesoExtra} -- NUNCA el nombre del
+  vecino que escribe, aunque sea el titular del reclamo.
+`.trim()
+        : '';
 
     const contextoVecino = (vecino && vecino.edificio)
         ? `
@@ -216,6 +232,7 @@ ${contextoMemoria ? contextoMemoria : 'Primera vez que contacta.'}
 
 # DATOS DEL VECINO
 ${contextoVecino}
+${instruccionContactoAcceso}
 
 ${instruccionIdentificacion}
 ${instruccionDatosFaltantes}
