@@ -50,12 +50,35 @@ function resumir(v) {
     return s.length > 160 ? s.slice(0, 157) + '...' : s;
 }
 
+const dormir = ms => new Promise(r => setTimeout(r, ms));
+
+// Google permite del orden de 60 lecturas por minuto por usuario. Este verificador hace muchas
+// seguidas, así que sin pausas Google corta con un 429 y devuelve vacío -- y eso, sin este
+// cuidado, se lee como "las bases no coinciden" cuando en realidad Sheets no pudo contestar.
+// (Que ese techo exista es, de paso, el mejor motivo para haber migrado: Marcos hace seis u ocho
+// lecturas por mensaje y con varios vecinos escribiendo a la vez lo choca en producción.)
+const PAUSA_ENTRE_CONSULTAS_MS = 1200;
+
+let cuotaAgotada = false;
+const esCuota = txt => /quota|429|rate limit|resource_exhausted/i.test(String(txt || ''));
+
 async function comparar(nombre, fn, args) {
+    const etiqueta = `${fn}(${args.map(a => JSON.stringify(a)).join(', ')})`;
+
+    if (cuotaAgotada) {
+        console.log(`  ⏸️  ${etiqueta} — omitido (Google agotó la cuota de lectura)`);
+        return 'omitido';
+    }
+
     let resSheets, resPg, errS = null, errP = null;
     try { resSheets = await sheets[fn](...args); } catch (e) { errS = e.message; }
     try { resPg = await pg[fn](...args); } catch (e) { errP = e.message; }
 
-    const etiqueta = `${fn}(${args.map(a => JSON.stringify(a)).join(', ')})`;
+    if (esCuota(errS)) {
+        cuotaAgotada = true;
+        console.log(`  ⏸️  ${etiqueta} — Google agotó la cuota de lectura por minuto.`);
+        return 'omitido';
+    }
 
     if (errS || errP) {
         console.log(`  ⚠️  ${etiqueta}`);
@@ -66,11 +89,32 @@ async function comparar(nombre, fn, args) {
 
     if (iguales(resSheets, resPg)) {
         console.log(`  ✅ ${etiqueta}`);
+        await dormir(PAUSA_ENTRE_CONSULTAS_MS);
+        return 'ok';
+    }
+
+    // Una diferencia se confirma antes de reportarla. sheets.js atrapa sus propios errores y
+    // devuelve vacío, así que un 429 llega acá disfrazado de "no encontré nada": si tras esperar
+    // el dato aparece, nunca hubo tal diferencia.
+    console.log(`  … ${etiqueta}: posible diferencia, reintentando en 20s para descartar un corte de Google.`);
+    await dormir(20000);
+
+    let reintento = null, errR = null;
+    try { reintento = await sheets[fn](...args); } catch (e) { errR = e.message; }
+
+    if (esCuota(errR)) {
+        cuotaAgotada = true;
+        console.log(`  ⏸️  ${etiqueta} — Google sigue con la cuota agotada, se omite.`);
+        return 'omitido';
+    }
+
+    if (iguales(reintento, resPg)) {
+        console.log(`  ✅ ${etiqueta} (la primera lectura de Sheets había fallado)`);
         return 'ok';
     }
 
     console.log(`  ❌ ${etiqueta}`);
-    console.log(`      Sheets  : ${resumir(resSheets)}`);
+    console.log(`      Sheets  : ${resumir(reintento)}`);
     console.log(`      Postgres: ${resumir(resPg)}`);
     return 'distinto';
 }
@@ -143,9 +187,16 @@ async function main() {
     const ok = casos.filter(c => c === 'ok').length;
     const distintos = casos.filter(c => c === 'distinto').length;
     const errores = casos.filter(c => c === 'error').length;
+    const omitidos = casos.filter(c => c === 'omitido').length;
 
     console.log('\n' + '─'.repeat(60));
-    console.log(`Coinciden: ${ok}   Distintos: ${distintos}   Con error: ${errores}   (total ${casos.length})`);
+    console.log(`Coinciden: ${ok}   Distintos: ${distintos}   Con error: ${errores}   Omitidos: ${omitidos}   (total ${casos.length})`);
+
+    if (omitidos > 0) {
+        console.log(`\nℹ️  ${omitidos} comprobación(es) quedaron sin hacer porque Google agotó su cuota de`);
+        console.log('   lectura por minuto. No es un problema de los datos: es el techo de la API de');
+        console.log('   Sheets. Esperá un minuto y volvé a correrlo para completar las que faltan.');
+    }
 
     if (distintos === 0 && errores === 0) {
         console.log('\n✅ Las dos bases responden lo mismo en todas las pruebas.');
