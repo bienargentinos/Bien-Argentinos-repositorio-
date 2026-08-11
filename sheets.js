@@ -1109,6 +1109,115 @@ async function buscarRolPorTelefono(telefono) {
     return { rol: 'vecino' };
 }
 
+// ─────────────────────────────────────────────
+// ACCESOS E INSTALACIONES DEL EDIFICIO
+//
+// Dónde está cada cosa y quién tiene la llave: sala de medidores, tablero eléctrico, sala de
+// máquinas, bombas, llave de gas, terraza, tanque. Sin esto, cuando el técnico llega y pregunta
+// "¿dónde está la sala de medidores?" o se encuentra la puerta con candado, Marcos no tiene nada
+// para contestarle y el trabajo se cae aunque el técnico ya esté en la puerta.
+//
+// La tabla se llena de dos maneras y las dos importan:
+//   - El administrador carga lo que sabe desde el panel.
+//   - Marcos anota lo que aparece hablando. Un vecino que dice "yo le abro, tengo llave de la sala
+//     de electricidad" está aportando un dato que el administrador no tenía. Los edificios sin
+//     encargado se sostienen justamente sobre esos vecinos, y esa información no está escrita en
+//     ningún lado hasta que alguien la dice.
+//
+// Por eso cada fila guarda de dónde salió (`origen`): no es lo mismo un dato cargado por la
+// administración que uno que mencionó un vecino al pasar.
+// ─────────────────────────────────────────────
+
+const HEADERS_ACCESOS = ['edificio', 'lugar', 'ubicacion', 'quien_abre', 'telefono', 'tipo_acceso', 'notas', 'origen', 'fecha'];
+
+async function getSheetAccesos() {
+    const doc = await getSheet();
+    let sheet = doc.sheetsByTitle['accesos'];
+    if (!sheet) {
+        sheet = await doc.addSheet({ title: 'accesos', headerValues: HEADERS_ACCESOS });
+        console.log('🔑 Pestaña accesos creada.');
+        return sheet;
+    }
+    await sheet.loadHeaderRow().catch(() => {});
+    const headers = sheet.headerValues || [];
+    const completos = Array.from(new Set([...headers, ...HEADERS_ACCESOS]));
+    if (completos.length > headers.length) await sheet.setHeaderRow(completos).catch(() => {});
+    return sheet;
+}
+
+/**
+ * Todo lo que sabemos sobre accesos e instalaciones de un edificio.
+ */
+async function buscarAccesosEdificio(nombreEdificio) {
+    try {
+        if (!nombreEdificio) return [];
+        const sheet = await getSheetAccesos();
+        const rows = await sheet.getRows();
+        const buscado = String(nombreEdificio).toLowerCase().trim();
+
+        return rows
+            .filter(r => String(r.get('edificio') || '').toLowerCase().trim() === buscado)
+            .filter(r => String(r.get('lugar') || '').trim())
+            .map(r => ({
+                lugar:       r.get('lugar') || '',
+                ubicacion:   r.get('ubicacion') || '',
+                quienAbre:   r.get('quien_abre') || '',
+                telefono:    r.get('telefono') || '',
+                tipoAcceso:  r.get('tipo_acceso') || '',
+                notas:       r.get('notas') || '',
+                origen:      r.get('origen') || '',
+            }));
+    } catch (err) {
+        console.error('Error buscando accesos del edificio:', err.message);
+        return [];
+    }
+}
+
+/**
+ * Guarda o completa un dato de acceso. La clave es edificio + lugar: si el lugar ya estaba
+ * cargado, se completan únicamente los campos que vienen con valor, para que un dato suelto
+ * mencionado al pasar no borre lo que el administrador ya había cargado con más detalle.
+ */
+async function guardarAccesoEdificio({ edificio, lugar, ubicacion = '', quienAbre = '', telefono = '', tipoAcceso = '', notas = '', origen = '' }) {
+    try {
+        if (!edificio || !lugar) return false;
+        const sheet = await getSheetAccesos();
+        const rows = await sheet.getRows();
+
+        const edifBuscado = String(edificio).toLowerCase().trim();
+        const lugarBuscado = String(lugar).toLowerCase().trim();
+        const fila = rows.find(r =>
+            String(r.get('edificio') || '').toLowerCase().trim() === edifBuscado &&
+            String(r.get('lugar') || '').toLowerCase().trim() === lugarBuscado
+        );
+
+        const fecha = new Date().toLocaleString('es-AR');
+
+        if (fila) {
+            if (ubicacion)  fila.set('ubicacion', ubicacion);
+            if (quienAbre)  fila.set('quien_abre', quienAbre);
+            if (telefono)   fila.set('telefono', telefono);
+            if (tipoAcceso) fila.set('tipo_acceso', tipoAcceso);
+            if (notas)      fila.set('notas', notas);
+            if (origen)     fila.set('origen', origen);
+            fila.set('fecha', fecha);
+            await fila.save();
+            console.log(`🔑 Acceso actualizado en ${edificio}: ${lugar}`);
+        } else {
+            await sheet.addRow({
+                edificio, lugar,
+                ubicacion, quien_abre: quienAbre, telefono,
+                tipo_acceso: tipoAcceso, notas, origen, fecha
+            });
+            console.log(`🔑 Nuevo acceso registrado en ${edificio}: ${lugar}${quienAbre ? ` — abre ${quienAbre}` : ''}`);
+        }
+        return true;
+    } catch (err) {
+        console.error('Error guardando acceso del edificio:', err.message);
+        return false;
+    }
+}
+
 module.exports = {
     getSheet,
     buscarVecinoPorTelefono,
@@ -1119,6 +1228,8 @@ module.exports = {
     buscarTecnicoSuplente,
     buscarPersonalDeTurno,
     buscarPerfilEdificio,
+    buscarAccesosEdificio,
+    guardarAccesoEdificio,
     buscarCliente,
     listarEdificiosConocidos,
     buscarMemoriaVecino,

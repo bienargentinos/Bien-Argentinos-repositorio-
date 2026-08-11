@@ -34,6 +34,71 @@ function logDebug(msg) {
     fs.appendFileSync('debug_marcos.log', `[${t}] ${msg}\n`);
 }
 
+// ── APRENDIZAJE DE ACCESOS DEL EDIFICIO ──────────────────────────────────────
+// El administrador rara vez tiene cargado todo: dónde está la sala de medidores, quién tiene la
+// llave del tablero, si la sala de máquinas está con candado. Esos datos aparecen solos en la
+// conversación -- "mandá al técnico que sale humo de la sala de electricidad, yo le abro que tengo
+// llave" -- y hasta ahora se perdían apenas terminaba el chat. En los edificios sin encargado, que
+// son los que más lo necesitan, ese vecino ES el acceso.
+//
+// Marcos los anota a medida que aparecen, con constancia de quién los aportó. No pregunta por
+// ellos: solo escucha.
+
+const PISTAS_ACCESO = /\b(llave|llaves|candado|tablero|medidor(es)?|sala de m[aá]quinas|sala de electricidad|sala el[eé]ctrica|bomba(s)?|tanque|terraza|azotea|s[oó]tano|subsuelo|palanca de gas|llave de gas|acceso|abrir|abro|le abro|qr|llavero)\b/i;
+
+async function aprenderAccesosDeConversacion({ texto, edificio, quienLoDijo, telefono }) {
+    if (!texto || !edificio || !PISTAS_ACCESO.test(texto)) return;
+
+    try {
+        const { GoogleGenAI } = require('@google/genai');
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+        const prompt = `Leé este mensaje de alguien de un consorcio y extraé SOLO datos concretos sobre instalaciones del edificio y sus accesos.
+
+Mensaje de ${quienLoDijo || 'una persona del edificio'}:
+"""
+${texto}
+"""
+
+Devolvé SOLO un array JSON (sin markdown ni backticks). Cada elemento:
+{"lugar":"nombre normalizado del lugar","ubicacion":"dónde está, si lo dice","quien_abre":"quién tiene la llave o puede abrir","tipo_acceso":"llave|candado|qr|llavero magnetico|libre","notas":"detalle util"}
+
+Usá para "lugar" nombres normalizados: "sala de medidores", "tablero electrico", "sala de maquinas",
+"sala de bombas", "llave de gas", "terraza", "tanque de agua", "sotano", "puerta de entrada".
+
+REGLAS:
+- Solo extraé lo que la persona AFIRMA como un hecho. Si pregunta algo, no es un dato.
+- Si dice que ella misma tiene la llave, poné su nombre en "quien_abre".
+- Si no hay ningún dato concreto de instalaciones o accesos, devolvé exactamente: []`;
+
+        const resp = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+        const crudo = String(resp?.text || '').replace(/```json|```/g, '').trim();
+        if (!crudo || crudo === '[]') return;
+
+        let datos;
+        try { datos = JSON.parse(crudo); } catch { return; }
+        if (!Array.isArray(datos) || datos.length === 0) return;
+
+        const { guardarAccesoEdificio } = require('./datos');
+        const origen = `${quienLoDijo || 'vecino'}${telefono ? ` (${String(telefono).replace(/\D/g, '')})` : ''}`;
+
+        for (const d of datos) {
+            if (!d?.lugar) continue;
+            await guardarAccesoEdificio({
+                edificio,
+                lugar:      String(d.lugar).toLowerCase().trim(),
+                ubicacion:  d.ubicacion || '',
+                quienAbre:  d.quien_abre || '',
+                tipoAcceso: d.tipo_acceso || '',
+                notas:      d.notas || '',
+                origen:     `Aportado por ${origen}`
+            });
+        }
+    } catch (err) {
+        console.error('Error aprendiendo accesos de la conversación:', err.message);
+    }
+}
+
 // ── REGISTRO DEL CHAT EN POSTGRES (Visor de Chat en Vivo) ────────────────────
 // Hasta ahora la conversación real no se guardaba en ningún lado: la pestaña `reportes` solo
 // tiene el resumen final que escribe la IA (`notas_ia`), así que el drawer del dashboard nunca
@@ -1201,13 +1266,20 @@ function validarYSanitizarNombre(nombre) {
             } catch (e) { console.error('Error leyendo autorización de contacto guardada:', e.message); }
         }
 
+        let accesosDelEdificio = [];
+        try {
+            const { buscarAccesosEdificio } = require('./datos');
+            accesosDelEdificio = await buscarAccesosEdificio(edifNomCatchAll);
+        } catch (e) { console.error('Error cargando accesos del edificio:', e.message); }
+
         const respGenericaProveedor = await generarRespuestaTecnicoLibre({
             mensajeTecnico: msgBody,
             nombreTecnico: datosEmisor.nombre,
             vecino: vecinoActivoCatchAll,
             edificio: edifNomCatchAll,
             perfilEdificio: perfilEdifCatchAll,
-            contactoAccesoExtra
+            contactoAccesoExtra,
+            accesosEdificio: accesosDelEdificio
         });
         await despacharRespuesta(recipient, respGenericaProveedor, msgTypeRespuesta);
         historial.push(`Marcos: ${respGenericaProveedor}`);
@@ -1329,6 +1401,20 @@ function validarYSanitizarNombre(nombre) {
                 await guardarAutorizacionContacto({ telefono: from, autoriza: true, contactoAcceso: telOtro });
             } catch (e) { console.error('Error persistiendo autorización de contacto:', e.message); }
         }
+    }
+
+    // Escuchar datos de accesos que la persona menciona al pasar. No se espera: si tarda o falla,
+    // la conversación sigue igual -- es información que se gana de yapa, nunca a costa de la
+    // atención.
+    if (session.nombreEdificio && textoFinal) {
+        aprenderAccesosDeConversacion({
+            texto: textoFinal,
+            edificio: session.nombreEdificio,
+            quienLoDijo: datosEmisor.rol === 'proveedor'
+                ? `el técnico ${datosEmisor.nombre || ''}`.trim()
+                : (vecino?.nombre && vecino.nombre !== 'Vecino' ? vecino.nombre : 'un vecino'),
+            telefono: from
+        }).catch(() => {});
     }
 
     // Si la sesión no tiene el contacto de acceso pero el vecino ya lo había autorizado antes, lo
@@ -1752,7 +1838,7 @@ function validarYSanitizarNombre(nombre) {
 // Se usa para cualquier mensaje del técnico que no sea "pide foto/datos" ni "manda factura"
 // (confirmaciones, preguntas puntuales como "¿quién me recibe?", quejas, etc.), para que Marcos
 // conteste lo que realmente le preguntaron en vez de una frase enlatada fija.
-async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vecino, edificio, perfilEdificio, contactoAccesoExtra = '' }) {
+async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vecino, edificio, perfilEdificio, contactoAccesoExtra = '', accesosEdificio = [] }) {
     try {
         const nomVecino = (vecino?.nombre && vecino.nombre !== 'Vecino' && vecino.nombre !== 'Desconocido') ? vecino.nombre : '';
         const identVecino = nomVecino
@@ -1768,6 +1854,20 @@ async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vec
             contactoAccesoExtra ? `Contacto adicional autorizado por el vecino: ${contactoAccesoExtra}` : '',
             perfilEdificio?.tel_seguridad ? `Portería/seguridad de la entrada: ${perfilEdificio.tel_seguridad}` : ''
         ].filter(Boolean).join(' | ') || 'Sin teléfono de contacto cargado todavía.';
+        // Dónde está cada instalación y quién tiene la llave. Es lo que el técnico pregunta cuando
+        // ya está en el lugar ("¿dónde está la sala de medidores?", "está con candado, ¿quién abre?")
+        // y sin lo cual el trabajo se cae con el técnico parado en la puerta.
+        const infoInstalaciones = (accesosEdificio || []).length
+            ? (accesosEdificio || []).map(a => {
+                const partes = [a.lugar];
+                if (a.ubicacion) partes.push(`está en ${a.ubicacion}`);
+                if (a.tipoAcceso) partes.push(`acceso: ${a.tipoAcceso}`);
+                if (a.quienAbre) partes.push(`abre ${a.quienAbre}${a.telefono ? ` (${a.telefono})` : ''}`);
+                if (a.notas) partes.push(a.notas);
+                return `  · ${partes.join(' — ')}`;
+            }).join('\n')
+            : '  (todavía no hay datos cargados de instalaciones ni de llaves en este edificio)';
+
         const accesoInfo = perfilEdificio?.tel_seguridad
             ? `Hay portería/seguridad en la entrada (tel: ${perfilEdificio.tel_seguridad}).`
             : `El acceso ya fue coordinado por Marcos con ${identVecino}, que lo está esperando.`;
@@ -1783,6 +1883,13 @@ Datos reales del caso que tenés disponibles:
 - Dirección: ${direccion}
 - Acceso: ${accesoInfo}
 - Teléfonos de contacto para el ingreso: ${telefonosAcceso}
+- Instalaciones del edificio y quién tiene la llave de cada una:
+${infoInstalaciones}
+
+Si el técnico pregunta dónde está una instalación (sala de medidores, tablero, sala de máquinas,
+bombas, llave de gas, terraza, tanque) o quién le abre, contestale con estos datos. Si el lugar que
+pregunta NO figura arriba, decile con franqueza que no lo tenés cargado y que lo averiguás, y no lo
+inventes: mandarlo al lugar equivocado le hace perder el viaje.
 
 Instrucciones:
 - Respondé de forma breve (1-2 oraciones), profesional, en "usted".

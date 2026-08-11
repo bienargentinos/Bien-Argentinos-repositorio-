@@ -153,6 +153,16 @@ const MAPEOS = [
         },
     },
     {
+        pestaña: 'accesos',
+        tabla: 'accesos',
+        clave: ['edificio', 'lugar'],
+        columnas: {
+            edificio: 'edificio', lugar: 'lugar', ubicacion: 'ubicacion',
+            quien_abre: 'quien_abre', telefono: 'telefono', tipo_acceso: 'tipo_acceso',
+            notas: 'notas', origen: 'origen', fecha: 'fecha',
+        },
+    },
+    {
         pestaña: 'consejo',
         tabla: 'consejo',
         clave: ['edificio', 'nombre'],

@@ -32,6 +32,7 @@ const EQUIVALENCIAS = {
     tecnicos: 'tecnicos',
     personal: 'personal',
     consejo: 'consejo',
+    accesos: 'accesos',
     suscripciones_planes: 'suscripciones_planes',
 };
 

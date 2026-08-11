@@ -32,6 +32,7 @@ const CLAVES = [
     { tabla: 'tecnicos',               columnas: ['nombre', 'telefono'] },
     { tabla: 'personal',               columnas: ['edificio', 'nombre', 'rol'] },
     { tabla: 'consejo',                columnas: ['edificio', 'nombre'] },
+    { tabla: 'accesos',                columnas: ['edificio', 'lugar'] },
     { tabla: 'suscripciones_planes',   columnas: ['nombre'] },
     { tabla: 'reportes',               columnas: ['codigo_caso'] },
 ];

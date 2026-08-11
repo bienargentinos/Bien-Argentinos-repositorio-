@@ -199,6 +199,24 @@ async function initPgSchema() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- Donde esta cada instalacion del edificio y quien tiene la llave. Se llena de dos
+            -- lados: lo que carga el administrador, y lo que Marcos anota cuando alguien lo
+            -- menciona hablando ("yo le abro, tengo llave de la sala de electricidad"). Por eso
+            -- cada fila guarda de donde salio el dato.
+            CREATE TABLE IF NOT EXISTS accesos (
+                id SERIAL PRIMARY KEY,
+                edificio VARCHAR(150),
+                lugar VARCHAR(150),
+                ubicacion TEXT,
+                quien_abre VARCHAR(150),
+                telefono VARCHAR(50),
+                tipo_acceso VARCHAR(100),
+                notas TEXT,
+                origen VARCHAR(150),
+                fecha VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             -- ── TABLAS QUE EXISTEN EN LA PLANILLA Y FALTABAN ACA ──────────────────
             -- Sin estas cuatro, migrar a PostgreSQL dejaba a Marcos sin datos que usa todos los
             -- dias: buscarTecnicoSuplente() lee "tecnicos" y buscarPersonalDeTurno() lee
