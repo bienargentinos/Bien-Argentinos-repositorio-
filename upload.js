@@ -7,7 +7,9 @@ conn.on('ready', () => {
         if (err) throw err;
         
         const files = [
-            { local: 'dashboard.js', remote: '/root/marcos/Consorcio-AI-Assistant/dashboard.js' }
+            { local: 'dashboard.js', remote: '/root/marcos/Consorcio-AI-Assistant/dashboard.js' },
+            { local: 'rutas-accesos.js', remote: '/root/marcos/Consorcio-AI-Assistant/rutas-accesos.js' },
+            { local: 'accesos.js', remote: '/root/marcos/Consorcio-AI-Assistant/accesos.js' }
         ];
         
         let count = 0;
