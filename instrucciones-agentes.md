@@ -70,10 +70,54 @@ El sistema de notificaciones por email está configurado de forma robusta en `ag
    * El despliegue de estos archivos se hace **únicamente vía Git (`git pull origin <rama>`)** en `/root/marcos/Consorcio-AI-Assistant`.
    * Si se requiere subir una modificación puntual de frontend/panel, solo se actualizará `dashboard.js`.
 
-2. **Base de Datos SQLite (`db.js`)**:
-   * Toda la persistencia de datos (vecinos, edificios, reportes, mensajes de chat mensaje por mensaje, clientes, proveedores, llamadas) se maneja en la base de datos relacional local `marcos_database.sqlite` mediante `db.js`.
-   * `migrate-sheets-to-sql.js` permite importar todas las hojas de Google Sheets a la base de datos SQLite sin perder registros.
+2. **Base de Datos: PostgreSQL (`db-pg.js`) — SQLite quedó obsoleto**:
+   * La base oficial es **PostgreSQL** (`marcos_db`) a través de `db-pg.js`. Incluye `pgvector` para memoria semántica.
+   * `db.js` (SQLite) y `migrate-sheets-to-sql.js` **ya no se usan**. Ningún archivo del sistema vivo debe requerir `./db`. Si encontrás un `require('./db')`, es un error: va a leer una base vacía y devolver resultados en blanco sin dar ningún error visible.
+   * `importar-sheets-a-pg.js` importa la planilla a PostgreSQL. Es idempotente: se puede correr las veces que haga falta. `migrate-sheets-to-sql-pg.js` quedó obsoleto (adivinaba nombres de pestañas y por eso importaba mal).
+   * `diagnostico-sheets.js` y `reparar-datos-pg.js` son de apoyo, ambos con modo `--simular`.
 
 3. **Retardo de Acumulación (25 Segundos)**:
    * Marcos IA debe respetar obligatoriamente la ventana de acumulación de **25 segundos** (`25000 ms`) para ráfagas de mensajes de WhatsApp.
 
+
+---
+
+## 🤝 REPARTO DE TERRITORIO ENTRE AGENTES (CONTRATO DE TRABAJO EN EQUIPO)
+
+En este proyecto trabajan tres agentes en paralelo sobre la misma rama. **Cada archivo tiene un
+solo dueño.** Si necesitás un cambio en un archivo que no es tuyo, **pedíselo a Daniel** para que
+lo derive — no lo edites por tu cuenta.
+
+| Archivo / recurso | Dueño | Los demás |
+|---|---|---|
+| `index.js`, `agentes/*.js`, `sheets.js`, `datos.js`, `db-pg.js` | **Claude** (motor) | solo lectura |
+| `dashboard.js`, `design/` | **Antigravity / Dash** (panel) | solo lectura |
+| Google Sheets "Base Maestra Bien Argentinos" (contenido) | **Gemini** (datos) | solo lectura |
+| `instrucciones-agentes.md`, `REGLAS_INMUTABLES_MARCOS.md`, `CLAUDE.md` | compartido | avisar antes de cambiar |
+
+### Excepción explícita dentro de `dashboard.js`
+Los endpoints `/api/mensajes` y `/api/busqueda-global` deben requerir **`./db-pg`** (PostgreSQL) y
+usar `await`. **No los cambies a `./db`**: el motor no escribe en SQLite, así que el visor de chat
+quedaría vacío para siempre sin dar ningún error.
+
+### Reglas para quien toca la planilla de Google Sheets
+* El código busca las columnas **por el nombre exacto del encabezado**. **PROHIBIDO** renombrar,
+  traducir, cambiar mayúsculas/acentos o reordenar columnas existentes. Agregar columnas nuevas al
+  final es seguro.
+* **PROHIBIDO** repetir un nombre de encabezado dentro de una misma pestaña: la librería se niega a
+  leer la pestaña entera y el dato desaparece del sistema sin aviso.
+* **PROHIBIDO** "corregir" los nombres de edificios y alias. En particular `san patricio 27'0 casa`
+  se escribe así a propósito (ver `REGLAS_INMUTABLES_MARCOS.md`, punto 1): tocarlo rompe el
+  aislamiento entre los dos edificios de la calle San Patricio.
+* Los nombres de las pestañas también son parte del contrato: `VECINOS`, `EVENTOS`, `EDIFICIOS`,
+  `CLIENTES`, `proveedores`, `proveedor_asignaciones`, `memoria`, `facturas`, `tecnicos`,
+  `personal`, `consejo`, `solicitudes`, `suscripciones_planes`.
+
+### Etapa actual de la migración a PostgreSQL
+1. ✅ Esquema alineado con la planilla real e import idempotente.
+2. ✅ **Escritura duplicada** (`datos.js`): Sheets es la fuente de verdad y recibe la escritura;
+   PostgreSQL recibe una copia que no puede romper nada.
+3. ⏳ **Pendiente**: pasar las lecturas a PostgreSQL, una función por vez.
+
+> Hasta terminar el punto 3, **Google Sheets sigue siendo la fuente de verdad**. No borres datos de
+> la planilla ni la des por reemplazada.
