@@ -307,6 +307,11 @@ async function _initPgSchema() {
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS chat_vecino_json TEXT;
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS chat_proveedor_json TEXT;
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS tecnico_notificado VARCHAR(100);
+            -- Cuando hay que volver a controlar el caso. Vive en la fila y no en un setTimeout
+            -- justamente para que un reinicio del proceso no lo borre.
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS proximo_seguimiento TEXT;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS seguimiento_paso VARCHAR(10);
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS seguimiento_nota TEXT;
 
             -- La lista maestra de proveedores de la planilla tiene "edificio".
             ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS edificio VARCHAR(150);

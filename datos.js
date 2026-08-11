@@ -78,6 +78,79 @@ async function upsert(tabla, clave, valores) {
     }
 }
 
+// ── LECTURAS (PostgreSQL primero, Sheets de respaldo) ───────────────────────
+//
+// Cada lectura sale de PostgreSQL, que está en el mismo servidor: menos de 1ms contra los varios
+// cientos de milisegundos que tarda un viaje HTTP a Google. En una conversación Marcos hace seis u
+// ocho de estas búsquedas, así que es la mayor parte de lo que hoy tarda en contestar.
+//
+// Si PostgreSQL no encuentra nada, se le pregunta a Sheets igual. Eso hace el cambio reversible en
+// los hechos: mientras Sheets siga siendo la fuente de verdad, un dato que todavía no llegó a
+// PostgreSQL no rompe nada -- se responde más lento y se avisa en el log, pero se responde. El día
+// que los avisos dejen de aparecer, sabemos que la copia está completa.
+//
+// Con LECTURA_PG=off en el .env todo vuelve a salir de Sheets, sin tocar código.
+
+const LECTURA_PG = String(process.env.LECTURA_PG || 'on').toLowerCase() !== 'off';
+
+const vacio = v => v === null || v === undefined ||
+    (Array.isArray(v) && v.length === 0) ||
+    (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+
+/**
+ * Intenta leer de PostgreSQL y cae a Sheets si no hay dato o si algo falla.
+ * @param {string} nombre  Para poder identificar en el log qué lectura cayó al respaldo.
+ */
+async function leer(nombre, args, fnPg, fnSheets) {
+    if (LECTURA_PG) {
+        try {
+            const pg = require('./datos-pg');
+            const res = await pg[fnPg](...args);
+            if (!vacio(res)) return res;
+            console.log(`↩️ ${nombre}: sin dato en PostgreSQL, se consulta Sheets.`);
+        } catch (err) {
+            console.error(`↩️ ${nombre}: error leyendo de PostgreSQL (${err.message}). Se consulta Sheets.`);
+        }
+    }
+    return sheets[fnSheets](...args);
+}
+
+async function buscarVecinosPorTelefono(telefono) {
+    return leer('buscarVecinosPorTelefono', [telefono], 'buscarVecinosPorTelefono', 'buscarVecinosPorTelefono');
+}
+async function buscarVecinoPorTelefono(telefono) {
+    return leer('buscarVecinoPorTelefono', [telefono], 'buscarVecinoPorTelefono', 'buscarVecinoPorTelefono');
+}
+async function buscarPerfilEdificio(nombreEdificio) {
+    return leer('buscarPerfilEdificio', [nombreEdificio], 'buscarPerfilEdificio', 'buscarPerfilEdificio');
+}
+async function listarEdificiosConocidos() {
+    return leer('listarEdificiosConocidos', [], 'listarEdificiosConocidos', 'listarEdificiosConocidos');
+}
+async function buscarPersonalDeTurno(args) {
+    return leer('buscarPersonalDeTurno', [args], 'buscarPersonalDeTurno', 'buscarPersonalDeTurno');
+}
+async function buscarMemoriaVecino(telefono) {
+    return leer('buscarMemoriaVecino', [telefono], 'buscarMemoriaVecino', 'buscarMemoriaVecino');
+}
+async function buscarAccesosEdificio(edificio) {
+    return leer('buscarAccesosEdificio', [edificio], 'buscarAccesosEdificio', 'buscarAccesosEdificio');
+}
+
+// El rol nunca "no está": alguien desconocido es un vecino. Por eso su respaldo no se activa por
+// respuesta vacía sino solo ante un error: si Postgres dice "vecino", esa es la respuesta buena y
+// preguntarle a Sheets sería puro gasto.
+async function buscarRolPorTelefono(telefono) {
+    if (LECTURA_PG) {
+        try {
+            return await require('./datos-pg').buscarRolPorTelefono(telefono);
+        } catch (err) {
+            console.error(`↩️ buscarRolPorTelefono: error leyendo de PostgreSQL (${err.message}). Se consulta Sheets.`);
+        }
+    }
+    return sheets.buscarRolPorTelefono(telefono);
+}
+
 // ── ESCRITURAS (Sheets manda, PostgreSQL recibe copia) ──────────────────────
 
 async function guardarReporte(datos) {
@@ -227,6 +300,52 @@ async function guardarLlamada(datos) {
     return res;
 }
 
+async function guardarAccesoEdificio(datos) {
+    const res = await sheets.guardarAccesoEdificio(datos);
+    if (datos?.edificio && datos?.lugar) {
+        copiarAPg(`el acceso "${datos.lugar}"`, () => upsert('accesos', ['edificio', 'lugar'], {
+            edificio:    datos.edificio,
+            lugar:       String(datos.lugar).toLowerCase().trim(),
+            ubicacion:   datos.ubicacion || '',
+            quien_abre:  datos.quienAbre || '',
+            telefono:    datos.telefono || '',
+            tipo_acceso: datos.tipoAcceso || '',
+            notas:       datos.notas || '',
+            origen:      datos.origen || '',
+            fecha:       new Date().toLocaleString('es-AR'),
+        }));
+    }
+    return res;
+}
+
+async function programarSeguimiento(datos) {
+    const res = await sheets.programarSeguimiento(datos);
+    if (datos?.id_evento) {
+        copiarAPg(`el seguimiento de ${datos.id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET proximo_seguimiento = $2, seguimiento_paso = $3 WHERE codigo_caso = $1`,
+                [datos.id_evento, new Date(datos.cuando).toISOString(), String(datos.paso ?? 1)]
+            );
+        });
+    }
+    return res;
+}
+
+async function cancelarSeguimiento(id_evento) {
+    const res = await sheets.cancelarSeguimiento(id_evento);
+    if (id_evento) {
+        copiarAPg(`la baja del seguimiento de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET proximo_seguimiento = NULL, seguimiento_paso = NULL WHERE codigo_caso = $1`,
+                [id_evento]
+            );
+        });
+    }
+    return res;
+}
+
 // ── EXPORTACIÓN ─────────────────────────────────────────────────────────────
 // Todo lo que no está envuelto arriba pasa tal cual a sheets.js: las lecturas todavía salen de
 // Google Sheets, que sigue siendo la fuente de verdad en esta etapa.
@@ -241,4 +360,15 @@ module.exports = {
     marcarTecnicoNotificado,
     marcarCasoResueltoPorId,
     guardarLlamada,
+    guardarAccesoEdificio,
+    programarSeguimiento,
+    cancelarSeguimiento,
+    buscarVecinosPorTelefono,
+    buscarVecinoPorTelefono,
+    buscarPerfilEdificio,
+    listarEdificiosConocidos,
+    buscarPersonalDeTurno,
+    buscarMemoriaVecino,
+    buscarRolPorTelefono,
+    buscarAccesosEdificio,
 };
