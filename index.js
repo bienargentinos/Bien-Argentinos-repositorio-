@@ -236,13 +236,19 @@ app.post('/webhook', async (req, res) => {
             // etc.). Antes caía en el `else { return }` de abajo y se descartaba en silencio.
             const contactosRecibidos = (message.contacts || []).map(c => {
                 const nombreCto = c?.name?.formatted_name || [c?.name?.first_name, c?.name?.last_name].filter(Boolean).join(' ') || 'Contacto';
-                const telCto = (c?.phones || []).map(p => String(p?.wa_id || p?.phone || '').replace(/\D/g, '')).filter(Boolean)[0] || '';
-                return { nombre: nombreCto, telefono: telCto };
+                // Una ficha de WhatsApp puede tener VARIOS números (el fijo y el celular, el
+                // personal y el del trabajo). Quedarse con el primero y descartar el resto hacía
+                // que el informe llevara uno y el aviso de acceso otro: el técnico recibía dos
+                // números distintos para la misma persona y no sabía a cuál llamar.
+                const telefonosCto = [...new Set(
+                    (c?.phones || []).map(p => String(p?.wa_id || p?.phone || '').replace(/\D/g, '')).filter(Boolean)
+                )];
+                return { nombre: nombreCto, telefono: telefonosCto[0] || '', telefonos: telefonosCto, ficha: c };
             }).filter(c => c.telefono);
 
             if (contactosRecibidos.length === 0) return;
             contactosCompartidos = contactosRecibidos;
-            msgBody = `(Contacto compartido) ${contactosRecibidos.map(c => `${c.nombre}: ${c.telefono}`).join(', ')}`;
+            msgBody = `(Contacto compartido) ${contactosRecibidos.map(c => `${c.nombre}: ${c.telefonos.join(' / ')}`).join(', ')}`;
             console.log(`👤 Ficha(s) de contacto recibida(s) de ${from}: ${msgBody}`);
         } else if (msgType === 'unsupported' || msgType === 'system') {
             console.log(`📞 Intento de llamada o evento de sistema detectado de ${from}`);
@@ -1526,7 +1532,13 @@ function validarYSanitizarNombre(nombre) {
     // literalmente está diciendo "hablá con esta persona". Se guarda como contacto de acceso.
     if (datosEmisor.rol !== 'proveedor' && Array.isArray(contactosCompartidos) && contactosCompartidos.length > 0) {
         const ctoAcceso = contactosCompartidos[0];
-        session.contactoAccesoExtra = `${ctoAcceso.nombre} (${ctoAcceso.telefono})`;
+        const telsCto = ctoAcceso.telefonos?.length ? ctoAcceso.telefonos : [ctoAcceso.telefono];
+        session.contactoAccesoExtra = `${ctoAcceso.nombre} (${telsCto.join(' / ')})`;
+        // La ficha original se guarda tal cual para poder REENVIARLA como tarjeta, en vez de
+        // desglosarla en texto. Con dos números, cualquier desglose obliga a elegir uno y el
+        // técnico se queda sin saber si el otro también sirve.
+        session.contactoAccesoFicha = contactosCompartidos.map(c => c.ficha).filter(Boolean);
+        session.contactoAccesoNombre = ctoAcceso.nombre;
         console.log(`📞 Contacto de acceso guardado desde ficha compartida: ${session.contactoAccesoExtra}`);
         try {
             const { guardarAutorizacionContacto } = require('./datos');
@@ -1534,7 +1546,12 @@ function validarYSanitizarNombre(nombre) {
         } catch (e) { console.error('Error persistiendo autorización de contacto:', e.message); }
     }
 
-    if (datosEmisor.rol !== 'proveedor' && /pasal|pásal|pasale|llam[aá]|tel[eé]fono|celular|n[uú]mero/i.test(textoFinal || '')) {
+    // Un número dictado de palabra NO pisa una ficha de contacto ya compartida: la ficha es el dato
+    // explícito y completo, el número suelto puede ser cualquier cosa que el vecino mencionó al
+    // pasar. Antes el orden era al revés y por eso el informe salía con el nombre y un número, y
+    // el aviso de acceso con otro distinto.
+    if (datosEmisor.rol !== 'proveedor' && !session.contactoAccesoFicha &&
+        /pasal|pásal|pasale|llam[aá]|tel[eé]fono|celular|n[uú]mero/i.test(textoFinal || '')) {
         const telsMencionados = String(textoFinal || '').match(/\b\d{8,}\b/g) || [];
         const telPropio = String(from || '').replace(/\D/g, '');
         const telOtro = telsMencionados
@@ -1956,8 +1973,26 @@ function validarYSanitizarNombre(nombre) {
                 const dirContacto = perfilEdificio?.direccion || edifParaContacto || 'el edificio';
                 const msgContactoAcceso = `📞 *MARCOS — CONTACTO PARA EL INGRESO*\n\n` +
                     `Hola ${tecnicoParaContacto.nombre}, para la visita en ${dirContacto} el vecino dejó este contacto para que le abran: *${session.contactoAccesoExtra}*.\n` +
+                    (/\s\/\s/.test(session.contactoAccesoExtra)
+                        ? `Tiene más de un número registrado: te paso la ficha completa acá abajo, probá con cualquiera.\n`
+                        : '') +
                     `Si al llegar no te abren, comunicate directamente con esa persona y avisame cualquier inconveniente.`;
                 await enviarWhatsApp(tecnicoParaContacto.telefono, msgContactoAcceso, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+
+                // Y además la ficha tal como la mandó el vecino. Es lo que haría cualquier persona:
+                // reenviar el contacto en vez de dictarlo. Con una ficha de dos números, cualquier
+                // texto obliga a elegir uno y el técnico se queda sin saber si el otro también
+                // sirve; la tarjeta llega completa y se guarda de un toque.
+                if (Array.isArray(session.contactoAccesoFicha) && session.contactoAccesoFicha.length > 0) {
+                    const { enviarContactoWhatsApp } = require('./agentes/marcos-ops');
+                    await enviarContactoWhatsApp(
+                        tecnicoParaContacto.telefono,
+                        session.contactoAccesoFicha,
+                        WHATSAPP_PHONE_NUMBER_ID,
+                        WHATSAPP_ACCESS_TOKEN
+                    );
+                }
+
                 session.contactoAccesoAvisadoATecnico = true;
                 console.log(`📞 Contacto de acceso (${session.contactoAccesoExtra}) enviado proactivamente al técnico ${tecnicoParaContacto.nombre}.`);
             }

@@ -442,6 +442,41 @@ async function generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id
         `Por favor confirmame si podés pasar. ¡Gracias!`;
 }
 
+/**
+ * Reenvía una ficha de contacto tal como la mandó el vecino, como tarjeta de WhatsApp.
+ *
+ * Desglosar el contacto en texto obliga a elegir UN número, y una ficha puede tener dos (el
+ * celular y el fijo, el personal y el del trabajo). Al elegir uno se pierde el otro y el técnico
+ * recibe un dato incompleto sin saberlo. Reenviando la tarjeta pasa lo mismo que cuando una
+ * persona reenvía un contacto: llegan todos los números, con su nombre, y se puede guardar de un
+ * toque.
+ *
+ * @param {Array} contactos Las fichas crudas tal como llegaron en el webhook de Meta.
+ */
+async function enviarContactoWhatsApp(to, contactos, phoneNumberId, accessToken) {
+    if (!Array.isArray(contactos) || contactos.length === 0) return false;
+    try {
+        await axios.post(
+            `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+            {
+                messaging_product: 'whatsapp',
+                recipient_type: 'individual',
+                to: normalizarTelefonoWhatsApp(to),
+                type: 'contacts',
+                contacts: contactos,
+            },
+            { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+        );
+        console.log(`👤 Ficha de contacto reenviada a ${to}.`);
+        return true;
+    } catch (err) {
+        // Si Meta rechaza la tarjeta, el llamador todavía puede mandar el texto: perder el dato
+        // por completo sería peor que mandarlo desglosado.
+        console.error('Error reenviando la ficha de contacto:', err.response?.data?.error?.message || err.message);
+        return false;
+    }
+}
+
 function normalizarTelefonoWhatsApp(telefono) {
     if (!telefono) return '';
     let num = String(telefono).replace(/\D/g, '');
@@ -709,6 +744,7 @@ module.exports = {
     enviarImagenWhatsApp,
     enviarVideoWhatsApp,
     normalizarTelefonoWhatsApp,
+    enviarContactoWhatsApp,
     ubicacionParaTecnico,
     interpretarRespuestaTecnico,
     redactarNovedadParaTecnico,
