@@ -2695,6 +2695,7 @@ function separarConversacionesEvento(datos) {
   if (!datos) return { chatVecino: [], chatProveedor: [] };
 
   var rawSources = [
+    datos.chat_pg,
     datos.historial_chat_vecino,
     datos.chat_vecino_json,
     datos.historial_chat_proveedor,
@@ -3120,18 +3121,18 @@ function abrirDrawerEvento(idx){
       .then(function(r) { return r.json(); })
       .then(function(j) {
         if (j && j.ok && Array.isArray(j.mensajes) && j.mensajes.length > 0) {
-          var msgsVecino = j.mensajes.filter(function(m) { return m.remitente !== 'tecnico' && m.remitente !== 'proveedor'; });
-          var msgsProveedor = j.mensajes.filter(function(m) { return m.remitente === 'tecnico' || m.remitente === 'proveedor'; });
+          datos.chat_pg = j.mensajes;
+          var convSep2 = separarConversacionesEvento(datos);
 
           var panelV = document.getElementById('panel-chat-vecino');
-          if (panelV && msgsVecino.length > 0) {
+          if (panelV && convSep2.chatVecino.length > 0) {
             var chatVBox = panelV.querySelector('.chat-box');
-            if (chatVBox) chatVBox.outerHTML = renderizarBloqueChat(msgsVecino, 'vecino', datos);
+            if (chatVBox) chatVBox.outerHTML = renderizarBloqueChat(convSep2.chatVecino, 'vecino', datos);
           }
           var panelP = document.getElementById('panel-chat-proveedor');
-          if (panelP && msgsProveedor.length > 0) {
+          if (panelP && convSep2.chatProveedor.length > 0) {
             var chatPBox = panelP.querySelector('.chat-box');
-            if (chatPBox) chatPBox.outerHTML = renderizarBloqueChat(msgsProveedor, 'proveedor', datos);
+            if (chatPBox) chatPBox.outerHTML = renderizarBloqueChat(convSep2.chatProveedor, 'proveedor', datos);
           }
         }
       })
