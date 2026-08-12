@@ -2732,15 +2732,17 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
 
   if (chatLines.length > 0) {
     var bubbles = chatLines.map(function(line) {
-      var str = typeof line === 'object' ? ((line.emisor ? line.emisor + ': ' : '') + (line.texto || line.mensaje || '')) : String(line);
+      var rem = typeof line === 'object' ? String(line.remitente || line.emisor || '').toLowerCase() : '';
+      var str = typeof line === 'object' ? ((line.emisor ? line.emisor + ': ' : (rem ? rem + ': ' : '')) + (line.texto || line.mensaje || '')) : String(line);
       var horaTag = (typeof line === 'object' && line.hora) ? line.hora : '';
 
-      var isFamiliar = /^(Familiar|Pariente)/i.test(str);
-      var isVecino = /^(Vecino|Usuario|Cliente|Titular)/i.test(str);
-      var isProveedor = /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
-      var isEncargado = /^(Encargado|Seguridad|Portero|Portería)/i.test(str);
+      var isFamiliar = rem === 'familiar' || /^(Familiar|Pariente)/i.test(str);
+      var isVecino = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular)/i.test(str);
+      var isProveedor = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
+      var isEncargado = rem === 'encargado' || rem === 'portero' || rem === 'seguridad' || /^(Encargado|Seguridad|Portero|Portería)/i.test(str);
+      var isAdmin = rem === 'admin' || rem === 'administracion' || /^(Admin|Administración)/i.test(str);
 
-      var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería)(\s*\(.*\?\))?:\s*/i, '');
+      var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería|Admin|Administración)(\s*\(.*\?\))?:\s*/i, '');
       
       var senderLabel = 'Marcos IA';
       var align = 'margin-right:auto;background:#FFFFFF;color:#16233B;border:1px solid #E1E7F0;border-bottom-left-radius:2px;';
@@ -2769,6 +2771,11 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         align = 'margin-left:auto;background:#EDE9FE;color:#4C1D95;border:1px solid #DDD6FE;border-bottom-right-radius:2px;';
         icon = '👷';
         tagBg = '#DDD6FE'; tagFg = '#5B21B6';
+      } else if (isAdmin) {
+        senderLabel = 'Administración';
+        align = 'margin-left:auto;background:#F3E8FF;color:#581C87;border:1px solid #E9D5FF;border-bottom-right-radius:2px;';
+        icon = '👔';
+        tagBg = '#E9D5FF'; tagFg = '#6B21A8';
       }
 
       var mediaRes = procesarLineaMultimediaChat(cleanText);
