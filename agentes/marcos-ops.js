@@ -453,8 +453,49 @@ async function generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id
  *
  * @param {Array} contactos Las fichas crudas tal como llegaron en el webhook de Meta.
  */
+/**
+ * Meta NO acepta para enviar el mismo objeto que manda al recibir: la ficha entrante trae campos
+ * que el envío rechaza, y exige `formatted_name`. Reenviar el crudo hacía que la API devolviera un
+ * error y la tarjeta no llegara nunca -- el técnico veía solo el texto.
+ * Por eso se arma una ficha nueva y mínima con lo único que hace falta.
+ */
+function fichaParaEnviar(c) {
+    const nombre = c?.name?.formatted_name
+        || [c?.name?.first_name, c?.name?.last_name].filter(Boolean).join(' ')
+        || 'Contacto';
+
+    const telefonos = (c?.phones || [])
+        .map(p => {
+            const numero = String(p?.phone || p?.wa_id || '').trim();
+            if (!numero) return null;
+            const t = { phone: numero, type: p?.type || 'CELL' };
+            // wa_id hace que WhatsApp muestre el botón de "Enviar mensaje" en la tarjeta.
+            if (p?.wa_id) t.wa_id = String(p.wa_id).replace(/\D/g, '');
+            return t;
+        })
+        .filter(Boolean);
+
+    if (telefonos.length === 0) return null;
+
+    return {
+        name: {
+            formatted_name: nombre,           // obligatorio para Meta
+            first_name: c?.name?.first_name || nombre,
+            ...(c?.name?.last_name ? { last_name: c.name.last_name } : {}),
+        },
+        phones: telefonos,
+    };
+}
+
 async function enviarContactoWhatsApp(to, contactos, phoneNumberId, accessToken) {
     if (!Array.isArray(contactos) || contactos.length === 0) return false;
+
+    const limpias = contactos.map(fichaParaEnviar).filter(Boolean);
+    if (limpias.length === 0) {
+        console.log('👤 La ficha de contacto no tenía ningún teléfono utilizable: no se reenvía.');
+        return false;
+    }
+
     try {
         await axios.post(
             `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
@@ -463,7 +504,7 @@ async function enviarContactoWhatsApp(to, contactos, phoneNumberId, accessToken)
                 recipient_type: 'individual',
                 to: normalizarTelefonoWhatsApp(to),
                 type: 'contacts',
-                contacts: contactos,
+                contacts: limpias,
             },
             { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
         );
@@ -472,7 +513,11 @@ async function enviarContactoWhatsApp(to, contactos, phoneNumberId, accessToken)
     } catch (err) {
         // Si Meta rechaza la tarjeta, el llamador todavía puede mandar el texto: perder el dato
         // por completo sería peor que mandarlo desglosado.
-        console.error('Error reenviando la ficha de contacto:', err.response?.data?.error?.message || err.message);
+        // Se registra la respuesta completa de Meta: si rechaza la tarjeta, el motivo exacto es lo
+        // único que permite corregir el formato sin adivinar.
+        const detalle = err.response?.data?.error;
+        console.error('Error reenviando la ficha de contacto:',
+            detalle ? `${detalle.message} (código ${detalle.code}${detalle.error_data?.details ? ' — ' + detalle.error_data.details : ''})` : err.message);
         return false;
     }
 }
