@@ -108,11 +108,42 @@ function registrarMensajeChat({ eventoId, edificio, telefono, remitente, mensaje
     }
 }
 
-// Datos de contexto que solo conoce la sesión en RAM (edificio y caso activo), para etiquetar
-// cada mensaje sin tener que ir a buscarlos a la base en cada línea del chat.
-function contextoChat(telefono) {
+// De quién es este mensaje y a qué caso pertenece, para etiquetarlo bien en el visor de chat.
+//
+// Antes esto miraba únicamente la sesión del vecino y daba por sentado que quien escribía era un
+// vecino. Resultado: los mensajes del técnico quedaban guardados como `remitente = 'vecino'` y sin
+// caso asociado, así que en el visor aparecían del lado equivocado de la conversación y sueltos,
+// sin pertenecer a ningún [CASO-XXXX].
+async function contextoChat(telefono) {
+    const tel = String(telefono || '').replace(/\D/g, '');
+
+    // 1. ¿Es un proveedor con un caso en curso? Su estado sabe a qué caso está atendiendo.
+    const stProv = global.colasProveedores?.get(tel);
+    if (stProv && (stProv.eventoActivoId || stProv.chatActivo)) {
+        return {
+            edificio:  stProv.edificioActivo || stProv.vecinoActivo?.edificio || '',
+            eventoId:  stProv.eventoActivoId || null,
+            remitente: 'tecnico',
+        };
+    }
+
+    // 2. Sesión de vecino en curso.
     const s = global.marcosSesiones?.get(telefono) || sesiones.get(telefono) || {};
-    return { edificio: s.nombreEdificio || '', eventoId: s.idEventoActual || null };
+    if (s.nombreEdificio || s.idEventoActual) {
+        return { edificio: s.nombreEdificio || '', eventoId: s.idEventoActual || null, remitente: 'vecino' };
+    }
+
+    // 3. Primer contacto: se resuelve el rol contra la base. Desde que las lecturas salen de
+    // PostgreSQL esto cuesta menos de un milisegundo, así que ya no hay motivo para adivinarlo.
+    try {
+        const { buscarRolPorTelefono } = require('./datos');
+        const rol = await buscarRolPorTelefono(telefono);
+        const comoRemitente = { proveedor: 'tecnico', encargado: 'encargado', seguridad: 'encargado', admin: 'admin' };
+        return { edificio: rol?.edificio || '', eventoId: null, remitente: comoRemitente[rol?.rol] || 'vecino' };
+    } catch (err) {
+        console.error('Error resolviendo el rol para el registro del chat:', err.message);
+        return { edificio: '', eventoId: null, remitente: 'vecino' };
+    }
 }
 
 // ── Memoria de sesión (RAM) ──────────────────────────────────────────────────
@@ -296,13 +327,13 @@ app.post('/webhook', async (req, res) => {
             // Registramos cada mensaje de la ráfaga por separado y en orden, no el texto pegado:
             // el visor del dashboard tiene que mostrar las mismas burbujas que vio el vecino
             // (su audio ya transcripto, su texto, su foto), no un bloque único.
-            const ctxEntrada = contextoChat(recipient);
+            const ctxEntrada = await contextoChat(recipient);
             for (const item of items) {
                 registrarMensajeChat({
                     eventoId:  ctxEntrada.eventoId,
                     edificio:  ctxEntrada.edificio,
                     telefono:  recipient,
-                    remitente: 'vecino',
+                    remitente: ctxEntrada.remitente,
                     mensaje:   item.texto || '',
                     tipoCanal: item.tipo === 'audio' ? 'whatsapp-audio' : 'whatsapp',
                     // Una ruta que el panel pueda reproducir o abrir. Antes se guardaba
@@ -371,7 +402,7 @@ async function despacharRespuesta(recipient, texto, msgType) {
 
     // Registramos la respuesta de Marcos en el chat. Guardamos siempre el TEXTO, aunque salga
     // como nota de voz: el visor necesita leer qué dijo, no reproducir el ogg.
-    const ctxSalida = contextoChat(recipient);
+    const ctxSalida = await contextoChat(recipient);
     registrarMensajeChat({
         eventoId:  ctxSalida.eventoId,
         edificio:  ctxSalida.edificio,
@@ -532,6 +563,13 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pus
     // adjunto que trajo el mensaje: una ráfaga puede traer una foto (msgType 'image', para
     // reenviarla al técnico) y aun así merecer una respuesta hablada porque el vecino usó audios.
     const msgTypeRespuesta = (preferirAudioRespuesta || msgType === 'audio') ? 'audio' : msgType;
+
+    // Lo que se GUARDA en el historial del caso lleva la etiqueta del audio; lo que se le manda a
+    // la IA no. Sin esto, el audio de un técnico quedaba en el historial como texto pelado y el
+    // panel mostraba la transcripción sin el reproductor: se podía leer lo que dijo, pero no
+    // escucharlo. (El camino del vecino ya se etiqueta más abajo, al armar `messageText`.)
+    const etiquetasAudio = (audiosRafaga || []).map(u => `[AUDIO:${u}]`).join(' ');
+    const msgBodyParaRegistro = etiquetasAudio ? `${etiquetasAudio} ${msgBody}`.trim() : msgBody;
 
     // ── FASE 0: DESCARGA Y TRANSCRIPCIÓN (si es audio) ───────────────────────
     let media = null;
@@ -1142,7 +1180,7 @@ function validarYSanitizarNombre(nombre) {
                         tipo: 'trabajo_externo',
                         telefono: from,
                         notas_ia: `Trabajo informado directamente por el técnico ${datosEmisor.nombre} al enviar la factura. No hubo reclamo previo de un vecino por este canal (lo coordinaron el encargado/administración con el técnico de forma directa).`,
-                        historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`])
+                        historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`])
                     });
                     console.log(`🧾 Evento retroactivo creado (trabajo externo ya resuelto) para ${edificioFactura} a partir de la factura de ${datosEmisor.nombre}.`);
                     respExtra = ` También dejé registrado el trabajo en ${edifDetectadoTexto?.direccion || edificioFactura} como resuelto, así queda el antecedente completo.`;
@@ -1168,7 +1206,7 @@ function validarYSanitizarNombre(nombre) {
                 const { guardarReporte } = require('./datos');
                 await guardarReporte({
                     edificio: session.nombreEdificio || datosFactura?.edificio || 'Consorcio',
-                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respFactura}`])
+                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos: ${respFactura}`])
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
@@ -1216,7 +1254,7 @@ function validarYSanitizarNombre(nombre) {
                 const { guardarReporte } = require('./datos');
                 await guardarReporte({
                     edificio: session.nombreEdificio,
-                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respPago}`])
+                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos: ${respPago}`])
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
@@ -1255,7 +1293,7 @@ function validarYSanitizarNombre(nombre) {
                 const { guardarReporte } = require('./datos');
                 await guardarReporte({
                     edificio: edifNom,
-                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respTecnico}`])
+                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos: ${respTecnico}`])
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
@@ -1393,7 +1431,7 @@ function validarYSanitizarNombre(nombre) {
             const { guardarReporte } = require('./datos');
             await guardarReporte({
                 edificio: edifNomCatchAll,
-                historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos: ${respGenericaProveedor}`])
+                historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos: ${respGenericaProveedor}`])
             });
         } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
