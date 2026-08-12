@@ -133,7 +133,24 @@ async function guardarAutorizacionContacto({ telefono, autoriza = true, contacto
         const rows = await sheet.getRows();
         const telBuscado = String(telefono || '').replace(/\D/g, '');
         const fila = rows.find(r => String(r.get('telefono') || '').replace(/\D/g, '') === telBuscado);
-        if (!fila) return false;
+
+        // Si el vecino todavía no tiene fila, se crea acá mismo.
+        //
+        // Antes esto hacía `return false` y el dato se perdía en silencio, y era justo el caso más
+        // común: el vecino comparte el contacto de quien va a recibir al técnico en su PRIMER
+        // mensaje, y su ficha recién se crea al final del flujo. Como el contacto solo quedaba en
+        // la sesión, cualquier reinicio lo borraba y Marcos volvía a preguntar quién iba a abrir
+        // -- teniendo el dato desde el principio.
+        if (!fila) {
+            await sheet.addRow({
+                telefono,
+                autoriza_contacto: autoriza ? 'si' : '',
+                contacto_acceso: contactoAcceso || '',
+                notas: 'Registro automático por bot',
+            });
+            console.log(`🔓 Autorización de contacto guardada para ${telBuscado} (vecino nuevo)${contactoAcceso ? ` — contacto de acceso: ${contactoAcceso}` : ''}`);
+            return true;
+        }
 
         if (autoriza) fila.set('autoriza_contacto', 'si');
         if (contactoAcceso) fila.set('contacto_acceso', contactoAcceso);
@@ -1109,6 +1126,43 @@ async function buscarRolPorTelefono(telefono) {
     return { rol: 'vecino' };
 }
 
+/**
+ * Deja registrado que el técnico confirmó la visita, y el plazo que dio.
+ *
+ * Vivía únicamente en memoria (`global.colasProveedores`), así que cada `pm2 restart` la borraba y
+ * Marcos volvía a contestarle al vecino "estoy consultando con el técnico" cuando el técnico había
+ * confirmado hacía rato. Para el vecino eso no es un olvido: es que le mienten.
+ */
+async function guardarConfirmacionTecnico({ id_evento, eta = '', tecnico = '' }) {
+    try {
+        if (!id_evento) return false;
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+
+        await sheet.loadHeaderRow().catch(() => {});
+        const headers = sheet.headerValues || [];
+        const necesarios = ['tecnico_confirmado', 'tecnico_eta'];
+        const completos = Array.from(new Set([...headers, ...necesarios]));
+        if (completos.length > headers.length) await sheet.setHeaderRow(completos).catch(() => {});
+
+        const rows = await sheet.getRows();
+        const buscado = String(id_evento).toUpperCase().trim();
+        const fila = rows.find(r => String(r.get('id_evento') || '').toUpperCase().trim() === buscado);
+        if (!fila) return false;
+
+        fila.set('tecnico_confirmado', new Date().toLocaleString('es-AR'));
+        if (eta) fila.set('tecnico_eta', eta);
+        if (tecnico) fila.set('tecnico', tecnico);
+        await fila.save();
+        console.log(`📌 Confirmación del técnico registrada en [${id_evento}]${eta ? ` (${eta})` : ''}`);
+        return true;
+    } catch (err) {
+        console.error('Error guardando la confirmación del técnico:', err.message);
+        return false;
+    }
+}
+
 // ─────────────────────────────────────────────
 // SEGUIMIENTO DE CASOS (a prueba de reinicios)
 //
@@ -1330,6 +1384,7 @@ module.exports = {
     buscarTecnicoSuplente,
     buscarPersonalDeTurno,
     buscarPerfilEdificio,
+    guardarConfirmacionTecnico,
     programarSeguimiento,
     cancelarSeguimiento,
     obtenerSeguimientosVencidos,

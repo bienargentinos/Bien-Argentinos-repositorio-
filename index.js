@@ -40,6 +40,20 @@ function logDebug(msg) {
  * el vecino al que está atendiendo, para no contestarle "estoy consultando" a alguien cuya visita
  * ya está confirmada.
  */
+async function confirmacionDelCaso(telefonoVecino) {
+    // Primero la memoria, que es instantánea; si no está -- típico después de un reinicio --, se
+    // busca en el caso, que es donde quedó guardada de verdad.
+    const enRam = confirmacionDesdeProveedor(telefonoVecino);
+    if (enRam) return enRam;
+    try {
+        const { buscarConfirmacionTecnicoDeVecino } = require('./datos-pg');
+        return await buscarConfirmacionTecnicoDeVecino(telefonoVecino);
+    } catch (err) {
+        console.error('Error recuperando la confirmación del técnico:', err.message);
+        return null;
+    }
+}
+
 function confirmacionDesdeProveedor(telefonoVecino) {
     try {
         const tel = String(telefonoVecino || '').replace(/\D/g, '');
@@ -813,6 +827,18 @@ function validarYSanitizarNombre(nombre) {
                 // que un reinicio no lo pierde.
                 const idCasoConf = stProv.eventoActivoId;
                 if (idCasoConf) {
+                    // La confirmación va al CASO, no solo a la memoria del proceso. Guardarla solo
+                    // en RAM hacía que un `pm2 restart` la borrara y Marcos volviera a decirle al
+                    // vecino "estoy consultando con el técnico" teniendo la respuesta hacía rato.
+                    try {
+                        const { guardarConfirmacionTecnico } = require('./datos');
+                        await guardarConfirmacionTecnico({
+                            id_evento: idCasoConf,
+                            eta: lectura.eta || '',
+                            tecnico: datosEmisor.nombre || ''
+                        });
+                    } catch (e) { console.error('Error guardando la confirmación del técnico:', e.message); }
+
                     try {
                         const { programarSeguimiento } = require('./datos');
                         const { calcularPrimerControl } = require('./seguimiento');
@@ -1643,7 +1669,7 @@ function validarYSanitizarNombre(nombre) {
         contactoAccesoExtra: session.contactoAccesoExtra || '',
         // Lo que el técnico ya respondió sobre esta visita, para no volver a decir que se está
         // consultando algo que ya está contestado.
-        confirmacionTecnico: session.confirmacionTecnico || confirmacionDesdeProveedor(from)
+        confirmacionTecnico: session.confirmacionTecnico || await confirmacionDelCaso(from)
     });
 
     let respuesta = (typeof resCara === 'object' && resCara !== null && resCara.texto)

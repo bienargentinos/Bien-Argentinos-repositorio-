@@ -379,6 +379,20 @@ async function guardarAccesoEdificio(datos) {
     return res;
 }
 
+async function guardarConfirmacionTecnico(datos) {
+    const res = await sheets.guardarConfirmacionTecnico(datos);
+    if (datos?.id_evento) {
+        copiarAPg(`la confirmación del técnico de ${datos.id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET tecnico_confirmado = $2, tecnico_eta = COALESCE(NULLIF($3,''), tecnico_eta) WHERE codigo_caso = $1`,
+                [datos.id_evento, new Date().toLocaleString('es-AR'), datos.eta || '']
+            );
+        });
+    }
+    return res;
+}
+
 async function programarSeguimiento(datos) {
     const res = await sheets.programarSeguimiento(datos);
     if (datos?.id_evento) {
@@ -422,6 +436,7 @@ module.exports = {
     marcarCasoResueltoPorId,
     guardarLlamada,
     guardarAccesoEdificio,
+    guardarConfirmacionTecnico,
     programarSeguimiento,
     cancelarSeguimiento,
     buscarVecinosPorTelefono,

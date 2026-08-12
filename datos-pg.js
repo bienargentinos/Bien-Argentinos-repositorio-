@@ -604,6 +604,35 @@ async function buscarEdificioDeCasoAbiertoPorTecnico(nombreTecnico) {
     return row ? (row.get('edificio') || '') : '';
 }
 
+/**
+ * Lo que el técnico ya respondió sobre la visita de este vecino.
+ *
+ * Se busca en el caso y no en memoria justamente porque la memoria se pierde: es lo que hacía que
+ * Marcos, después de un reinicio, le contestara al vecino "estoy consultando con el técnico"
+ * teniendo la confirmación desde hacía una hora.
+ */
+async function buscarConfirmacionTecnicoDeVecino(telefono) {
+    const tel = String(telefono || '').replace(/\D/g, '');
+    if (!tel) return null;
+
+    const rows = await filas('reportes');
+    const row = [...rows].reverse().find(r => {
+        const estado = String(r.get('estado') || '').toLowerCase();
+        if (CERRADOS.has(estado)) return false;
+        if (!String(r.get('tecnico_confirmado') || '').trim()) return false;
+        const rTel = String(r.get('telefono') || '').replace(/\D/g, '');
+        return rTel && (rTel === tel || rTel.endsWith(tel.slice(-8)));
+    });
+
+    if (!row) return null;
+    return {
+        confirmado: true,
+        eta:     row.get('tecnico_eta') || '',
+        cuando:  row.get('tecnico_confirmado') || '',
+        tecnico: row.get('tecnico') || '',
+    };
+}
+
 // ── ACCESOS ─────────────────────────────────────────────────────────────────
 
 async function buscarAccesosEdificio(nombreEdificio) {
@@ -642,6 +671,7 @@ module.exports = {
     obtenerCasosAbiertosEdificio,
     obtenerEventosPendientesAdmin,
     obtenerSeguimientosVencidos,
+    buscarConfirmacionTecnicoDeVecino,
     buscarVecinoDeCasoAbierto,
     buscarUltimoVecinoDeEdificio,
     buscarEdificioDeCasoAbiertoPorTecnico,
