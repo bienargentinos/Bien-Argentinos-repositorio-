@@ -320,9 +320,19 @@ app.post('/webhook', async (req, res) => {
                             const { transcribirAudio } = require('./stt');
                             const transcripcion = await transcribirAudio(mediaAudio.filePath, mediaAudio.mimeType);
                             if (transcripcion) item.texto = transcripcion;
-                            // La ruta web con la que el panel puede reproducir el audio. `/audios`
-                            // sirve la carpeta temp, donde media.js deja el archivo.
-                            item.urlWeb = `/audios/${require('path').basename(mediaAudio.filePath)}`;
+                            // El audio se copia al almacenamiento permanente y esa es la ruta que
+                            // se guarda. Antes se guardaba la de `temp/`, que es una carpeta de
+                            // paso: cuando se limpia, el reproductor del panel queda apuntando a
+                            // un archivo que ya no existe y muestra una nota de voz de "0:01".
+                            const sesAudio = global.marcosSesiones?.get(recipient);
+                            const permanente = guardarArchivoEstructurado({
+                                filePath: mediaAudio.filePath,
+                                adminNombre: sesAudio?.datosVecino?.adminNombre,
+                                edificioNombre: sesAudio?.nombreEdificio,
+                                tipo: 'audios'
+                            });
+                            item.urlWeb = permanente?.relativeUrl
+                                || `/audios/${require('path').basename(mediaAudio.filePath)}`;
                         }
                     } catch (e) {
                         console.error(`Error transcribiendo audio de la ráfaga (${item.mediaId}):`, e.message);
@@ -351,6 +361,15 @@ app.post('/webhook', async (req, res) => {
             }
 
             const msgBodyCompleto = items.map(i => i.texto).filter(Boolean).join(' ');
+
+            // La misma ráfaga, pero con la etiqueta de cada audio pegada a SU transcripción. Así el
+            // panel dibuja el reproductor justo debajo de la frase que corresponde, en vez de
+            // amontonar todos los reproductores al principio del mensaje. Va aparte del texto que
+            // recibe la IA: al prompt no le sirven las rutas de archivo.
+            const msgBodyRegistro = items
+                .map(i => (i.tipo === 'audio' && i.urlWeb) ? `[AUDIO:${i.urlWeb}] ${i.texto || ''}`.trim() : (i.texto || ''))
+                .filter(Boolean)
+                .join(' ');
             // Último media NO-audio de la ráfaga (imagen/video/documento) — los audios ya se
             // transcribieron arriba, no hace falta volver a descargarlos en procesarMensaje.
             const ultimoMediaNoAudio = [...items].reverse().find(i => i.mediaId && i.tipo !== 'audio');
@@ -380,7 +399,7 @@ app.post('/webhook', async (req, res) => {
             // foto -- el adjunto que viajaba era la imagen y los audios quedaban sin etiqueta.
             const audiosRafaga = items.filter(i => i.tipo === 'audio' && i.urlWeb).map(i => i.urlWeb);
 
-            await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal, preferirAudioRespuesta, contactosCompartidos: contactosFinal, audiosRafaga }).catch(err => {
+            await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal, preferirAudioRespuesta, contactosCompartidos: contactosFinal, audiosRafaga, msgBodyRegistro }).catch(err => {
                 console.error('Error procesando mensaje:', err.message);
                 const respuestasHumanas = [
                     'Aguárdeme un instante por favor, estoy actualizando el sistema y ya le respondo.',
@@ -594,7 +613,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
 }
 
 // ── ORQUESTADOR PRINCIPAL ─────────────────────────────────────────────────────
-async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pushName, preferirAudioRespuesta = false, contactosCompartidos = [], audiosRafaga = [] }) {
+async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pushName, preferirAudioRespuesta = false, contactosCompartidos = [], audiosRafaga = [], msgBodyRegistro = '' }) {
     // Modo en que le contestamos al usuario (nota de voz vs texto). Es independiente del tipo de
     // adjunto que trajo el mensaje: una ráfaga puede traer una foto (msgType 'image', para
     // reenviarla al técnico) y aun así merecer una respuesta hablada porque el vecino usó audios.
@@ -604,8 +623,7 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pus
     // la IA no. Sin esto, el audio de un técnico quedaba en el historial como texto pelado y el
     // panel mostraba la transcripción sin el reproductor: se podía leer lo que dijo, pero no
     // escucharlo. (El camino del vecino ya se etiqueta más abajo, al armar `messageText`.)
-    const etiquetasAudio = (audiosRafaga || []).map(u => `[AUDIO:${u}]`).join(' ');
-    const msgBodyParaRegistro = etiquetasAudio ? `${etiquetasAudio} ${msgBody}`.trim() : msgBody;
+    const msgBodyParaRegistro = msgBodyRegistro || msgBody;
 
     // ── FASE 0: DESCARGA Y TRANSCRIPCIÓN (si es audio) ───────────────────────
     let media = null;
@@ -891,9 +909,12 @@ function validarYSanitizarNombre(nombre) {
     // porque ahí `msgType` es 'image'. Sin esto, el panel muestra la transcripción pero no tiene
     // con qué reproducir lo que el vecino realmente dijo.
     if (Array.isArray(audiosRafaga) && audiosRafaga.length > 0) {
-        const faltantes = audiosRafaga.filter(u => !messageText.includes(u));
-        if (faltantes.length > 0) {
-            messageText = faltantes.map(u => `[AUDIO:${u}]`).join(' ') + (messageText ? ' ' + messageText : '');
+        // Si la ráfaga trajo audios, el texto ya etiquetado por mensaje es el que va al historial:
+        // conserva cada etiqueta junto a su propia transcripción.
+        const yaEtiquetado = audiosRafaga.every(u => msgBodyParaRegistro.includes(u));
+        if (yaEtiquetado && !audiosRafaga.every(u => messageText.includes(u))) {
+            const adjuntoPrevio = messageText.match(/^\[(IMAGEN|VIDEO):[^\]]+\]/);
+            messageText = (adjuntoPrevio ? adjuntoPrevio[0] + ' ' : '') + msgBodyParaRegistro;
         }
         // El reporte guarda una sola url de audio: la del último, que es el criterio que ya usaba.
         if (!session.audio_url) session.audio_url = audiosRafaga[audiosRafaga.length - 1];
