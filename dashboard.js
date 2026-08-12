@@ -2684,6 +2684,72 @@ function cambiarTabChatEvento(tab) {
   }
 }
 
+function separarConversacionesEvento(datos) {
+  if (!datos) return { chatVecino: [], chatProveedor: [] };
+
+  var rawSources = [
+    datos.historial_chat_vecino,
+    datos.chat_vecino_json,
+    datos.historial_chat_proveedor,
+    datos.chat_proveedor_json,
+    datos.historial_chat
+  ];
+
+  var allLines = [];
+  var seenStr = new Set();
+
+  rawSources.forEach(function(src) {
+    if (!src) return;
+    var list = [];
+    if (typeof src === 'string' && src.trim()) {
+      if (src.trim().startsWith('[')) {
+        try { list = JSON.parse(src); } catch(e) { list = [src]; }
+      } else {
+        list = String(src).split('\\n').filter(Boolean);
+      }
+    } else if (Array.isArray(src)) {
+      list = src;
+    }
+
+    list.forEach(function(item) {
+      var key = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+      if (key && !seenStr.has(key)) {
+        seenStr.add(key);
+        allLines.push(item);
+      }
+    });
+  });
+
+  var chatVecino = [];
+  var chatProveedor = [];
+
+  allLines.forEach(function(line) {
+    var rem = typeof line === 'object' ? String(line.remitente || line.emisor || '').toLowerCase() : '';
+    var str = typeof line === 'object' ? ((line.emisor ? line.emisor + ': ' : '') + (line.texto || line.mensaje || '')) : String(line);
+
+    var isExplicitProveedor = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
+    var isExplicitVecino = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
+
+    if (isExplicitProveedor) {
+      chatProveedor.push(line);
+    } else if (isExplicitVecino) {
+      chatVecino.push(line);
+    } else {
+      var strLower = str.toLowerCase();
+      if (/julio|técnico|proveedor|plomero|electricista|gasista|instalador|notificación|recibirá natalia|visita|coordinar/i.test(strLower) && !/buenas noches, daniel|señor daniel|servicio de atención técnica de la administración/i.test(strLower)) {
+        chatProveedor.push(line);
+      } else {
+        chatVecino.push(line);
+      }
+    }
+  });
+
+  return {
+    chatVecino: chatVecino,
+    chatProveedor: chatProveedor
+  };
+}
+
 function renderizarBloqueChat(rawChat, tipoBloque, datos) {
   var chatLines = [];
   var audioFallbackUsado = false;
@@ -2697,37 +2763,9 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
     chatLines = rawChat;
   }
 
-  if (!chatLines.length && tipoBloque === 'vecino' && datos.historial_chat) {
-    var rawGen = datos.historial_chat;
-    if (typeof rawGen === 'string' && rawGen.trim()) {
-      if (rawGen.trim().startsWith('[')) {
-        try { chatLines = JSON.parse(rawGen); } catch(e) { chatLines = [rawGen]; }
-      } else {
-        chatLines = String(rawGen).split('\\n').filter(Boolean);
-      }
-    } else if (Array.isArray(rawGen)) {
-      chatLines = rawGen;
-    }
-    chatLines = chatLines.filter(function(line) {
-      var str = typeof line === 'object' ? (line.emisor || '') + ': ' + (line.texto || '') : String(line);
-      return !/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
-    });
-  } else if (!chatLines.length && tipoBloque === 'proveedor' && datos.historial_chat) {
-    var rawGen = datos.historial_chat;
-    var allGen = [];
-    if (typeof rawGen === 'string' && rawGen.trim()) {
-      if (rawGen.trim().startsWith('[')) {
-        try { allGen = JSON.parse(rawGen); } catch(e) { allGen = [rawGen]; }
-      } else {
-        allGen = String(rawGen).split('\\n').filter(Boolean);
-      }
-    } else if (Array.isArray(rawGen)) {
-      allGen = rawGen;
-    }
-    chatLines = allGen.filter(function(line) {
-      var str = typeof line === 'object' ? (line.emisor || '') + ': ' + (line.texto || '') : String(line);
-      return !/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
-    });
+  if (!chatLines.length && datos) {
+    var sep = separarConversacionesEvento(datos);
+    chatLines = tipoBloque === 'proveedor' ? sep.chatProveedor : sep.chatVecino;
   }
 
   if (chatLines.length > 0) {
@@ -2805,7 +2843,8 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var fnObj = lastSlashObj !== -1 ? rawObjMedia.substring(lastSlashObj + 1) : rawObjMedia;
         var extObj = fnObj.split('.').pop().toLowerCase();
 
-        if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
+        var isLineExplicitImage = /imagen|foto/i.test(cleanText) || /\\\[(IMAGEN|FOTO):/i.test(String(line.mensaje || line.texto || ''));
+        if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
           visualUrl = normObjUrl;
           visualType = 'image';
           visualFilename = fnObj;
@@ -2819,29 +2858,28 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         }
       }
 
-      if (!audioUrl && datos.audio_url && !audioFallbackUsado && (isVecino || isFamiliar || isProveedor)) {
-        var rawAudioUrl = String(datos.audio_url).trim();
-        if (rawAudioUrl.length > 3) {
-          var ext = rawAudioUrl.split('.').pop().toLowerCase();
-          if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/imagenes/') !== -1) {
-            if (!visualUrl) {
+      if (!audioUrl && !visualUrl && datos.audio_url && !audioFallbackUsado && (isVecino || isFamiliar || isProveedor)) {
+        var isAudioMentioned = /audio|voz|nota de voz|escuchar|grabación/i.test(str);
+        if (isAudioMentioned) {
+          var rawAudioUrl = String(datos.audio_url).trim();
+          if (rawAudioUrl.length > 3) {
+            var ext = rawAudioUrl.split('.').pop().toLowerCase();
+            if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/imagenes/') !== -1) {
               visualUrl = normalizarUrlAudio(rawAudioUrl);
               visualType = 'image';
               var lastSlash = rawAudioUrl.lastIndexOf('/');
               visualFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-            }
-          } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/videos/') !== -1) {
-            if (!visualUrl) {
+            } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/videos/') !== -1) {
               visualUrl = normalizarUrlAudio(rawAudioUrl);
               visualType = 'video';
               var lastSlash = rawAudioUrl.lastIndexOf('/');
               visualFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+            } else {
+              audioUrl = normalizarUrlAudio(rawAudioUrl);
+              var lastSlash = rawAudioUrl.lastIndexOf('/');
+              audioFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+              audioFallbackUsado = true;
             }
-          } else {
-            audioUrl = normalizarUrlAudio(rawAudioUrl);
-            var lastSlash = rawAudioUrl.lastIndexOf('/');
-            audioFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-            audioFallbackUsado = true;
           }
         }
       }
@@ -2972,8 +3010,9 @@ function abrirDrawerEvento(idx){
       bannerExterno+
       // ── Bloques de Comunicación (Vecino vs Proveedor) ──
       (function(){
-        var chatVecinoHtml = renderizarBloqueChat(datos.historial_chat_vecino || datos.historial_chat, 'vecino', datos);
-        var chatProveedorHtml = renderizarBloqueChat(datos.historial_chat_proveedor, 'proveedor', datos);
+        var convSep = separarConversacionesEvento(datos);
+        var chatVecinoHtml = renderizarBloqueChat(convSep.chatVecino, 'vecino', datos);
+        var chatProveedorHtml = renderizarBloqueChat(convSep.chatProveedor, 'proveedor', datos);
         var allAudios = parseAudiosDetallados(datos);
         var bulkBtn = allAudios.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer;margin-right:6px" class="hv-soft">🎙️ Descargar todos los audios (' + allAudios.length + ')</button>' : '';
         var telVecinoClean = datos.telefono ? String(datos.telefono).replace(/[^0-9]/g, '') : '';
