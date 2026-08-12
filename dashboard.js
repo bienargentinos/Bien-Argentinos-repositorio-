@@ -2246,16 +2246,23 @@ function cerrarModal(id){
   var m=document.getElementById(id);
   if(m) m.classList.remove('open');
 }
-function normalizarUrlAudio(pathOrUrl) {
+function normalizarUrlAudio(pathOrUrl, explicitType) {
   if (!pathOrUrl) return '';
   var u = String(pathOrUrl).trim();
   if (u.indexOf('http://') === 0 || u.indexOf('https://') === 0) {
     return u;
   }
 
+  var isImg = explicitType === 'image' || /jpeg|jpg|png|webp|gif|bmp|svg|imagenes|fotos/i.test(u);
+  var isVid = explicitType === 'video' || /mp4|mov|webm|mkv|avi|videos/i.test(u);
+  var defaultExt = isImg ? '.jpeg' : (isVid ? '.mp4' : '.ogg');
+
   if (/^media[:_]/i.test(u)) {
     var mediaId = u.replace(/^media[:_]/i, '').trim();
-    u = '/audios/media_' + mediaId + '.ogg';
+    var hasExt = /\.(jpeg|jpg|png|webp|gif|bmp|svg|mp4|mov|webm|mkv|avi|ogg|mp3|m4a|wav)$/i.test(mediaId);
+    u = '/audios/media_' + mediaId + (hasExt ? '' : defaultExt);
+  } else if (/^\d{10,20}$/.test(u)) {
+    u = '/audios/media_' + u + defaultExt;
   }
 
   // Quitar prefijos del sistema de archivos local o del servidor VPS
@@ -2280,7 +2287,7 @@ function normalizarUrlAudio(pathOrUrl) {
       u = '/audios/' + filename.substring(5);
     } else if (filename.startsWith('almacenamiento/')) {
       u = '/archivos/' + filename.substring(15);
-    } else if (!filename.startsWith('audios/') && !filename.startsWith('/audios/')) {
+    } else if (!filename.startsWith('audios/') && !filename.startsWith('/audios/') && !filename.startsWith('archivos/') && !filename.startsWith('/archivos/')) {
       u = '/audios/' + filename;
     }
   }
@@ -2838,7 +2845,6 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
 
       var rawObjMedia = typeof line === 'object' ? (line.url_media || line.audio_url || line.url || line.audio || '') : '';
       if (rawObjMedia && !audioUrl && !visualUrl) {
-        var normObjUrl = normalizarUrlAudio(rawObjMedia);
         var lastSlashObj = rawObjMedia.lastIndexOf('/');
         var fnObj = lastSlashObj !== -1 ? rawObjMedia.substring(lastSlashObj + 1) : rawObjMedia;
         var extObj = fnObj.split('.').pop().toLowerCase();
@@ -2847,15 +2853,15 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var isLineExplicitVideo = /video/i.test(cleanText) || /\\\[VIDEO:/i.test(String(line.mensaje || line.texto || ''));
 
         if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
-          visualUrl = normObjUrl;
+          visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
           visualType = 'image';
           visualFilename = fnObj;
         } else if (isLineExplicitVideo || ['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1) {
-          visualUrl = normObjUrl;
+          visualUrl = normalizarUrlAudio(rawObjMedia, 'video');
           visualType = 'video';
           visualFilename = fnObj;
         } else {
-          audioUrl = normObjUrl;
+          audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
           audioFilename = fnObj;
         }
       }
