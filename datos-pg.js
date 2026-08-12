@@ -421,6 +421,189 @@ async function fueTecnicoNotificado(id_evento) {
     return !!String(res.rows[0].tecnico_notificado || '').trim();
 }
 
+// ── FACTURAS ────────────────────────────────────────────────────────────────
+
+async function buscarFacturasProveedor({ proveedor, edificio = '', numeroFactura = '' }) {
+    const rows = await filas('facturas');
+    const provBuscado = String(proveedor || '').toLowerCase().trim();
+    const edifBuscado = String(edificio || '').toLowerCase().trim();
+    const numBuscado = String(numeroFactura || '').replace(/\D/g, '');
+
+    return rows
+        .filter(r => {
+            const rProv = String(r.get('proveedor') || '').toLowerCase().trim();
+            const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
+            const rNum = String(r.get('numero_factura') || '').replace(/\D/g, '');
+
+            const matchProv = provBuscado && (rProv.includes(provBuscado) || provBuscado.includes(rProv));
+            if (!matchProv) return false;
+
+            if (numBuscado) return rNum && rNum === numBuscado;
+            if (edifBuscado) return rEdif.includes(edifBuscado) || edifBuscado.includes(rEdif);
+            return true;
+        })
+        .map(r => ({
+            fecha:          r.get('fecha'),
+            monto:          r.get('monto'),
+            concepto:       r.get('concepto'),
+            edificio:       r.get('edificio'),
+            numero_factura: r.get('numero_factura'),
+            estado:         r.get('estado') || 'Pendiente',
+        }))
+        .reverse(); // más reciente primero
+}
+
+// ── CASOS ABIERTOS Y SEGUIMIENTOS ───────────────────────────────────────────
+
+const CERRADOS = new Set(['resuelto', 'cerrado']);
+
+async function obtenerCasosAbiertosEdificio(nombreEdificio) {
+    const rows = await filas('reportes');
+    const edifBuscado = String(nombreEdificio || '').toLowerCase().trim();
+
+    return rows
+        .filter(r => {
+            const rEst = String(r.get('estado') || '').toLowerCase().trim();
+            if (CERRADOS.has(rEst)) return false;
+            const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
+            return !edifBuscado || rEdif.includes(edifBuscado) || edifBuscado.includes(rEdif);
+        })
+        .map(r => ({
+            id_evento: r.get('codigo_caso') || r.get('id_evento') || '',
+            edificio:  r.get('edificio'),
+            vecino:    r.get('vecino'),
+            depto:     r.get('depto') || r.get('departamento'),
+            problema:  r.get('mensaje') || r.get('problema') || r.get('notas'),
+            urgencia:  r.get('urgencia') || 'media',
+            estado:    r.get('estado') || 'en_proceso',
+            tecnico:   r.get('tecnico') || '',
+            telefono:  r.get('telefono') || '',
+        }));
+}
+
+async function obtenerEventosPendientesAdmin() {
+    const rows = await filas('reportes');
+    return rows
+        .filter(r => String(r.get('estado') || '').toLowerCase() !== 'resuelto')
+        .map(r => ({
+            id:       r.get('codigo_caso') || r.get('id') || '',
+            edificio: r.get('edificio'),
+            vecino:   r.get('vecino'),
+            depto:    r.get('depto') || r.get('departamento'),
+            problema: r.get('problema') || r.get('mensaje'),
+            urgencia: r.get('urgencia'),
+            estado:   r.get('estado') || 'nuevo',
+        }));
+}
+
+/**
+ * Casos abiertos cuyo control ya venció.
+ *
+ * Esta es la que más importa migrar, y no por velocidad: el barrido la llama CADA 5 MINUTOS, o sea
+ * 288 lecturas por día contra la misma cuota de Google que se agota cuando varios vecinos escriben
+ * a la vez. Un control interno del sistema no tiene por qué competir por ese cupo con la atención.
+ */
+async function obtenerSeguimientosVencidos() {
+    const ahora = Date.now();
+    const rows = await filas('reportes');
+
+    return rows
+        .filter(r => {
+            const estado = String(r.get('estado') || '').toLowerCase();
+            if (CERRADOS.has(estado)) return false;
+            const prox = r.get('proximo_seguimiento');
+            if (!prox) return false;
+            const t = new Date(prox).getTime();
+            return Number.isFinite(t) && t <= ahora;
+        })
+        .map(r => ({
+            id_evento: r.get('codigo_caso') || '',
+            edificio:  r.get('edificio') || '',
+            vecino:    r.get('vecino') || '',
+            telefono:  r.get('telefono') || '',
+            depto:     r.get('depto') || '',
+            problema:  r.get('mensaje') || r.get('problema') || '',
+            urgencia:  r.get('urgencia') || '',
+            tecnico:   r.get('tecnico') || '',
+            paso:      parseInt(r.get('seguimiento_paso') || '1', 10) || 1,
+            nota:      r.get('seguimiento_nota') || '',
+        }));
+}
+
+// ── BÚSQUEDAS QUE ANTES SE HACÍAN A MANO SOBRE LA PLANILLA ──────────────────
+//
+// index.js tenía tres lugares que abrían la planilla y recorrían las filas por su cuenta, sin
+// pasar por ninguna función. Eran los últimos puntos del motor que hablaban con Google directo.
+
+/** El vecino del último caso abierto que coincida con el edificio o con el nombre del técnico. */
+async function buscarVecinoDeCasoAbierto({ edificio, nombreTecnico }) {
+    const rows = await filas('reportes');
+    const edifBuscado = String(edificio || '').toLowerCase().trim();
+    const techBuscado = String(nombreTecnico || '').toLowerCase().trim();
+
+    // De atrás hacia adelante: interesa el caso más reciente.
+    const row = [...rows].reverse().find(r => {
+        const rEst = String(r.get('estado') || '').toLowerCase().trim();
+        if (CERRADOS.has(rEst)) return false;
+
+        const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
+        const rTech = String(r.get('tecnico') || '').toLowerCase().trim();
+        const rTel = String(r.get('telefono') || '').replace(/\D/g, '');
+
+        const matchEdif = edifBuscado && (rEdif.includes(edifBuscado) || edifBuscado.includes(rEdif));
+        const matchTech = techBuscado && rTech.includes(techBuscado);
+
+        return rTel.length >= 6 && (matchEdif || matchTech);
+    });
+
+    if (!row) return null;
+
+    const nombre = row.get('vecino');
+    return {
+        nombre: (nombre && nombre !== 'Desconocido' && nombre !== 'Vecino') ? nombre : '',
+        telefono: row.get('telefono'),
+        departamento: row.get('depto') || '',
+        edificio: row.get('edificio') || edificio || '',
+    };
+}
+
+/** El último vecino registrado en un edificio, cuando no hay nada mejor a mano. */
+async function buscarUltimoVecinoDeEdificio(edificio) {
+    if (!edificio) return null;
+    const rows = await filas('vecinos');
+    const edifBuscado = String(edificio).toLowerCase().trim();
+
+    const row = [...rows].reverse().find(r => {
+        const edif = String(r.get('edificio') || '').toLowerCase().trim();
+        const tel = String(r.get('telefono') || '').replace(/\D/g, '');
+        return tel.length >= 6 && (edif.includes(edifBuscado) || edifBuscado.includes(edif));
+    });
+
+    if (!row) return null;
+    return {
+        nombre: row.get('nombre') || '',
+        telefono: row.get('telefono'),
+        departamento: row.get('departamento') || '',
+        edificio: row.get('edificio') || edificio,
+    };
+}
+
+/** A qué edificio corresponde el último caso abierto de un técnico. */
+async function buscarEdificioDeCasoAbiertoPorTecnico(nombreTecnico) {
+    const techBuscado = String(nombreTecnico || '').toLowerCase().trim();
+    if (!techBuscado) return '';
+    const rows = await filas('reportes');
+
+    const row = [...rows].reverse().find(r => {
+        const rEst = String(r.get('estado') || '').toLowerCase().trim();
+        if (CERRADOS.has(rEst)) return false;
+        const rTech = String(r.get('tecnico') || '').toLowerCase().trim();
+        return rTech && (rTech.includes(techBuscado) || techBuscado.includes(rTech));
+    });
+
+    return row ? (row.get('edificio') || '') : '';
+}
+
 // ── ACCESOS ─────────────────────────────────────────────────────────────────
 
 async function buscarAccesosEdificio(nombreEdificio) {
@@ -455,4 +638,11 @@ module.exports = {
     buscarTecnicoSuplente,
     buscarCliente,
     fueTecnicoNotificado,
+    buscarFacturasProveedor,
+    obtenerCasosAbiertosEdificio,
+    obtenerEventosPendientesAdmin,
+    obtenerSeguimientosVencidos,
+    buscarVecinoDeCasoAbierto,
+    buscarUltimoVecinoDeEdificio,
+    buscarEdificioDeCasoAbiertoPorTecnico,
 };

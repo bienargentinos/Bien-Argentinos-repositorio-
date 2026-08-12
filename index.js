@@ -480,7 +480,22 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
         return vObj;
     }
 
-    // 3. Nivel Sheets EVENTOS (Último caso abierto)
+    // 3. Nivel base de datos: el vecino del último caso abierto.
+    try {
+        const { buscarVecinoDeCasoAbierto } = require('./datos-pg');
+        const vPg = await buscarVecinoDeCasoAbierto({ edificio: edificioNombre, nombreTecnico: datosEmisor?.nombre });
+        if (vPg?.telefono) {
+            console.log(`📌 [PostgreSQL] Vecino activo recuperado para técnico ${datosEmisor?.nombre}: ${vPg.nombre} (${vPg.telefono})`);
+            if (!global.colasProveedores) global.colasProveedores = new Map();
+            if (!global.colasProveedores.has(telClean)) global.colasProveedores.set(telClean, { vecinoActivo: vPg });
+            else global.colasProveedores.get(telClean).vecinoActivo = vPg;
+            return vPg;
+        }
+    } catch (e) {
+        console.error('Error buscando vecino activo en PostgreSQL:', e.message);
+    }
+
+    // 3b. Respaldo: la misma búsqueda contra la planilla, por si el caso todavía no llegó a la base.
     try {
         const { getSheet } = require('./datos');
         const doc = await getSheet();
@@ -522,7 +537,22 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
         console.error('Error buscando vecino activo en Sheets EVENTOS:', e.message);
     }
 
-    // 4. Nivel Sheets VECINOS (Último vecino del edificio)
+    // 4. Nivel base de datos: el último vecino conocido del edificio.
+    try {
+        const { buscarUltimoVecinoDeEdificio } = require('./datos-pg');
+        const vPg = await buscarUltimoVecinoDeEdificio(edificioNombre);
+        if (vPg?.telefono) {
+            console.log(`📌 [PostgreSQL] Vecino recuperado para edificio ${edificioNombre}: ${vPg.nombre} (${vPg.telefono})`);
+            if (!global.colasProveedores) global.colasProveedores = new Map();
+            if (!global.colasProveedores.has(telClean)) global.colasProveedores.set(telClean, { vecinoActivo: vPg });
+            else global.colasProveedores.get(telClean).vecinoActivo = vPg;
+            return vPg;
+        }
+    } catch (e) {
+        console.error('Error buscando el último vecino del edificio en PostgreSQL:', e.message);
+    }
+
+    // 4b. Respaldo contra la planilla.
     try {
         const { getSheet } = require('./datos');
         const doc = await getSheet();
@@ -790,6 +820,15 @@ function validarYSanitizarNombre(nombre) {
 
         // Buscar edificio del evento activo del proveedor (en RAM o Sheets EVENTOS)
         let edifDetectado = stProv.edificioActivo || stProv.vecinoActivo?.edificio;
+        if (!edifDetectado) {
+            try {
+                const { buscarEdificioDeCasoAbiertoPorTecnico } = require('./datos-pg');
+                edifDetectado = await buscarEdificioDeCasoAbiertoPorTecnico(datosEmisor.nombre);
+            } catch (e) {
+                console.error('Error buscando el edificio del proveedor en PostgreSQL:', e.message);
+            }
+        }
+        // Respaldo contra la planilla, por si el caso todavía no llegó a la base.
         if (!edifDetectado) {
             try {
                 const { getSheet } = require('./datos');

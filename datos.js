@@ -183,6 +183,35 @@ async function fueTecnicoNotificado(id_evento) {
     return sheets.fueTecnicoNotificado(id_evento);
 }
 
+async function buscarFacturasProveedor(args) {
+    return leer('buscarFacturasProveedor', [args], 'buscarFacturasProveedor', 'buscarFacturasProveedor');
+}
+async function obtenerCasosAbiertosEdificio(nombreEdificio) {
+    return leer('obtenerCasosAbiertosEdificio', [nombreEdificio], 'obtenerCasosAbiertosEdificio', 'obtenerCasosAbiertosEdificio');
+}
+async function obtenerEventosPendientesAdmin() {
+    return leer('obtenerEventosPendientesAdmin', [], 'obtenerEventosPendientesAdmin', 'obtenerEventosPendientesAdmin');
+}
+
+/**
+ * Los controles de caso vencidos.
+ *
+ * Sin respaldo a Sheets a propósito, al revés que las demás lecturas. Esta la llama el barrido cada
+ * 5 minutos: si cayera a Sheets cada vez que no hay nada vencido -- que es casi siempre-- gastaría
+ * 288 lecturas diarias de la cuota de Google para no encontrar nada, compitiendo por ese cupo con
+ * la atención de los vecinos. Una lista vacía acá es una respuesta legítima, no un dato faltante.
+ */
+async function obtenerSeguimientosVencidos() {
+    if (LECTURA_PG) {
+        try {
+            return await require('./datos-pg').obtenerSeguimientosVencidos();
+        } catch (err) {
+            console.error(`↩️ obtenerSeguimientosVencidos: error leyendo de PostgreSQL (${err.message}). Se consulta Sheets.`);
+        }
+    }
+    return sheets.obtenerSeguimientosVencidos();
+}
+
 // ── ESCRITURAS (Sheets manda, PostgreSQL recibe copia) ──────────────────────
 
 async function guardarReporte(datos) {
@@ -407,4 +436,8 @@ module.exports = {
     buscarTecnicoSuplente,
     buscarCliente,
     fueTecnicoNotificado,
+    buscarFacturasProveedor,
+    obtenerCasosAbiertosEdificio,
+    obtenerEventosPendientesAdmin,
+    obtenerSeguimientosVencidos,
 };
