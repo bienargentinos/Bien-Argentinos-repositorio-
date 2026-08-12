@@ -2844,11 +2844,13 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var extObj = fnObj.split('.').pop().toLowerCase();
 
         var isLineExplicitImage = /imagen|foto/i.test(cleanText) || /\\\[(IMAGEN|FOTO):/i.test(String(line.mensaje || line.texto || ''));
+        var isLineExplicitVideo = /video/i.test(cleanText) || /\\\[VIDEO:/i.test(String(line.mensaje || line.texto || ''));
+
         if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
           visualUrl = normObjUrl;
           visualType = 'image';
           visualFilename = fnObj;
-        } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1) {
+        } else if (isLineExplicitVideo || ['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1) {
           visualUrl = normObjUrl;
           visualType = 'video';
           visualFilename = fnObj;
