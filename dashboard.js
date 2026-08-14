@@ -2587,51 +2587,58 @@ function procesarLineaMultimediaChat(strText) {
   var filename = '';
   var mediaType = '';
 
-  var tagMatch = cleanText.match(new RegExp('\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO):\\s*([^\\]]+)\\]', 'i'));
-  if (tagMatch) {
-    var rawUrlFromTag = tagMatch[2].trim();
-    var tagType = tagMatch[1].toUpperCase();
-    webUrl = normalizarUrlAudio(rawUrlFromTag);
-    var lastSlashTag = rawUrlFromTag.lastIndexOf('/');
-    filename = lastSlashTag !== -1 ? rawUrlFromTag.substring(lastSlashTag + 1) : rawUrlFromTag;
-    
-    if (tagType === 'IMAGEN' || tagType === 'FOTO') mediaType = 'image';
-    else if (tagType === 'VIDEO') mediaType = 'video';
-    else mediaType = 'audio';
+  var tags = ['[IMAGEN:', '[FOTO:', '[VIDEO:', '[AUDIO:', '[AUDIO_URL:'];
+  for (var i = 0; i < tags.length; i++) {
+    var tag = tags[i];
+    var pos = cleanText.toUpperCase().indexOf(tag);
+    if (pos !== -1) {
+      var endPos = cleanText.indexOf(']', pos);
+      if (endPos > pos) {
+        var rawUrlFromTag = cleanText.substring(pos + tag.length, endPos).trim();
+        var tagType = tag.substring(1, tag.length - 1).toUpperCase();
+        webUrl = normalizarUrlAudio(rawUrlFromTag);
+        var lastSlashTag = rawUrlFromTag.lastIndexOf('/');
+        filename = lastSlashTag !== -1 ? rawUrlFromTag.substring(lastSlashTag + 1) : rawUrlFromTag;
 
-    cleanText = cleanText.replace(tagMatch[0], '').trim();
+        if (tagType === 'IMAGEN' || tagType === 'FOTO') mediaType = 'image';
+        else if (tagType === 'VIDEO') mediaType = 'video';
+        else mediaType = 'audio';
+
+        cleanText = (cleanText.substring(0, pos) + cleanText.substring(endPos + 1)).trim();
+        break;
+      }
+    }
   }
 
   if (!webUrl) {
     var prefixes = ['/root/marcos/', '/archivos/', '/audios/', '/almacenamiento/', 'http://', 'https://'];
     var foundIdx = -1;
 
-    for (var i = 0; i < prefixes.length; i++) {
-      var pos = cleanText.indexOf(prefixes[i]);
-      if (pos !== -1 && (foundIdx === -1 || pos < foundIdx)) {
-        foundIdx = pos;
+    for (var p = 0; p < prefixes.length; p++) {
+      var posP = cleanText.indexOf(prefixes[p]);
+      if (posP !== -1 && (foundIdx === -1 || posP < foundIdx)) {
+        foundIdx = posP;
       }
     }
 
     if (foundIdx !== -1) {
       var rest = cleanText.substring(foundIdx);
-      var endPos = rest.length;
+      var endCut = rest.length;
       for (var j = 0; j < rest.length; j++) {
         var ch = rest.charAt(j);
         if (ch <= ' ' || ch === ']' || ch === ')') {
-          endPos = j;
+          endCut = j;
           break;
         }
       }
 
-      var rawPath = rest.substring(0, endPos).trim();
+      var rawPath = rest.substring(0, endCut).trim();
       if (rawPath.length > 3) {
         webUrl = normalizarUrlAudio(rawPath);
         var lastSlash = rawPath.lastIndexOf('/');
         filename = lastSlash !== -1 ? rawPath.substring(lastSlash + 1) : rawPath;
 
         var ext = filename.split('.').pop().toLowerCase();
-
         if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawPath.indexOf('/imagenes/') !== -1 || rawPath.indexOf('/fotos/') !== -1) {
           mediaType = 'image';
         } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawPath.indexOf('/videos/') !== -1) {
@@ -2642,17 +2649,18 @@ function procesarLineaMultimediaChat(strText) {
 
         var startCut = foundIdx;
         if (startCut > 0 && cleanText.charAt(startCut - 1) === '[') startCut--;
-
-        var endCut = foundIdx + rawPath.length;
-        if (endCut < cleanText.length && cleanText.charAt(endCut) === ']') endCut++;
+        var fullEndCut = foundIdx + rawPath.length;
+        if (fullEndCut < cleanText.length && cleanText.charAt(fullEndCut) === ']') fullEndCut++;
 
         var before = cleanText.substring(0, startCut).trim();
-        var after = cleanText.substring(endCut).trim();
+        var after = cleanText.substring(fullEndCut).trim();
 
-        var tagRegexes = [/imagen:\\s*$/i, /foto:\\s*$/i, /video:\\s*$/i, /audio:\\s*$/i, /\\(imagen adjunta\\)\\s*$/i, /\\(video adjunto\\)\\s*$/i, /\\(nota de voz\\)\\s*$/i];
-        for (var t = 0; t < tagRegexes.length; t++) {
-          if (tagRegexes[t].test(before)) {
-            before = before.replace(tagRegexes[t], '').trim();
+        var suffixes = ['imagen:', 'foto:', 'video:', 'audio:', '(imagen adjunta)', '(video adjunto)', '(nota de voz)'];
+        var bLower = before.toLowerCase();
+        for (var s = 0; s < suffixes.length; s++) {
+          if (bLower.endsWith(suffixes[s])) {
+            before = before.substring(0, before.length - suffixes[s].length).trim();
+            break;
           }
         }
         if (before.endsWith('[')) {
