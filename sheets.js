@@ -1374,6 +1374,33 @@ async function guardarAccesoEdificio({ edificio, lugar, ubicacion = '', quienAbr
     }
 }
 
+async function quitarAccesoEdificio({ edificio, lugar }) {
+    try {
+        if (!edificio || !lugar) return false;
+        const sheet = await getSheetAccesos();
+        const rows = await sheet.getRows();
+
+        const edifBuscado = String(edificio).toLowerCase().trim();
+        const lugarBuscado = String(lugar).toLowerCase().trim();
+
+        const filasABorrar = rows.filter(r => {
+            const rEd = String(r.get('edificio') || '').toLowerCase().trim();
+            const rLug = String(r.get('lugar') || '').toLowerCase().trim();
+            if (rEd !== edifBuscado) return false;
+            return rLug === lugarBuscado || rLug.includes(lugarBuscado) || lugarBuscado.includes(rLug);
+        });
+
+        for (const f of filasABorrar) {
+            await f.delete();
+            console.log(`🔑 Acceso eliminado en ${edificio}: ${f.get('lugar')}`);
+        }
+        return true;
+    } catch (err) {
+        console.error('Error quitando acceso del edificio:', err.message);
+        return false;
+    }
+}
+
 module.exports = {
     getSheet,
     buscarVecinoPorTelefono,
@@ -1390,6 +1417,7 @@ module.exports = {
     obtenerSeguimientosVencidos,
     buscarAccesosEdificio,
     guardarAccesoEdificio,
+    quitarAccesoEdificio,
     buscarCliente,
     listarEdificiosConocidos,
     buscarMemoriaVecino,
@@ -1399,9 +1427,6 @@ module.exports = {
     marcarTecnicoNotificado,
     guardarFactura,
     buscarFacturasProveedor,
-    // Estaba definida pero nunca exportada: index.js la importa y la llama al cerrar una llamada
-    // de Vapi, así que quedaba en undefined y toda llamada telefónica moría con
-    // "guardarLlamada is not a function" sin que se guardara nada.
     guardarLlamada,
     buscarRolPorTelefono,
     obtenerEventosPendientesAdmin,

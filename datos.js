@@ -421,9 +421,11 @@ async function cancelarSeguimiento(id_evento) {
     return res;
 }
 
-// ── EXPORTACIÓN ─────────────────────────────────────────────────────────────
-// Todo lo que no está envuelto arriba pasa tal cual a sheets.js: las lecturas todavía salen de
-// Google Sheets, que sigue siendo la fuente de verdad en esta etapa.
+async function quitarAccesoEdificio(datos) {
+    const resSheets = await sheets.quitarAccesoEdificio(datos).catch(() => false);
+    const resPg = await pg.quitarAccesoEdificio(datos).catch(() => false);
+    return resSheets || resPg;
+}
 
 module.exports = {
     ...sheets,
@@ -436,6 +438,7 @@ module.exports = {
     marcarCasoResueltoPorId,
     guardarLlamada,
     guardarAccesoEdificio,
+    quitarAccesoEdificio,
     guardarConfirmacionTecnico,
     programarSeguimiento,
     cancelarSeguimiento,

@@ -80,22 +80,13 @@ module.exports = function crearRutasAccesos({ esDueno, edificiosPermitidos, bloq
         try {
             const edificio = edificioObjetivo(req);
             const lugar = String((req.body || {}).lugar || '').trim();
-            if (!edificio || !lugar) return res.status(400).json({ error: 'Faltan datos' });
+            if (!edificio || !lugar) return res.status(400).json({ error: 'Seleccioná el acceso que querés quitar' });
 
-            const { getSheet } = require('./datos');
-            const doc = await getSheet();
-            const sheet = doc.sheetsByTitle['accesos'];
-            if (!sheet) return res.json({ ok: true, accesos: [] });
+            const { quitarAccesoEdificio, buscarAccesosEdificio } = require('./datos');
+            await quitarAccesoEdificio({ edificio, lugar });
 
-            const rows = await sheet.getRows();
-            const fila = rows.find(r =>
-                String(r.get('edificio') || '').toLowerCase().trim() === edificio.toLowerCase().trim() &&
-                String(r.get('lugar') || '').toLowerCase().trim() === lugar.toLowerCase()
-            );
-            if (fila) await fila.delete();
-
-            const { buscarAccesosEdificio } = require('./datos');
-            res.json({ ok: true, accesos: await buscarAccesosEdificio(edificio) });
+            const accesos = await buscarAccesosEdificio(edificio);
+            res.json({ ok: true, accesos });
         } catch (e) {
             res.status(500).json({ error: e.message || String(e) });
         }

@@ -595,6 +595,81 @@ async function registrarAudioTTS(telefono, ventanaMs) {
     );
 }
 
+async function buscarAccesosEdificio(edificio) {
+    if (!edificio) return [];
+    try {
+        const res = await pool.query(
+            `SELECT lugar, ubicacion, quien_abre AS "quienAbre", telefono, tipo_acceso AS "tipoAcceso", notas, origen, fecha
+             FROM accesos
+             WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))
+             ORDER BY id ASC`,
+            [edificio]
+        );
+        return res.rows || [];
+    } catch (err) {
+        console.error('Error PostgreSQL buscarAccesosEdificio:', err.message);
+        return [];
+    }
+}
+
+async function guardarAccesoEdificio({ edificio, lugar, ubicacion = '', quienAbre = '', telefono = '', tipoAcceso = '', notas = '', origen = '' }) {
+    if (!edificio || !lugar) return false;
+    try {
+        const edifTrim = String(edificio).trim();
+        const lugarTrim = String(lugar).trim();
+        const fecha = new Date().toLocaleString('es-AR');
+
+        const existe = await pool.query(
+            `SELECT id FROM accesos WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1)) AND LOWER(TRIM(lugar)) = LOWER(TRIM($2))`,
+            [edifTrim, lugarTrim]
+        );
+
+        if (existe.rows && existe.rows.length > 0) {
+            await pool.query(
+                `UPDATE accesos SET
+                    ubicacion = COALESCE(NULLIF($3, ''), ubicacion),
+                    quien_abre = COALESCE(NULLIF($4, ''), quien_abre),
+                    telefono = COALESCE(NULLIF($5, ''), telefono),
+                    tipo_acceso = COALESCE(NULLIF($6, ''), tipo_acceso),
+                    notas = COALESCE(NULLIF($7, ''), notas),
+                    origen = COALESCE(NULLIF($8, ''), origen),
+                    fecha = $9
+                 WHERE id = $10`,
+                [ubicacion, quienAbre, telefono, tipoAcceso, notas, origen, fecha, existe.rows[0].id]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO accesos (edificio, lugar, ubicacion, quien_abre, telefono, tipo_acceso, notas, origen, fecha)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                [edifTrim, lugarTrim, ubicacion, quienAbre, telefono, tipoAcceso, notas, origen, fecha]
+            );
+        }
+        return true;
+    } catch (err) {
+        console.error('Error PostgreSQL guardarAccesoEdificio:', err.message);
+        return false;
+    }
+}
+
+async function quitarAccesoEdificio({ edificio, lugar }) {
+    if (!edificio || !lugar) return false;
+    try {
+        const edifTrim = String(edificio).trim().toLowerCase();
+        const lugarTrim = String(lugar).trim().toLowerCase();
+
+        await pool.query(
+            `DELETE FROM accesos
+             WHERE LOWER(TRIM(edificio)) = $1
+               AND (LOWER(TRIM(lugar)) = $2 OR LOWER(TRIM(lugar)) LIKE $3 OR $2 LIKE '%' || LOWER(TRIM(lugar)) || '%')`,
+            [edifTrim, lugarTrim, `%${lugarTrim}%`]
+        );
+        return true;
+    } catch (err) {
+        console.error('Error PostgreSQL quitarAccesoEdificio:', err.message);
+        return false;
+    }
+}
+
 module.exports = {
     pool,
     initPgSchema,
@@ -605,5 +680,8 @@ module.exports = {
     obtenerHistorialChatTelefono,
     busquedaGlobal,
     leerAudiosTTS,
-    registrarAudioTTS
+    registrarAudioTTS,
+    buscarAccesosEdificio,
+    guardarAccesoEdificio,
+    quitarAccesoEdificio
 };

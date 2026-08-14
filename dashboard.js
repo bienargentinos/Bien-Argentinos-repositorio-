@@ -1731,6 +1731,7 @@ window.renderTablaAccesosClient = function(lista) {
     var qaEsc = escapeHtml(a.quienAbre || a.quien_abre || '—');
     var telEsc = escapeHtml(a.telefono || '—');
     var tipoEsc = escapeHtml(a.tipoAcceso || a.tipo_acceso || '—');
+    var notasEsc = escapeHtml(a.notas || '—');
     var lugarAttr = escapeHtml(a.lugar || '');
 
     return '<tr style="border-bottom:1px solid #EEF1F6">' +
@@ -1865,13 +1866,17 @@ window.guardarAccesoNuevo = function(btn) {
 };
 
 window.quitarAcceso = function(lugar) {
-  if (!lugar) return;
-  if (!confirm('¿Quitar ' + lugar + ' de la lista?')) return;
+  if (!lugar) {
+    toast('Seleccioná una instalación', 'err');
+    return;
+  }
+  if (!confirm('¿Quitar "' + lugar + '" de la lista de instalaciones del edificio?')) return;
 
+  var curEd = window.__CUR_BUILDING__ ? window.__CUR_BUILDING__.nombre : '';
   fetch('/admin/api/acceso-quitar', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lugar: lugar })
+    body: JSON.stringify({ lugar: lugar, edificio: curEd })
   })
   .then(function(res){ return res.json(); })
   .then(function(data){
