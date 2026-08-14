@@ -207,6 +207,20 @@ REGLA ESTRICTA DE CARTERA:
 `.trim()
         : '';
 
+    // Cuando una nota de voz no se pudo transcribir, llega marcada como tal. El vecino tiene que
+    // enterarse de que fue una falla nuestra: si Marcos le vuelve a pedir datos que él ya dio en
+    // ese audio, sin explicar por qué, del otro lado se lee como desatención.
+    const ultimoMensajeVecino = String((historial || [])[historial?.length - 1] || '');
+    const instruccionAudioIlegible = ultimoMensajeVecino.includes('no se pudo escuchar esta nota de voz')
+        ? `
+🎙️ HUBO UNA NOTA DE VOZ QUE NO SE PUDO ESCUCHAR:
+- En el mensaje del vecino hay al menos una nota de voz marcada como "(no se pudo escuchar esta nota de voz)". Es una falla técnica NUESTRA: el audio no llegó bien.
+- DECÍSELO expresamente y disculpate en una línea, para que entienda que fue un problema del sistema y no que no le prestaste atención.
+- Pedile que te repita SOLO lo que decía en esa nota. NO le vuelvas a pedir lo que ya te dijo en los mensajes que sí se entendieron.
+- Ejemplo: "Disculpe, una de sus notas de voz no me llegó bien y no pude escucharla. ¿Me repite lo que me decía ahí?"
+`.trim()
+        : '';
+
     const instruccionGestionAcceso = (!personalDeTurno && decisionCaso?.contactar_tecnico)
         ? `- GESTIÓN DE ACCESO OBLIGATORIA: En este momento NO hay encargado de turno activo en el edificio. DEBES preguntarle amablemente al vecino si él o alguien de su departamento estará disponible en el lugar para recibir al técnico y facilitarle el ingreso.`
         : '';
@@ -251,6 +265,7 @@ ${instruccionContactoAcceso}
 ${instruccionConfirmacionTecnico}
 
 ${instruccionIdentificacion}
+${instruccionAudioIlegible}
 ${instruccionDatosFaltantes}
 ${instruccionTecnicoDisponibilidad}
 
