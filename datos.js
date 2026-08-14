@@ -423,7 +423,11 @@ async function cancelarSeguimiento(id_evento) {
 
 async function quitarAccesoEdificio(datos) {
     const resSheets = await sheets.quitarAccesoEdificio(datos).catch(() => false);
-    const resPg = await pg.quitarAccesoEdificio(datos).catch(() => false);
+    let resPg = false;
+    try {
+        const pg = require('./db-pg');
+        resPg = await pg.quitarAccesoEdificio(datos).catch(() => false);
+    } catch(e) {}
     return resSheets || resPg;
 }
 

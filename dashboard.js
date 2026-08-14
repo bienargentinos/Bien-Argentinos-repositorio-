@@ -2587,7 +2587,7 @@ function procesarLineaMultimediaChat(strText) {
   var filename = '';
   var mediaType = '';
 
-  var tagMatch = cleanText.match(/\\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO):\\s*([^\\\]]+)\\\]/i);
+  var tagMatch = cleanText.match(new RegExp('\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO):\\s*([^\\]]+)\\]', 'i'));
   if (tagMatch) {
     var rawUrlFromTag = tagMatch[2].trim();
     var tagType = tagMatch[1].toUpperCase();
@@ -2722,60 +2722,69 @@ function cambiarTabChatEvento(tab) {
 function separarConversacionesEvento(datos) {
   if (!datos) return { chatVecino: [], chatProveedor: [] };
 
-  var rawSources = [
-    datos.chat_pg,
-    datos.historial_chat_vecino,
-    datos.chat_vecino_json,
-    datos.historial_chat_proveedor,
-    datos.chat_proveedor_json,
-    datos.historial_chat
-  ];
-
-  var allLines = [];
-  var seenStr = new Set();
-
-  rawSources.forEach(function(src) {
-    if (!src) return;
-    var list = [];
-    if (typeof src === 'string' && src.trim()) {
-      if (src.trim().startsWith('[')) {
-        try { list = JSON.parse(src); } catch(e) { list = [src]; }
-      } else {
-        list = String(src).split('\\n').filter(Boolean);
-      }
-    } else if (Array.isArray(src)) {
-      list = src;
-    }
-
-    list.forEach(function(item) {
-      var key = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (key && !seenStr.has(key)) {
-        seenStr.add(key);
-        allLines.push(item);
-      }
-    });
-  });
-
   var chatVecino = [];
   var chatProveedor = [];
+  var seenVecino = new Set();
+  var seenProveedor = new Set();
 
-  allLines.forEach(function(line) {
-    var rem = typeof line === 'object' ? String(line.remitente || line.emisor || '').toLowerCase() : '';
-    var str = typeof line === 'object' ? ((line.emisor ? line.emisor + ': ' : '') + (line.texto || line.mensaje || '')) : String(line);
+  function parseList(src) {
+    if (!src) return [];
+    if (typeof src === 'string' && src.trim()) {
+      if (src.trim().startsWith('[')) {
+        try { return JSON.parse(src); } catch(e) { return [src]; }
+      }
+      return String(src).split('\\n').filter(Boolean);
+    }
+    if (Array.isArray(src)) return src;
+    return [];
+  }
+
+  // 1. Cargar explícitamente chat de vecino si existe
+  var listVecino = [].concat(parseList(datos.historial_chat_vecino), parseList(datos.chat_vecino_json));
+  listVecino.forEach(function(item) {
+    var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+    if (k && !seenVecino.has(k)) {
+      seenVecino.add(k);
+      chatVecino.push(item);
+    }
+  });
+
+  // 2. Cargar explícitamente chat de proveedor si existe
+  var listProv = [].concat(parseList(datos.historial_chat_proveedor), parseList(datos.chat_proveedor_json));
+  listProv.forEach(function(item) {
+    var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+    if (k && !seenProveedor.has(k)) {
+      seenProveedor.add(k);
+      chatProveedor.push(item);
+    }
+  });
+
+  // 3. Procesar historial_chat o chat_pg si las listas específicas estaban vacías
+  var genericList = [].concat(parseList(datos.chat_pg), parseList(datos.historial_chat));
+  genericList.forEach(function(item) {
+    var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+    if (!k || seenVecino.has(k) || seenProveedor.has(k)) return;
+
+    var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
+    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
 
     var isExplicitProveedor = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
     var isExplicitVecino = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
 
     if (isExplicitProveedor) {
-      chatProveedor.push(line);
+      seenProveedor.add(k);
+      chatProveedor.push(item);
     } else if (isExplicitVecino) {
-      chatVecino.push(line);
+      seenVecino.add(k);
+      chatVecino.push(item);
     } else {
-      var strLower = str.toLowerCase();
-      if (/julio|técnico|proveedor|plomero|electricista|gasista|instalador|notificación|recibirá natalia|visita|coordinar/i.test(strLower) && !/buenas noches, daniel|señor daniel|servicio de atención técnica de la administración/i.test(strLower)) {
-        chatProveedor.push(line);
+      var isDirectToTech = /^(Estimado técnico|Hola técnico|Atención técnico|Para técnico)/i.test(str.replace(/^(Marcos IA|Marcos|IA|Bot):\s*/i, ''));
+      if (isDirectToTech) {
+        seenProveedor.add(k);
+        chatProveedor.push(item);
       } else {
-        chatVecino.push(line);
+        seenVecino.add(k);
+        chatVecino.push(item);
       }
     }
   });
