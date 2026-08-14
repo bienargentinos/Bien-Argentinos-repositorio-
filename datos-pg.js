@@ -589,9 +589,19 @@ async function buscarUltimoVecinoDeEdificio(edificio) {
 }
 
 /** A qué edificio corresponde el último caso abierto de un técnico. */
-async function buscarEdificioDeCasoAbiertoPorTecnico(nombreTecnico) {
+/**
+ * El caso abierto que está atendiendo ese técnico, con todo lo que hace falta para retomar la
+ * conversación: el código del caso, el edificio y de qué vecino se trata.
+ *
+ * Existe porque ese estado vivía únicamente en `global.colasProveedores`, en memoria. Se llena
+ * cuando se le manda la plantilla al técnico y se pierde en cada `pm2 restart`. Si el técnico
+ * contestaba después de un reinicio -- que con PM2 reiniciando decenas de veces por día es lo
+ * habitual -- Marcos ya no sabía a qué caso pertenecía esa respuesta: no podía guardar la
+ * confirmación (le faltaba el id del caso) ni avisarle al vecino (le faltaba el teléfono).
+ */
+async function buscarCasoAbiertoPorTecnico(nombreTecnico) {
     const techBuscado = String(nombreTecnico || '').toLowerCase().trim();
-    if (!techBuscado) return '';
+    if (!techBuscado) return null;
     const rows = await filas('reportes');
 
     const row = [...rows].reverse().find(r => {
@@ -601,7 +611,18 @@ async function buscarEdificioDeCasoAbiertoPorTecnico(nombreTecnico) {
         return rTech && (rTech.includes(techBuscado) || techBuscado.includes(rTech));
     });
 
-    return row ? (row.get('edificio') || '') : '';
+    if (!row) return null;
+    return {
+        id_evento: row.get('codigo_caso') || row.get('id_evento') || '',
+        edificio:  row.get('edificio') || '',
+        telefono:  row.get('telefono') || '',
+        vecino:    row.get('vecino') || '',
+    };
+}
+
+async function buscarEdificioDeCasoAbiertoPorTecnico(nombreTecnico) {
+    const caso = await buscarCasoAbiertoPorTecnico(nombreTecnico);
+    return caso ? caso.edificio : '';
 }
 
 /**
@@ -675,4 +696,5 @@ module.exports = {
     buscarVecinoDeCasoAbierto,
     buscarUltimoVecinoDeEdificio,
     buscarEdificioDeCasoAbiertoPorTecnico,
+    buscarCasoAbiertoPorTecnico,
 };

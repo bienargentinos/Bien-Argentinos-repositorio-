@@ -810,6 +810,32 @@ function validarYSanitizarNombre(nombre) {
         stProv.chatActivo = true;
         stProv.ultimoMensajeTimestamp = Date.now();
 
+        // Qué caso está atendiendo este técnico. Se completa al mandarle la plantilla, pero vive en
+        // memoria: si PM2 reinició entre ese aviso y esta respuesta, acá llega en null y todo lo que
+        // depende del caso queda sin hacerse en silencio -- la confirmación no se guardaba (se
+        // pedía el id del caso y no había) y el vecino no se enteraba (se pedía su teléfono y
+        // tampoco había). Se recupera del caso abierto antes de usarlo.
+        if (!stProv.eventoActivoId || !stProv.vecinoActivo?.telefono) {
+            try {
+                const { buscarCasoAbiertoPorTecnico } = require('./datos-pg');
+                const casoAbierto = await buscarCasoAbiertoPorTecnico(datosEmisor.nombre);
+                if (casoAbierto?.id_evento) {
+                    if (!stProv.eventoActivoId) stProv.eventoActivoId = casoAbierto.id_evento;
+                    if (!stProv.edificioActivo) stProv.edificioActivo = casoAbierto.edificio;
+                    if (!stProv.vecinoActivo?.telefono && casoAbierto.telefono) {
+                        stProv.vecinoActivo = {
+                            telefono:  casoAbierto.telefono,
+                            nombre:    casoAbierto.vecino || 'Vecino',
+                            edificio:  casoAbierto.edificio || ''
+                        };
+                    }
+                    console.log(`♻️ Caso del técnico ${datosEmisor.nombre} recuperado tras reinicio: [${casoAbierto.id_evento}] (${casoAbierto.edificio})`);
+                }
+            } catch (e) {
+                console.error('Error recuperando el caso abierto del técnico:', e.message);
+            }
+        }
+
         // ¿El técnico está confirmando la visita? Si confirma, hay que dejar constancia y frenar
         // los recordatorios. Antes no se registraba en ningún lado: el técnico confirmaba, le
         // seguían llegando avisos pidiéndole la confirmación que ya había dado, y cuando el vecino
