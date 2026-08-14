@@ -2197,7 +2197,14 @@ window.enviarPreguntaAsistente = async function enviarPreguntaAsistente(){
     if(loadingDiv.parentNode) loadingDiv.parentNode.removeChild(loadingDiv);
     var botDiv = document.createElement('div');
     botDiv.className = 'ac-ai-msg bot';
-    botDiv.textContent = data.respuesta || data.error || 'No se pudo obtener respuesta.';
+    var txtRes = data.respuesta || data.error || 'No se pudo obtener respuesta.';
+    var formattedHtml = String(txtRes)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/([^\n])\s*([0-9]+\.\s+|[1-9]️⃣\s*)/g, '$1\n\n$2');
+    botDiv.innerHTML = formattedHtml;
     msgs.appendChild(botDiv);
     msgs.scrollTop = msgs.scrollHeight;
   } catch(err) {
@@ -5225,7 +5232,7 @@ ${(() => {
 </div>
 
 <style>
-.ac-ai-msg { padding: 9px 12px; border-radius: 12px; max-width: 85%; line-height: 1.45; word-wrap: break-word; }
+.ac-ai-msg { padding: 10px 14px; border-radius: 12px; max-width: 88%; line-height: 1.5; word-wrap: break-word; white-space: pre-wrap; }
 .ac-ai-msg.bot { background: #EAF1FB; color: #16233B; border-bottom-left-radius: 4px; align-self: flex-start; }
 .ac-ai-msg.user { background: #17408B; color: #ffffff; border-bottom-right-radius: 4px; align-self: flex-end; }
 .ac-ai-msg.loading { font-style: italic; color: #64748B; background: #F1F5FB; }
@@ -8946,7 +8953,7 @@ CONTEXTO DEL USUARIO QUE PREGUNTA:
 
 REGLAS DE ORO OBLIGATORIAS:
 1. NUNCA DIGAS QUE UNA FUNCIÓN NO EXISTE SI ESTÁ EN EL PANEL. Todo lo relativo a consorcios, encargados, ayudantes, suplentes, limpieza, seguridad, accesos, proveedores, expensas y reclamos SÍ SE HACE DESDE ESTE PANEL. NUNCA mandes al usuario a escribir por WhatsApp si la tarea se resuelve dentro del panel.
-2. MICRO-INTERACCIONES (Anti-Párrafo Largo): Respuestas súper cortas y amables. Máximo 4-5 líneas estructuradas con pasos numerados [Paso 1], [Paso 2] y emojis. NADA de textos largos de tipo manual o copias genéricas. La gente que usa este panel no es informática y apenas usa el celular.
+2. PASOS ESCALONADOS Y SEPARADOS (FORMATO VISUAL): Cada paso DEBE ir obligatoriamente en su propia línea, separado de los demás por un salto de línea doble (\n\n). NUNCA pegues dos pasos en el mismo renglón o párrafo continuo. La gente que usa este panel apenas maneja el celular y necesita ver los pasos 1, 2 y 3 separados por renglones limpios.
 3. NAVEGACIÓN VISUAL EXACTA: Indicá la ruta exacta usando emojis y corchetes para los botones: ej. Menú Lateral ➡️ [ Mi Edificio ] ➡️ Bloque [ Personal, Limpieza y Seguridad ] ➡️ Botón [ + Añadir ].
 4. LENGUAJE CÁLIDO Y SERVICIAL: Sé muy empático ("¡Hola! Claro que sí, podés agregarlo fácilmente en 2 pasos...").
 5. CIERRE INTERACTIVO: Terminá ofreciendo ayuda en el siguiente paso ("¿Querés que te guíe en algún otro dato?").
