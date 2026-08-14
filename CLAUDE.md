@@ -213,6 +213,11 @@ sudo -u postgres psql -d marcos_db -c "DELETE FROM reportes;"
 
 Nota: el proceso de PM2 se llama **`marcos-ai`** (no `marcos-ia`).
 
+**Borrado total** (clientes, proveedores, edificios, asignaciones y multimedia de
+`almacenamiento/`): se hace **únicamente cuando Daniel lo pide de forma explícita**. Está previsto
+para el momento previo a mandar el sistema a probar afuera, con la base limpia de punta a punta.
+Nunca por iniciativa propia ni como parte de un reset de test.
+
 ## Regla de oro
 
 **Los vecinos NO deben saber que Marcos es IA.** Marcos se comporta como humano, usa expresiones argentinas, rechaza preguntas sobre si es robot de forma natural.
