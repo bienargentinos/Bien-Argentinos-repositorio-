@@ -352,14 +352,22 @@ app.post('/webhook', async (req, res) => {
 
             // Transcribimos TODOS los audios de la ráfaga (no solo el último), en orden, para no
             // perder datos cuando el vecino/técnico manda varias notas de voz seguidas.
+            let audiosEnRafaga = 0;
+            let audiosTranscriptos = 0;
             for (const item of items) {
                 if (item.tipo === 'audio' && item.mediaId) {
+                    audiosEnRafaga++;
                     try {
                         const mediaAudio = await descargarMedia(item.mediaId);
                         if (mediaAudio) {
                             const { transcribirAudio } = require('./stt');
                             const transcripcion = await transcribirAudio(mediaAudio.filePath, mediaAudio.mimeType);
-                            if (transcripcion) item.texto = transcripcion;
+                            if (transcripcion) {
+                                item.texto = transcripcion;
+                                audiosTranscriptos++;
+                            } else {
+                                console.error(`⚠️ La nota de voz ${item.mediaId} no devolvió transcripción.`);
+                            }
                             // El audio se copia al almacenamiento permanente y esa es la ruta que
                             // se guarda. Antes se guardaba la de `temp/`, que es una carpeta de
                             // paso: cuando se limpia, el reproductor del panel queda apuntando a
@@ -373,11 +381,29 @@ app.post('/webhook', async (req, res) => {
                             });
                             item.urlWeb = permanente?.relativeUrl
                                 || `/audios/${require('path').basename(mediaAudio.filePath)}`;
+                        } else {
+                            // Este camino no dejaba ningún rastro: sin el archivo no se transcribe,
+                            // y el audio seguía viaje con el texto de relleno como si nada.
+                            console.error(`⚠️ No se pudo descargar la nota de voz ${item.mediaId}: queda sin transcribir.`);
                         }
                     } catch (e) {
                         console.error(`Error transcribiendo audio de la ráfaga (${item.mediaId}):`, e.message);
                     }
+
+                    // Un audio que no se pudo leer NO puede viajar como '(Nota de voz)': ese texto
+                    // no está vacío, así que pasaba todos los filtros y llegaba a la IA ocupando el
+                    // lugar de lo que la persona había dicho. Con dos audios fallados de tres, a
+                    // Marcos le llegaba "(Nota de voz) (Nota de voz) me voy y dejo el teléfono" y
+                    // volvía a pedir el nombre y la dirección que el vecino ya había dado.
+                    // Diciéndolo con todas las letras, Marcos puede pedir que le repitan ESA nota
+                    // en vez de arrancar la conversación de cero.
+                    if (!item.texto || item.texto === '(Nota de voz)') {
+                        item.texto = '(no se pudo escuchar esta nota de voz)';
+                    }
                 }
+            }
+            if (audiosEnRafaga) {
+                console.log(`🎙️ Ráfaga con ${audiosEnRafaga} nota(s) de voz: ${audiosTranscriptos} transcripta(s), ${audiosEnRafaga - audiosTranscriptos} sin transcribir.`);
             }
 
             // Registramos cada mensaje de la ráfaga por separado y en orden, no el texto pegado:
