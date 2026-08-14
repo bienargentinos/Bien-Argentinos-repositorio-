@@ -2167,6 +2167,7 @@ function iniciarRecorridoTour(pasos) {
   render();
 }
 
+window.acAiHistorial = window.acAiHistorial || [];
 window.enviarPreguntaAsistente = async function enviarPreguntaAsistente(){
   var input = document.getElementById('ac-ai-input');
   var msgs = document.getElementById('ac-ai-messages');
@@ -2181,6 +2182,8 @@ window.enviarPreguntaAsistente = async function enviarPreguntaAsistente(){
   input.value = '';
   msgs.scrollTop = msgs.scrollHeight;
 
+  window.acAiHistorial.push({ role: 'user', text: txt });
+
   var loadingDiv = document.createElement('div');
   loadingDiv.className = 'ac-ai-msg loading';
   loadingDiv.textContent = 'Pensando...';
@@ -2191,13 +2194,19 @@ window.enviarPreguntaAsistente = async function enviarPreguntaAsistente(){
     var res = await fetch('/api/asistente-consultar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pregunta: txt, seccion: window.location.pathname })
+      body: JSON.stringify({ pregunta: txt, seccion: window.location.pathname, historial: window.acAiHistorial })
     });
     var data = await res.json();
     if(loadingDiv.parentNode) loadingDiv.parentNode.removeChild(loadingDiv);
     var botDiv = document.createElement('div');
     botDiv.className = 'ac-ai-msg bot';
     var txtRes = data.respuesta || data.error || 'No se pudo obtener respuesta.';
+    
+    window.acAiHistorial.push({ role: 'model', text: txtRes });
+    if (window.acAiHistorial.length > 10) {
+      window.acAiHistorial = window.acAiHistorial.slice(-10);
+    }
+
     var formattedHtml = String(txtRes)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')

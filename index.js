@@ -2557,8 +2557,8 @@ Tono: cálido, argentino, de "usted". SIN presentarte de nuevo. SIN emojis de co
 // ── Endpoint API para Asistente IA del Dashboard AC ─────────────────────────
 app.post('/api/asistente-consultar', async (req, res) => {
     try {
-        const { pregunta, seccion } = req.body || {};
-        if (!pregunta) {
+        const { pregunta, seccion, historial } = req.body || {};
+        if (!pregunta || !String(pregunta).trim()) {
             return res.status(400).json({ error: 'Falta la pregunta' });
         }
 
@@ -2579,7 +2579,7 @@ REGLAS DE ORO OBLIGATORIAS DE RESPUESTA:
 1. NUNCA DIGAS QUE UNA FUNCIÓN NO EXISTE SI ESTÁ EN EL PANEL. Todo lo relativo a consorcios, encargados titulares, ayudantes de encargado, suplentes, personal de limpieza, vigiladores, accesos, proveedores, expensas y reclamos SÍ SE HACE DESDE ESTE PANEL. NUNCA mandes al usuario a escribir por WhatsApp si la tarea se resuelve dentro del panel.
 2. PASOS ESCALONADOS Y SEPARADOS (FORMATO VISUAL): Cada paso DEBE ir obligatoriamente en su propia línea, separado de los demás por un salto de línea doble (\n\n). NUNCA pegues dos pasos en el mismo renglón o párrafo continuo. La gente que usa este panel apenas maneja el celular y necesita ver los pasos 1, 2 y 3 separados por renglones limpios.
 3. NAVEGACIÓN VISUAL EXACTA: Indicá la ruta exacta en pantalla usando emojis y corchetes: ej. Menú Lateral ➡️ [ Mi Edificio ] ➡️ Bloque [ Personal, Limpieza y Seguridad ] ➡️ Botón [ + Añadir ].
-4. LENGUAJE CÁLIDO Y SERVICIAL: Sé muy empático ("¡Hola! Bienvenida/o, te ayudo a cargarlo fácilmente en 2 pasos...").
+4. NO REPETIR "HOLA" SI LA CHARLA YA EMPEZÓ: Si en el historial ya hay mensajes previos o el usuario responde a una pregunta tuya (ej: "sí", "dale", "bueno", "ya lo hice", "ok", "sí por favor"), NO VUELVAS A SALUDAR CON "HOLA" NI TE PRESENTES DE NUEVO. Avanzá directo al siguiente paso o respuesta de forma fluida y natural como una charla continua.
 5. CIERRE INTERACTIVO: Terminá ofreciendo ayuda en el siguiente paso ("¿Querés que te guíe en algún otro dato?").
 6. El usuario te está escribiendo actualmente desde la sección: "${seccion || 'Inicio / General'}".
 
@@ -2587,9 +2587,24 @@ BASE DE CONOCIMIENTO OFICIAL DEL DASHBOARD:
 ${conocimiento}
 `.trim();
 
+        const contents = [];
+        if (Array.isArray(historial) && historial.length > 0) {
+            for (const item of historial) {
+                if (item && item.role && item.text) {
+                    contents.push({
+                        role: item.role === 'user' ? 'user' : 'model',
+                        parts: [{ text: String(item.text) }]
+                    });
+                }
+            }
+        }
+        if (contents.length === 0 || contents[contents.length - 1].role !== 'user' || contents[contents.length - 1].parts[0].text !== String(pregunta).trim()) {
+            contents.push({ role: 'user', parts: [{ text: String(pregunta).trim() }] });
+        }
+
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: [{ text: pregunta }],
+            contents,
             config: {
                 systemInstruction,
                 temperature: 0.3,
