@@ -209,7 +209,13 @@ El lado PostgreSQL se limpia aparte (la BD se llama `marcos_db`, no `marcos_ia`)
 ```bash
 sudo -u postgres psql -d marcos_db -c "DELETE FROM vecinos;"
 sudo -u postgres psql -d marcos_db -c "DELETE FROM reportes;"
+sudo -u postgres psql -d marcos_db -c "DELETE FROM audios_tts;"
 ```
+
+`audios_tts` guarda cuándo se le mandó cada nota de voz a cada teléfono, para sostener el techo de
+2 por 24h a través de los reinicios de PM2. Vaciarla devuelve los 2 audios y hace falta para
+repetir un test que incluya la voz — **es lo único de la lista que se borra por comodidad de
+prueba y no porque sea rastro de la conversación**. En producción no se toca.
 
 Nota: el proceso de PM2 se llama **`marcos-ai`** (no `marcos-ia`).
 
