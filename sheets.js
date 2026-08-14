@@ -696,11 +696,21 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             else if (historial_chat) chatNuevosArr = String(historial_chat).split('\n').filter(Boolean);
         } catch(e) {}
 
+        let esContextoProveedor = false;
         chatNuevosArr.forEach(m => {
-            const strM = String(m || '');
-            if (/proveedor|t.cnico|marcos ➔ proveedor|marcos -> proveedor/i.test(strM)) {
+            const strM = typeof m === 'object' ? (m.emisor ? m.emisor + ': ' + (m.texto || m.mensaje || '') : JSON.stringify(m)) : String(m || '');
+            const isProv = /proveedor|t.cnico|instalador|plomero|electricista|gasista|marcos ➔ proveedor|marcos -> proveedor/i.test(strM);
+
+            if (isProv) {
+                esContextoProveedor = true;
                 if (!chatProveedorLista.includes(strM)) chatProveedorLista.push(strM);
+            } else if (esContextoProveedor && /^marcos/i.test(strM.trim())) {
+                const strFormatted = strM.replace(/^marcos:/i, 'Marcos (a Proveedor):');
+                if (!chatProveedorLista.includes(strFormatted) && !chatProveedorLista.includes(strM)) {
+                    chatProveedorLista.push(strFormatted);
+                }
             } else {
+                esContextoProveedor = false;
                 if (!chatVecinoLista.includes(strM)) chatVecinoLista.push(strM);
             }
         });

@@ -240,6 +240,12 @@ async function guardarReporte(datos) {
             historial_chat: Array.isArray(datos.historial_chat)
                 ? JSON.stringify(datos.historial_chat)
                 : (datos.historial_chat || ''),
+            chat_vecino_json: Array.isArray(datos.chat_vecino)
+                ? JSON.stringify(datos.chat_vecino)
+                : (datos.chat_vecino || ''),
+            chat_proveedor_json: Array.isArray(datos.chat_proveedor)
+                ? JSON.stringify(datos.chat_proveedor)
+                : (datos.chat_proveedor || ''),
         }));
     }
     return res;
