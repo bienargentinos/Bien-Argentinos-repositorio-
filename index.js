@@ -456,29 +456,38 @@ async function despacharRespuesta(recipient, texto, msgType) {
     await new Promise(resolve => setTimeout(resolve, demora));
 
     if (msgType === 'audio') {
-        if (!global.marcosSesiones) global.marcosSesiones = new Map();
-        const session = global.marcosSesiones.get(recipient) || {};
-        
-        // Limpiar historial de audios generados en las últimas 24 horas
-        const ahora = Date.now();
+        // El techo de notas de voz se consulta en la base y no en la sesión: cada audio cuesta
+        // créditos de ElevenLabs, y con el contador en memoria alcanzaba un reinicio de PM2 para
+        // que el mismo vecino volviera a tener derecho a dos audios más. Con PM2 reiniciando
+        // decenas de veces por día, el límite no limitaba nada.
         const HORA_24_MS = 24 * 60 * 60 * 1000;
-        const audios24h = (session.audiosGeneradosTimestamps || []).filter(t => (ahora - t) < HORA_24_MS);
-        session.audiosGeneradosTimestamps = audios24h;
+        const MAX_AUDIOS_24H = Number(process.env.TTS_MAX_AUDIOS_24H ?? 2);
 
-        // Regla fundamental: Máximo 2 notas de voz en 24 horas por vecino/remitente
-        if (audios24h.length < 2) {
+        let audios24h = null;
+        try {
+            const { leerAudiosTTS } = require('./db-pg');
+            audios24h = await leerAudiosTTS(recipient, HORA_24_MS);
+        } catch (error) {
+            // Sin poder leer el contador no se sabe cuántos audios se mandaron ya. Se responde por
+            // texto, que no cuesta: ante la duda conviene fallar hacia lo gratis.
+            console.error(`⚠️ No se pudo leer el contador de notas de voz para ${recipient}, se responde por TEXTO:`, error.message);
+        }
+
+        if (audios24h && audios24h.length < MAX_AUDIOS_24H) {
             try {
-                console.log(`🎙️ Generando nota de voz #${audios24h.length + 1} (máx 2 por 24h) para ${recipient}...`);
+                console.log(`🎙️ Generando nota de voz #${audios24h.length + 1} (máx ${MAX_AUDIOS_24H} por 24h) para ${recipient}...`);
                 const { generarAudio } = require('./tts');
                 const { subirMediaWhatsApp, enviarAudioWhatsApp } = require('./agentes/marcos-ops');
-                
+
                 const fileName = await generarAudio(texto, `audio_${Date.now()}.ogg`);
                 const mediaIdTTS = await subirMediaWhatsApp(fileName, 'audio/ogg', process.env.WHATSAPP_PHONE_NUMBER_ID, process.env.WHATSAPP_ACCESS_TOKEN);
-                
+
                 if (mediaIdTTS) {
                     await enviarAudioWhatsApp(recipient, mediaIdTTS, process.env.WHATSAPP_PHONE_NUMBER_ID, process.env.WHATSAPP_ACCESS_TOKEN);
-                    audios24h.push(ahora);
-                    session.audiosGeneradosTimestamps = audios24h;
+                    // El crédito ya se gastó: se anota aunque después falle algo, para que un error
+                    // posterior no habilite otra generación.
+                    const { registrarAudioTTS } = require('./db-pg');
+                    await registrarAudioTTS(recipient, HORA_24_MS);
                     const fs = require('fs');
                     if (fs.existsSync(fileName)) fs.unlinkSync(fileName);
                     return;
@@ -486,8 +495,8 @@ async function despacharRespuesta(recipient, texto, msgType) {
             } catch (error) {
                 console.error('Error en despacharRespuesta (TTS):', error.message);
             }
-        } else {
-            console.log(`⚠️ Límite de 2 notas de voz en 24h alcanzado para ${recipient}. Respondiendo por TEXTO para optimizar consumo.`);
+        } else if (audios24h) {
+            console.log(`⚠️ Límite de ${MAX_AUDIOS_24H} notas de voz en 24h alcanzado para ${recipient}. Respondiendo por TEXTO para optimizar consumo.`);
         }
     }
 

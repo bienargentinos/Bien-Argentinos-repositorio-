@@ -47,6 +47,17 @@ async function _initPgSchema() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- Cuando se le mando a cada telefono una nota de voz generada con ElevenLabs. Cada
+            -- una cuesta creditos, y el techo de 2 por 24h vivia en la sesion en memoria: con PM2
+            -- reiniciando decenas de veces por dia el contador arrancaba de cero cada vez y el
+            -- mismo vecino volvia a tener derecho a dos audios nuevos, sin techo real.
+            -- Va en su propia tabla y no como columna de "vecinos" porque el primer audio suele
+            -- salir antes de que exista la fila del vecino.
+            CREATE TABLE IF NOT EXISTS audios_tts (
+                telefono VARCHAR(50) PRIMARY KEY,
+                timestamps TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS edificios (
                 id SERIAL PRIMARY KEY,
                 edificio VARCHAR(150) UNIQUE,
@@ -538,6 +549,52 @@ async function busquedaGlobal(query) {
     }
 }
 
+// ── TECHO DE NOTAS DE VOZ (ElevenLabs) ──────────────────────────────────────────
+// Cada nota de voz que genera Marcos cuesta creditos. El techo tiene que sobrevivir a los
+// reinicios de PM2, asi que el registro de cuando se mando cada una vive en la base.
+
+/**
+ * Devuelve los timestamps de las notas de voz mandadas a ese telefono dentro de la ventana.
+ * Lanza si la base no responde: el llamador decide, y lo correcto ahi es no gastar.
+ */
+async function leerAudiosTTS(telefono, ventanaMs) {
+    const tel = String(telefono || '').replace(/\D/g, '');
+    if (!tel) return [];
+
+    const res = await pool.query('SELECT timestamps FROM audios_tts WHERE telefono = $1', [tel]);
+    if (res.rows.length === 0) return [];
+
+    let guardados;
+    try {
+        guardados = JSON.parse(res.rows[0].timestamps || '[]');
+    } catch {
+        // Una fila corrupta no puede habilitar gasto: se trata como "no se sabe" y se descarta.
+        return [];
+    }
+    if (!Array.isArray(guardados)) return [];
+
+    const corte = Date.now() - ventanaMs;
+    return guardados.filter(t => Number(t) > corte);
+}
+
+/**
+ * Anota una nota de voz recien mandada, conservando solo las que siguen dentro de la ventana
+ * para que la fila no crezca sin fin.
+ */
+async function registrarAudioTTS(telefono, ventanaMs) {
+    const tel = String(telefono || '').replace(/\D/g, '');
+    if (!tel) return;
+
+    const vigentes = await leerAudiosTTS(tel, ventanaMs);
+    vigentes.push(Date.now());
+
+    await pool.query(
+        `INSERT INTO audios_tts (telefono, timestamps) VALUES ($1, $2)
+         ON CONFLICT (telefono) DO UPDATE SET timestamps = EXCLUDED.timestamps`,
+        [tel, JSON.stringify(vigentes)]
+    );
+}
+
 module.exports = {
     pool,
     initPgSchema,
@@ -546,5 +603,7 @@ module.exports = {
     asignarEventoAMensajes,
     obtenerHistorialMensajes,
     obtenerHistorialChatTelefono,
-    busquedaGlobal
+    busquedaGlobal,
+    leerAudiosTTS,
+    registrarAudioTTS
 };
