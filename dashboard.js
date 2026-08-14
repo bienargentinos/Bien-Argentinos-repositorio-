@@ -2207,12 +2207,19 @@ window.enviarPreguntaAsistente = async function enviarPreguntaAsistente(){
       window.acAiHistorial = window.acAiHistorial.slice(-10);
     }
 
-    var formattedHtml = String(txtRes)
+    var str = String(txtRes)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/([^\n])\s*([0-9]+\.\s+|[1-9]️⃣\s*)/g, '$1\n\n$2');
+      .replace(/>/g, '&gt;');
+    var parts = str.split('**');
+    var formattedHtml = '';
+    for (var i = 0; i < parts.length; i++) {
+      if (i % 2 === 1) {
+        formattedHtml += '<strong>' + parts[i] + '</strong>';
+      } else {
+        formattedHtml += parts[i];
+      }
+    }
     botDiv.innerHTML = formattedHtml;
     msgs.appendChild(botDiv);
     msgs.scrollTop = msgs.scrollHeight;
