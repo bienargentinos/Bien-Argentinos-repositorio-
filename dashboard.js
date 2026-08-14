@@ -2654,10 +2654,19 @@ function procesarLineaMultimediaChat(strText) {
         filename = lastSlash !== -1 ? rawPath.substring(lastSlash + 1) : rawPath;
 
         var ext = filename.split('.').pop().toLowerCase();
-        if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawPath.indexOf('/imagenes/') !== -1 || rawPath.indexOf('/fotos/') !== -1) {
+        var isAudioExt = ['ogg', 'mp3', 'wav', 'aac', 'm4a', 'opus', 'oga', 'amr', 'flac'].indexOf(ext) !== -1;
+        var isImageExt = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1;
+        var isVideoExt = ['mp4', 'mov', 'webm', 'mkv', 'avi', '3gp'].indexOf(ext) !== -1;
+        var isPdfExt = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv'].indexOf(ext) !== -1;
+
+        if (isAudioExt || rawPath.indexOf('/audios/') !== -1) {
+          mediaType = 'audio';
+        } else if (isImageExt || rawPath.indexOf('/imagenes/') !== -1 || rawPath.indexOf('/fotos/') !== -1) {
           mediaType = 'image';
-        } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawPath.indexOf('/videos/') !== -1) {
+        } else if (isVideoExt || rawPath.indexOf('/videos/') !== -1) {
           mediaType = 'video';
+        } else if (isPdfExt || rawPath.indexOf('/facturas/') !== -1 || rawPath.indexOf('/documentos/') !== -1) {
+          mediaType = 'pdf';
         } else {
           mediaType = 'audio';
         }
@@ -2925,17 +2934,25 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var fnObj = lastSlashObj !== -1 ? rawObjMedia.substring(lastSlashObj + 1) : rawObjMedia;
         var extObj = fnObj.split('.').pop().toLowerCase();
 
-        if (['pdf', 'doc', 'docx', 'xls', 'xlsx'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/archivos/') !== -1 || rawObjMedia.indexOf('/facturas/') !== -1) {
-          visualUrl = normalizarUrlAudio(rawObjMedia, 'pdf');
-          visualType = 'pdf';
-          visualFilename = fnObj;
-        } else if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
+        var isAudioExtObj = ['ogg', 'mp3', 'wav', 'aac', 'm4a', 'opus', 'oga', 'amr', 'flac'].indexOf(extObj) !== -1;
+        var isImageExtObj = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1;
+        var isVideoExtObj = ['mp4', 'mov', 'webm', 'mkv', 'avi', '3gp'].indexOf(extObj) !== -1;
+        var isPdfExtObj = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv'].indexOf(extObj) !== -1;
+
+        if (isAudioExtObj || rawObjMedia.indexOf('/audios/') !== -1) {
+          audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
+          audioFilename = fnObj;
+        } else if (isImageExtObj || rawObjMedia.indexOf('/imagenes/') !== -1 || rawObjMedia.indexOf('/fotos/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
           visualType = 'image';
           visualFilename = fnObj;
-        } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1) {
+        } else if (isVideoExtObj || rawObjMedia.indexOf('/videos/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'video');
           visualType = 'video';
+          visualFilename = fnObj;
+        } else if (isPdfExtObj || rawObjMedia.indexOf('/facturas/') !== -1 || rawObjMedia.indexOf('/documentos/') !== -1) {
+          visualUrl = normalizarUrlAudio(rawObjMedia, 'pdf');
+          visualType = 'pdf';
           visualFilename = fnObj;
         } else {
           audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
