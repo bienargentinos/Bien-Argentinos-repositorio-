@@ -8924,9 +8924,71 @@ router.get('/api/busqueda-global', async (req, res) => {
   }
 });
 
+// --- ASISTENTE VIRTUAL DE DASHBOARD (IA INTERACTIVA PARA EL USUARIO) ---
+router.post('/api/asistente-consultar', async (req, res) => {
+  try {
+    const { pregunta, seccion } = req.body || {};
+    if (!pregunta || !String(pregunta).trim()) {
+      return res.status(400).json({ error: 'Falta la pregunta' });
+    }
+
+    const esUserDueno = esDueno(req);
+    const rolTexto = esUserDueno ? 'Dueño del Sistema (Daniel / Administración Global)' : 'Administrador de Consorcio (Cliente)';
+    const permitidos = edificiosPermitidos(req) || [];
+    const edificioActivo = req.session?.edificioActivo || permitidos[0] || 'Todos los edificios';
+
+    const promptSistema = `Sos el Asistente Virtual Inteligente del Panel Administrativo de Marcos IA. Tu misión es guiar de forma sabia, súper amable, paciente y didáctica a Administradores de Consorcio y al Dueño del sistema.
+
+CONTEXTO DEL USUARIO QUE PREGUNTA:
+- Rol del usuario: ${rolTexto}
+- Edificio activo en pantalla: ${edificioActivo}
+- Sección del panel donde está ubicado: ${seccion || '/admin'}
+
+REGLAS OBLIGATORIAS DE RESPUESTA:
+1. MICRO-INTERACCIONES (Anti-Párrafo Largo): Respuestas súper cortas, estructuradas en pasos numerados [Paso 1], [Paso 2] o viñetas simples con emojis. NADA de textos largos o pesados. La gente que usa este panel no es informática y apenas usa el teléfono móvil.
+2. NAVEGACIÓN VISUAL: Indicá la ruta exacta usando emojis y corchetes para los botones: ej. Menú Lateral ➡️ [ Mi Edificio ] ➡️ Pestaña [ 🔑 Accesos ].
+3. LENGUAJE AMIGABLE: Sin tecnicismos. Usá expresiones cálidas, claras y sencillas.
+4. VALIDACIÓN Y PACIENCIA: Sé muy empático y servicial ("¡Hola! Claro que sí, te ayudo a resolverlo en 2 pasos...").
+5. CIERRE INTERACTIVO: Terminá ofreciendo ayuda en el siguiente paso ("¿Querés que lo hagamos juntos o te muestro un ejemplo?").
+
+BASE DE CONOCIMIENTO DE SECCIONES DEL PANEL:
+- Resumen (/admin): Tablero con métricas KIPs y estado general del edificio.
+- Mi Edificio (/admin/mi-edificio): Datos del consorcio, horarios de encargado (reloj interactivo), suplentes.
+  * Pestaña Proveedores: Vincula técnicos de la lista maestra a este edificio por prioridad (1º Opción, 2º Opción, Urgencias).
+  * Pestaña Accesos y Llaves: Carga manual o Carga por Relato (escribir un párrafo libre contando la historia de llaves/bombas/tableros y Marcos acomoda los datos).
+  * Pestaña Consejo: Propietarios/inquilinos del consejo de administración.
+  * Pestaña Staff: Personal de limpieza y mantenimiento.
+- Eventos (/admin/eventos): Reclamos y atenciones de Marcos en tiempo real con visor lateral "Qué hizo Marcos".
+- Proveedores (/admin/proveedores): Lista Maestra de proveedores del administrador (se cargan 1 sola vez).
+- Clientes (/admin/clientes): Exclusivo dueño. Gestión de clientes/edificios y previsualización ("Ver como cliente").
+- Solicitudes (/admin/solicitudes): Exclusivo dueño. Aprobar/rechazar cambios de identidad de consorcios.
+- Expensas (/admin/expensas): Carga de liquidaciones (PDF/Imagen/Link) que Marcos reenvía a vecinos por WhatsApp.
+- Archivos (/admin/archivos): Reglamento de copropiedad e instructivos.
+- Sugerencias (/admin/sugerencias): Canal directo de consulta o feedback.
+
+Pregunta del usuario: "${String(pregunta).trim()}"
+
+Respuesta (corta, amable, esquemática y paso a paso):`;
+
+    const { GoogleGenAI } = require('@google/genai');
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const respGemini = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: promptSistema,
+    });
+
+    const respuestaTexto = String(respGemini?.text || '').trim();
+    res.json({ ok: true, respuesta: respuestaTexto || '¡Hola! En este momento no pude consultar la respuesta, por favor intentá de nuevo.' });
+  } catch (e) {
+    console.error('Error en /api/asistente-consultar:', e);
+    res.status(500).json({ error: 'Ocurrió un error al procesar tu consulta con el asistente.' });
+  }
+});
+
 /* ===================================================================
  * EXPORT
  * =================================================================== */
 
 module.exports = router;
+
 
