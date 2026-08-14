@@ -224,9 +224,9 @@ function mapEvento(r) {
     audio_url: pick(r, ['audio_url', 'url_audio', 'nota_voz', 'audio']),
     urgencia,
     estado: pick(r, ['estado', 'status']),
-    tecnico: pick(r, ['tecnico', 'proveedor', 'tecnico_nombre', 'nombre_tecnico', 'proveedor_nombre', 'nombre_proveedor']),
+    tecnico: pick(r, ['tecnico', 'proveedor', 'tecnico_nombre', 'nombre_tecnico', 'proveedor_nombre', 'nombre_proveedor', 'tecnico_notificado', 'tecnico_confirmado']),
     tel_tecnico: pick(r, ['tel_tecnico', 'telefono_tecnico', 'celular_tecnico', 'tecnico_telefono', 'proveedor_telefono', 'tel_proveedor', 'telefono_proveedor']),
-    rubro_tecnico: pick(r, ['rubro_tecnico', 'rubro_proveedor', 'especialidad_tecnico', 'especialidad_proveedor', 'rubro', 'especialidad']),
+    rubro_tecnico: pick(r, ['rubro_tecnico', 'rubro_proveedor', 'especialidad_tecnico', 'especialidad_proveedor', 'rubro', 'especialidad', 'servicio']),
     historial_chat_vecino: pick(r, ['historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
     historial_chat_proveedor: pick(r, ['historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
@@ -3070,7 +3070,6 @@ function abrirDrawerEvento(idx){
       '</div>'+
     '</div>'+
     '<div style="padding:22px 24px">'+
-      bannerExterno+
       // ── Bloques de Comunicación (Vecino vs Proveedor) ──
       (function(){
         var convSep = separarConversacionesEvento(datos);
@@ -3080,8 +3079,31 @@ function abrirDrawerEvento(idx){
         var bulkBtn = allAudios.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer;margin-right:6px" class="hv-soft">🎙️ Descargar todos los audios (' + allAudios.length + ')</button>' : '';
         var telVecinoClean = datos.telefono ? String(datos.telefono).replace(/[^0-9]/g, '') : '';
         var telVecinoLink = telVecinoClean ? '<a href="https://wa.me/' + escapeHtml(telVecinoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(datos.telefono) + '</a>' : (datos.telefono ? escapeHtml(datos.telefono) : '—');
-        var telTecnicoClean = datos.tel_tecnico ? String(datos.tel_tecnico).replace(/[^0-9]/g, '') : '';
-        var telTecnicoLink = telTecnicoClean ? '<a href="https://wa.me/' + escapeHtml(telTecnicoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(datos.tel_tecnico) + '</a>' : (datos.tel_tecnico ? escapeHtml(datos.tel_tecnico) : '—');
+
+        var nomTecnico = datos.tecnico || datos.tecnico_asignado || datos.proveedor || datos.nombre_tecnico || datos.tecnico_confirmado || datos.tecnico_notificado || '';
+        var telTecnico = datos.tel_tecnico || datos.telefono_tecnico || datos.telefono_proveedor || datos.tel_proveedor || '';
+        var rubroTecnico = datos.rubro_tecnico || datos.rubro || datos.especialidad || datos.servicio || '';
+
+        if (!nomTecnico && convSep.chatProveedor.length > 0) {
+          for (var p = 0; p < convSep.chatProveedor.length; p++) {
+            var pLine = convSep.chatProveedor[p];
+            var pStr = typeof pLine === 'object' ? (pLine.emisor || pLine.remitente || pLine.texto || '') : String(pLine);
+            var matchProvName = pStr.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)\s*\(([^)]+)\)/i);
+            if (matchProvName && matchProvName[2]) {
+              nomTecnico = matchProvName[2].trim();
+              if (!rubroTecnico) rubroTecnico = matchProvName[1].trim();
+              break;
+            }
+          }
+        }
+
+        var tecLabelFinal = nomTecnico || 'Sin asignación aún';
+        var telTecnicoClean = telTecnico ? String(telTecnico).replace(/[^0-9]/g, '') : '';
+        var telTecnicoLink = telTecnicoClean 
+          ? '<a href="https://wa.me/' + escapeHtml(telTecnicoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(telTecnico) + '</a>' 
+          : (telTecnico ? escapeHtml(telTecnico) : '—');
+        var rubroFinal = rubroTecnico || (nomTecnico ? 'Servicio / Trabajo Técnico' : '—');
+
         return '<div style="display:flex;gap:8px;margin-bottom:18px;background:#F1F5FB;padding:5px;border-radius:14px;border:1px solid #E2E8F0">'+
           '<button id="tab-btn-ambos" onclick="cambiarTabChatEvento(&quot;ambos&quot;)" style="flex:1;padding:9px 12px;border:1px solid #1E5FB4;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#FFFFFF;font-weight:800;font-size:12.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s ease" class="hv-primary">'+
             '👁️ Ver Ambos Bloques'+
@@ -3143,10 +3165,10 @@ function abrirDrawerEvento(idx){
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'+
             '<div class="drawer-grid-card" style="grid-column:span 2;background:#FFFDF5;border:1px solid #FDE68A">'+
               '<div style="font-size:10px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.04em">🔧 Técnico / Proveedor Asignado</div>'+
-              '<div style="font-size:15px;font-weight:800;margin-top:3px;color:#78350F">'+escapeHtml(datos.tecnico||'Sin asignación aún')+'</div>'+
+              '<div style="font-size:15px;font-weight:800;margin-top:3px;color:#78350F">'+escapeHtml(tecLabelFinal)+'</div>'+
             '</div>'+
             '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Teléfono Técnico</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+telTecnicoLink+'</div></div>'+
-            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Rubro / Especialidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.rubro_tecnico||datos.tecnico||'—')+'</div></div>'+
+            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Rubro / Especialidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(rubroFinal)+'</div></div>'+
           '</div>'+
           '<div style="margin-top:16px">'+
             '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">'+
