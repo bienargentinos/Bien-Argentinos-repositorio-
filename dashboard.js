@@ -1429,6 +1429,16 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 .dark-theme .drawer-panel .chat-bubble[style*="background:#EDE9FE"],
 .dark-theme .drawer-panel .chat-bubble[style*="background: #EDE9FE"] { background:#4C1D95 !important; color:#EDE9FE !important; border-color:#5B21B6 !important; }
 
+/* Timestamp tag en globos de chat */
+.chat-time-tag { font-size:10px; font-weight:700; padding:2px 7px; border-radius:6px; background:rgba(0,0,0,0.06); color:#475569; letter-spacing:0.01em; display:inline-block; }
+.dark-theme .chat-time-tag { background:rgba(255,255,255,0.12) !important; color:#CBD5E1 !important; }
+.dark-theme .chat-bubble[style*="background:#005C4B"] .chat-time-tag,
+.dark-theme .chat-bubble[style*="background: #005C4B"] .chat-time-tag { background:rgba(0,0,0,0.25) !important; color:#86EFAC !important; }
+.dark-theme .chat-bubble[style*="background:#202C33"] .chat-time-tag,
+.dark-theme .chat-bubble[style*="background: #202C33"] .chat-time-tag { background:rgba(255,255,255,0.1) !important; color:#94A3B8 !important; }
+.dark-theme .chat-bubble[style*="background:#78350F"] .chat-time-tag,
+.dark-theme .chat-bubble[style*="background: #78350F"] .chat-time-tag { background:rgba(0,0,0,0.3) !important; color:#FDE68A !important; }
+
 /* Badges / Chips en Modo Oscuro */
 .dark-theme .ev-urgente { background:#3B1219 !important; border-left:4px solid #EF4444 !important; }
 .dark-theme .ev-urgente:hover { background:#4A1720 !important; }
@@ -3002,7 +3012,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       return '<div style="max-width:88%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.06);' + align + '" class="chat-bubble">' +
         '<div style="font-size:10.5px;font-weight:800;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
           '<span style="display:flex;align-items:center;gap:4px"><span>' + icon + '</span><span style="padding:1px 6px;border-radius:999px;background:' + tagBg + ';color:' + tagFg + '">' + escapeHtml(senderLabel) + '</span></span>' +
-          '<span style="font-size:10px;color:#64748B;font-weight:700;background:rgba(255,255,255,.75);padding:2px 6px;border-radius:6px;border:1px solid rgba(0,0,0,.08)">🕒 ' + escapeHtml(horaTag || 'Reciente') + '</span>' +
+          '<span class="chat-time-tag">' + escapeHtml(horaTag || 'Reciente') + '</span>' +
         '</div>' +
         '<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>' +
         mediaLinkHtml +
