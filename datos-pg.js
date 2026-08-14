@@ -263,7 +263,12 @@ async function buscarRolPorTelefono(telefono) {
         return { rol: 'admin', nombre: cliRow.get('nombre') || 'Administración', telefono: cliRow.get('wsp') || telefono };
     }
 
-    return { rol: 'vecino' };
+    // Los miembros del consejo de administración figuran como vecinos: lo único que los distingue
+    // es la marca en su ficha. Se acarrea para que Marcos pueda contestarles por visitas del
+    // edificio que no abrieron ellos, igual que al encargado o a la guardia.
+    const fichaVecino = await buscarVecinoPorTelefono(numLimpio);
+    const consejo = String(fichaVecino?.consejo || '').trim();
+    return consejo ? { rol: 'vecino', consejo } : { rol: 'vecino' };
 }
 
 // ── TÉCNICOS ────────────────────────────────────────────────────────────────
@@ -632,26 +637,56 @@ async function buscarEdificioDeCasoAbiertoPorTecnico(nombreTecnico) {
  * Marcos, después de un reinicio, le contestara al vecino "estoy consultando con el técnico"
  * teniendo la confirmación desde hacía una hora.
  */
+/** Un caso abierto sirve para responder por la visita solo si el técnico ya confirmó. */
+function tieneConfirmacionVigente(r) {
+    const estado = String(r.get('estado') || '').toLowerCase();
+    if (CERRADOS.has(estado)) return false;
+    return Boolean(String(r.get('tecnico_confirmado') || '').trim());
+}
+
+function confirmacionDeFila(row) {
+    if (!row) return null;
+    return {
+        confirmado: true,
+        eta:      row.get('tecnico_eta') || '',
+        cuando:   row.get('tecnico_confirmado') || '',
+        tecnico:  row.get('tecnico') || '',
+        edificio: row.get('edificio') || '',
+    };
+}
+
 async function buscarConfirmacionTecnicoDeVecino(telefono) {
     const tel = String(telefono || '').replace(/\D/g, '');
     if (!tel) return null;
 
     const rows = await filas('reportes');
-    const row = [...rows].reverse().find(r => {
-        const estado = String(r.get('estado') || '').toLowerCase();
-        if (CERRADOS.has(estado)) return false;
-        if (!String(r.get('tecnico_confirmado') || '').trim()) return false;
+    return confirmacionDeFila([...rows].reverse().find(r => {
+        if (!tieneConfirmacionVigente(r)) return false;
         const rTel = String(r.get('telefono') || '').replace(/\D/g, '');
         return rTel && (rTel === tel || rTel.endsWith(tel.slice(-8)));
-    });
+    }));
+}
 
-    if (!row) return null;
-    return {
-        confirmado: true,
-        eta:     row.get('tecnico_eta') || '',
-        cuando:  row.get('tecnico_confirmado') || '',
-        tecnico: row.get('tecnico') || '',
-    };
+/**
+ * Lo mismo, pero buscando por edificio en lugar de por quién abrió el caso.
+ *
+ * El encargado, el suplente, la guardia o el administrador preguntan por una visita que no
+ * abrieron ellos: buscando solo por teléfono no encontraban nada y Marcos les contestaba que
+ * estaba consultando algo que ya tenía respondido.
+ *
+ * A un vecino cualquiera NO se le responde por esta vía: el caso puede ser dentro de otra unidad,
+ * y contarle a un tercero qué pasa en el departamento de al lado no es asunto suyo.
+ */
+async function buscarConfirmacionTecnicoDeEdificio(edificio) {
+    const buscado = String(edificio || '').toLowerCase().trim();
+    if (!buscado) return null;
+
+    const rows = await filas('reportes');
+    return confirmacionDeFila([...rows].reverse().find(r => {
+        if (!tieneConfirmacionVigente(r)) return false;
+        const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
+        return rEdif && (rEdif === buscado || rEdif.includes(buscado) || buscado.includes(rEdif));
+    }));
 }
 
 // ── ACCESOS ─────────────────────────────────────────────────────────────────
@@ -697,4 +732,5 @@ module.exports = {
     buscarUltimoVecinoDeEdificio,
     buscarEdificioDeCasoAbiertoPorTecnico,
     buscarCasoAbiertoPorTecnico,
+    buscarConfirmacionTecnicoDeEdificio,
 };

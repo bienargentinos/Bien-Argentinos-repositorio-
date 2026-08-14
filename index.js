@@ -40,18 +40,44 @@ function logDebug(msg) {
  * el vecino al que está atendiendo, para no contestarle "estoy consultando" a alguien cuya visita
  * ya está confirmada.
  */
-async function confirmacionDelCaso(telefonoVecino) {
+/**
+ * Marcos no avisa por su cuenta cuando el técnico confirma: el técnico ya tiene el teléfono del
+ * vecino y muchas veces lo llama directo, así que un aviso automático sería ruido. Pero si alguien
+ * del edificio pregunta, la respuesta tiene que estar.
+ *
+ * @param {string} telefonoVecino Quién está preguntando.
+ * @param {object} [contexto] `edificio` y `datosEmisor`, para poder responderle también a quien no
+ *   abrió el caso pero tiene por qué saber.
+ */
+async function confirmacionDelCaso(telefonoVecino, contexto = {}) {
     // Primero la memoria, que es instantánea; si no está -- típico después de un reinicio --, se
     // busca en el caso, que es donde quedó guardada de verdad.
     const enRam = confirmacionDesdeProveedor(telefonoVecino);
     if (enRam) return enRam;
     try {
-        const { buscarConfirmacionTecnicoDeVecino } = require('./datos-pg');
-        return await buscarConfirmacionTecnicoDeVecino(telefonoVecino);
+        const { buscarConfirmacionTecnicoDeVecino, buscarConfirmacionTecnicoDeEdificio } = require('./datos-pg');
+        const propia = await buscarConfirmacionTecnicoDeVecino(telefonoVecino);
+        if (propia) return propia;
+
+        // El encargado, el suplente, la guardia o el administrador preguntan por visitas que no
+        // abrieron ellos: buscar solo por su teléfono no encuentra nada. A un vecino cualquiera no
+        // se le contesta por acá, porque el caso puede ser dentro de otra unidad.
+        if (puedeVerVisitasDelEdificio(contexto.datosEmisor) && contexto.edificio) {
+            return await buscarConfirmacionTecnicoDeEdificio(contexto.edificio);
+        }
+        return null;
     } catch (err) {
         console.error('Error recuperando la confirmación del técnico:', err.message);
         return null;
     }
+}
+
+/** Quién tiene por qué enterarse de una visita del edificio sin haberla pedido él. */
+function puedeVerVisitasDelEdificio(datosEmisor) {
+    const rol = String(datosEmisor?.rol || '').toLowerCase();
+    if (rol === 'encargado' || rol === 'seguridad' || rol === 'admin') return true;
+    // Los del consejo figuran como vecinos: lo que los distingue es la marca en su ficha.
+    return Boolean(String(datosEmisor?.consejo || '').trim());
 }
 
 function confirmacionDesdeProveedor(telefonoVecino) {
@@ -1704,7 +1730,10 @@ function validarYSanitizarNombre(nombre) {
         contactoAccesoExtra: session.contactoAccesoExtra || '',
         // Lo que el técnico ya respondió sobre esta visita, para no volver a decir que se está
         // consultando algo que ya está contestado.
-        confirmacionTecnico: session.confirmacionTecnico || await confirmacionDelCaso(from)
+        confirmacionTecnico: session.confirmacionTecnico || await confirmacionDelCaso(from, {
+            edificio: session.edificioId || session.nombreEdificio || datosEmisor.edificio || '',
+            datosEmisor
+        })
     });
 
     let respuesta = (typeof resCara === 'object' && resCara !== null && resCara.texto)
