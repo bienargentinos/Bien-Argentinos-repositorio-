@@ -2352,7 +2352,7 @@ function parseAudiosDetallados(datos) {
         if (Array.isArray(parsed)) listJson = parsed;
         else if (typeof parsed === 'object') listJson = [parsed];
       } catch(e) {
-        listJson = String(rawJson).split(/[,;\n|]/).map(function(u){ return { url: u.trim() }; });
+        listJson = String(rawJson).split(',').join('\\n').split(';').join('\\n').split('|').join('\\n').split('\\n').map(function(u){ return { url: u.trim() }; }).filter(function(x){ return Boolean(x.url); });
       }
     } else if (Array.isArray(rawJson)) {
       listJson = rawJson;
@@ -2374,7 +2374,7 @@ function parseAudiosDetallados(datos) {
 
   // 2. Parse audio_url field (can contain multiple URLs delimited by comma, newline, pipe, semicolon, space)
   if (datos.audio_url) {
-    var parts = String(datos.audio_url).split(/[,;\n|\s]+/).filter(Boolean);
+    var parts = String(datos.audio_url).split(',').join('\\n').split(';').join('\\n').split('|').join('\\n').split(' ').join('\\n').split('\\n').filter(Boolean);
     parts.forEach(function(p) {
       addAudioItem(p, datos.vecino, datos.when, datos.transcripcion);
     });
@@ -2395,7 +2395,7 @@ function parseAudiosDetallados(datos) {
     }
   }
 
-  var audioUrlRegex = /(\/root\/marcos[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|\/archivos[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|\/almacenamiento[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\/\/[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\/\/[^\s"'()]*audio[^\s"'()]*)/gi;
+  var audioUrlRegex = new RegExp('(/root/marcos[^"\\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/archivos[^"\\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/almacenamiento[^"\\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\\'()\\\\s]*audio[^"\\\'()\\\\s]*)', 'gi');
 
   chatItems.forEach(function(line) {
     if (!line) return;
@@ -2427,7 +2427,7 @@ function parseAudiosDetallados(datos) {
     var textMatches = strText.match(audioUrlRegex);
     if (textMatches) {
       textMatches.forEach(function(mUrl) {
-        var cleanTrans = strText.replace(/^[^:]+:\s*/, '').replace(mUrl, '').replace(/\[audio\]/gi, '').trim();
+        var cleanTrans = strText.replace(/^[^:]+:\s*/, '').replace(mUrl, '').replace(/\\[audio\\]/gi, '').trim();
         addAudioItem(mUrl, lineEmisor, lineHora, cleanTrans || lineTrans);
       });
     }
@@ -2462,7 +2462,7 @@ function parseInvolucrados(datos) {
         if (Array.isArray(parsed)) list = parsed;
         else if (typeof parsed === 'object') list = [parsed];
       } catch(e) {
-        list = String(raw).split(/[,;\n]/).map(function(s){ return { nombre: s.trim() }; }).filter(function(x){ return Boolean(x.nombre); });
+        list = String(raw).split(',').join('\\n').split(';').join('\\n').split('\\n').map(function(s){ return { nombre: s.trim() }; }).filter(function(x){ return Boolean(x.nombre); });
       }
     } else if (Array.isArray(raw)) {
       list = raw;
@@ -3182,9 +3182,16 @@ function descargarResumenEvento(){
   }
 
   // Convertir rutas locales en URLs web absolutas totalmente funcionales
-  chatTexto = chatTexto.replace(/\/root\/marcos\/[^\s"\)]+\/almacenamiento\/[^\s"\)]+/gi, function(match) {
-    return normalizarUrlAudio(match);
-  });
+  if (chatTexto.indexOf('/root/marcos/') !== -1) {
+    var pStr = chatTexto.split('/root/marcos/');
+    for (var pi = 1; pi < pStr.length; pi++) {
+      var subPath = pStr[pi].split(/[\s"<>\)]/)[0];
+      if (subPath) {
+        var rawMatch = '/root/marcos/' + subPath;
+        chatTexto = chatTexto.split(rawMatch).join(normalizarUrlAudio(rawMatch));
+      }
+    }
+  }
 
   var audios = obtenerAudiosEvento(d);
   var audiosSection = audios.length ? [
@@ -3974,8 +3981,8 @@ function parseHorario3Lineas(str) {
 
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
-  var rawNames = String(namesStr || '').split(/[,;\n]/).map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(/[,;\n]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawNames = String(namesStr || '').split(',').join('\\n').split(';').join('\\n').split('\\n').map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawTels = String(telsStr || '').split(',').join('\\n').split(';').join('\\n').split('\\n').map(function(s){ return s.trim(); }).filter(Boolean);
   var res = [];
 
   for (var i = 0; i < rawNames.length; i++) {
@@ -3984,31 +3991,32 @@ function parseStaffClient(namesStr, telsStr) {
     var estado = 'activo';
     var horario = '';
 
-    var isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
-    if (isScheduleFragment && res.length > 0) {
-      var cleanHor = str.replace(/\[[^\]]*\]/g, '').replace(/\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
-      if (cleanHor) {
-        res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
-          ? cleanHor
-          : res[res.length - 1].horario + ' · ' + cleanHor;
+    var openB = str.indexOf('[');
+    var closeB = str.indexOf(']', openB);
+    if (openB !== -1 && closeB > openB) {
+      var metaStr = str.substring(openB + 1, closeB).trim();
+      str = (str.substring(0, openB) + str.substring(closeB + 1)).trim();
+      var metaParts = metaStr.split('|');
+      if (metaParts.length > 0) {
+        var firstPart = metaParts[0].trim().toLowerCase();
+        if (firstPart === 'activo' || firstPart === 'licencia' || firstPart === 'vacaciones') {
+          estado = firstPart;
+          if (metaParts.length > 1) horario = metaParts.slice(1).join('|').trim();
+        } else {
+          horario = metaStr;
+        }
       }
-      continue;
     }
 
-    var matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
-    if (matchMeta) {
-      if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
-      if (matchMeta[2]) horario = matchMeta[2].trim();
-      str = str.replace(/\[[^\]]*\]/g, '').trim();
+    var openP = str.indexOf('(');
+    var closeP = str.indexOf(')', openP);
+    if (openP !== -1 && closeP > openP) {
+      var insideP = str.substring(openP + 1, closeP).trim();
+      if (!tel || tel === '—') tel = insideP;
+      str = (str.substring(0, openP) + str.substring(closeP + 1)).trim();
     }
 
-    var matchTel = str.match(/\(([^)]+)\)/);
-    if (matchTel && (!tel || tel === '—')) {
-      tel = matchTel[1].trim();
-      str = str.replace(/\([^)]+\)/g, '').trim();
-    }
-
-    str = str.replace(/[\[\]]/g, '').trim();
+    str = str.split('[').join('').split(']').join('').trim();
 
     if (str || tel !== '—') {
       res.push({
@@ -4151,7 +4159,7 @@ async function guardarStaffItem(btn) {
   }
 
   var items = parseStaffClient(namesStr, telsStr);
-  var cleanNombre = nombre.trim().replace(/\[|\]/g, '');
+  var cleanNombre = nombre.trim().replace(/\\[|\\]/g, '');
   var newItem = {
     nombre: cleanNombre || 'Personal',
     tel: tel.trim() || '—',
@@ -4166,7 +4174,7 @@ async function guardarStaffItem(btn) {
   }
 
   var formattedNames = items.map(function(x){
-    var cNom = (x.nombre || 'Personal').replace(/\[|\]/g, '').trim();
+    var cNom = (x.nombre || 'Personal').replace(/\\[|\\]/g, '').trim();
     return cNom + ' [' + (x.estado || 'activo') + ' | ' + (x.horario || 'Sin horario') + ']';
   }).join(', ');
 
@@ -6269,7 +6277,7 @@ router.get('/mi-edificio', async (req, res) => {
         const matchTel = str.match(/\(([^)]+)\)/);
         if (matchTel && (!tel || tel === '—')) {
           tel = matchTel[1].trim();
-          str = str.replace(/\([^)]+\)/g, '').trim();
+          str = str.replace(/\\([^)]+\\)/g, '').trim();
         }
 
         str = str.replace(/\[|\]/g, '').trim();
