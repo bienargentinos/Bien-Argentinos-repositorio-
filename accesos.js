@@ -23,6 +23,26 @@ function mencionaAccesos(texto) {
 }
 
 /**
+ * Un acceso sirve si dice CÓMO se entra: quién abre, con qué teléfono, o de qué tipo es.
+ *
+ * Sin este filtro, el desperfecto que el vecino está reportando entraba a la ficha permanente del
+ * edificio: "se cortó la luz y quedó la puerta magnética abierta" salía como la fila
+ * `puerta de entrada | notas: problema eléctrico, quedó abierta`. Eso es el evento, no el edificio,
+ * y una vez arreglada la puerta la ficha quedaba mintiendo.
+ *
+ * Se chequea en el código y no solo en el prompt porque el modelo, ante "la puerta quedó abierta",
+ * tiene razón en leer una afirmación sobre una puerta: lo que no puede saber es que ese dato no
+ * merece sobrevivir al caso.
+ */
+function esAccesoDeVerdad(d) {
+    return Boolean(
+        String(d.quien_abre || '').trim() ||
+        String(d.telefono || '').trim() ||
+        String(d.tipo_acceso || '').trim()
+    );
+}
+
+/**
  * Convierte texto libre en filas de instalaciones.
  *
  * @param {string} texto        Lo que escribió la persona.
@@ -56,7 +76,15 @@ REGLAS:
 - Si la persona dice que ella misma tiene la llave, poné su nombre en "quien_abre".
 - Un mismo texto puede describir varios lugares: devolvé uno por cada uno.
 - Campos que no se mencionan van como cadena vacía. No inventes nada.
-- Si no hay ningún dato concreto de instalaciones o accesos, devolvé exactamente: []`;
+- Si no hay ningún dato concreto de instalaciones o accesos, devolvé exactamente: []
+
+LO QUE ESTÁS BUSCANDO ES CÓMO ES EL EDIFICIO SIEMPRE, NO QUÉ LE PASA HOY.
+Estos datos quedan guardados como ficha permanente del edificio, así que un desperfecto que la
+persona está reportando NO va acá: se arregla y deja de ser cierto.
+- "Natalia tiene la llave de la sala de medidores" → SÍ, es un dato permanente.
+- "se cortó la luz y quedó la puerta abierta", "el portero no anda", "el ascensor está trabado"
+  → NO devuelvas nada por eso, es el problema que están reportando.
+- Si de un mismo lugar solo sabés que está fallando, y no quién lo abre ni cómo, no lo devuelvas.`;
 
         const resp = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
         const crudo = String(resp?.text || '').replace(/```json|```/g, '').trim();
@@ -75,7 +103,8 @@ REGLAS:
                 telefono:    d.telefono || '',
                 tipo_acceso: d.tipo_acceso || '',
                 notas:       d.notas || '',
-            }));
+            }))
+            .filter(esAccesoDeVerdad);
     } catch (err) {
         console.error('Error extrayendo accesos del texto:', err.message);
         return [];
