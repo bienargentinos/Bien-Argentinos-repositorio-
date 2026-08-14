@@ -389,8 +389,11 @@ async function obtenerDatosBancarios() {
 
 function mapFactura(r) {
   const url = pick(r, ['url_archivo', 'url', 'link', 'enlace', 'archivo']);
+  const comprobantePagoUrl = pick(r, ['comprobante_pago_url', 'comprobante_pago', 'comprobante_transferencia', 'recibo_url']);
+  const numeroFactura = pick(r, ['numero_factura', 'num_factura', 'factura_num', 'numero'], '');
   const concepto = pick(r, ['concepto', 'descripcion', 'detalle'], 'Comprobante');
   const monto = pick(r, ['monto', 'importe', 'total']);
+  const esPdf = /pdf/i.test(concepto) || /\.pdf(\?|$)/i.test(url);
   const esFoto = /foto|imagen/i.test(concepto) || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
   let moneda = 'ARS';
   if (/usd|u\$s|dolar/i.test(monto + ' ' + concepto)) moneda = 'USD';
@@ -403,8 +406,10 @@ function mapFactura(r) {
     concepto,
     edificio: pick(r, ['edificio', 'consorcio'], 'Sin edificio'),
     url,
+    comprobantePagoUrl,
+    numeroFactura,
     estado: pick(r, ['estado'], 'Pendiente'),
-    tipo: esFoto ? 'Foto' : 'Factura',
+    tipo: esPdf ? 'Factura PDF' : (esFoto ? 'Foto' : 'Factura'),
     moneda,
   };
 }
@@ -2730,11 +2735,6 @@ function cambiarTabChatEvento(tab) {
 function separarConversacionesEvento(datos) {
   if (!datos) return { chatVecino: [], chatProveedor: [] };
 
-  var chatVecino = [];
-  var chatProveedor = [];
-  var seenVecino = new Set();
-  var seenProveedor = new Set();
-
   function parseList(src) {
     if (!src) return [];
     if (typeof src === 'string' && src.trim()) {
@@ -2747,8 +2747,13 @@ function separarConversacionesEvento(datos) {
     return [];
   }
 
-  // 1. Cargar explícitamente chat de vecino si existe
-  var listVecino = [].concat(parseList(datos.historial_chat_vecino), parseList(datos.chat_vecino_json));
+  var chatVecino = [];
+  var chatProveedor = [];
+  var seenVecino = new Set();
+  var seenProveedor = new Set();
+
+  // 1. Cargar explícitamente chat de vecino
+  var listVecino = [].concat(parseList(datos.chat_vecino_json), parseList(datos.historial_chat_vecino));
   listVecino.forEach(function(item) {
     var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
     if (k && !seenVecino.has(k)) {
@@ -2757,8 +2762,8 @@ function separarConversacionesEvento(datos) {
     }
   });
 
-  // 2. Cargar explícitamente chat de proveedor si existe
-  var listProv = [].concat(parseList(datos.historial_chat_proveedor), parseList(datos.chat_proveedor_json));
+  // 2. Cargar explícitamente chat de proveedor
+  var listProv = [].concat(parseList(datos.chat_proveedor_json), parseList(datos.historial_chat_proveedor));
   listProv.forEach(function(item) {
     var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
     if (k && !seenProveedor.has(k)) {
@@ -2767,32 +2772,45 @@ function separarConversacionesEvento(datos) {
     }
   });
 
-  // 3. Procesar historial_chat o chat_pg si las listas específicas estaban vacías
+  // 3. Procesar historial_chat o chat_pg si las listas específicas estaban incompletas
   var genericList = [].concat(parseList(datos.chat_pg), parseList(datos.historial_chat));
+  var currentTarget = 'vecino';
+
   genericList.forEach(function(item) {
     var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-    if (!k || seenVecino.has(k) || seenProveedor.has(k)) return;
+    if (!k) return;
 
     var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
     var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+    var strLower = str.toLowerCase();
 
-    var isExplicitProveedor = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
-    var isExplicitVecino = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
+    var isProveedorMsg = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
+    var isVecinoMsg = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
 
-    if (isExplicitProveedor) {
-      seenProveedor.add(k);
-      chatProveedor.push(item);
-    } else if (isExplicitVecino) {
-      seenVecino.add(k);
-      chatVecino.push(item);
-    } else {
-      var isDirectToTech = /^(Estimado técnico|Hola técnico|Atención técnico|Para técnico)/i.test(str.replace(/^(Marcos IA|Marcos|IA|Bot):\s*/i, ''));
-      if (isDirectToTech) {
+    if (isProveedorMsg) {
+      currentTarget = 'proveedor';
+      if (!seenProveedor.has(k)) {
         seenProveedor.add(k);
         chatProveedor.push(item);
-      } else {
+      }
+    } else if (isVecinoMsg) {
+      currentTarget = 'vecino';
+      if (!seenVecino.has(k)) {
         seenVecino.add(k);
         chatVecino.push(item);
+      }
+    } else {
+      var isMarcosToTech = /al proveedor|al t.cnico|estimado t.cnico|hola t.cnico|atenci.n t.cnico|julio|coordinar visita|visita t.cnica/i.test(strLower);
+      if (isMarcosToTech || currentTarget === 'proveedor') {
+        if (!seenProveedor.has(k) && !seenVecino.has(k)) {
+          seenProveedor.add(k);
+          chatProveedor.push(item);
+        }
+      } else {
+        if (!seenVecino.has(k) && !seenProveedor.has(k)) {
+          seenVecino.add(k);
+          chatVecino.push(item);
+        }
       }
     }
   });
@@ -2825,7 +2843,9 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
     var bubbles = chatLines.map(function(line) {
       var rem = typeof line === 'object' ? String(line.remitente || line.emisor || '').toLowerCase() : '';
       var str = typeof line === 'object' ? ((line.emisor ? line.emisor + ': ' : (rem ? rem + ': ' : '')) + (line.texto || line.mensaje || '')) : String(line);
-      var horaTag = (typeof line === 'object' && line.hora) ? line.hora : '';
+
+      var fechaHoraDefault = (datos && (datos.fecha || datos.when || datos.fecha_inicio)) ? (datos.fecha || datos.when || datos.fecha_inicio) : '';
+      var horaTag = (typeof line === 'object' && (line.hora || line.when || line.fecha)) ? (line.hora || line.when || line.fecha) : fechaHoraDefault;
 
       var isFamiliar = rem === 'familiar' || /^(Familiar|Pariente)/i.test(str);
       var isVecino = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular)/i.test(str);
@@ -2834,7 +2854,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var isAdmin = rem === 'admin' || rem === 'administracion' || /^(Admin|Administración)/i.test(str);
 
       var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería|Admin|Administración)(\s*\(.*\?\))?:\s*/i, '');
-      
+
       var senderLabel = 'Marcos IA';
       var align = 'margin-right:auto;background:#FFFFFF;color:#16233B;border:1px solid #E1E7F0;border-bottom-left-radius:2px;';
       var icon = '🤖';
@@ -2879,7 +2899,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var audioFilename = '';
 
       if (mediaRes.webUrl) {
-        if (mediaRes.mediaType === 'image' || mediaRes.mediaType === 'video') {
+        if (mediaRes.mediaType === 'image' || mediaRes.mediaType === 'video' || mediaRes.mediaType === 'pdf') {
           visualUrl = mediaRes.webUrl;
           visualType = mediaRes.mediaType;
           visualFilename = mediaRes.filename;
@@ -2895,14 +2915,15 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var fnObj = lastSlashObj !== -1 ? rawObjMedia.substring(lastSlashObj + 1) : rawObjMedia;
         var extObj = fnObj.split('.').pop().toLowerCase();
 
-        var isLineExplicitImage = /imagen|foto/i.test(cleanText) || /\\\[(IMAGEN|FOTO):/i.test(String(line.mensaje || line.texto || ''));
-        var isLineExplicitVideo = /video/i.test(cleanText) || /\\\[VIDEO:/i.test(String(line.mensaje || line.texto || ''));
-
-        if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
+        if (['pdf', 'doc', 'docx', 'xls', 'xlsx'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/archivos/') !== -1 || rawObjMedia.indexOf('/facturas/') !== -1) {
+          visualUrl = normalizarUrlAudio(rawObjMedia, 'pdf');
+          visualType = 'pdf';
+          visualFilename = fnObj;
+        } else if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
           visualType = 'image';
           visualFilename = fnObj;
-        } else if (isLineExplicitVideo || ['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1) {
+        } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'video');
           visualType = 'video';
           visualFilename = fnObj;
@@ -2912,37 +2933,25 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         }
       }
 
-      if (!audioUrl && !visualUrl && datos.audio_url && !audioFallbackUsado && (isVecino || isFamiliar || isProveedor)) {
-        var isAudioMentioned = /audio|voz|nota de voz|escuchar|grabación/i.test(str);
-        if (isAudioMentioned) {
-          var rawAudioUrl = String(datos.audio_url).trim();
-          if (rawAudioUrl.length > 3) {
-            var ext = rawAudioUrl.split('.').pop().toLowerCase();
-            if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/imagenes/') !== -1) {
-              visualUrl = normalizarUrlAudio(rawAudioUrl);
-              visualType = 'image';
-              var lastSlash = rawAudioUrl.lastIndexOf('/');
-              visualFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-            } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/videos/') !== -1) {
-              visualUrl = normalizarUrlAudio(rawAudioUrl);
-              visualType = 'video';
-              var lastSlash = rawAudioUrl.lastIndexOf('/');
-              visualFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-            } else {
-              audioUrl = normalizarUrlAudio(rawAudioUrl);
-              var lastSlash = rawAudioUrl.lastIndexOf('/');
-              audioFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-              audioFallbackUsado = true;
-            }
-          }
-        }
-      }
-
       var visualMediaHtml = '';
       if (visualUrl) {
         var urlEsc = escapeHtml(visualUrl);
-        var fnEsc = escapeHtml(visualFilename);
-        if (visualType === 'image') {
+        var fnEsc = escapeHtml(visualFilename || 'archivo');
+        if (visualType === 'pdf') {
+          visualMediaHtml = '<div style="margin-top:8px;padding:10px 12px;background:#FFF9F2;border-radius:10px;border:1px solid #FDE68A">' +
+            '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+              '<span style="font-size:26px">📄</span>' +
+              '<div>' +
+                '<div style="font-size:13px;font-weight:800;color:#16233B">' + fnEsc + '</div>' +
+                '<div style="font-size:11px;color:#78350F;font-weight:700">Documento / Factura Adjunta (PDF)</div>' +
+              '</div>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+              '<a href="' + urlEsc + '" download target="_blank" style="font-size:11.5px;font-weight:800;color:#92400E;background:#FDE68A;border:1px solid #F7D070;padding:5px 12px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar PDF / Comprobante</a>' +
+              '<a href="' + urlEsc + '" target="_blank" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:5px 10px;border-radius:6px;text-decoration:none" class="hv-soft">👁️ Ver Documento</a>' +
+            '</div>' +
+          '</div>';
+        } else if (visualType === 'image') {
           visualMediaHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
             '<div style="position:relative;max-width:280px;max-height:200px;border-radius:8px;overflow:hidden;margin-bottom:6px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.12);background:#000" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)">' +
               '<img src="' + urlEsc + '" style="width:100%;height:100%;object-fit:cover;display:block" alt="Imagen adjunta">' +
@@ -2993,7 +3002,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       return '<div style="max-width:88%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.06);' + align + '" class="chat-bubble">' +
         '<div style="font-size:10.5px;font-weight:800;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
           '<span style="display:flex;align-items:center;gap:4px"><span>' + icon + '</span><span style="padding:1px 6px;border-radius:999px;background:' + tagBg + ';color:' + tagFg + '">' + escapeHtml(senderLabel) + '</span></span>' +
-          (horaTag ? '<span style="font-size:10px;opacity:.65;font-weight:600">🕒 ' + escapeHtml(horaTag) + '</span>' : '') +
+          '<span style="font-size:10px;color:#64748B;font-weight:700;background:rgba(255,255,255,.75);padding:2px 6px;border-radius:6px;border:1px solid rgba(0,0,0,.08)">🕒 ' + escapeHtml(horaTag || 'Reciente') + '</span>' +
         '</div>' +
         '<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>' +
         mediaLinkHtml +
@@ -6899,34 +6908,68 @@ router.get('/archivos', async (req, res) => {
     const cards = facturas.map((f) => {
       const mon = monStyle(f.moneda);
       const pagada = /pagad/i.test(f.estado);
-      const esFactura = f.tipo === 'Factura' || /factura/i.test(f.tipo);
+      const esFactura = f.tipo === 'Factura' || f.tipo === 'Factura PDF' || /factura/i.test(f.tipo);
       const nuevoEstado = pagada ? 'pendiente' : 'pagada';
-      const thumbBg = f.tipo === 'Foto' ? 'linear-gradient(135deg,#E7F4EC,#D5EADD)' : 'linear-gradient(135deg,#EAF1FB,#DCE9FA)';
-      const abrir = f.url && /^https?:/i.test(f.url) ? `onclick="window.open('${escJs(f.url)}','_blank')" style="cursor:pointer"` : '';
+      const thumbBg = f.tipo === 'Foto' ? 'linear-gradient(135deg,#E7F4EC,#D5EADD)' : 'linear-gradient(135deg,#FFF9F2,#FDE68A)';
+      const iconoHeader = f.tipo === 'Factura PDF' ? '📄' : (f.tipo === 'Foto' ? '🖼️' : '🧾');
+      
+      const fileUrlEsc = f.url ? esc(f.url) : '';
+      const compPagoUrlEsc = f.comprobantePagoUrl ? esc(f.comprobantePagoUrl) : '';
+
+      const btnDescargarPdf = fileUrlEsc ? `
+        <a href="${fileUrlEsc}" download target="_blank" onclick="event.stopPropagation()"
+           style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:800;color:#92400E;background:#FDE68A;border:1px solid #F7D070;padding:5px 11px;border-radius:7px;text-decoration:none;transition:all .15s ease" class="hv-soft">
+          ⬇️ Descargar ${f.tipo === 'Factura PDF' ? 'PDF' : 'Archivo'}
+        </a>` : '';
+
+      const btnVerDocumento = fileUrlEsc ? `
+        <a href="${fileUrlEsc}" target="_blank" onclick="event.stopPropagation()"
+           style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:5px 10px;border-radius:7px;text-decoration:none;transition:all .15s ease" class="hv-soft">
+          👁️ Ver ${f.tipo === 'Foto' ? 'Foto' : 'Documento'}
+        </a>` : '';
+
+      const btnComprobantePago = compPagoUrlEsc ? `
+        <a href="${compPagoUrlEsc}" target="_blank" download onclick="event.stopPropagation()"
+           style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:800;color:#1B7A43;background:#E7F4EC;border:1px solid #A3D9B1;padding:5px 11px;border-radius:7px;text-decoration:none;transition:all .15s ease" class="hv-soft">
+          📎 Recibo Pago (Descargar)
+        </a>` : '';
+
+      const numFacturaBadge = f.numeroFactura ? `<div style="font-size:12px;font-weight:800;color:#2E6FC0;margin-bottom:4px">📄 N° ${esc(f.numeroFactura)}</div>` : '';
 
       const btnEstadoHtml = esFactura ? `
         <button type="button" onclick="event.stopPropagation(); toggleFacturaEstado(this, ${f._row}, '${nuevoEstado}')"
-                style="font-size:11.5px;font-weight:700;padding:4px 12px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'};border:1px solid ${pagada ? '#A3D9B1' : '#F7D070'};cursor:pointer;transition:all .15s ease"
+                style="font-size:12px;font-weight:800;padding:6px 14px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'};border:1px solid ${pagada ? '#A3D9B1' : '#F7D070'};cursor:pointer;transition:all .15s ease"
                 title="Haz clic para cambiar estado a ${pagada ? 'Pendiente' : 'Pagada'}">
           ${pagada ? '✓ Pagada' : '⏳ Pendiente'}
         </button>`
         : `<span style="font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'}">${esc(f.estado || 'Pendiente')}</span>`;
 
       return `
-        <div ${abrir ? abrir.replace('style="cursor:pointer"', '') : ''} style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden${abrir ? ';cursor:pointer' : ''}">
-          <div style="height:120px;background:${thumbBg};display:flex;align-items:center;justify-content:center;position:relative">
-            <span style="font-size:40px">${f.tipo === 'Foto' ? '🖼️' : '🧾'}</span>
-            <span style="position:absolute;top:10px;left:10px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.9);color:#334259">${f.tipo}</span>
-            <span style="position:absolute;top:10px;right:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:${mon.bg};color:${mon.fg}">${f.moneda}</span>
-          </div>
-          <div style="padding:14px 16px">
-            ${dueno ? `<span style="display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EEF2F8;color:#5A6B85;margin-bottom:8px">🏢 ${esc(f.edificio)}</span>` : ''}
-            <div style="font-size:15px;font-weight:700;margin-bottom:2px">${esc(truncate(f.concepto, 60))}</div>
-            <div style="font-size:13px;color:#8595AD;margin-bottom:12px">${esc(f.proveedor)} · ${esc(fechaCorta(parseFecha(f.fecha)) || f.fecha)}</div>
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <span style="font-size:19px;font-weight:800;letter-spacing:-.02em">${esc(f.monto || '—')}</span>
-              ${btnEstadoHtml}
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.03);display:flex;flex-direction:column;justify-content:space-between">
+          <div>
+            <div style="height:110px;background:${thumbBg};display:flex;align-items:center;justify-content:center;position:relative">
+              <span style="font-size:42px">${iconoHeader}</span>
+              <span style="position:absolute;top:10px;left:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.95);color:#16233B">${f.tipo}</span>
+              <span style="position:absolute;top:10px;right:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:${mon.bg};color:${mon.fg}">${f.moneda}</span>
             </div>
+            <div style="padding:14px 16px">
+              ${dueno ? `<span style="display:inline-block;font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;background:#EEF2F8;color:#5A6B85;margin-bottom:8px">🏢 ${esc(f.edificio)}</span>` : ''}
+              ${numFacturaBadge}
+              <div style="font-size:15px;font-weight:800;color:#16233B;margin-bottom:4px;line-height:1.3">${esc(truncate(f.concepto, 75))}</div>
+              <div style="font-size:12.5px;color:#64748B;margin-bottom:12px;font-weight:600">👤 Proveedor: <strong>${esc(f.proveedor)}</strong><br>🕒 Fecha: ${esc(fechaCorta(parseFecha(f.fecha)) || f.fecha || 'Sin fecha')}</div>
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+                ${btnDescargarPdf}
+                ${btnVerDocumento}
+                ${btnComprobantePago}
+              </div>
+            </div>
+          </div>
+          <div style="padding:12px 16px;background:#F8FAFC;border-top:1px solid #E7ECF3;display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <span style="font-size:11px;color:#8595AD;display:block;font-weight:700;text-transform:uppercase">Monto Total</span>
+              <span style="font-size:20px;font-weight:800;color:#16233B;letter-spacing:-.02em">${esc(f.monto || '—')}</span>
+            </div>
+            ${btnEstadoHtml}
           </div>
         </div>`;
     }).join('');
