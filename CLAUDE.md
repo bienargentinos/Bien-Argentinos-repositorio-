@@ -228,6 +228,22 @@ Nunca por iniciativa propia ni como parte de un reset de test.
 
 **Los vecinos NO deben saber que Marcos es IA.** Marcos se comporta como humano, usa expresiones argentinas, rechaza preguntas sobre si es robot de forma natural.
 
+## Identidad del proveedor: teléfono + rubro, no solo teléfono (pendiente de decidir)
+
+`buscarRolPorTelefono` identifica al proveedor **solo por el número**, y devuelve el primero que
+encuentra en la lista maestra `proveedores`. Eso asume un teléfono por persona, y en la realidad un
+mismo número puede ser el conmutador de una empresa con varios oficios detrás.
+
+Caso real visto en pruebas: el número `541169241157` figura como **julio (plomero)** en
+`proveedores` y como **dario juju (electricista)** en `proveedor_asignaciones`. En un caso de
+electricidad la asignación eligió bien a Dario, pero cuando ese número contestó, Marcos lo saludó
+"Gracias, Julio" — el primero de la lista. No es un error de carga: son dos técnicos de la misma
+empresa compartiendo la línea.
+
+La forma correcta de identificarlo sería la terna **nombre + oficio/rubro + teléfono**, resolviendo
+el nombre por el rubro del caso abierto (que ya se conoce: `decisionCaso.tipo_problema`) y no por el
+orden de la planilla. **Decisión de Daniel pendiente** — no implementar hasta que lo confirme.
+
 ## Pendientes
 
 - [x] Aplicar últimos cambios del dashboard en VPS (curl + pm2 restart)
