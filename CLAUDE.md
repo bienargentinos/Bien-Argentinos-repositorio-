@@ -189,6 +189,30 @@ Siguiendo el boceto de diseño (no la primera versión que armé, que era plana)
     el admin de edificio sí sabe que es IA.
 - Cuentas de prueba del prototipo: `daniel / sistema2025` (dueño), `amato_admin / demo1234` (cliente).
 
+## Reset de pruebas (`reset-test.js`, vive en el VPS)
+
+Para que Marcos "no te reconozca" y poder repetir un test end-to-end desde cero se vacían
+**solo estas tres pestañas** de Sheets:
+
+- `VECINOS`
+- `EVENTOS`
+- `memoria`
+
+> [!CAUTION]
+> **NUNCA vaciar `CLIENTES`** (ni `EDIFICIOS`, `proveedores`, `proveedor_asignaciones`). Eso es
+> configuración, no dato de prueba: `clientes` guarda usuario/contraseña/email de cada administrador
+> y es de donde Marcos saca el mail para avisar de una urgencia. Borrarla rompe el login del
+> dashboard y la notificación al admin.
+
+El lado PostgreSQL se limpia aparte (la BD se llama `marcos_db`, no `marcos_ia`):
+
+```bash
+sudo -u postgres psql -d marcos_db -c "DELETE FROM vecinos;"
+sudo -u postgres psql -d marcos_db -c "DELETE FROM reportes;"
+```
+
+Nota: el proceso de PM2 se llama **`marcos-ai`** (no `marcos-ia`).
+
 ## Regla de oro
 
 **Los vecinos NO deben saber que Marcos es IA.** Marcos se comporta como humano, usa expresiones argentinas, rechaza preguntas sobre si es robot de forma natural.
