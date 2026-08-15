@@ -221,7 +221,11 @@ REGLA ESTRICTA DE CARTERA:
 `.trim()
         : '';
 
-    const instruccionGestionAcceso = (!personalDeTurno && decisionCaso?.contactar_tecnico)
+    // Solo se pregunta quién recibe si todavía no lo sabemos. Cuando el vecino ya dejó un contacto,
+    // este bloque contradecía al de arriba -- uno decía "no vuelvas a pedir que lo confirme" y este
+    // "DEBES preguntarle", y ganaba el imperativo. El vecino terminaba dando el dato de Natalia y
+    // recibiendo igual la pregunta de quién iba a abrir, como si no lo hubiera dicho.
+    const instruccionGestionAcceso = (!personalDeTurno && decisionCaso?.contactar_tecnico && !contactoAccesoExtra)
         ? `- GESTIÓN DE ACCESO OBLIGATORIA: En este momento NO hay encargado de turno activo en el edificio. DEBES preguntarle amablemente al vecino si él o alguien de su departamento estará disponible en el lugar para recibir al técnico y facilitarle el ingreso.`
         : '';
 

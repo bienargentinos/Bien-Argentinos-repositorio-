@@ -608,17 +608,43 @@ async function buscarUltimoVecinoDeEdificio(edificio) {
  * habitual -- Marcos ya no sabía a qué caso pertenecía esa respuesta: no podía guardar la
  * confirmación (le faltaba el id del caso) ni avisarle al vecino (le faltaba el teléfono).
  */
-async function buscarCasoAbiertoPorTecnico(nombreTecnico) {
+async function buscarCasoAbiertoPorTecnico(nombreTecnico, telefonoTecnico = '') {
     const techBuscado = String(nombreTecnico || '').toLowerCase().trim();
-    if (!techBuscado) return null;
-    const rows = await filas('reportes');
+    const telTecnico = String(telefonoTecnico || '').replace(/\D/g, '');
+    if (!techBuscado && !telTecnico) return null;
 
-    const row = [...rows].reverse().find(r => {
-        const rEst = String(r.get('estado') || '').toLowerCase().trim();
-        if (CERRADOS.has(rEst)) return false;
+    const rows = await filas('reportes');
+    const abiertos = rows.filter(r => !CERRADOS.has(String(r.get('estado') || '').toLowerCase().trim()));
+
+    let row = techBuscado ? [...abiertos].reverse().find(r => {
         const rTech = String(r.get('tecnico') || '').toLowerCase().trim();
         return rTech && (rTech.includes(techBuscado) || techBuscado.includes(rTech));
-    });
+    }) : null;
+
+    // Buscar por nombre no alcanza: el caso guarda el nombre que trae la ASIGNACIÓN y el técnico
+    // que escribe se identifica con el de la LISTA MAESTRA, y no tienen por qué coincidir. Visto en
+    // producción: el caso quedó con "a dario juju" y quien contestó fue reconocido como "julio" --
+    // el mismo teléfono con dos nombres, porque son dos técnicos de la misma empresa. Sin
+    // coincidencia no había id de caso, y la confirmación del técnico no se guardaba en ningún lado.
+    //
+    // El teléfono sí es el mismo dato de los dos lados, así que se usa para llegar al edificio que
+    // tiene asignado y desde ahí al caso abierto.
+    if (!row && telTecnico) {
+        const asigs = await filas('proveedor_asignaciones');
+        const edificiosDelTecnico = new Set(
+            asigs
+                .filter(a => mismoTel(a.get('telefono') || a.get('proveedor_telefono'), telTecnico))
+                .map(a => String(a.get('edificio') || '').toLowerCase().trim())
+                .filter(Boolean)
+        );
+
+        if (edificiosDelTecnico.size) {
+            row = [...abiertos].reverse().find(r =>
+                edificiosDelTecnico.has(String(r.get('edificio') || '').toLowerCase().trim())
+            );
+            if (row) console.log(`🔎 Caso del técnico resuelto por teléfono (${telTecnico}), no por nombre: el caso figura a nombre de "${row.get('tecnico') || '—'}".`);
+        }
+    }
 
     if (!row) return null;
     return {

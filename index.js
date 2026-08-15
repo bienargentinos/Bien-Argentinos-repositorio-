@@ -870,7 +870,7 @@ function validarYSanitizarNombre(nombre) {
         if (!stProv.eventoActivoId || !stProv.vecinoActivo?.telefono) {
             try {
                 const { buscarCasoAbiertoPorTecnico } = require('./datos-pg');
-                const casoAbierto = await buscarCasoAbiertoPorTecnico(datosEmisor.nombre);
+                const casoAbierto = await buscarCasoAbiertoPorTecnico(datosEmisor.nombre, from);
                 if (casoAbierto?.id_evento) {
                     if (!stProv.eventoActivoId) stProv.eventoActivoId = casoAbierto.id_evento;
                     if (!stProv.edificioActivo) stProv.edificioActivo = casoAbierto.edificio;
