@@ -156,42 +156,68 @@ async function reportarAlAdmin({
                     const cliente = await buscarCliente(perfil.adminNombre);
                     
                     if (cliente) {
-                        console.log(`[Email] Cliente/Admin encontrado: "${cliente.nombre}". Email: "${cliente.email || 'Ninguno'}"`);
-                        
-                        if (cliente.email) {
-                            const titulo = `🚨 MARCOS: REQUIERE SU INTERVENCIÓN - ${vecino.edificio}`;
-                            let mensaje = `Hay un caso que no se puede resolver sin usted.\n\n` +
-                                `❗ Motivo: ${motivoEscalacion}\n\n` +
-                                `📍 Edificio: ${vecino.edificio}\n` +
-                                `🏠 Depto: ${vecino.departamento || 'Por confirmar'}\n` +
-                                `👤 Vecino: ${vecino.nombre || 'Desconocido'}\n` +
-                                `⚠️ Problema: ${decisionCaso.resumen_problema}\n` +
-                                `🚦 Urgencia: ${(decisionCaso.urgencia || 'media').toUpperCase()}\n`;
+                        // El canal lo elige el administrador desde el panel. Hasta ahora esa
+                        // preferencia se guardaba y se ignoraba: Marcos mandaba mail siempre, y el
+                        // tilde de WhatsApp no hacía nada.
+                        const quiereEmail = cliente.notifEmail !== false && Boolean(cliente.email);
+                        const quiereWsp   = cliente.notifWsp === true && Boolean(cliente.wsp);
 
-                            if (sinTecnicoParaElProblema) {
-                                mensaje += `\nNo figura ningún proveedor de ${decisionCaso.tipo_problema || 'ese rubro'} asignado a este edificio, ` +
-                                    `así que no hay a quién derivarlo. Hace falta que usted coordine el envío de un profesional ` +
-                                    `o cargue uno en el panel.\n`;
-                            }
+                        console.log(`[Escalación] Administrador "${cliente.nombre}" — email: ${quiereEmail ? cliente.email : 'no'} | WhatsApp: ${quiereWsp ? cliente.wsp : 'no'}`);
 
-                            mensaje += `\n🤖 Este evento ya fue registrado en la pestaña EVENTOS del panel web.`;
+                        const titulo = `🚨 MARCOS: REQUIERE SU INTERVENCIÓN - ${vecino.edificio}`;
+                        let mensaje = `Hay un caso que no se puede resolver sin usted.\n\n` +
+                            `❗ Motivo: ${motivoEscalacion}\n\n` +
+                            `📍 Edificio: ${vecino.edificio}\n` +
+                            `🏠 Depto: ${vecino.departamento || 'Por confirmar'}\n` +
+                            `👤 Vecino: ${vecino.nombre || 'Desconocido'}\n` +
+                            `⚠️ Problema: ${decisionCaso.resumen_problema}\n` +
+                            `🚦 Urgencia: ${(decisionCaso.urgencia || 'media').toUpperCase()}\n`;
 
-                            const enviado = await enviarEmail(cliente.email, titulo, mensaje);
-                            if (enviado) {
+                        if (sinTecnicoParaElProblema) {
+                            mensaje += `\nNo figura ningún proveedor de ${decisionCaso.tipo_problema || 'ese rubro'} asignado a este edificio, ` +
+                                `así que no hay a quién derivarlo. Hace falta que usted coordine el envío de un profesional ` +
+                                `o cargue uno en el panel.\n`;
+                        }
+
+                        mensaje += `\n🤖 Este evento ya fue registrado en la pestaña EVENTOS del panel web.`;
+
+                        let llegoPorAlgunLado = false;
+
+                        if (quiereEmail) {
+                            if (await enviarEmail(cliente.email, titulo, mensaje)) {
                                 tareasList.push('administrador notificado por email');
-                                // Se marca recién con el envío confirmado: si el correo falló, el
-                                // caso sigue sin escalar y el próximo mensaje puede reintentarlo.
-                                try {
-                                    const { marcarAdminNotificado } = require('../datos');
-                                    await marcarAdminNotificado(resReporte?.id_evento, motivoEscalacion);
-                                } catch (e) {
-                                    console.error('[Email] Error marcando el caso como escalado:', e.message);
-                                }
+                                llegoPorAlgunLado = true;
                             } else {
-                                console.warn(`[Email] ⚠️ No se pudo enviar el correo de emergencia al administrador (${cliente.email}).`);
+                                console.warn(`[Escalación] ⚠️ No se pudo enviar el correo al administrador (${cliente.email}).`);
                             }
-                        } else {
-                            console.warn(`[Email] ⚠️ Advertencia: El administrador "${perfil.adminNombre}" no tiene email configurado en la pestaña CLIENTES.`);
+                        }
+
+                        if (quiereWsp) {
+                            try {
+                                const { enviarWhatsApp } = require('./marcos-ops');
+                                // El administrador SÍ sabe que Marcos es una IA, así que acá no
+                                // hace falta el tono de persona que se usa con el vecino.
+                                await enviarWhatsApp(cliente.wsp, `*${titulo}*\n\n${mensaje}`, phoneNumberId, accessToken);
+                                tareasList.push('administrador notificado por WhatsApp');
+                                llegoPorAlgunLado = true;
+                            } catch (e) {
+                                console.error(`[Escalación] ⚠️ No se pudo avisar por WhatsApp al administrador (${cliente.wsp}):`, e.message);
+                            }
+                        }
+
+                        if (!quiereEmail && !quiereWsp) {
+                            console.warn(`[Escalación] ⚠️ El administrador "${cliente.nombre}" no tiene ningún canal disponible: sin email ni WhatsApp cargado, o con las dos notificaciones apagadas.`);
+                        }
+
+                        // Se marca recién si llegó por algún canal: si fallaron todos, el caso sigue
+                        // sin escalar y el próximo mensaje puede reintentarlo.
+                        if (llegoPorAlgunLado) {
+                            try {
+                                const { marcarAdminNotificado } = require('../datos');
+                                await marcarAdminNotificado(resReporte?.id_evento, motivoEscalacion);
+                            } catch (e) {
+                                console.error('[Escalación] Error marcando el caso como escalado:', e.message);
+                            }
                         }
                     } else {
                         console.warn(`[Email] ⚠️ Advertencia: No se encontró al administrador "${perfil.adminNombre}" en la pestaña CLIENTES del Sheets.`);

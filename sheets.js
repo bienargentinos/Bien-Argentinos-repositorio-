@@ -449,11 +449,14 @@ async function buscarCliente(nombreAdmin) {
 
         if (!row) return null;
 
+        // Mismos valores por defecto que el panel: el mail va salvo que lo apaguen, el WhatsApp
+        // solo si lo piden.
         return {
             nombre:      row.get('nombre')      || '',
             email:       row.get('email')       || '',
             wsp:         row.get('wsp')         || '',
-            notifEmail:  (row.get('notif_email') || '').toLowerCase() === 'si',
+            notifEmail:  (row.get('notif_email') || '').toLowerCase() !== 'no',
+            notifWsp:    (row.get('notif_wsp')  || '').toLowerCase() === 'si',
         };
     } catch (err) {
         console.error('Error buscando cliente:', err.message);

@@ -405,11 +405,15 @@ async function buscarCliente(nombreAdmin) {
     );
     if (!row) return null;
 
+    // Los valores por defecto son los mismos que muestra el panel al editar el cliente: el mail va
+    // salvo que lo apaguen, el WhatsApp solo si lo piden. Leerlos distinto haría que el tilde que
+    // ve el administrador no coincida con lo que hace Marcos.
     return {
         nombre:     row.get('nombre') || '',
         email:      row.get('email') || '',
         wsp:        row.get('wsp') || '',
-        notifEmail: String(row.get('notif_email') || '').toLowerCase() === 'si',
+        notifEmail: String(row.get('notif_email') || '').toLowerCase() !== 'no',
+        notifWsp:   String(row.get('notif_wsp') || '').toLowerCase() === 'si',
     };
 }
 
