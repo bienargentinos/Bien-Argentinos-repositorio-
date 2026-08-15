@@ -667,6 +667,40 @@ async function buscarEdificioDeCasoAbiertoPorTecnico(nombreTecnico) {
  * Marcos, después de un reinicio, le contestara al vecino "estoy consultando con el técnico"
  * teniendo la confirmación desde hacía una hora.
  */
+/**
+ * Un caso por su código, para poder contestar "¿cómo va el CASO-1001?".
+ *
+ * Devuelve solo lo que hace falta para informar el estado. Deliberadamente NO trae ningún importe:
+ * lo que costó el arreglo es tema del administrador, que lo ve en el panel, y no algo que el
+ * encargado o la gente de limpieza tengan que enterarse por WhatsApp.
+ */
+async function buscarCasoPorCodigo(codigo) {
+    const buscado = String(codigo || '').replace(/\D/g, '');
+    if (!buscado) return null;
+
+    const rows = await filas('reportes');
+    const row = rows.find(r => {
+        const rCod = String(r.get('codigo_caso') || r.get('id_evento') || '').replace(/\D/g, '');
+        return rCod && rCod === buscado;
+    });
+
+    if (!row) return null;
+    const estado = String(row.get('estado') || '').toLowerCase().trim();
+    return {
+        id_evento:   row.get('codigo_caso') || row.get('id_evento') || '',
+        edificio:    row.get('edificio') || '',
+        telefono:    row.get('telefono') || '',
+        vecino:      row.get('vecino') || '',
+        problema:    row.get('problema') || row.get('notas_ia') || '',
+        estado:      row.get('estado') || 'en_proceso',
+        cerrado:     CERRADOS.has(estado),
+        tecnico:     row.get('tecnico') || '',
+        eta:         row.get('tecnico_eta') || '',
+        confirmado:  row.get('tecnico_confirmado') || '',
+        fecha:       row.get('fecha') || '',
+    };
+}
+
 /** Un caso abierto sirve para responder por la visita solo si el técnico ya confirmó. */
 function tieneConfirmacionVigente(r) {
     const estado = String(r.get('estado') || '').toLowerCase();
@@ -762,5 +796,6 @@ module.exports = {
     buscarUltimoVecinoDeEdificio,
     buscarEdificioDeCasoAbiertoPorTecnico,
     buscarCasoAbiertoPorTecnico,
+    buscarCasoPorCodigo,
     buscarConfirmacionTecnicoDeEdificio,
 };

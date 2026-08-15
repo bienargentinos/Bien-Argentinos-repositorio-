@@ -1068,6 +1068,65 @@ function validarYSanitizarNombre(nombre) {
         }
     }
 
+    // ── CONSULTA DE ESTADO POR NÚMERO DE CASO ────────────────────────────────────
+    // "¿Cómo va el CASO-1001?". Se dispara solo con el código escrito de forma explícita: cualquier
+    // detección más amplia se comería preguntas que ya tienen su propio camino, como la del horario
+    // del técnico.
+    //
+    // La respuesta NO lleva importes. Lo que costó el arreglo es tema del administrador, que lo ve
+    // en el panel; el encargado, la guardia o el personal de limpieza no tienen por qué enterarse
+    // de los números del consorcio por WhatsApp.
+    const codigoConsultado = (textoFinal.match(/\bCASO[\s-]?0*(\d{2,})\b/i) || [])[1];
+    if (codigoConsultado && /\?|c[oó]mo|qu[eé] pas|estado|novedad|se resolvi|se soluciona|sigue|qued[oó]/i.test(textoFinal)) {
+        try {
+            const { buscarCasoPorCodigo } = require('./datos-pg');
+            const caso = await buscarCasoPorCodigo(codigoConsultado);
+
+            if (!caso) {
+                await despacharRespuesta(recipient, `No encuentro ningún caso con ese número. ¿Me lo repetís tal como te llegó? Va con el formato *CASO-1001*.`, msgTypeRespuesta);
+                return;
+            }
+
+            // Quién puede saber de este caso. El vecino, solo el suyo: el reclamo puede ser adentro
+            // de otra unidad y no es asunto de un tercero. El personal del edificio y quien lo
+            // administra, cualquiera de su edificio, que es justamente su trabajo.
+            const mismoTelefono = String(caso.telefono || '').replace(/\D/g, '').endsWith(String(from).replace(/\D/g, '').slice(-8));
+            const edificioPropio = String(session.nombreEdificio || datosEmisor.edificio || '').toLowerCase().trim();
+            const mismoEdificio = edificioPropio && String(caso.edificio || '').toLowerCase().trim().includes(edificioPropio);
+            const esDelEdificio = puedeVerVisitasDelEdificio(datosEmisor) && mismoEdificio;
+            const esElTecnico = datosEmisor.rol === 'proveedor' && mismoEdificio;
+
+            if (!mismoTelefono && !esDelEdificio && !esElTecnico) {
+                await despacharRespuesta(recipient, `Ese caso no figura a tu nombre ni corresponde a tu edificio, así que no puedo darte el detalle. Si necesitás saber de un reclamo puntual, hablalo con la Administración.`, msgTypeRespuesta);
+                console.log(`🔒 Consulta del [${caso.id_evento}] rechazada para ${from} (rol ${datosEmisor.rol}): no es su caso ni su edificio.`);
+                return;
+            }
+
+            let resp = `*${caso.id_evento}* — ${caso.edificio || 'consorcio'}\n\n` +
+                `📋 ${caso.problema || 'Sin detalle registrado'}\n`;
+
+            if (caso.cerrado) {
+                resp += `\n✅ Estado: *RESUELTO*.`;
+            } else {
+                resp += `\n🔄 Estado: *en curso*.`;
+                if (caso.tecnico) resp += `\n🔧 Técnico asignado: ${caso.tecnico}.`;
+                if (caso.confirmado) {
+                    resp += caso.eta
+                        ? `\n🕒 Confirmó que llega: ${caso.eta}.`
+                        : `\n🕒 El técnico confirmó la visita.`;
+                } else if (caso.tecnico) {
+                    resp += `\n🕒 Todavía no confirmó horario de llegada.`;
+                }
+            }
+
+            console.log(`📄 Consulta de estado del [${caso.id_evento}] respondida a ${from} (rol ${datosEmisor.rol}).`);
+            await despacharRespuesta(recipient, resp, msgTypeRespuesta);
+            return;
+        } catch (e) {
+            console.error('Error respondiendo la consulta de estado del caso:', e.message);
+        }
+    }
+
     const esGatilloResolucion = /solucionad|resuelt|trabajo.*terminad|trabajo.*realizad|listo.*trabajo|ya qued. arreglad|ya qued. listo|ya arreglaron|ya funciona|ya lo repar/i.test(textoFinal);
     
     if (esGatilloResolucion) {
@@ -1398,7 +1457,18 @@ function validarYSanitizarNombre(nombre) {
         // porque parecePreguntaSinAdjunto ya la excluyó de ahí arriba. Se responde con el estado
         // REAL guardado en Sheets (que el dueño/administración marca manualmente como Pagada desde
         // el dashboard), nunca inventando si se pagó o no.
-        const esConsultaPago = parecePreguntaSinAdjunto && /pag|cobr|abon/i.test(txtLow);
+        // "Pagar" no es la única forma de decirlo: el proveedor pregunta si le DEPOSITARON, si le
+        // TRANSFIRIERON o si le ACREDITARON la factura, y con solo pag/cobr/abon esas preguntas no
+        // se reconocían y caían al ramal libre, donde Marcos improvisaba en vez de mirar la planilla.
+        // Los verbos van conjugados a propósito: "depósito" a secas es el cuartito del edificio, y
+        // "¿quién tiene la llave del depósito?" no es una consulta de plata.
+        const esConsultaPago = parecePreguntaSinAdjunto && (
+            /pag|cobr|abon/i.test(txtLow) ||
+            // Solo formas conjugadas: "depósito" a secas es el cuartito del edificio, y sin el
+            // acento queda igual que la primera persona del verbo.
+            /deposit(aron|aste|ó|aban|ada|ado|an)\b/i.test(txtLow) ||
+            /transfi(r|er)|transferenc|acredit|liquid(ar|aron)|cheque|giro banc/i.test(txtLow)
+        );
 
         if (esConsultaPago) {
             const numeroMencionado = (txtLow.match(/\b\d{3,}\b/) || [])[0] || '';
