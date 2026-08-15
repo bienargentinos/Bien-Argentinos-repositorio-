@@ -73,6 +73,49 @@ async function confirmacionDelCaso(telefonoVecino, contexto = {}) {
     }
 }
 
+// ── RECONOCER DE QUÉ FACTURA HABLA EL PROVEEDOR ─────────────────────────────────
+// El técnico pregunta con las palabras de su trabajo: "¿me pagaron Ortiz?", "¿y San Patricio?".
+// No conoce el nombre completo con el que el edificio está cargado, ni tiene por qué saber si hay
+// cuatro Ortiz en el sistema. Así que en vez de interpretar el texto, se compara el texto contra
+// SUS facturas: alcanza con que nombre una palabra propia de alguna para saber cuál es.
+
+const PALABRAS_GENERICAS = new Set([
+    'casa', 'calle', 'torre', 'edificio', 'consorcio', 'avenida', 'depto', 'piso',
+    'trabajo', 'arreglo', 'factura', 'comprobante', 'servicio', 'general',
+]);
+
+function normalizarParaBuscar(texto) {
+    return String(texto || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')  // sin tildes: "patricío" y "patricio"
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * Si el mensaje nombra el edificio o el concepto de esta factura.
+ *
+ * Se exigen palabras de 5 letras o más y se descartan las genéricas: sin eso, "casa" o "edificio"
+ * -- que aparecen en medio consorcio y en casi cualquier pregunta -- harían que cualquier mensaje
+ * coincidiera con todas las facturas a la vez.
+ */
+function textoMencionaFactura(textoNormalizado, factura) {
+    const candidatas = [factura?.edificio, factura?.concepto]
+        .map(normalizarParaBuscar)
+        .filter(Boolean);
+
+    for (const campo of candidatas) {
+        if (campo.length >= 5 && textoNormalizado.includes(campo)) return true;
+        for (const palabra of campo.split(' ')) {
+            if (palabra.length >= 5 && !PALABRAS_GENERICAS.has(palabra) && textoNormalizado.includes(palabra)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 /** Quién tiene por qué enterarse de una visita del edificio sin haberla pedido él. */
 function puedeVerVisitasDelEdificio(datosEmisor) {
     const rol = String(datosEmisor?.rol || '').toLowerCase();
@@ -304,13 +347,23 @@ app.post('/webhook', async (req, res) => {
             return;
         }
 
+        // El texto de cada mensaje se guarda para poder resolver las citas. El Map en memoria queda
+        // como vía rápida, pero el que manda es el de la base: sin él, después de cada reinicio la
+        // cita llegaba vacía y Marcos no sabía de qué le hablaban.
         if (!global.mensajesIdMap) global.mensajesIdMap = new Map();
-        if (msgId && msgBody) global.mensajesIdMap.set(msgId, msgBody);
+        if (msgId && msgBody) {
+            global.mensajesIdMap.set(msgId, msgBody);
+            require('./db-pg').guardarTextoMensajeWa(msgId, msgBody);
+        }
 
         // Extraer contexto de mensaje citado si existe (Quote / Reply)
         if (message.context && (message.context.id || message.context.from)) {
             const idCitado = message.context.id;
-            const textoCitado = global.mensajesIdMap.get(idCitado);
+            let textoCitado = global.mensajesIdMap.get(idCitado);
+            if (!textoCitado && idCitado) {
+                textoCitado = await require('./db-pg').buscarTextoMensajeWa(idCitado);
+                if (textoCitado) console.log(`📌 Texto del mensaje citado recuperado de la base (no estaba en memoria).`);
+            }
             console.log(`📌 Mensaje cita contexto previo ID: ${idCitado} -> "${textoCitado || 'Sin texto guardado'}"`);
             if (textoCitado) {
                 msgBody = `${msgBody} [Cita el mensaje: "${textoCitado}"]`;
@@ -1473,11 +1526,35 @@ function validarYSanitizarNombre(nombre) {
         if (esConsultaPago) {
             const numeroMencionado = (txtLow.match(/\b\d{3,}\b/) || [])[0] || '';
             const { buscarFacturasProveedor } = require('./datos');
-            const facturasEncontradas = await buscarFacturasProveedor({
-                proveedor: datosEmisor.nombre,
-                edificio: session.nombreEdificio,
-                numeroFactura: numeroMencionado
-            });
+
+            // Se piden TODAS las facturas del proveedor, sin atarlas al edificio activo de la
+            // sesión. El técnico pregunta desde su lado del mostrador: "¿me pagaron Ortiz?" o
+            // "¿y San Patricio?". No tiene por qué saber si hay cuatro Ortiz en el sistema, ni
+            // cuál de ellos es el suyo -- eso lo resolvemos nosotros contra sus propias facturas.
+            const mias = await buscarFacturasProveedor({ proveedor: datosEmisor.nombre });
+
+            // Qué facturas nombra el mensaje. Se compara contra los datos que YA tenemos en vez de
+            // interpretar el texto: si una de sus facturas es de "san patricio casa" y el mensaje
+            // dice "san patricio", esa palabra alcanza para saber de cuál habla.
+            const textoBusqueda = normalizarParaBuscar(txtLow);
+            const mencionadas = mias.filter(f => textoMencionaFactura(textoBusqueda, f));
+
+            let facturasEncontradas = mias;
+            let comoSeAcoto = '';
+            if (numeroMencionado) {
+                const porNumero = mias.filter(f => String(f.numero_factura || '').replace(/\D/g, '') === numeroMencionado);
+                if (porNumero.length) { facturasEncontradas = porNumero; comoSeAcoto = `N° ${numeroMencionado}`; }
+                else if (mencionadas.length) { facturasEncontradas = mencionadas; comoSeAcoto = 'por el nombre mencionado'; }
+            } else if (mencionadas.length) {
+                facturasEncontradas = mencionadas;
+                comoSeAcoto = 'por el nombre mencionado';
+            }
+            if (comoSeAcoto) console.log(`🧾 Consulta de pago de ${datosEmisor.nombre}: ${facturasEncontradas.length} factura(s) acotadas ${comoSeAcoto}.`);
+
+            const detalleFactura = f =>
+                `• ${f.numero_factura ? 'N° ' + f.numero_factura : 'sin número'} — ${f.edificio || 'edificio s/d'}` +
+                `${f.concepto ? ' (' + f.concepto + ')' : ''}${f.monto ? ' — ' + f.monto : ''}` +
+                ` — *${/pagad/i.test(f.estado) ? 'pagada' : 'pendiente'}*${f.fecha ? ' — ' + f.fecha : ''}`;
 
             let respPago;
             if (facturasEncontradas.length === 0) {
@@ -1487,14 +1564,24 @@ function validarYSanitizarNombre(nombre) {
             } else if (facturasEncontradas.length === 1) {
                 const f = facturasEncontradas[0];
                 const pagada = /pagad/i.test(f.estado);
+                const quePlata = `la factura${f.numero_factura ? ' N° ' + f.numero_factura : ''} de ${f.edificio || 'ese trabajo'}` +
+                    `${f.concepto ? ' (' + f.concepto + ')' : ''}${f.monto ? ', ' + f.monto : ''}`;
                 respPago = pagada
-                    ? `Sí ${datosEmisor.nombre}, la factura${f.numero_factura ? ' N° ' + f.numero_factura : ''} (${f.concepto || 'sin concepto'}, ${f.monto || 'monto s/d'}) figura *pagada* en el sistema.`
-                    : `Todavía figura *pendiente de pago* la factura${f.numero_factura ? ' N° ' + f.numero_factura : ''} (${f.concepto || 'sin concepto'}, ${f.monto || 'monto s/d'}), ${datosEmisor.nombre}. En cuanto la Administración confirme el pago te aviso.`;
+                    ? `Sí ${datosEmisor.nombre}, ${quePlata} figura *pagada* en el sistema.`
+                    : `Todavía figura *pendiente de pago* ${quePlata}, ${datosEmisor.nombre}. En cuanto la Administración confirme el pago te aviso.`;
             } else {
+                // Con varias en juego se listan en vez de pedirle el número: si pregunta es
+                // justamente porque no lo tiene a mano, y mandarlo a buscarlo es hacerle hacer a él
+                // el trabajo que podemos hacer nosotros.
                 const pendientes = facturasEncontradas.filter(f => !/pagad/i.test(f.estado));
-                respPago = pendientes.length > 0
-                    ? `Tenés ${facturasEncontradas.length} facturas registradas, ${pendientes.length} todavía *pendientes de pago*${numeroMencionado ? '' : ' -- decime el número de comprobante puntual y te confirmo ese'}.`
-                    : `Tenés ${facturasEncontradas.length} facturas registradas y todas figuran *pagadas*, ${datosEmisor.nombre}.`;
+                if (pendientes.length === 0) {
+                    respPago = `Te figuran todas pagadas, ${datosEmisor.nombre}:\n\n${facturasEncontradas.slice(0, 8).map(detalleFactura).join('\n')}`;
+                } else {
+                    respPago = `Tenés ${pendientes.length} ${pendientes.length === 1 ? 'factura pendiente' : 'facturas pendientes'} de pago, ${datosEmisor.nombre}:\n\n` +
+                        `${pendientes.slice(0, 8).map(detalleFactura).join('\n')}` +
+                        `${pendientes.length > 8 ? `\n\n(y ${pendientes.length - 8} más)` : ''}` +
+                        `\n\nSi es por alguna en particular, decime el edificio o el número y te confirmo esa.`;
+                }
             }
 
             await despacharRespuesta(recipient, respPago, msgTypeRespuesta);

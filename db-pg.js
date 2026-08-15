@@ -59,6 +59,18 @@ async function _initPgSchema() {
                 timestamps TEXT
             );
 
+            -- El texto de cada mensaje, por su id de WhatsApp, para poder resolver las CITAS.
+            -- Cuando alguien responde citando un mensaje anterior, Meta manda solo el id del citado:
+            -- el texto hay que tenerlo guardado. Vivia en un Map en memoria, asi que despues de
+            -- cualquier reinicio la cita llegaba vacia ("Sin texto guardado") y Marcos no sabia de
+            -- que le hablaban. Es el caso tipico del proveedor que busca en el chat la factura que
+            -- mando, la cita y escribe "esto me pagaron?".
+            CREATE TABLE IF NOT EXISTS mensajes_wa (
+                wa_msg_id VARCHAR(160) PRIMARY KEY,
+                texto TEXT,
+                creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS edificios (
                 id SERIAL PRIMARY KEY,
                 edificio VARCHAR(150) UNIQUE,
@@ -678,9 +690,42 @@ async function quitarAccesoEdificio({ edificio, lugar }) {
     }
 }
 
+// ── TEXTO DE MENSAJES PARA RESOLVER CITAS ───────────────────────────────────────
+
+/** Guarda el texto de un mensaje bajo su id de WhatsApp, para cuando alguien lo cite después. */
+async function guardarTextoMensajeWa(waMsgId, texto) {
+    const id = String(waMsgId || '').trim();
+    if (!id || !texto) return;
+    try {
+        await pool.query(
+            `INSERT INTO mensajes_wa (wa_msg_id, texto) VALUES ($1, $2)
+             ON CONFLICT (wa_msg_id) DO UPDATE SET texto = EXCLUDED.texto`,
+            [id.slice(0, 160), String(texto)]
+        );
+    } catch (err) {
+        // Que no se pueda guardar el texto de una cita no puede frenar la atención del mensaje.
+        console.error(`[PG] No se pudo guardar el texto del mensaje ${id}: ${err.message}`);
+    }
+}
+
+/** El texto de un mensaje citado. Devuelve '' si no lo tenemos. */
+async function buscarTextoMensajeWa(waMsgId) {
+    const id = String(waMsgId || '').trim();
+    if (!id) return '';
+    try {
+        const res = await pool.query('SELECT texto FROM mensajes_wa WHERE wa_msg_id = $1', [id.slice(0, 160)]);
+        return res.rows[0]?.texto || '';
+    } catch (err) {
+        console.error(`[PG] No se pudo leer el texto del mensaje citado ${id}: ${err.message}`);
+        return '';
+    }
+}
+
 module.exports = {
     pool,
     initPgSchema,
+    guardarTextoMensajeWa,
+    buscarTextoMensajeWa,
     buscarSimilitudVectorial,
     guardarMensaje,
     asignarEventoAMensajes,
