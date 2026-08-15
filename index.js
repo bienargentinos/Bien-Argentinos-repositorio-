@@ -2094,6 +2094,21 @@ function validarYSanitizarNombre(nombre) {
     // 2c. Si el vecino dejó un contacto de acceso (ficha compartida o teléfono dictado), el técnico
     // asignado tiene que RECIBIRLO de una, junto con la notificación del caso -- no solo si se le
     // ocurre preguntar. Es el dato que evita que llegue y se quede sin poder entrar.
+    // La marca de "ya se lo pasé" vivía solo en la sesión, así que cada reinicio de PM2 la borraba y
+    // el técnico volvía a recibir el mismo "CONTACTO PARA EL INGRESO" -- uno por cada mensaje del
+    // vecino. Se le pregunta al caso, que sobrevive al reinicio.
+    if (session.contactoAccesoExtra && !session.contactoAccesoAvisadoATecnico && idEventoAsignado) {
+        try {
+            const { fueContactoAccesoAvisado } = require('./datos');
+            if (await fueContactoAccesoAvisado(idEventoAsignado)) {
+                session.contactoAccesoAvisadoATecnico = true;
+                console.log(`ℹ️ Al técnico ya se le había pasado el contacto de acceso del [${idEventoAsignado}], no se reenvía.`);
+            }
+        } catch (e) {
+            console.error('Error chequeando si el contacto de acceso ya se había enviado:', e.message);
+        }
+    }
+
     if (session.contactoAccesoExtra && !session.contactoAccesoAvisadoATecnico) {
         try {
             let tecnicoParaContacto = tecnicoAsignado;
@@ -2131,6 +2146,10 @@ function validarYSanitizarNombre(nombre) {
                 }
 
                 session.contactoAccesoAvisadoATecnico = true;
+                if (idEventoAsignado) {
+                    const { marcarContactoAccesoAvisado } = require('./datos');
+                    await marcarContactoAccesoAvisado(idEventoAsignado);
+                }
                 console.log(`📞 Contacto de acceso (${session.contactoAccesoExtra}) enviado proactivamente al técnico ${tecnicoParaContacto.nombre}.`);
             }
         } catch (errCtoAcceso) {

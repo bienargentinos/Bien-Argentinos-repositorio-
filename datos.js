@@ -346,6 +346,24 @@ async function marcarAdminNotificado(id_evento, motivo = '') {
     return res;
 }
 
+async function fueContactoAccesoAvisado(id_evento) {
+    return sheets.fueContactoAccesoAvisado(id_evento);
+}
+
+async function marcarContactoAccesoAvisado(id_evento) {
+    const res = await sheets.marcarContactoAccesoAvisado(id_evento);
+    if (id_evento) {
+        copiarAPg(`la marca de contacto de acceso avisado de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET contacto_acceso_avisado = $2 WHERE codigo_caso = $1`,
+                [id_evento, new Date().toLocaleString('es-AR')]
+            );
+        });
+    }
+    return res;
+}
+
 async function marcarCasoResueltoPorId(idEvento) {
     const res = await sheets.marcarCasoResueltoPorId(idEvento);
     if (res?.id_evento) {
@@ -465,6 +483,8 @@ module.exports = {
     marcarTecnicoNotificado,
     marcarAdminNotificado,
     fueAdminNotificado,
+    marcarContactoAccesoAvisado,
+    fueContactoAccesoAvisado,
     marcarCasoResueltoPorId,
     guardarLlamada,
     guardarAccesoEdificio,

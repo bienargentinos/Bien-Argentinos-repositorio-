@@ -331,6 +331,10 @@ async function _initPgSchema() {
             -- Cuando se escalo el caso al administrador y por que. Sin esta marca salia un mail
             -- por cada mensaje del vecino: tres correos de la misma puerta en una conversacion.
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS admin_notificado VARCHAR(200);
+            -- Que al tecnico ya se le paso el contacto de quien le abre. Vivia en la sesion en
+            -- memoria, asi que cada reinicio de PM2 se lo mandaba de nuevo: al tecnico le llegaba
+            -- el mismo "CONTACTO PARA EL INGRESO" una y otra vez.
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS contacto_acceso_avisado VARCHAR(100);
 
             -- La lista maestra de proveedores de la planilla tiene "edificio".
             ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS edificio VARCHAR(150);

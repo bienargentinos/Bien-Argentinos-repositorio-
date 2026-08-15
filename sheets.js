@@ -832,6 +832,46 @@ async function marcarAdminNotificado(id_evento, motivo = '') {
     }
 }
 
+// Si al técnico ya se le pasó el contacto de quien le abre. La marca vive en el caso porque la de
+// la sesión se borraba en cada reinicio de PM2, y el técnico recibía el mismo "CONTACTO PARA EL
+// INGRESO" una vez por cada mensaje del vecino.
+async function fueContactoAccesoAvisado(id_evento) {
+    if (!id_evento) return false;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        return !!(row && row.get('contacto_acceso_avisado'));
+    } catch (err) {
+        console.error('Error chequeando contacto_acceso_avisado:', err.message);
+        return false;
+    }
+}
+
+async function marcarContactoAccesoAvisado(id_evento) {
+    if (!id_evento) return;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return;
+        await sheet.loadHeaderRow().catch(() => {});
+        if (!(sheet.headerValues || []).includes('contacto_acceso_avisado')) {
+            const nuevosHeaders = Array.from(new Set([...(sheet.headerValues || []), 'contacto_acceso_avisado']));
+            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
+        }
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        if (row) {
+            row.set('contacto_acceso_avisado', new Date().toLocaleString('es-AR'));
+            await row.save();
+        }
+    } catch (err) {
+        console.error('Error marcando contacto_acceso_avisado:', err.message);
+    }
+}
+
 async function fueTecnicoNotificado(id_evento) {
     if (!id_evento) return false;
     try {
@@ -1480,6 +1520,8 @@ module.exports = {
     marcarTecnicoNotificado,
     fueAdminNotificado,
     marcarAdminNotificado,
+    fueContactoAccesoAvisado,
+    marcarContactoAccesoAvisado,
     guardarFactura,
     buscarFacturasProveedor,
     guardarLlamada,
