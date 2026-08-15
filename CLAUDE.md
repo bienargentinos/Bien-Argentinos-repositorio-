@@ -209,8 +209,20 @@ El lado PostgreSQL se limpia aparte (la BD se llama `marcos_db`, no `marcos_ia`)
 ```bash
 sudo -u postgres psql -d marcos_db -c "DELETE FROM vecinos;"
 sudo -u postgres psql -d marcos_db -c "DELETE FROM reportes;"
+sudo -u postgres psql -d marcos_db -c "DELETE FROM mensajes;"
+sudo -u postgres psql -d marcos_db -c "DELETE FROM memoria;"
+sudo -u postgres psql -d marcos_db -c "DELETE FROM accesos;"
 sudo -u postgres psql -d marcos_db -c "DELETE FROM audios_tts;"
 ```
+
+`mensajes` es la que alimenta el **visor de chat del dashboard**, y es la que más confusión genera:
+vaciar `EVENTOS` en Sheets borra el caso, pero las burbujas de la conversación siguen en esta tabla
+y el panel las vuelve a mostrar mezcladas con el caso nuevo. Si el visor muestra chats de pruebas
+viejas, es porque falta este DELETE.
+
+`accesos` guarda lo que Marcos aprendió de las conversaciones sobre instalaciones del edificio
+(quién tiene la llave de qué). En un reset de prueba conviene vaciarla porque se llenó con datos de
+la conversación borrada.
 
 `audios_tts` guarda cuándo se le mandó cada nota de voz a cada teléfono, para sostener el techo de
 2 por 24h a través de los reinicios de PM2. Vaciarla devuelve los 2 audios y hace falta para
