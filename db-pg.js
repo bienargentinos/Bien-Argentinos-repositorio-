@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+const { fechaHoraAR, fechaAR } = require('./fecha');
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL || 'postgresql://marcos:marcos2024@127.0.0.1:5432/marcos_db',
@@ -624,7 +625,7 @@ async function guardarAccesoEdificio({ edificio, lugar, ubicacion = '', quienAbr
     try {
         const edifTrim = String(edificio).trim();
         const lugarTrim = String(lugar).trim();
-        const fecha = new Date().toLocaleString('es-AR');
+        const fecha = fechaHoraAR();
 
         const existe = await pool.query(
             `SELECT id FROM accesos WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1)) AND LOWER(TRIM(lugar)) = LOWER(TRIM($2))`,

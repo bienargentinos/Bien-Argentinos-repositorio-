@@ -20,6 +20,7 @@
  */
 
 const sheets = require('./sheets');
+const { fechaHoraAR, fechaAR } = require('./fecha');
 
 // ── Utilidades ──────────────────────────────────────────────────────────────
 
@@ -221,7 +222,7 @@ async function guardarReporte(datos) {
     if (res?.id_evento) {
         copiarAPg(`el reporte ${res.id_evento}`, () => upsert('reportes', ['codigo_caso'], {
             codigo_caso:    res.id_evento,
-            fecha:          datos.fechaInicio || new Date().toLocaleString('es-AR'),
+            fecha:          datos.fechaInicio || fechaHoraAR(),
             edificio:       datos.edificio || '',
             vecino:         datos.vecino || '',
             telefono:       soloDigitos(datos.telefono),
@@ -257,7 +258,7 @@ async function guardarFactura(datos) {
         'facturas',
         ['fecha', 'proveedor', 'monto', 'edificio'],
         {
-            fecha:          new Date().toLocaleString('es-AR'),
+            fecha:          fechaHoraAR(),
             proveedor:      datos.proveedor || 'Desconocido',
             monto:          datos.monto || '0',
             concepto:       datos.concepto || '',
@@ -275,7 +276,7 @@ async function guardarMemoriaVecino(datos) {
     copiarAPg(`la memoria de ${datos?.nombre || 'vecino'}`, () => upsert('memoria', ['telefono'], {
         telefono:              soloDigitos(datos.telefono),
         nombre:                datos.nombre || '',
-        fecha_ultimo_contacto: new Date().toLocaleString('es-AR'),
+        fecha_ultimo_contacto: fechaHoraAR(),
         resumen_historial:     datos.resumenHistorial || '',
         notas_trato:           datos.notasTrato || '',
     }));
@@ -321,7 +322,7 @@ async function marcarTecnicoNotificado(id_evento) {
             const { pool } = require('./db-pg');
             await pool.query(
                 `UPDATE reportes SET tecnico_notificado = $2 WHERE codigo_caso = $1`,
-                [id_evento, new Date().toLocaleString('es-AR')]
+                [id_evento, fechaHoraAR()]
             );
         });
     }
@@ -339,7 +340,7 @@ async function marcarAdminNotificado(id_evento, motivo = '') {
             const { pool } = require('./db-pg');
             await pool.query(
                 `UPDATE reportes SET admin_notificado = $2 WHERE codigo_caso = $1`,
-                [id_evento, `${new Date().toLocaleString('es-AR')}${motivo ? ` — ${motivo}` : ''}`]
+                [id_evento, `${fechaHoraAR()}${motivo ? ` — ${motivo}` : ''}`]
             );
         });
     }
@@ -357,7 +358,7 @@ async function marcarContactoAccesoAvisado(id_evento) {
             const { pool } = require('./db-pg');
             await pool.query(
                 `UPDATE reportes SET contacto_acceso_avisado = $2 WHERE codigo_caso = $1`,
-                [id_evento, new Date().toLocaleString('es-AR')]
+                [id_evento, fechaHoraAR()]
             );
         });
     }
@@ -387,7 +388,7 @@ async function guardarLlamada(datos) {
                                    transcripcion, urgencia, estado, mensaje_enviado)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
             [
-                new Date().toLocaleString('es-AR'),
+                fechaHoraAR(),
                 datos.duracion || '',
                 soloDigitos(datos.telefono),
                 datos.vecino || '',
@@ -415,7 +416,7 @@ async function guardarAccesoEdificio(datos) {
             tipo_acceso: datos.tipoAcceso || '',
             notas:       datos.notas || '',
             origen:      datos.origen || '',
-            fecha:       new Date().toLocaleString('es-AR'),
+            fecha:       fechaHoraAR(),
         }));
     }
     return res;
@@ -428,7 +429,7 @@ async function guardarConfirmacionTecnico(datos) {
             const { pool } = require('./db-pg');
             await pool.query(
                 `UPDATE reportes SET tecnico_confirmado = $2, tecnico_eta = COALESCE(NULLIF($3,''), tecnico_eta) WHERE codigo_caso = $1`,
-                [datos.id_evento, new Date().toLocaleString('es-AR'), datos.eta || '']
+                [datos.id_evento, fechaHoraAR(), datos.eta || '']
             );
         });
     }

@@ -1,4 +1,5 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
+const { fechaHoraAR, fechaAR } = require('./fecha');
 const { JWT } = require('google-auth-library');
 const path = require('path');
 
@@ -561,7 +562,7 @@ async function guardarMemoriaVecino({ telefono, nombre, resumenHistorial, notasT
             String(r.get('telefono') || '').replace(/\D/g, '') === telBuscado
         );
 
-        const fecha = new Date().toLocaleString('es-AR');
+        const fecha = fechaHoraAR();
 
         if (existing) {
             existing.set('fecha_ultimo_contacto', fecha);
@@ -651,7 +652,7 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
                 audiosLista.push({
                     url: audio_url,
                     transcripcion: transcripcion || '',
-                    fecha: new Date().toLocaleString('es-AR'),
+                    fecha: fechaHoraAR(),
                     vecino: vecino || 'Vecino',
                     telefono: telefono || ''
                 });
@@ -673,7 +674,7 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
                     nombre: vecino || 'Participante',
                     telefono: telefono,
                     depto: depto || '',
-                    fecha: new Date().toLocaleString('es-AR')
+                    fecha: fechaHoraAR()
                 });
             }
         }
@@ -760,7 +761,7 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
 
             await sheet.addRow({
                 id_evento:          nuevoCodigoCaso,
-                fecha:              fechaInicio || new Date().toLocaleString('es-AR'),
+                fecha:              fechaInicio || fechaHoraAR(),
                 hora_fin:           new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }),
                 telefono:           telefono || '',
                 edificio:           edificio|| 'No especificado',
@@ -824,7 +825,7 @@ async function marcarAdminNotificado(id_evento, motivo = '') {
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
         if (row) {
-            row.set('admin_notificado', `${new Date().toLocaleString('es-AR')}${motivo ? ` — ${motivo}` : ''}`);
+            row.set('admin_notificado', `${fechaHoraAR()}${motivo ? ` — ${motivo}` : ''}`);
             await row.save();
         }
     } catch (err) {
@@ -864,7 +865,7 @@ async function marcarContactoAccesoAvisado(id_evento) {
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
         if (row) {
-            row.set('contacto_acceso_avisado', new Date().toLocaleString('es-AR'));
+            row.set('contacto_acceso_avisado', fechaHoraAR());
             await row.save();
         }
     } catch (err) {
@@ -901,7 +902,7 @@ async function marcarTecnicoNotificado(id_evento) {
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
         if (row) {
-            row.set('tecnico_notificado', new Date().toLocaleString('es-AR'));
+            row.set('tecnico_notificado', fechaHoraAR());
             await row.save();
         }
     } catch (err) {
@@ -934,7 +935,7 @@ async function guardarFactura({ proveedor, monto, concepto, edificio, url_archiv
         }
 
         await sheet.addRow({
-            fecha:          new Date().toLocaleString('es-AR'),
+            fecha:          fechaHoraAR(),
             proveedor:      proveedor  || 'Desconocido',
             monto:          monto      || '0',
             concepto:       concepto   || '',
@@ -1018,7 +1019,7 @@ async function guardarLlamada({
         }
 
         await sheet.addRow({
-            fecha:           new Date().toLocaleString('es-AR'),
+            fecha:           fechaHoraAR(),
             duracion:        duracion        || '',
             telefono:        telefono        || '',
             vecino:          vecino          || 'Desconocido',
@@ -1244,7 +1245,7 @@ async function guardarConfirmacionTecnico({ id_evento, eta = '', tecnico = '' })
         const fila = rows.find(r => String(r.get('id_evento') || '').toUpperCase().trim() === buscado);
         if (!fila) return false;
 
-        fila.set('tecnico_confirmado', new Date().toLocaleString('es-AR'));
+        fila.set('tecnico_confirmado', fechaHoraAR());
         if (eta) fila.set('tecnico_eta', eta);
         if (tecnico) fila.set('tecnico', tecnico);
         await fila.save();
@@ -1440,7 +1441,7 @@ async function guardarAccesoEdificio({ edificio, lugar, ubicacion = '', quienAbr
             String(r.get('lugar') || '').toLowerCase().trim() === lugarBuscado
         );
 
-        const fecha = new Date().toLocaleString('es-AR');
+        const fecha = fechaHoraAR();
 
         if (fila) {
             if (ubicacion)  fila.set('ubicacion', ubicacion);

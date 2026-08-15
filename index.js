@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express    = require('express');
+const { fechaHoraAR, fechaAR } = require('./fecha');
 const bodyParser = require('body-parser');
 
 const {
@@ -791,7 +792,7 @@ function validarYSanitizarNombre(nombre) {
     if (!global.marcosSesiones.has(recipient)) {
         global.marcosSesiones.set(recipient, { 
             historial: [],
-            fechaInicio: new Date().toLocaleString('es-AR'),
+            fechaInicio: fechaHoraAR(),
             pushName: pushNameValido,
             ultimoMensajeTimestamp: Date.now()
         });
@@ -901,7 +902,7 @@ function validarYSanitizarNombre(nombre) {
                 stProv.confirmacion = {
                     confirmado: true,
                     eta: lectura.eta || '',
-                    cuando: new Date().toLocaleString('es-AR'),
+                    cuando: fechaHoraAR(),
                     tecnico: datosEmisor.nombre || ''
                 };
                 cancelarEscalacionProveedor(from);
@@ -948,7 +949,7 @@ function validarYSanitizarNombre(nombre) {
                     if (sesV) sesV.confirmacionTecnico = { ...stProv.confirmacion };
                 }
             } else if (lectura.rechaza) {
-                stProv.confirmacion = { confirmado: false, rechazado: true, cuando: new Date().toLocaleString('es-AR') };
+                stProv.confirmacion = { confirmado: false, rechazado: true, cuando: fechaHoraAR() };
                 console.log(`🚫 El técnico ${datosEmisor.nombre} no puede tomar el caso.`);
             }
         } catch (errConf) {
@@ -1486,7 +1487,7 @@ function validarYSanitizarNombre(nombre) {
                 if (!global.marcosSesiones) global.marcosSesiones = new Map();
                 let sesVecino = global.marcosSesiones.get(telVecino);
                 if (!sesVecino) {
-                    sesVecino = { historial: [], fechaInicio: new Date().toLocaleString('es-AR'), ultimoMensajeTimestamp: Date.now() };
+                    sesVecino = { historial: [], fechaInicio: fechaHoraAR(), ultimoMensajeTimestamp: Date.now() };
                     global.marcosSesiones.set(telVecino, sesVecino);
                 }
                 sesVecino.esperandoDatosVecinoParaProveedor = { telTech: from, nomTech: datosEmisor.nombre };
