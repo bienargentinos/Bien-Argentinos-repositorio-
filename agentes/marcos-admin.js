@@ -113,13 +113,39 @@ async function reportarAlAdmin({
         tareasList.push('memoria actualizada');
     }
 
-    // ── 4. NOTIFICAR AL ADMINISTRADOR HUMANO (Solo email para URGENCIA ALTA Abierta y Sin Resolver) ──
+    // ── 4. ESCALAR AL ADMINISTRADOR HUMANO ──
+    //
+    // El mail al administrador NO es un aviso de cada evento: es para que TOME LAS RIENDAS cuando
+    // Marcos no puede resolverlo solo. Antes salía con la sola urgencia alta, así que una misma
+    // puerta rota generaba un correo por cada mensaje del vecino -- tres en una conversación --, y
+    // el administrador terminaba ignorándolos justo cuando alguno importaba de verdad.
+    //
+    // Los motivos de escalación son: que no haya técnico para ese problema (acá), que el técnico no
+    // conteste (lo maneja notificarEscalacionAlAdmin), y que la visita falle o quede a medias (lo
+    // maneja el seguimiento del caso).
     const estadoCasoNorm = String(decisionCaso.estado || '').toLowerCase();
     const esCasoResuelto = estadoCasoNorm === 'resuelto' || estadoCasoNorm === 'cerrado' || decisionCaso.cerrar_caso === true;
 
-    if (decisionCaso.urgencia === 'alta' && !esCasoResuelto) {
-        console.log(`[Email] 🚨 Caso de urgencia ALTA ABIERTA detectado. Iniciando notificación por email a la Administración...`);
-        
+    // El caso necesita un técnico y no hay ninguno cargado para ese rubro: Marcos no tiene a quién
+    // mandar, y solo el administrador puede conseguir uno.
+    const sinTecnicoParaElProblema = decisionCaso.contactar_tecnico === true && !tecnicoAsignado;
+    const motivoEscalacion = sinTecnicoParaElProblema ? 'sin técnico asignado para el problema' : '';
+
+    // Una sola vez por caso. La marca vive en el evento, no en memoria, así que un reinicio de PM2
+    // no vuelve a habilitar el mismo correo.
+    let yaEscalado = false;
+    if (motivoEscalacion && resReporte?.id_evento) {
+        try {
+            const { fueAdminNotificado } = require('../datos');
+            yaEscalado = await fueAdminNotificado(resReporte.id_evento);
+        } catch (e) {
+            console.error('[Email] Error chequeando si el caso ya se había escalado:', e.message);
+        }
+    }
+
+    if (motivoEscalacion && !esCasoResuelto && !yaEscalado) {
+        console.log(`[Email] 🚨 Escalando [${resReporte?.id_evento || 'caso'}] a la Administración: ${motivoEscalacion}.`);
+
         if (vecino?.edificio) {
             const perfil = await buscarPerfilEdificio(vecino.edificio);
             
@@ -133,22 +159,34 @@ async function reportarAlAdmin({
                         console.log(`[Email] Cliente/Admin encontrado: "${cliente.nombre}". Email: "${cliente.email || 'Ninguno'}"`);
                         
                         if (cliente.email) {
-                            const titulo = `🚨 MARCOS: AVISO DE EMERGENCIA - ${vecino.edificio}`;
-                            let mensaje = `Se ha reportado una EMERGENCIA.\n\n` +
+                            const titulo = `🚨 MARCOS: REQUIERE SU INTERVENCIÓN - ${vecino.edificio}`;
+                            let mensaje = `Hay un caso que no se puede resolver sin usted.\n\n` +
+                                `❗ Motivo: ${motivoEscalacion}\n\n` +
                                 `📍 Edificio: ${vecino.edificio}\n` +
                                 `🏠 Depto: ${vecino.departamento || 'Por confirmar'}\n` +
                                 `👤 Vecino: ${vecino.nombre || 'Desconocido'}\n` +
-                                `⚠️ Problema: ${decisionCaso.resumen_problema}\n`;
+                                `⚠️ Problema: ${decisionCaso.resumen_problema}\n` +
+                                `🚦 Urgencia: ${(decisionCaso.urgencia || 'media').toUpperCase()}\n`;
 
-                            if (tecnicoAsignado) {
-                                mensaje += `🔧 Técnico asignado: ${tecnicoAsignado.nombre}\n`;
+                            if (sinTecnicoParaElProblema) {
+                                mensaje += `\nNo figura ningún proveedor de ${decisionCaso.tipo_problema || 'ese rubro'} asignado a este edificio, ` +
+                                    `así que no hay a quién derivarlo. Hace falta que usted coordine el envío de un profesional ` +
+                                    `o cargue uno en el panel.\n`;
                             }
-                            
+
                             mensaje += `\n🤖 Este evento ya fue registrado en la pestaña EVENTOS del panel web.`;
-                            
+
                             const enviado = await enviarEmail(cliente.email, titulo, mensaje);
                             if (enviado) {
                                 tareasList.push('administrador notificado por email');
+                                // Se marca recién con el envío confirmado: si el correo falló, el
+                                // caso sigue sin escalar y el próximo mensaje puede reintentarlo.
+                                try {
+                                    const { marcarAdminNotificado } = require('../datos');
+                                    await marcarAdminNotificado(resReporte?.id_evento, motivoEscalacion);
+                                } catch (e) {
+                                    console.error('[Email] Error marcando el caso como escalado:', e.message);
+                                }
                             } else {
                                 console.warn(`[Email] ⚠️ No se pudo enviar el correo de emergencia al administrador (${cliente.email}).`);
                             }

@@ -328,6 +328,24 @@ async function marcarTecnicoNotificado(id_evento) {
     return res;
 }
 
+async function fueAdminNotificado(id_evento) {
+    return sheets.fueAdminNotificado(id_evento);
+}
+
+async function marcarAdminNotificado(id_evento, motivo = '') {
+    const res = await sheets.marcarAdminNotificado(id_evento, motivo);
+    if (id_evento) {
+        copiarAPg(`la marca de escalación al administrador de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET admin_notificado = $2 WHERE codigo_caso = $1`,
+                [id_evento, `${new Date().toLocaleString('es-AR')}${motivo ? ` — ${motivo}` : ''}`]
+            );
+        });
+    }
+    return res;
+}
+
 async function marcarCasoResueltoPorId(idEvento) {
     const res = await sheets.marcarCasoResueltoPorId(idEvento);
     if (res?.id_evento) {
@@ -445,6 +463,8 @@ module.exports = {
     agregarVecinoNuevo,
     guardarAutorizacionContacto,
     marcarTecnicoNotificado,
+    marcarAdminNotificado,
+    fueAdminNotificado,
     marcarCasoResueltoPorId,
     guardarLlamada,
     guardarAccesoEdificio,

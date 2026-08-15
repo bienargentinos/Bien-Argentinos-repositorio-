@@ -789,6 +789,46 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
 // La deduplicación en memoria (global.colasProveedores) se pierde en cada reinicio de PM2 --
 // muy frecuente durante desarrollo activo -- y eso hacía que el técnico recibiera la misma
 // plantilla de Meta de nuevo apenas se reiniciaba el proceso entre dos mensajes del mismo caso.
+// El aviso al administrador es una ESCALACIÓN: se manda cuando el caso necesita que él tome las
+// riendas, y una sola vez. Sin esta marca salía un mail por cada mensaje del vecino -- tres correos
+// de la misma puerta en una conversación.
+async function fueAdminNotificado(id_evento) {
+    if (!id_evento) return false;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        return !!(row && row.get('admin_notificado'));
+    } catch (err) {
+        console.error('Error chequeando admin_notificado:', err.message);
+        return false;
+    }
+}
+
+async function marcarAdminNotificado(id_evento, motivo = '') {
+    if (!id_evento) return;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return;
+        await sheet.loadHeaderRow().catch(() => {});
+        if (!(sheet.headerValues || []).includes('admin_notificado')) {
+            const nuevosHeaders = Array.from(new Set([...(sheet.headerValues || []), 'admin_notificado']));
+            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
+        }
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        if (row) {
+            row.set('admin_notificado', `${new Date().toLocaleString('es-AR')}${motivo ? ` — ${motivo}` : ''}`);
+            await row.save();
+        }
+    } catch (err) {
+        console.error('Error marcando admin_notificado:', err.message);
+    }
+}
+
 async function fueTecnicoNotificado(id_evento) {
     if (!id_evento) return false;
     try {
@@ -1435,6 +1475,8 @@ module.exports = {
     guardarReporte,
     fueTecnicoNotificado,
     marcarTecnicoNotificado,
+    fueAdminNotificado,
+    marcarAdminNotificado,
     guardarFactura,
     buscarFacturasProveedor,
     guardarLlamada,

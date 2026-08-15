@@ -328,6 +328,9 @@ async function _initPgSchema() {
             -- consultando algo que ya tenia respondido.
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS tecnico_confirmado VARCHAR(100);
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS tecnico_eta VARCHAR(150);
+            -- Cuando se escalo el caso al administrador y por que. Sin esta marca salia un mail
+            -- por cada mensaje del vecino: tres correos de la misma puerta en una conversacion.
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS admin_notificado VARCHAR(200);
 
             -- La lista maestra de proveedores de la planilla tiene "edificio".
             ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS edificio VARCHAR(150);
