@@ -206,14 +206,15 @@ Para que Marcos "no te reconozca" y poder repetir un test end-to-end desde cero 
 
 El lado PostgreSQL se limpia aparte (la BD se llama `marcos_db`, no `marcos_ia`):
 
+`reset-test.js` limpia **los dos lados de una sola vez** — Sheets y PostgreSQL:
+
 ```bash
-sudo -u postgres psql -d marcos_db -c "DELETE FROM vecinos;"
-sudo -u postgres psql -d marcos_db -c "DELETE FROM reportes;"
-sudo -u postgres psql -d marcos_db -c "DELETE FROM mensajes;"
-sudo -u postgres psql -d marcos_db -c "DELETE FROM memoria;"
-sudo -u postgres psql -d marcos_db -c "DELETE FROM accesos;"
-sudo -u postgres psql -d marcos_db -c "DELETE FROM audios_tts;"
+node reset-test.js
 ```
+
+Del lado PostgreSQL vacía `mensajes`, `mensajes_wa`, `reportes`, `vecinos`, `memoria`, `accesos` y
+`audios_tts`. Está adentro del script y no como comandos sueltos justamente para que no pueda quedar
+a medias: un reset parcial es peor que ninguno, porque parece limpio y no lo está.
 
 `mensajes` es la que alimenta el **visor de chat del dashboard**, y es la que más confusión genera:
 vaciar `EVENTOS` en Sheets borra el caso, pero las burbujas de la conversación siguen en esta tabla
