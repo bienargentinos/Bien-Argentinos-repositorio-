@@ -82,7 +82,13 @@ async function reportarAlAdmin({
         urgencia:  decisionCaso.urgencia || 'baja',
         tecnico:   tecnicoAsignado?.nombre || '',
         acceso:    tecnicoAsignado?.acceso || '',
-        estado: (decisionCaso.cerrar_caso && !decisionCaso.contactar_tecnico && !tecnicoAsignado) ? 'cerrado' : 'en_proceso',
+        // Un caso se cierra cuando la IA decide que está resuelto y no queda nada que derivar.
+        //
+        // Antes se exigía además que NO hubiera técnico asignado, y eso hacía el cierre imposible en
+        // el caso normal: un reclamo que se resolvió es justamente uno al que se le mandó un técnico.
+        // El vecino avisaba "ya vino y lo arregló", Marcos le contestaba que quedaba registrado, y
+        // el caso seguía en_proceso para siempre en la planilla y en el panel.
+        estado: (decisionCaso.cerrar_caso && !decisionCaso.contactar_tecnico) ? 'cerrado' : 'en_proceso',
         notas_ia:  resumenReporte,
         tipo:      'whatsapp'
     });

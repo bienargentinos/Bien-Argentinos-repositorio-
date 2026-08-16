@@ -1180,7 +1180,14 @@ function validarYSanitizarNombre(nombre) {
         }
     }
 
-    const esGatilloResolucion = /solucionad|resuelt|trabajo.*terminad|trabajo.*realizad|listo.*trabajo|ya qued. arreglad|ya qued. listo|ya arreglaron|ya funciona|ya lo repar/i.test(textoFinal);
+    // "El técnico ya vino y resolvió" no entraba: el patrón pedía "resuelto" y la gente conjuga el
+    // verbo, con acento. Lo mismo con "lo solucionó", "ya lo arreglaron" o "ya finalicé".
+    const diceQueSeResolvio = /solucionad|solucion[oó]|resuelt|resolv[ií]|trabajo.*terminad|trabajo.*realizad|listo.*trabajo|ya qued. arreglad|ya qued. listo|ya arreglaron|ya lo arregl|ya vino y (lo )?(arregl|solucion|repar|resolv)|ya funciona|ya lo repar|ya finalic|ya termin[eé]/i.test(textoFinal);
+    // "Todavía no se resolvió" trae las mismas palabras que "ya se resolvió" y significa lo
+    // contrario. Cerrar un caso que sigue roto es peor que no cerrarlo: el vecino se queda sin
+    // reclamo abierto justo cuando más lo necesita.
+    const loNiega = /\bno\s+(se\s+|me\s+|lo\s+|la\s+)*(qued|resolv|solucion|arregl|funciona|anda|termin|finaliz|vino|pas[oó])/i.test(textoFinal);
+    const esGatilloResolucion = diceQueSeResolvio && !loNiega;
     
     if (esGatilloResolucion) {
         const { obtenerCasosAbiertosEdificio, marcarCasoResueltoPorId } = require('./datos');
@@ -1621,7 +1628,44 @@ function validarYSanitizarNombre(nombre) {
                 ? `${nomVecino}${deptoVecino ? ' (Depto ' + deptoVecino + ')' : ''}` 
                 : (deptoVecino ? `del Depto ${deptoVecino}` : 'del consorcio');
 
-            const respTecnico = `Perfecto ${datosEmisor.nombre}, ya mismo me contacto con el vecino (${identVecinoMsg}) en ${dirExacta} para solicitarle la foto, video o detalles indicados y te los reenvío apenas me responda.`;
+            // ¿Ya tenemos lo que el técnico está pidiendo?
+            //
+            // El vecino manda la foto en el primer mensaje, junto con el problema. Cuando después el
+            // técnico pregunta "¿tenés fotos?", pedírsela otra vez al vecino es hacerle repetir algo
+            // que ya hizo: en la prueba terminó contestando "ya te la mandé, ¿no te acordás?" -- y
+            // tenía razón, la foto estaba guardada de la primera vuelta.
+            let fotoYaEnviada = false;
+            const sesionVecino = telVecino
+                ? (global.marcosSesiones?.get(telVecino) || global.marcosSesiones?.get(String(telVecino).replace(/\D/g, '')))
+                : null;
+            const guardada = sesionVecino?.mediaPendiente;
+
+            if (guardada?.filePath && (guardada.tipo === 'image' || guardada.tipo === 'video')) {
+                const antiguedad = Date.now() - (guardada.recibidoEn || 0);
+                if (antiguedad < 30 * 60 * 1000 && fs.existsSync(guardada.filePath)) {
+                    try {
+                        const idSubido = await subirMediaWhatsApp(guardada.filePath, guardada.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                        if (idSubido) {
+                            const pie = `📱 *MARCOS — ${guardada.tipo === 'image' ? 'FOTO' : 'VIDEO'} DEL RECLAMO*\n\n` +
+                                `Hola ${datosEmisor.nombre}, acá va ${guardada.tipo === 'image' ? 'la foto' : 'el video'} que ${nomVecino || 'el vecino'} ya había mandado del inconveniente en ${dirExacta}.`;
+                            const { enviarImagenWhatsApp, enviarVideoWhatsApp } = require('./agentes/marcos-ops');
+                            if (guardada.tipo === 'image') {
+                                await enviarImagenWhatsApp(from, idSubido, pie, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                            } else {
+                                await enviarVideoWhatsApp(from, idSubido, pie, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                            }
+                            fotoYaEnviada = true;
+                            console.log(`📷 El técnico pidió material y el vecino ya lo había mandado: se le reenvió de una, sin volver a molestarlo.`);
+                        }
+                    } catch (e) {
+                        console.error('Error reenviando al técnico el material que ya teníamos:', e.message);
+                    }
+                }
+            }
+
+            const respTecnico = fotoYaEnviada
+                ? `Ahí te mandé lo que ${nomVecino || 'el vecino'} ya había enviado sobre ${dirExacta}, ${datosEmisor.nombre}. Si necesitás algo más puntual, decime qué y se lo pido.`
+                : `Perfecto ${datosEmisor.nombre}, ya mismo me contacto con el vecino (${identVecinoMsg}) en ${dirExacta} para solicitarle la foto, video o detalles indicados y te los reenvío apenas me responda.`;
 
             await despacharRespuesta(recipient, respTecnico, msgTypeRespuesta);
             historial.push(`Marcos: ${respTecnico}`);
@@ -1634,7 +1678,7 @@ function validarYSanitizarNombre(nombre) {
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
-            if (telVecino && String(telVecino).replace(/\D/g, '') !== String(from).replace(/\D/g, '')) {
+            if (!fotoYaEnviada && telVecino && String(telVecino).replace(/\D/g, '') !== String(from).replace(/\D/g, '')) {
                 const saludoNombre = nomVecino || 'estimado/a vecino/a';
                 const msgParaVecino = `📋 *MARCOS — ATENCIÓN TÉCNICA*\n\n` +
                     `Hola ${saludoNombre}, el técnico asignado (*${datosEmisor.nombre}*) nos consulta si podrías enviarnos una foto, video o más detalles del inconveniente en ${dirExacta}${deptoVecino ? ' (Depto ' + deptoVecino + ')' : ''} para ir preparado con las herramientas correspondientes.`;
