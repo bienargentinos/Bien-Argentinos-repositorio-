@@ -636,6 +636,36 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             });
         }
 
+        // 4. La cola del caso que ACABA de cerrarse.
+        //
+        // Los tres pasos de arriba exigen un caso abierto, y una conversación no termina cuando el
+        // caso se cierra: el vecino agradece, el técnico manda la factura del trabajo que hizo. Esos
+        // mensajes ya no encontraban dónde meterse y abrían un caso nuevo cada uno. Visto en
+        // producción: un solo desperfecto quedó partido en CASO-1001, CASO-1002 y CASO-1003, y el
+        // motivo de cierre del 1002 decía "el vecino confirma la resolución del caso 1001".
+        //
+        // Lo que los delata es que NO traen un problema propio: son la cola de algo ya contado. Un
+        // reclamo nuevo de verdad siempre viene con su descripción, así que sigue abriendo su caso.
+        const esSeguimientoSinProblemaNuevo = !String(problema || '').trim();
+        let unificadoEnCerrado = false;
+        if (!rowExistente && esSeguimientoSinProblemaNuevo) {
+            const eBuscado = String(edificio || '').toLowerCase().trim();
+            rowExistente = [...rows].reverse().find(r => {
+                const rTel = String(r.get('telefono') || '').replace(/\D/g, '');
+                const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
+                const coincideTel = telBuscado && telBuscado.length >= 6 && rTel && (rTel === telBuscado || rTel.includes(telBuscado));
+                const coincideEdif = eBuscado && rEdif === eBuscado;
+                return coincideTel || coincideEdif;
+            });
+            if (rowExistente) {
+                const estCerrado = String(rowExistente.get('estado') || '').toLowerCase().trim();
+                unificadoEnCerrado = estCerrado === 'resuelto' || estCerrado === 'cerrado';
+                if (unificadoEnCerrado) {
+                    console.log(`🔗 Mensaje sin problema nuevo asociado al [${rowExistente.get('id_evento')}], que ya estaba cerrado, en vez de abrir un caso nuevo.`);
+                }
+            }
+        }
+
         const notasFinales = notas || notas_ia || (rowExistente ? rowExistente.get('notas') : '');
 
         // Manejar lista acumulativa de audios (audios_json)
@@ -727,7 +757,11 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             if (depto && !rowExistente.get('depto')) rowExistente.set('depto', depto);
             if (problema && !rowExistente.get('mensaje')) rowExistente.set('mensaje', problema);
             if (urgencia) rowExistente.set('urgencia', urgencia);
-            if (estado) rowExistente.set('estado', estado);
+            // Un caso cerrado no se reabre por su propia cola: la factura del trabajo terminado
+            // llega con estado "en_proceso" por defecto, y sin este reparo devolvía a la vida un
+            // caso que el vecino y el técnico ya habían dado por resuelto.
+            const estadoNuevoEsCierre = ['resuelto', 'cerrado'].includes(String(estado || '').toLowerCase().trim());
+            if (estado && !(unificadoEnCerrado && !estadoNuevoEsCierre)) rowExistente.set('estado', estado);
             if (notasFinales) rowExistente.set('notas', notasFinales);
             if (audio_url) rowExistente.set('audio_url', audio_url);
             if (transcripcion) rowExistente.set('transcripcion', transcripcion);

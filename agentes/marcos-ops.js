@@ -558,6 +558,16 @@ async function enviarWhatsApp(to, text, phoneNumberId, accessToken) {
                 'Content-Type': 'application/json',
             },
         });
+
+        // Meta devuelve el id del mensaje que acabamos de mandar, y se descartaba. Ese id es el que
+        // llega cuando el otro CITA este mensaje: sin guardarlo, una respuesta citando algo que dijo
+        // Marcos llegaba sin texto ("Sin texto guardado") y no se sabía de qué hablaba. Es
+        // exactamente lo que hace el proveedor cuando busca la factura que mandó, la cita y escribe
+        // "¿esto me pagaron?".
+        const idEnviado = res?.data?.messages?.[0]?.id;
+        if (idEnviado) {
+            require('../db-pg').guardarTextoMensajeWa(idEnviado, textoLimpio);
+        }
         return true;
     } catch (error) {
         console.error('Error enviando WhatsApp:', error.response?.data || error.message);
