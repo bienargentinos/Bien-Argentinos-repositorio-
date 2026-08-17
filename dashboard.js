@@ -2706,7 +2706,7 @@ function procesarLineaMultimediaChat(strText) {
   // Limpiar cualquier residuo de etiquetas o rutas rotas
   cleanText = cleanText
     .replace(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*[^\]]+\]/gi, '')
-    .replace(/(\/archivos\/|\/audios\/|\/almacenamiento\/)[^\s\])]+(\.jpeg|\.jpg|\.png|\.ogg|\.mp4|\.pdf)?\]?/gi, '')
+    .replace(/(\/archivos\/|\/audios\/|\/almacenamiento\/)[^\s\]\)]+(\.jpeg|\.jpg|\.png|\.ogg|\.mp4|\.pdf)?\]?/gi, '')
     .replace(/^[\])\s]+/, '')
     .replace(/\s+/g, ' ')
     .trim();
