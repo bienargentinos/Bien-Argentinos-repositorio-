@@ -500,13 +500,32 @@ async function obtenerHistorialMensajes(eventoId) {
     if (!eventoId) return [];
     try {
         await esquemaListo;
-        const res = await pool.query(
-            `SELECT id, evento_id, edificio, telefono, remitente, mensaje, tipo_canal, url_media, timestamp
-             FROM mensajes WHERE evento_id = $1 ORDER BY timestamp ASC, id ASC`,
+        const repRes = await pool.query(
+            `SELECT telefono, tel_tecnico, created_at, fecha FROM reportes WHERE codigo_caso = $1 OR id::text = $1`,
             [eventoId]
         );
+        const rep = repRes.rows[0];
+        let res;
+        if (rep && (rep.telefono || rep.tel_tecnico)) {
+            const tels = [rep.telefono, rep.tel_tecnico].filter(Boolean).map(t => String(t).replace(/\D/g, ''));
+            res = await pool.query(
+                `SELECT DISTINCT ON (id) id, evento_id, edificio, telefono, remitente, mensaje, tipo_canal, url_media, timestamp
+                 FROM mensajes
+                 WHERE evento_id = $1 
+                    OR (telefono = ANY($2::text[]) AND timestamp >= (COALESCE($3::timestamptz, NOW()) - INTERVAL '2 hours'))
+                 ORDER BY id ASC, timestamp ASC`,
+                [eventoId, tels, rep.created_at || null]
+            );
+        } else {
+            res = await pool.query(
+                `SELECT id, evento_id, edificio, telefono, remitente, mensaje, tipo_canal, url_media, timestamp
+                 FROM mensajes WHERE evento_id = $1 ORDER BY timestamp ASC, id ASC`,
+                [eventoId]
+            );
+        }
         avisarRecuperacionPg();
-        return res.rows;
+        const rows = (res.rows || []).sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0) || a.id - b.id);
+        return rows;
     } catch (err) {
         avisarFalloPg('obtenerHistorialMensajes', err);
         return [];

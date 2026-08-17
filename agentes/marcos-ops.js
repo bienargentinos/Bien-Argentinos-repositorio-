@@ -385,6 +385,20 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
     } catch (e) {
         console.error('Error registrando mensaje inicial a técnico en Sheets:', e.message);
     }
+
+    try {
+        const { guardarMensaje } = require('../db-pg');
+        await guardarMensaje({
+            eventoId: id_evento,
+            edificio: vecino?.edificio || direccionExacta,
+            telefono: tecnicoAsignado.telefono,
+            remitente: 'marcos',
+            mensaje: resumenNotifProveedor,
+            tipoCanal: 'whatsapp'
+        });
+    } catch (e) {
+        console.error('Error registrando mensaje inicial a técnico en PostgreSQL:', e.message);
+    }
 }
 
 function cancelarEscalacionProveedor(telefonoProveedor) {

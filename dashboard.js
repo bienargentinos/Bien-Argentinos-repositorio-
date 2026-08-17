@@ -229,6 +229,8 @@ function mapEvento(r) {
     rubro_tecnico: pick(r, ['rubro_tecnico', 'rubro_proveedor', 'especialidad_tecnico', 'especialidad_proveedor', 'rubro', 'especialidad', 'servicio']),
     historial_chat_vecino: pick(r, ['historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
     historial_chat_proveedor: pick(r, ['historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
+    chat_vecino_json: pick(r, ['chat_vecino_json', 'chat_vecino', 'conversacion_vecino', 'historial_chat_vecino', 'historial_vecino']),
+    chat_proveedor_json: pick(r, ['chat_proveedor_json', 'chat_proveedor', 'conversacion_proveedor', 'historial_chat_proveedor', 'historial_proveedor', 'historial_tecnico', 'chat_tecnico']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
     historial_chat: pick(r, ['historial_chat', 'historial', 'chat_log', 'conversacion']),
   };
@@ -2786,79 +2788,109 @@ function separarConversacionesEvento(datos) {
     return [];
   }
 
-  // 1. Obtener lista específica de Vecino
-  var rawVecino = parseList(datos.chat_vecino_json);
-  if (!rawVecino.length) rawVecino = parseList(datos.historial_chat_vecino);
-
-  // 2. Obtener lista específica de Proveedor
-  var rawProveedor = parseList(datos.chat_proveedor_json);
-  if (!rawProveedor.length) rawProveedor = parseList(datos.historial_chat_proveedor);
+  function getFingerprint(item) {
+    if (!item) return '';
+    var str = typeof item === 'object' ? ((item.emisor || item.remitente || '') + ':' + (item.texto || item.mensaje || '')) : String(item);
+    return str.toLowerCase()
+      .replace(/\\[(audio|audio_url|imagen|foto|video|documento|doc|pdf|factura):[^\\]]+\\]/gi, '')
+      .replace(/[^a-z0-9]/g, '')
+      .trim();
+  }
 
   var chatVecino = [];
   var chatProveedor = [];
   var seenV = new Set();
   var seenP = new Set();
 
-  if (rawVecino.length > 0) {
-    rawVecino.forEach(function(item) {
-      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (k && !seenV.has(k)) {
-        seenV.add(k);
-        chatVecino.push(item);
-      }
-    });
-  }
+  var telVecinoClean = datos.telefono ? String(datos.telefono).replace(/\\D/g, '') : '';
+  var telTecnicoClean = (datos.tel_tecnico || datos.telefono_tecnico) ? String(datos.tel_tecnico || datos.telefono_tecnico).replace(/\\D/g, '') : '';
 
-  if (rawProveedor.length > 0) {
-    rawProveedor.forEach(function(item) {
-      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (k && !seenP.has(k)) {
-        seenP.add(k);
-        chatProveedor.push(item);
-      }
-    });
-  }
+  // 1. Si tenemos chat_pg (mensajes reales ordenados de PostgreSQL), es la fuente principal más confiable
+  var pgMsgs = Array.isArray(datos.chat_pg) ? datos.chat_pg : [];
+  if (pgMsgs.length > 0) {
+    pgMsgs.forEach(function(msg) {
+      var rem = String(msg.remitente || '').toLowerCase();
+      var tel = String(msg.telefono || '').replace(/\\D/g, '');
+      var txt = String(msg.mensaje || '');
+      var txtLower = txt.toLowerCase();
 
-  // 3. Fallback solo si alguna de las dos listas está completamente vacía
-  if (chatVecino.length === 0 || chatProveedor.length === 0) {
-    var fallbackList = [].concat(parseList(datos.chat_pg), parseList(datos.historial_chat));
-    var currentTarget = 'vecino';
+      var isProv = rem === 'tecnico' || rem === 'proveedor' || (telTecnicoClean && tel === telTecnicoClean) || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(txt);
+      var isVec = rem === 'vecino' || rem === 'usuario' || (telVecinoClean && tel === telVecinoClean) || /^(Vecino|Usuario|Cliente|Titular|Familiar)/i.test(txt);
 
-    fallbackList.forEach(function(item) {
-      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (!k) return;
-
-      var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
-      var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
-      var strLower = str.toLowerCase();
-
-      var isProv = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
-      var isVec = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
-
-      if (isProv) {
-        currentTarget = 'proveedor';
-        if (chatProveedor.length === 0 || !seenP.has(k)) {
-          seenP.add(k);
-          chatProveedor.push(item);
+      if (!isProv && !isVec) {
+        if (rem === 'marcos') {
+          if (tel && telTecnicoClean && tel === telTecnicoClean) isProv = true;
+          else if (tel && telVecinoClean && tel === telVecinoClean) isVec = true;
+          else if (/al proveedor|al técnico|estimado técnico|hola técnico|julio|factura|coordinar visita|visita técnica/i.test(txtLower)) isProv = true;
+          else isVec = true;
         }
-      } else if (isVec) {
-        currentTarget = 'vecino';
-        if (chatVecino.length === 0 || !seenV.has(k)) {
-          seenV.add(k);
-          chatVecino.push(item);
+      }
+
+      var fp = getFingerprint(msg);
+      if (isProv) {
+        if (fp && !seenP.has(fp)) {
+          seenP.add(fp);
+          chatProveedor.push(msg);
         }
       } else {
-        var isMarcosToTech = /al proveedor|al técnico|estimado técnico|hola técnico|notificación|julio|coordinar visita|visita técnica/i.test(strLower);
-        if (isMarcosToTech || currentTarget === 'proveedor') {
-          if (!seenP.has(k)) {
-            seenP.add(k);
+        if (fp && !seenV.has(fp)) {
+          seenV.add(fp);
+          chatVecino.push(msg);
+        }
+      }
+    });
+  }
+
+  // 2. Si no hubo chat_pg o para complementar datos específicos (ej: chat_vecino_json / chat_proveedor_json)
+  var rawVecino = parseList(datos.chat_vecino_json);
+  if (!rawVecino.length) rawVecino = parseList(datos.historial_chat_vecino);
+
+  var rawProveedor = parseList(datos.chat_proveedor_json);
+  if (!rawProveedor.length) rawProveedor = parseList(datos.historial_chat_proveedor);
+
+  rawVecino.forEach(function(item) {
+    var fp = getFingerprint(item);
+    if (fp && !seenV.has(fp)) {
+      seenV.add(fp);
+      chatVecino.push(item);
+    }
+  });
+
+  rawProveedor.forEach(function(item) {
+    var fp = getFingerprint(item);
+    if (fp && !seenP.has(fp)) {
+      seenP.add(fp);
+      chatProveedor.push(item);
+    }
+  });
+
+  // 3. Fallback de historial_chat tradicional para capturar plantillas o mensajes iniciales
+  var rawHistorial = parseList(datos.historial_chat);
+  if (rawHistorial.length > 0) {
+    var currentTarget = 'vecino';
+    rawHistorial.forEach(function(item) {
+      var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+      var strLower = str.toLowerCase();
+      var isProv = /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Marcos \\(a Proveedor\\))/i.test(str) || /plantilla whatsapp|nueva solicitud de servicio/i.test(strLower);
+      var isVec = /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
+
+      if (isProv) currentTarget = 'proveedor';
+      else if (isVec) currentTarget = 'vecino';
+
+      var fp = getFingerprint(item);
+      if (isProv || currentTarget === 'proveedor') {
+        if (fp && !seenP.has(fp)) {
+          seenP.add(fp);
+          if (/plantilla whatsapp|nueva solicitud/i.test(strLower)) {
+            chatProveedor.unshift(item);
+          } else {
             chatProveedor.push(item);
           }
-        } else {
-          if (!seenV.has(k)) {
-            seenV.add(k);
-            chatVecino.push(item);
-          }
+        }
+      } else {
+        if (fp && !seenV.has(fp)) {
+          seenV.add(fp);
+          chatVecino.push(item);
         }
       }
     });
