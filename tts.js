@@ -51,6 +51,21 @@ function prepararTextoParaVoz(texto) {
     t = t.replace(/[*_~`]/g, '');
     t = t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2190}-\u{21FF}]/gu, '');
 
+    // Las MAYÚSCULAS SOSTENIDAS suenan a sigla: el sintetizador las deletrea o las grita. Los
+    // mensajes están llenos ("SAN PATRICIO 159", "MARCOS — ATENCIÓN TÉCNICA"), y ese es uno de los
+    // motivos por los que un audio puede terminar sonando como si hablara en otro idioma.
+    //
+    // Se convierte la TIRADA entera y no palabra por palabra: mirando de a una, las cortas se
+    // salvan por longitud y queda "SAN Patricio" o "Foto DEL Reclamo", que suena peor que el
+    // original. Una sigla suelta y corta (IVA, ABL) sí se deja como está, porque ahí deletrear es
+    // lo correcto.
+    const aMinuscula = txt => txt.charAt(0) + txt.slice(1).toLowerCase();
+    t = t.replace(/\b[A-ZÁÉÍÓÚÑ]{2,}(?:[\s]+[A-ZÁÉÍÓÚÑ]{2,})+\b/g, aMinuscula);
+    t = t.replace(/\b[A-ZÁÉÍÓÚÑ]{4,}\b/g, aMinuscula);
+
+    // La raya y las viñetas no se leen: cortan la frase en seco o se pronuncian.
+    t = t.replace(/[—–]/g, ',').replace(/^[•·]\s*/gm, '');
+
     // Limpieza de lo que queda: espacios dobles, signos sueltos y frases que quedaron colgando.
     t = t.replace(/\s{2,}/g, ' ')
          .replace(/\s+([.,;:!?])/g, '$1')
@@ -89,27 +104,46 @@ async function generarAudio(texto, fileName = 'audio_marcos.ogg') {
     const MODEL_ID = 'eleven_multilingual_v2';
     const API_KEY = process.env.ELEVENLABS_API_KEY;
 
+    // El modelo multilingüe ADIVINA el idioma a partir del texto cuando no se le dice cuál es. Con
+    // frases cortas o con nombres propios se equivoca, y entonces lee el español con la fonética de
+    // otro idioma: el audio sale ininteligible aunque el texto esté perfecto.
+    //
+    // `language_code` no está soportado por todos los modelos de ElevenLabs, así que se manda y, si
+    // la API lo rechaza, se reintenta sin él. Peor que un audio mal pronunciado sería no mandar
+    // ninguno.
+    const cuerpoBase = {
+        text: textoParaVoz,
+        model_id: MODEL_ID,
+        voice_settings: {
+            stability: 0.65,
+            similarity_boost: 0.8,
+            style: 0.0,
+            use_speaker_boost: true
+        }
+    };
+
+    const pedir = datos => axios({
+        method: 'POST',
+        url: `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}?output_format=opus_48000_128`,
+        data: datos,
+        headers: {
+            'Accept': 'audio/ogg',
+            'xi-api-key': API_KEY,
+            'Content-Type': 'application/json',
+        },
+        responseType: 'arraybuffer'
+    });
+
     try {
-        const response = await axios({
-            method: 'POST',
-            url: `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}?output_format=opus_48000_128`,
-            data: {
-                text: textoParaVoz,
-                model_id: MODEL_ID,
-                voice_settings: {
-                    stability: 0.65,
-                    similarity_boost: 0.8,
-                    style: 0.0,
-                    use_speaker_boost: true
-                }
-            },
-            headers: {
-                'Accept': 'audio/ogg',
-                'xi-api-key': API_KEY,
-                'Content-Type': 'application/json',
-            },
-            responseType: 'arraybuffer'
-        });
+        let response;
+        try {
+            response = await pedir({ ...cuerpoBase, language_code: 'es' });
+        } catch (errIdioma) {
+            const rechazoDelParametro = [400, 422].includes(errIdioma.response?.status);
+            if (!rechazoDelParametro) throw errIdioma;
+            console.warn(`⚠️ El modelo ${MODEL_ID} no acepta language_code: se genera el audio sin fijar el idioma.`);
+            response = await pedir(cuerpoBase);
+        }
 
         const ambientDir = path.join(__dirname, 'sonido ambiente Marcos nota de voz');
         let ambientFilePath = null;
