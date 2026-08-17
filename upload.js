@@ -31,8 +31,16 @@ conn.on('ready', () => {
         });
     });
 }).connect({
-    host: '200.58.102.182',
-    port: 5436,
-    username: 'root',
-    password: 'Triana--2014'
+    host: process.env.VPS_HOST || '200.58.102.182',
+    port: Number(process.env.VPS_PORT || 5436),
+    username: process.env.VPS_USER || 'root',
+    // La contraseña sale del entorno y no del código: este archivo está versionado, y el repo se
+    // hace público cada vez que se usa el curl que baja el dashboard al VPS.
+    password: process.env.VPS_PASSWORD
 });
+
+if (!process.env.VPS_PASSWORD) {
+    console.error('Falta VPS_PASSWORD en el entorno. Definila antes de correr este script:');
+    console.error('  VPS_PASSWORD=... node upload.js');
+    process.exit(1);
+}

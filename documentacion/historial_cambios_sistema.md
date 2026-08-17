@@ -6,7 +6,7 @@
 
 ### 1. 🔐 Seguridad y Rotación de Credenciales VPS
 * **Detalle:** Se retiraron del repositorio público los scripts temporales que contenían la contraseña root hardcodeada (`check_vps_logs.js`, `check_vps_pm2.js`, `deploy_full_bot.js`).
-* **Acción:** Se actualizó la contraseña del servidor VPS a `Triana--2014` y se sincronizaron los scripts locales de automatización.
+* **Acción:** Se rotó la contraseña del servidor VPS (el valor no se registra acá) y se sincronizaron los scripts locales de automatización.
 * **Archivos afectados:** `update-password-vps.js`, `check_vps.js`, `deploy-vps.js`.
 
 ---

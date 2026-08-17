@@ -4,8 +4,12 @@
 
 ```
 ssh -p5436 root@200.58.102.182
-# Contraseña: Triana--2014
 ```
+
+> [!CAUTION]
+> **Ninguna credencial va en este archivo.** El repo se hace público cada vez que se usa el `curl`
+> de más abajo para bajar el dashboard, así que todo lo que esté acá es público en ese rato. La
+> contraseña de root va en el gestor de contraseñas, no acá.
 
 - Proyecto en: `/root/marcos/Consorcio-AI-Assistant/`
 - Process manager: PM2 → `pm2 list` / `pm2 restart marcos-ia` / `pm2 logs marcos-ia`
