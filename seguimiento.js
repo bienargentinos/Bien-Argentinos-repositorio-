@@ -150,6 +150,21 @@ async function revisarSeguimientos(deps) {
             // Un caso que falla no puede frenar a los demás.
             try {
                 if (caso.paso >= 9) continue; // ya está en manos del administrador
+
+                // Se relee el caso justo antes de actuar. La lista de vencidos puede venir de una
+                // copia desactualizada, y un control que llega tarde a un caso ya resuelto no es
+                // inofensivo: le pregunta al técnico si pudo pasar cuando ya pasó y facturó, después
+                // le pregunta al vecino, y termina avisándole a la Administración que nadie
+                // confirmó la visita. Tres molestias por un trabajo que salió bien.
+                try {
+                    const { buscarCasoPorCodigo } = require('./datos-pg');
+                    const alDia = await buscarCasoPorCodigo(caso.id_evento);
+                    if (alDia?.cerrado) {
+                        console.log(`✅ [${caso.id_evento}] ya está resuelto: se descarta el seguimiento pendiente.`);
+                        continue;
+                    }
+                } catch (_) { /* si no se puede verificar, se sigue: un control de más no rompe nada */ }
+
                 await procesarUnCaso(caso, deps);
             } catch (err) {
                 console.error(`Error en el seguimiento de [${caso.id_evento}]:`, err.message);

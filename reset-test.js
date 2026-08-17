@@ -31,6 +31,9 @@ async function main() {
         doc.sheetsByTitle['VECINOS'],
         doc.sheetsByTitle['EVENTOS'],
         doc.sheetsByTitle['memoria'],
+        // Las facturas de prueba tienen que irse con el resto: si quedan, el técnico pregunta por un
+        // pago y Marcos le contesta con los comprobantes de todas las corridas anteriores.
+        doc.sheetsByTitle['facturas'],
     ];
 
     for (const sheet of tabs) {
@@ -42,7 +45,35 @@ async function main() {
     }
 
     await limpiarPostgres();
+    limpiarArchivos();
     console.log('🎉 Listo.');
+}
+
+/**
+ * Los archivos que subieron el vecino y el técnico durante la prueba.
+ *
+ * Borrar la fila de la factura y dejar el PDF en disco es media limpieza: el panel sigue
+ * ofreciendo el comprobante de una prueba que ya no existe, y el disco del VPS se llena de
+ * corridas viejas. Se vacía `almacenamiento/` por dentro pero no se borra la carpeta, para no
+ * tener que recrearla ni tocar permisos.
+ */
+function limpiarArchivos() {
+    const fs = require('fs');
+    const base = path.join(__dirname, 'almacenamiento');
+    if (!fs.existsSync(base)) {
+        console.log('ℹ️ No hay carpeta "almacenamiento": nada que borrar.');
+        return;
+    }
+    let borradas = 0;
+    for (const entrada of fs.readdirSync(base)) {
+        try {
+            fs.rmSync(path.join(base, entrada), { recursive: true, force: true });
+            borradas++;
+        } catch (e) {
+            console.log(`⚠️ No se pudo borrar "almacenamiento/${entrada}": ${e.message}`);
+        }
+    }
+    console.log(`✅ Multimedia: ${borradas} carpeta(s) de "almacenamiento" borradas (audios, imágenes y facturas de la prueba).`);
 }
 
 /**
@@ -60,7 +91,7 @@ async function main() {
 async function limpiarPostgres() {
     // Solo rastro de conversación. NUNCA clientes, edificios, proveedores ni asignaciones: eso es
     // configuración, y borrarla rompe el login del dashboard y deja los casos sin técnico.
-    const TABLAS = ['mensajes', 'mensajes_wa', 'reportes', 'vecinos', 'memoria', 'accesos', 'audios_tts'];
+    const TABLAS = ['mensajes', 'mensajes_wa', 'reportes', 'vecinos', 'memoria', 'accesos', 'audios_tts', 'facturas'];
 
     let pool;
     try {

@@ -762,6 +762,18 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             // caso que el vecino y el técnico ya habían dado por resuelto.
             const estadoNuevoEsCierre = ['resuelto', 'cerrado'].includes(String(estado || '').toLowerCase().trim());
             if (estado && !(unificadoEnCerrado && !estadoNuevoEsCierre)) rowExistente.set('estado', estado);
+
+            // Al cerrar un caso hay que levantar la cita que quedó agendada. El seguimiento se
+            // programa cuando el técnico confirma ("controlar dentro de 3 horas") y vive en la fila;
+            // cerrar el caso no lo tocaba, así que el control vencía igual y arrancaba a preguntar
+            // por un trabajo ya terminado: al técnico si pudo pasar -- cuando ya había pasado y
+            // facturado --, al vecino si vino el técnico, y al final un mail a la Administración
+            // avisando que nadie confirmó la visita.
+            if (estadoNuevoEsCierre) {
+                rowExistente.set('proximo_seguimiento', '');
+                rowExistente.set('seguimiento_paso', '');
+                rowExistente.set('seguimiento_nota', '');
+            }
             if (notasFinales) rowExistente.set('notas', notasFinales);
             if (tecnico) rowExistente.set('tecnico', tecnico);
             if (tel_tecnico) rowExistente.set('tel_tecnico', tel_tecnico);
@@ -1152,7 +1164,11 @@ async function marcarCasoResueltoPorId(idEvento) {
 
         if (row) {
             row.set('estado', 'resuelto');
-            row.set('hora_fin', new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }));
+            row.set('hora_fin', fechaHoraAR());
+            // Se levanta la cita de control pendiente: un caso resuelto no tiene nada que seguir.
+            row.set('proximo_seguimiento', '');
+            row.set('seguimiento_paso', '');
+            row.set('seguimiento_nota', '');
             await row.save();
             console.log(`✅ Caso [${idBuscado}] marcado como RESUELTO en Sheets.`);
             return {
