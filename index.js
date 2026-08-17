@@ -1,6 +1,5 @@
 require('dotenv').config();
 const express    = require('express');
-const { fechaHoraAR, fechaAR } = require('./fecha');
 const bodyParser = require('body-parser');
 
 const {
@@ -14,12 +13,12 @@ const {
     buscarTecnicoAsignado,
     guardarLlamada,
     buscarRolPorTelefono,
-} = require('./datos');
+} = require('./sheets');
 
 const { descargarMedia, guardarArchivoEstructurado } = require('./media');
 const { evaluarCaso }        = require('./agentes/marcos-caso');
 const { responderVecino }    = require('./agentes/marcos-cara');
-const { gestionarOperaciones, enviarWhatsApp, subirMediaWhatsApp, enviarAudioWhatsApp, procesarSiguienteEventoProveedor, redactarNovedadParaTecnico } = require('./agentes/marcos-ops');
+const { gestionarOperaciones, enviarWhatsApp, subirMediaWhatsApp, enviarAudioWhatsApp, procesarSiguienteEventoProveedor } = require('./agentes/marcos-ops');
 const { procesarDocumento }  = require('./agentes/marcos-docs');
 const { reportarAlAdmin, iniciarCronReportes }    = require('./agentes/marcos-admin');
 
@@ -36,201 +35,6 @@ const fs = require('fs');
 function logDebug(msg) {
     const t = new Date().toISOString();
     fs.appendFileSync('debug_marcos.log', `[${t}] ${msg}\n`);
-}
-
-/**
- * La confirmación del técnico puede haber llegado antes de que existiera la sesión de este vecino,
- * o después de un reinicio de PM2. En ese caso vive en el estado del proveedor: se la busca ahí por
- * el vecino al que está atendiendo, para no contestarle "estoy consultando" a alguien cuya visita
- * ya está confirmada.
- */
-/**
- * Marcos no avisa por su cuenta cuando el técnico confirma: el técnico ya tiene el teléfono del
- * vecino y muchas veces lo llama directo, así que un aviso automático sería ruido. Pero si alguien
- * del edificio pregunta, la respuesta tiene que estar.
- *
- * @param {string} telefonoVecino Quién está preguntando.
- * @param {object} [contexto] `edificio` y `datosEmisor`, para poder responderle también a quien no
- *   abrió el caso pero tiene por qué saber.
- */
-async function confirmacionDelCaso(telefonoVecino, contexto = {}) {
-    // Primero la memoria, que es instantánea; si no está -- típico después de un reinicio --, se
-    // busca en el caso, que es donde quedó guardada de verdad.
-    const enRam = confirmacionDesdeProveedor(telefonoVecino);
-    if (enRam) return enRam;
-    try {
-        const { buscarConfirmacionTecnicoDeVecino, buscarConfirmacionTecnicoDeEdificio } = require('./datos-pg');
-        const propia = await buscarConfirmacionTecnicoDeVecino(telefonoVecino);
-        if (propia) return propia;
-
-        // El encargado, el suplente, la guardia o el administrador preguntan por visitas que no
-        // abrieron ellos: buscar solo por su teléfono no encuentra nada. A un vecino cualquiera no
-        // se le contesta por acá, porque el caso puede ser dentro de otra unidad.
-        if (puedeVerVisitasDelEdificio(contexto.datosEmisor) && contexto.edificio) {
-            return await buscarConfirmacionTecnicoDeEdificio(contexto.edificio);
-        }
-        return null;
-    } catch (err) {
-        console.error('Error recuperando la confirmación del técnico:', err.message);
-        return null;
-    }
-}
-
-// ── RECONOCER DE QUÉ FACTURA HABLA EL PROVEEDOR ─────────────────────────────────
-// El técnico pregunta con las palabras de su trabajo: "¿me pagaron Ortiz?", "¿y San Patricio?".
-// No conoce el nombre completo con el que el edificio está cargado, ni tiene por qué saber si hay
-// cuatro Ortiz en el sistema. Así que en vez de interpretar el texto, se compara el texto contra
-// SUS facturas: alcanza con que nombre una palabra propia de alguna para saber cuál es.
-
-const PALABRAS_GENERICAS = new Set([
-    'casa', 'calle', 'torre', 'edificio', 'consorcio', 'avenida', 'depto', 'piso',
-    'trabajo', 'arreglo', 'factura', 'comprobante', 'servicio', 'general',
-]);
-
-function normalizarParaBuscar(texto) {
-    return String(texto || '')
-        .toLowerCase()
-        .normalize('NFD').replace(/[̀-ͯ]/g, '')  // sin tildes: "patricío" y "patricio"
-        .replace(/[^a-z0-9\s]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-/**
- * Si el mensaje nombra el edificio o el concepto de esta factura.
- *
- * Se exigen palabras de 5 letras o más y se descartan las genéricas: sin eso, "casa" o "edificio"
- * -- que aparecen en medio consorcio y en casi cualquier pregunta -- harían que cualquier mensaje
- * coincidiera con todas las facturas a la vez.
- */
-function textoMencionaFactura(textoNormalizado, factura) {
-    const candidatas = [factura?.edificio, factura?.concepto]
-        .map(normalizarParaBuscar)
-        .filter(Boolean);
-
-    for (const campo of candidatas) {
-        if (campo.length >= 5 && textoNormalizado.includes(campo)) return true;
-        for (const palabra of campo.split(' ')) {
-            if (palabra.length >= 5 && !PALABRAS_GENERICAS.has(palabra) && textoNormalizado.includes(palabra)) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-/** Quién tiene por qué enterarse de una visita del edificio sin haberla pedido él. */
-function puedeVerVisitasDelEdificio(datosEmisor) {
-    const rol = String(datosEmisor?.rol || '').toLowerCase();
-    if (rol === 'encargado' || rol === 'seguridad' || rol === 'admin') return true;
-    // Los del consejo figuran como vecinos: lo que los distingue es la marca en su ficha.
-    return Boolean(String(datosEmisor?.consejo || '').trim());
-}
-
-function confirmacionDesdeProveedor(telefonoVecino) {
-    try {
-        const tel = String(telefonoVecino || '').replace(/\D/g, '');
-        if (!tel || !global.colasProveedores) return null;
-        for (const st of global.colasProveedores.values()) {
-            if (!st?.confirmacion?.confirmado) continue;
-            const telAtendido = String(st.vecinoActivo?.telefono || '').replace(/\D/g, '');
-            if (telAtendido && telAtendido.endsWith(tel.slice(-8))) return st.confirmacion;
-        }
-    } catch (_) { /* si falla, simplemente no hay confirmación conocida */ }
-    return null;
-}
-
-// ── APRENDIZAJE DE ACCESOS DEL EDIFICIO ──────────────────────────────────────
-// El administrador rara vez tiene cargado todo: dónde está la sala de medidores, quién tiene la
-// llave del tablero, si la sala de máquinas está con candado. Esos datos aparecen solos en la
-// conversación -- "mandá al técnico que sale humo de la sala de electricidad, yo le abro que tengo
-// llave" -- y hasta ahora se perdían apenas terminaba el chat. En los edificios sin encargado, que
-// son los que más lo necesitan, ese vecino ES el acceso.
-//
-// Marcos los anota a medida que aparecen, con constancia de quién los aportó. No pregunta por
-// ellos: solo escucha.
-
-async function aprenderAccesosDeConversacion({ texto, edificio, quienLoDijo, telefono }) {
-    if (!texto || !edificio) return;
-    try {
-        const { extraerAccesosDeTexto } = require('./accesos');
-        const datos = await extraerAccesosDeTexto({ texto, quienLoDijo });
-        if (!datos.length) return;
-
-        const { guardarAccesoEdificio } = require('./datos');
-        const origen = `${quienLoDijo || 'vecino'}${telefono ? ` (${String(telefono).replace(/\D/g, '')})` : ''}`;
-
-        for (const d of datos) {
-            await guardarAccesoEdificio({
-                edificio,
-                lugar:      d.lugar,
-                ubicacion:  d.ubicacion,
-                quienAbre:  d.quien_abre,
-                telefono:   d.telefono,
-                tipoAcceso: d.tipo_acceso,
-                notas:      d.notas,
-                origen:     `Aportado por ${origen}`
-            });
-        }
-    } catch (err) {
-        console.error('Error aprendiendo accesos de la conversación:', err.message);
-    }
-}
-
-// ── REGISTRO DEL CHAT EN POSTGRES (Visor de Chat en Vivo) ────────────────────
-// Hasta ahora la conversación real no se guardaba en ningún lado: la pestaña `reportes` solo
-// tiene el resumen final que escribe la IA (`notas_ia`), así que el drawer del dashboard nunca
-// podía mostrar el ida y vuelta mensaje por mensaje. Esto persiste cada mensaje —del vecino y de
-// Marcos— en la tabla `mensajes` de PostgreSQL.
-//
-// Regla innegociable: registrar el chat NUNCA puede tumbar la atención de un vecino. Por eso todo
-// va envuelto en try/catch y sin `await` bloqueante en el camino crítico de la respuesta.
-function registrarMensajeChat({ eventoId, edificio, telefono, remitente, mensaje, tipoCanal, urlMedia }) {
-    try {
-        const { guardarMensaje } = require('./db-pg');
-        guardarMensaje({ eventoId, edificio, telefono, remitente, mensaje, tipoCanal, urlMedia })
-            .catch(err => console.error('Error registrando mensaje del chat:', err.message));
-    } catch (err) {
-        console.error('Error registrando mensaje del chat:', err.message);
-    }
-}
-
-// De quién es este mensaje y a qué caso pertenece, para etiquetarlo bien en el visor de chat.
-//
-// Antes esto miraba únicamente la sesión del vecino y daba por sentado que quien escribía era un
-// vecino. Resultado: los mensajes del técnico quedaban guardados como `remitente = 'vecino'` y sin
-// caso asociado, así que en el visor aparecían del lado equivocado de la conversación y sueltos,
-// sin pertenecer a ningún [CASO-XXXX].
-async function contextoChat(telefono) {
-    const tel = String(telefono || '').replace(/\D/g, '');
-
-    // 1. ¿Es un proveedor con un caso en curso? Su estado sabe a qué caso está atendiendo.
-    const stProv = global.colasProveedores?.get(tel);
-    if (stProv && (stProv.eventoActivoId || stProv.chatActivo)) {
-        return {
-            edificio:  stProv.edificioActivo || stProv.vecinoActivo?.edificio || '',
-            eventoId:  stProv.eventoActivoId || null,
-            remitente: 'tecnico',
-        };
-    }
-
-    // 2. Sesión de vecino en curso.
-    const s = global.marcosSesiones?.get(telefono) || sesiones.get(telefono) || {};
-    if (s.nombreEdificio || s.idEventoActual) {
-        return { edificio: s.nombreEdificio || '', eventoId: s.idEventoActual || null, remitente: 'vecino' };
-    }
-
-    // 3. Primer contacto: se resuelve el rol contra la base. Desde que las lecturas salen de
-    // PostgreSQL esto cuesta menos de un milisegundo, así que ya no hay motivo para adivinarlo.
-    try {
-        const { buscarRolPorTelefono } = require('./datos');
-        const rol = await buscarRolPorTelefono(telefono);
-        const comoRemitente = { proveedor: 'tecnico', encargado: 'encargado', seguridad: 'encargado', admin: 'admin' };
-        return { edificio: rol?.edificio || '', eventoId: null, remitente: comoRemitente[rol?.rol] || 'vecino' };
-    } catch (err) {
-        console.error('Error resolviendo el rol para el registro del chat:', err.message);
-        return { edificio: '', eventoId: null, remitente: 'vecino' };
-    }
 }
 
 // ── Memoria de sesión (RAM) ──────────────────────────────────────────────────
@@ -289,7 +93,6 @@ app.post('/webhook', async (req, res) => {
         // Extraer contenido según tipo
         let msgBody = '';
         let mediaId = null;
-        let contactosCompartidos = null;
 
         if (msgType === 'text') {
             msgBody = message.text.body;
@@ -320,26 +123,6 @@ app.post('/webhook', async (req, res) => {
             } else {
                 msgBody = '(Respuesta interactiva)';
             }
-        } else if (msgType === 'contacts') {
-            // Ficha de contacto compartida desde WhatsApp (el vecino comparte "el contacto de mi
-            // señora" para que le abran al técnico, el admin comparte el contacto de un proveedor,
-            // etc.). Antes caía en el `else { return }` de abajo y se descartaba en silencio.
-            const contactosRecibidos = (message.contacts || []).map(c => {
-                const nombreCto = c?.name?.formatted_name || [c?.name?.first_name, c?.name?.last_name].filter(Boolean).join(' ') || 'Contacto';
-                // Una ficha de WhatsApp puede tener VARIOS números (el fijo y el celular, el
-                // personal y el del trabajo). Quedarse con el primero y descartar el resto hacía
-                // que el informe llevara uno y el aviso de acceso otro: el técnico recibía dos
-                // números distintos para la misma persona y no sabía a cuál llamar.
-                const telefonosCto = [...new Set(
-                    (c?.phones || []).map(p => String(p?.wa_id || p?.phone || '').replace(/\D/g, '')).filter(Boolean)
-                )];
-                return { nombre: nombreCto, telefono: telefonosCto[0] || '', telefonos: telefonosCto, ficha: c };
-            }).filter(c => c.telefono);
-
-            if (contactosRecibidos.length === 0) return;
-            contactosCompartidos = contactosRecibidos;
-            msgBody = `(Contacto compartido) ${contactosRecibidos.map(c => `${c.nombre}: ${c.telefonos.join(' / ')}`).join(', ')}`;
-            console.log(`👤 Ficha(s) de contacto recibida(s) de ${from}: ${msgBody}`);
         } else if (msgType === 'unsupported' || msgType === 'system') {
             console.log(`📞 Intento de llamada o evento de sistema detectado de ${from}`);
             await enviarWhatsApp(
@@ -353,23 +136,13 @@ app.post('/webhook', async (req, res) => {
             return;
         }
 
-        // El texto de cada mensaje se guarda para poder resolver las citas. El Map en memoria queda
-        // como vía rápida, pero el que manda es el de la base: sin él, después de cada reinicio la
-        // cita llegaba vacía y Marcos no sabía de qué le hablaban.
         if (!global.mensajesIdMap) global.mensajesIdMap = new Map();
-        if (msgId && msgBody) {
-            global.mensajesIdMap.set(msgId, msgBody);
-            require('./db-pg').guardarTextoMensajeWa(msgId, msgBody);
-        }
+        if (msgId && msgBody) global.mensajesIdMap.set(msgId, msgBody);
 
         // Extraer contexto de mensaje citado si existe (Quote / Reply)
         if (message.context && (message.context.id || message.context.from)) {
             const idCitado = message.context.id;
-            let textoCitado = global.mensajesIdMap.get(idCitado);
-            if (!textoCitado && idCitado) {
-                textoCitado = await require('./db-pg').buscarTextoMensajeWa(idCitado);
-                if (textoCitado) console.log(`📌 Texto del mensaje citado recuperado de la base (no estaba en memoria).`);
-            }
+            const textoCitado = global.mensajesIdMap.get(idCitado);
             console.log(`📌 Mensaje cita contexto previo ID: ${idCitado} -> "${textoCitado || 'Sin texto guardado'}"`);
             if (textoCitado) {
                 msgBody = `${msgBody} [Cita el mensaje: "${textoCitado}"]`;
@@ -383,149 +156,48 @@ app.post('/webhook', async (req, res) => {
 
         console.log(`📨 Mensaje de ${recipient} (${pushName || 'Sin PushName'}): ${msgBody}`);
 
-        // ── SISTEMA DE ACUMULACIÓN (Humanización - 25 Segundos de Espera) ──
-        // Si el usuario manda varios mensajes seguidos, esperamos 25 segundos para reunirlos todos en un solo contexto.
-        // (Antes eran 15s: en la práctica, grabar+enviar 2 notas de voz y una foto casi siempre
-        // supera ese tiempo real -- si el hueco entre dos mensajes pasaba los 15s, la ráfaga se
-        // cortaba en dos y Marcos respondía pidiendo datos que ya venían en camino.)
+        // ── SISTEMA DE ACUMULACIÓN (Humanización - 15 Segundos de Espera) ──
+        // Si el usuario manda varios mensajes seguidos, esperamos 15 segundos para reunirlos todos en un solo contexto.
         if (!global.colasMensajes) global.colasMensajes = new Map();
-
+        
         if (!global.colasMensajes.has(recipient)) {
-            global.colasMensajes.set(recipient, { items: [], pushName, timeout: null });
+            global.colasMensajes.set(recipient, { mensajes: [], mediaIds: [], tipos: [], items: [], pushName, timeout: null });
         }
-
+        
         const cola = global.colasMensajes.get(recipient);
-        // Guardamos cada mensaje de la ráfaga en orden (tipo + texto + mediaId) para no perder
-        // ninguno al armar el contexto combinado.
-        cola.items.push({ tipo: msgType, texto: msgBody, mediaId, contactos: contactosCompartidos, docFilename: message.document?.filename || '' });
+        cola.mensajes.push(msgBody);
+        cola.tipos.push(msgType);
+        if (!cola.items) cola.items = [];
+        cola.items.push({
+            msgBody: msgBody,
+            msgType: msgType,
+            mediaId: mediaId,
+            docFilename: message.document?.filename || ''
+        });
         if (pushName && !cola.pushName) cola.pushName = pushName;
+        if (mediaId) cola.mediaIds.push({ id: mediaId, tipo: msgType });
 
-        // Reiniciamos el tiempo de espera (25 segundos)
+        // Reiniciamos el tiempo de espera (15 segundos)
         if (cola.timeout) clearTimeout(cola.timeout);
-
+        
         cola.timeout = setTimeout(async () => {
-            const items = cola.items;
+            const msgBodyCompleto = cola.mensajes.join(" ");
+            const itemsBurst = [...(cola.items || [])];
+            // Último audio o último media en general
+            const ultimoAudio = cola.mediaIds.filter(m => m.tipo === 'audio').pop();
+            const ultimoMedia = cola.mediaIds.length > 0 ? cola.mediaIds[cola.mediaIds.length - 1] : null;
+            const mediaIdFinal = ultimoAudio ? ultimoAudio.id : (ultimoMedia ? ultimoMedia.id : null);
+            // Si hubo al menos un audio en la ráfaga, el tipo es audio
+            const msgTypeFinal = cola.tipos.includes('audio') ? 'audio' : cola.tipos[cola.tipos.length - 1];
             const pushNameFinal = cola.pushName;
 
+            logDebug(`[${recipient}] Procesando ráfaga acumulada (10s): "${msgBodyCompleto}"`);
+            
             // Limpiamos la cola antes de procesar
             global.colasMensajes.delete(recipient);
 
-            // Transcribimos TODOS los audios de la ráfaga (no solo el último), en orden, para no
-            // perder datos cuando el vecino/técnico manda varias notas de voz seguidas.
-            let audiosEnRafaga = 0;
-            let audiosTranscriptos = 0;
-            for (const item of items) {
-                if (item.tipo === 'audio' && item.mediaId) {
-                    audiosEnRafaga++;
-                    try {
-                        const mediaAudio = await descargarMedia(item.mediaId);
-                        if (mediaAudio) {
-                            const { transcribirAudio } = require('./stt');
-                            const transcripcion = await transcribirAudio(mediaAudio.filePath, mediaAudio.mimeType);
-                            if (transcripcion) {
-                                item.texto = transcripcion;
-                                audiosTranscriptos++;
-                            } else {
-                                console.error(`⚠️ La nota de voz ${item.mediaId} no devolvió transcripción.`);
-                            }
-                            // El audio se copia al almacenamiento permanente y esa es la ruta que
-                            // se guarda. Antes se guardaba la de `temp/`, que es una carpeta de
-                            // paso: cuando se limpia, el reproductor del panel queda apuntando a
-                            // un archivo que ya no existe y muestra una nota de voz de "0:01".
-                            const sesAudio = global.marcosSesiones?.get(recipient);
-                            const permanente = guardarArchivoEstructurado({
-                                filePath: mediaAudio.filePath,
-                                adminNombre: sesAudio?.datosVecino?.adminNombre,
-                                edificioNombre: sesAudio?.nombreEdificio,
-                                tipo: 'audios'
-                            });
-                            item.urlWeb = permanente?.relativeUrl
-                                || `/audios/${require('path').basename(mediaAudio.filePath)}`;
-                        } else {
-                            // Este camino no dejaba ningún rastro: sin el archivo no se transcribe,
-                            // y el audio seguía viaje con el texto de relleno como si nada.
-                            console.error(`⚠️ No se pudo descargar la nota de voz ${item.mediaId}: queda sin transcribir.`);
-                        }
-                    } catch (e) {
-                        console.error(`Error transcribiendo audio de la ráfaga (${item.mediaId}):`, e.message);
-                    }
-
-                    // Un audio que no se pudo leer NO puede viajar como '(Nota de voz)': ese texto
-                    // no está vacío, así que pasaba todos los filtros y llegaba a la IA ocupando el
-                    // lugar de lo que la persona había dicho. Con dos audios fallados de tres, a
-                    // Marcos le llegaba "(Nota de voz) (Nota de voz) me voy y dejo el teléfono" y
-                    // volvía a pedir el nombre y la dirección que el vecino ya había dado.
-                    // Diciéndolo con todas las letras, Marcos puede pedir que le repitan ESA nota
-                    // en vez de arrancar la conversación de cero.
-                    if (!item.texto || item.texto === '(Nota de voz)') {
-                        item.texto = '(no se pudo escuchar esta nota de voz)';
-                    }
-                }
-            }
-            if (audiosEnRafaga) {
-                console.log(`🎙️ Ráfaga con ${audiosEnRafaga} nota(s) de voz: ${audiosTranscriptos} transcripta(s), ${audiosEnRafaga - audiosTranscriptos} sin transcribir.`);
-            }
-
-            // Registramos cada mensaje de la ráfaga por separado y en orden, no el texto pegado:
-            // el visor del dashboard tiene que mostrar las mismas burbujas que vio el vecino
-            // (su audio ya transcripto, su texto, su foto), no un bloque único.
-            const ctxEntrada = await contextoChat(recipient);
-            for (const item of items) {
-                registrarMensajeChat({
-                    eventoId:  ctxEntrada.eventoId,
-                    edificio:  ctxEntrada.edificio,
-                    telefono:  recipient,
-                    remitente: ctxEntrada.remitente,
-                    mensaje:   item.texto || '',
-                    tipoCanal: item.tipo === 'audio' ? 'whatsapp-audio' : 'whatsapp',
-                    // Una ruta que el panel pueda reproducir o abrir. Antes se guardaba
-                    // `media:<id>`, que no es una ruta ni un archivo: el visor mostraba la burbuja
-                    // del audio pero no tenía con qué reproducirlo. Si todavía no se descargó el
-                    // adjunto, va el identificador de Meta pelado, que al menos es resoluble.
-                    urlMedia:  item.urlWeb || item.mediaId || ''
-                });
-            }
-
-            const msgBodyCompleto = items.map(i => i.texto).filter(Boolean).join(' ');
-
-            // La misma ráfaga, pero con la etiqueta de cada audio pegada a SU transcripción. Así el
-            // panel dibuja el reproductor justo debajo de la frase que corresponde, en vez de
-            // amontonar todos los reproductores al principio del mensaje. Va aparte del texto que
-            // recibe la IA: al prompt no le sirven las rutas de archivo.
-            const msgBodyRegistro = items
-                .map(i => (i.tipo === 'audio' && i.urlWeb) ? `[AUDIO:${i.urlWeb}] ${i.texto || ''}`.trim() : (i.texto || ''))
-                .filter(Boolean)
-                .join(' ');
-            // Último media NO-audio de la ráfaga (imagen/video/documento) — los audios ya se
-            // transcribieron arriba, no hace falta volver a descargarlos en procesarMensaje.
-            const ultimoMediaNoAudio = [...items].reverse().find(i => i.mediaId && i.tipo !== 'audio');
-            const mediaIdFinal = ultimoMediaNoAudio ? ultimoMediaNoAudio.mediaId : null;
-            const huboAudio = items.some(i => i.tipo === 'audio');
-            // msgTypeFinal describe QUÉ ADJUNTO viaja (mediaIdFinal), y tiene que ser coherente
-            // con él: aguas abajo se decide "es imagen -> reenviar la foto al técnico, guardarla
-            // en /imagenes" mirando msgType. Antes, si la ráfaga traía audios Y una foto (el caso
-            // más normal: el vecino cuenta el problema por audio y adjunta la foto), el tipo
-            // quedaba en 'audio' y la foto se volvía invisible -- se archivaba en la carpeta de
-            // audios y nunca se le reenviaba al técnico.
-            const msgTypeFinal = ultimoMediaNoAudio
-                ? ultimoMediaNoAudio.tipo
-                : (huboAudio ? 'audio' : items[items.length - 1].tipo);
-            // Que hubiera audio en la ráfaga define el MODO DE RESPUESTA (nota de voz), que es
-            // una decisión independiente de qué adjunto viaja.
-            const preferirAudioRespuesta = huboAudio;
-
-            logDebug(`[${recipient}] Procesando ráfaga acumulada (25s): "${msgBodyCompleto}"`);
-
             // Llamada al orquestador con el texto acumulado
-            // Fichas de contacto compartidas en la ráfaga (se acumulan todas, en orden)
-            const contactosFinal = items.flatMap(i => i.contactos || []);
-            // Rutas reproducibles de todos los audios de la ráfaga. Hacen falta más adelante para
-            // etiquetarlos en el historial del caso: `session.audio_url` solo se llenaba cuando el
-            // mensaje era PURO audio, así que en la ráfaga más común -- varias notas de voz y una
-            // foto -- el adjunto que viajaba era la imagen y los audios quedaban sin etiqueta.
-            const audiosRafaga = items.filter(i => i.tipo === 'audio' && i.urlWeb).map(i => i.urlWeb);
-
-            await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal, preferirAudioRespuesta, contactosCompartidos: contactosFinal, audiosRafaga, msgBodyRegistro }).catch(err => {
+            await procesarMensaje({ from, recipient, msgBody: msgBodyCompleto, mediaId: mediaIdFinal, msgType: msgTypeFinal, pushName: pushNameFinal, colaItems: itemsBurst }).catch(err => {
                 console.error('Error procesando mensaje:', err.message);
                 const respuestasHumanas = [
                     'Aguárdeme un instante por favor, estoy actualizando el sistema y ya le respondo.',
@@ -540,7 +212,7 @@ app.post('/webhook', async (req, res) => {
                     WHATSAPP_ACCESS_TOKEN
                 );
             });
-        }, 25000); // 25 segundos de espera para reunir ráfagas de mensajes del vecino (audio + texto) sin demorar la respuesta
+        }, 15000); // 15 segundos de espera para reunir ráfagas de mensajes del vecino (audio + texto) sin demorar la respuesta
 
     } catch (err) {
         console.error('Error en webhook:', err.message);
@@ -550,56 +222,35 @@ app.post('/webhook', async (req, res) => {
 // ── DESPACHADOR DE RESPUESTAS (Modo Espejo / TTS) ─────────────────────────────
 async function despacharRespuesta(recipient, texto, msgType) {
     if (!texto) return;
-
-    // Registramos la respuesta de Marcos en el chat. Guardamos siempre el TEXTO, aunque salga
-    // como nota de voz: el visor necesita leer qué dijo, no reproducir el ogg.
-    const ctxSalida = await contextoChat(recipient);
-    registrarMensajeChat({
-        eventoId:  ctxSalida.eventoId,
-        edificio:  ctxSalida.edificio,
-        telefono:  recipient,
-        remitente: 'marcos',
-        mensaje:   texto,
-        tipoCanal: msgType === 'audio' ? 'whatsapp-audio' : 'whatsapp'
-    });
-
+    
     // Simular tiempo de escritura humano (60ms por caracter, máx 10 segundos)
     const demora = Math.min(texto.length * 60, 10000);
     await new Promise(resolve => setTimeout(resolve, demora));
 
     if (msgType === 'audio') {
-        // El techo de notas de voz se consulta en la base y no en la sesión: cada audio cuesta
-        // créditos de ElevenLabs, y con el contador en memoria alcanzaba un reinicio de PM2 para
-        // que el mismo vecino volviera a tener derecho a dos audios más. Con PM2 reiniciando
-        // decenas de veces por día, el límite no limitaba nada.
+        if (!global.marcosSesiones) global.marcosSesiones = new Map();
+        const session = global.marcosSesiones.get(recipient) || {};
+        
+        // Limpiar historial de audios generados en las últimas 24 horas
+        const ahora = Date.now();
         const HORA_24_MS = 24 * 60 * 60 * 1000;
-        const MAX_AUDIOS_24H = Number(process.env.TTS_MAX_AUDIOS_24H ?? 2);
+        const audios24h = (session.audiosGeneradosTimestamps || []).filter(t => (ahora - t) < HORA_24_MS);
+        session.audiosGeneradosTimestamps = audios24h;
 
-        let audios24h = null;
-        try {
-            const { leerAudiosTTS } = require('./db-pg');
-            audios24h = await leerAudiosTTS(recipient, HORA_24_MS);
-        } catch (error) {
-            // Sin poder leer el contador no se sabe cuántos audios se mandaron ya. Se responde por
-            // texto, que no cuesta: ante la duda conviene fallar hacia lo gratis.
-            console.error(`⚠️ No se pudo leer el contador de notas de voz para ${recipient}, se responde por TEXTO:`, error.message);
-        }
-
-        if (audios24h && audios24h.length < MAX_AUDIOS_24H) {
+        // Regla fundamental: Máximo 2 notas de voz en 24 horas por vecino/remitente
+        if (audios24h.length < 2) {
             try {
-                console.log(`🎙️ Generando nota de voz #${audios24h.length + 1} (máx ${MAX_AUDIOS_24H} por 24h) para ${recipient}...`);
+                console.log(`🎙️ Generando nota de voz #${audios24h.length + 1} (máx 2 por 24h) para ${recipient}...`);
                 const { generarAudio } = require('./tts');
                 const { subirMediaWhatsApp, enviarAudioWhatsApp } = require('./agentes/marcos-ops');
-
+                
                 const fileName = await generarAudio(texto, `audio_${Date.now()}.ogg`);
                 const mediaIdTTS = await subirMediaWhatsApp(fileName, 'audio/ogg', process.env.WHATSAPP_PHONE_NUMBER_ID, process.env.WHATSAPP_ACCESS_TOKEN);
-
+                
                 if (mediaIdTTS) {
                     await enviarAudioWhatsApp(recipient, mediaIdTTS, process.env.WHATSAPP_PHONE_NUMBER_ID, process.env.WHATSAPP_ACCESS_TOKEN);
-                    // El crédito ya se gastó: se anota aunque después falle algo, para que un error
-                    // posterior no habilite otra generación.
-                    const { registrarAudioTTS } = require('./db-pg');
-                    await registrarAudioTTS(recipient, HORA_24_MS);
+                    audios24h.push(ahora);
+                    session.audiosGeneradosTimestamps = audios24h;
                     const fs = require('fs');
                     if (fs.existsSync(fileName)) fs.unlinkSync(fileName);
                     return;
@@ -607,8 +258,8 @@ async function despacharRespuesta(recipient, texto, msgType) {
             } catch (error) {
                 console.error('Error en despacharRespuesta (TTS):', error.message);
             }
-        } else if (audios24h) {
-            console.log(`⚠️ Límite de ${MAX_AUDIOS_24H} notas de voz en 24h alcanzado para ${recipient}. Respondiendo por TEXTO para optimizar consumo.`);
+        } else {
+            console.log(`⚠️ Límite de 2 notas de voz en 24h alcanzado para ${recipient}. Respondiendo por TEXTO para optimizar consumo.`);
         }
     }
 
@@ -640,24 +291,9 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
         return vObj;
     }
 
-    // 3. Nivel base de datos: el vecino del último caso abierto.
+    // 3. Nivel Sheets EVENTOS (Último caso abierto)
     try {
-        const { buscarVecinoDeCasoAbierto } = require('./datos-pg');
-        const vPg = await buscarVecinoDeCasoAbierto({ edificio: edificioNombre, nombreTecnico: datosEmisor?.nombre });
-        if (vPg?.telefono) {
-            console.log(`📌 [PostgreSQL] Vecino activo recuperado para técnico ${datosEmisor?.nombre}: ${vPg.nombre} (${vPg.telefono})`);
-            if (!global.colasProveedores) global.colasProveedores = new Map();
-            if (!global.colasProveedores.has(telClean)) global.colasProveedores.set(telClean, { vecinoActivo: vPg });
-            else global.colasProveedores.get(telClean).vecinoActivo = vPg;
-            return vPg;
-        }
-    } catch (e) {
-        console.error('Error buscando vecino activo en PostgreSQL:', e.message);
-    }
-
-    // 3b. Respaldo: la misma búsqueda contra la planilla, por si el caso todavía no llegó a la base.
-    try {
-        const { getSheet } = require('./datos');
+        const { getSheet } = require('./sheets');
         const doc = await getSheet();
         const sheet = doc.sheetsByTitle['EVENTOS'];
         if (sheet) {
@@ -697,24 +333,9 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
         console.error('Error buscando vecino activo en Sheets EVENTOS:', e.message);
     }
 
-    // 4. Nivel base de datos: el último vecino conocido del edificio.
+    // 4. Nivel Sheets VECINOS (Último vecino del edificio)
     try {
-        const { buscarUltimoVecinoDeEdificio } = require('./datos-pg');
-        const vPg = await buscarUltimoVecinoDeEdificio(edificioNombre);
-        if (vPg?.telefono) {
-            console.log(`📌 [PostgreSQL] Vecino recuperado para edificio ${edificioNombre}: ${vPg.nombre} (${vPg.telefono})`);
-            if (!global.colasProveedores) global.colasProveedores = new Map();
-            if (!global.colasProveedores.has(telClean)) global.colasProveedores.set(telClean, { vecinoActivo: vPg });
-            else global.colasProveedores.get(telClean).vecinoActivo = vPg;
-            return vPg;
-        }
-    } catch (e) {
-        console.error('Error buscando el último vecino del edificio en PostgreSQL:', e.message);
-    }
-
-    // 4b. Respaldo contra la planilla.
-    try {
-        const { getSheet } = require('./datos');
+        const { getSheet } = require('./sheets');
         const doc = await getSheet();
         const sheetVec = doc.sheetsByTitle['VECINOS'] || doc.sheetsByIndex[0];
         if (sheetVec && edificioNombre) {
@@ -748,17 +369,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
 }
 
 // ── ORQUESTADOR PRINCIPAL ─────────────────────────────────────────────────────
-async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pushName, preferirAudioRespuesta = false, contactosCompartidos = [], audiosRafaga = [], msgBodyRegistro = '' }) {
-    // Modo en que le contestamos al usuario (nota de voz vs texto). Es independiente del tipo de
-    // adjunto que trajo el mensaje: una ráfaga puede traer una foto (msgType 'image', para
-    // reenviarla al técnico) y aun así merecer una respuesta hablada porque el vecino usó audios.
-    const msgTypeRespuesta = (preferirAudioRespuesta || msgType === 'audio') ? 'audio' : msgType;
-
-    // Lo que se GUARDA en el historial del caso lleva la etiqueta del audio; lo que se le manda a
-    // la IA no. Sin esto, el audio de un técnico quedaba en el historial como texto pelado y el
-    // panel mostraba la transcripción sin el reproductor: se podía leer lo que dijo, pero no
-    // escucharlo. (El camino del vecino ya se etiqueta más abajo, al armar `messageText`.)
-    const msgBodyParaRegistro = msgBodyRegistro || msgBody;
+async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pushName, colaItems }) {
 
     // ── FASE 0: DESCARGA Y TRANSCRIPCIÓN (si es audio) ───────────────────────
     let media = null;
@@ -766,33 +377,9 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pus
         media = await descargarMedia(mediaId);
     }
 
-    // El adjunto se retiene desde que llega hasta que efectivamente sale hacia el tecnico.
-    // Marcos corta la vuelta cada vez que le falta un dato -- que edificio es, el apellido, el
-    // departamento para armar la ficha de un vecino nuevo -- y en cada uno de esos cortes se
-    // perdia la foto que el vecino ya habia mandado. Despues el tecnico se la pedia de nuevo, y
-    // con razon el vecino se molestaba. Retenerla en la sesion cubre todos los cortes, no solo el
-    // de identificar el edificio.
-    if ((msgType === 'image' || msgType === 'video') && media?.filePath) {
-        const ses = global.marcosSesiones?.get(recipient);
-        if (ses) {
-            ses.mediaPendiente = {
-                tipo: msgType,
-                filePath: media.filePath,
-                mimeType: media.mimeType,
-                texto: msgBody,
-                recibidoEn: Date.now()
-            };
-            console.log(`📎 Adjunto retenido hasta poder enviarlo al tecnico (${msgType}).`);
-        }
-    }
-
     let textoFinal = msgBody;
     let transcripcionFinal = '';
-    // Nota: el sistema de acumulación de ráfagas (webhook) ya transcribe todos los audios de
-    // antemano y solo pasa mediaId aquí si es una imagen/video/documento. Se valida el mimeType
-    // real (no solo msgType) para no intentar transcribir un archivo que no es audio si una
-    // ráfaga trajo audio + foto juntos (msgType queda en 'audio' pero mediaId es de la foto).
-    if (msgType === 'audio' && media && String(media.mimeType || '').startsWith('audio')) {
+    if (msgType === 'audio' && media) {
         const { transcribirAudio } = require('./stt');
         const transcripcion = await transcribirAudio(media.filePath, media.mimeType);
         if (transcripcion) {
@@ -851,7 +438,7 @@ function validarYSanitizarNombre(nombre) {
     if (!global.marcosSesiones.has(recipient)) {
         global.marcosSesiones.set(recipient, { 
             historial: [],
-            fechaInicio: fechaHoraAR(),
+            fechaInicio: new Date().toLocaleString('es-AR'),
             pushName: pushNameValido,
             ultimoMensajeTimestamp: Date.now()
         });
@@ -874,11 +461,6 @@ function validarYSanitizarNombre(nombre) {
             tipo: 'audios'
         });
         session.audio_url = resEst?.relativeUrl || `/audios/${path.basename(media.filePath)}`;
-    }
-    // La transcripción se guarda aparte del archivo: en una ráfaga con audios + foto, el adjunto
-    // que viaja es la imagen (msgType 'image'), pero los audios igual fueron transcritos antes y
-    // esa transcripción no se debe perder.
-    if (transcripcionFinal) {
         session.transcripcion = transcripcionFinal;
     }
 
@@ -931,117 +513,11 @@ function validarYSanitizarNombre(nombre) {
         stProv.chatActivo = true;
         stProv.ultimoMensajeTimestamp = Date.now();
 
-        // Qué caso está atendiendo este técnico. Se completa al mandarle la plantilla, pero vive en
-        // memoria: si PM2 reinició entre ese aviso y esta respuesta, acá llega en null y todo lo que
-        // depende del caso queda sin hacerse en silencio -- la confirmación no se guardaba (se
-        // pedía el id del caso y no había) y el vecino no se enteraba (se pedía su teléfono y
-        // tampoco había). Se recupera del caso abierto antes de usarlo.
-        if (!stProv.eventoActivoId || !stProv.vecinoActivo?.telefono) {
-            try {
-                const { buscarCasoAbiertoPorTecnico } = require('./datos-pg');
-                const casoAbierto = await buscarCasoAbiertoPorTecnico(datosEmisor.nombre, from);
-                if (casoAbierto?.id_evento) {
-                    if (!stProv.eventoActivoId) stProv.eventoActivoId = casoAbierto.id_evento;
-                    if (!stProv.edificioActivo) stProv.edificioActivo = casoAbierto.edificio;
-                    if (!stProv.vecinoActivo?.telefono && casoAbierto.telefono) {
-                        stProv.vecinoActivo = {
-                            telefono:  casoAbierto.telefono,
-                            nombre:    casoAbierto.vecino || 'Vecino',
-                            edificio:  casoAbierto.edificio || ''
-                        };
-                    }
-                    console.log(`♻️ Caso del técnico ${datosEmisor.nombre} recuperado tras reinicio: [${casoAbierto.id_evento}] (${casoAbierto.edificio})`);
-                }
-            } catch (e) {
-                console.error('Error recuperando el caso abierto del técnico:', e.message);
-            }
-        }
-
-        // ¿El técnico está confirmando la visita? Si confirma, hay que dejar constancia y frenar
-        // los recordatorios. Antes no se registraba en ningún lado: el técnico confirmaba, le
-        // seguían llegando avisos pidiéndole la confirmación que ya había dado, y cuando el vecino
-        // preguntaba a qué hora venía, Marcos contestaba "estoy consultando con el técnico"
-        // teniendo la respuesta hacía rato. Para el vecino eso es una mentira lisa y llana.
-        try {
-            const { interpretarRespuestaTecnico, cancelarEscalacionProveedor } = require('./agentes/marcos-ops');
-            const lectura = await interpretarRespuestaTecnico({ mensaje: msgBody });
-
-            if (lectura.confirma) {
-                stProv.confirmacion = {
-                    confirmado: true,
-                    eta: lectura.eta || '',
-                    cuando: fechaHoraAR(),
-                    tecnico: datosEmisor.nombre || ''
-                };
-                // Se informa lo que realmente pasó: antes decía "Recordatorios cancelados" siempre,
-                // aunque no hubiera cancelado ninguno, y por eso el aviso de "el técnico no
-                // contestó" seguía saliendo sin que el log lo delatara.
-                const frenados = cancelarEscalacionProveedor(from);
-                console.log(`✅ El técnico ${datosEmisor.nombre} confirmó la visita${lectura.eta ? ` (${lectura.eta})` : ''}. ` +
-                    (frenados > 0 ? `Recordatorios cancelados (${frenados}).` : `No había recordatorios pendientes que frenar.`));
-
-                // Confirmar no es haber ido. Se agenda un control para después del plazo que dio:
-                // antes, con la confirmación se cancelaba el temporizador y nadie volvía a
-                // preguntar nunca -- si el técnico se olvidaba, el caso quedaba abierto para
-                // siempre sin que nadie se enterara. Queda guardado en el caso, no en memoria, así
-                // que un reinicio no lo pierde.
-                const idCasoConf = stProv.eventoActivoId;
-                if (idCasoConf) {
-                    // La confirmación va al CASO, no solo a la memoria del proceso. Guardarla solo
-                    // en RAM hacía que un `pm2 restart` la borrara y Marcos volviera a decirle al
-                    // vecino "estoy consultando con el técnico" teniendo la respuesta hacía rato.
-                    try {
-                        const { guardarConfirmacionTecnico } = require('./datos');
-                        await guardarConfirmacionTecnico({
-                            id_evento: idCasoConf,
-                            eta: lectura.eta || '',
-                            tecnico: datosEmisor.nombre || ''
-                        });
-                    } catch (e) { console.error('Error guardando la confirmación del técnico:', e.message); }
-
-                    try {
-                        const { programarSeguimiento } = require('./datos');
-                        const { calcularPrimerControl } = require('./seguimiento');
-                        await programarSeguimiento({
-                            id_evento: idCasoConf,
-                            cuando: calcularPrimerControl(lectura.eta),
-                            paso: 1,
-                            nota: lectura.eta ? `El técnico dijo: ${lectura.eta}` : 'Confirmó sin dar horario'
-                        });
-                    } catch (e) { console.error('Error programando el seguimiento de la visita:', e.message); }
-                }
-
-                // El vecino tiene que poder enterarse cuando pregunte, aunque no le mandemos un
-                // aviso en ese momento.
-                const telVecinoConf = stProv.vecinoActivo?.telefono;
-                if (telVecinoConf) {
-                    if (!global.marcosSesiones) global.marcosSesiones = new Map();
-                    const sesV = global.marcosSesiones.get(String(telVecinoConf).replace(/\D/g, ''))
-                        || global.marcosSesiones.get(String(telVecinoConf));
-                    if (sesV) sesV.confirmacionTecnico = { ...stProv.confirmacion };
-                }
-            } else if (lectura.rechaza) {
-                stProv.confirmacion = { confirmado: false, rechazado: true, cuando: fechaHoraAR() };
-                console.log(`🚫 El técnico ${datosEmisor.nombre} no puede tomar el caso.`);
-            }
-        } catch (errConf) {
-            console.error('Error interpretando la confirmación del técnico:', errConf.message);
-        }
-
         // Buscar edificio del evento activo del proveedor (en RAM o Sheets EVENTOS)
         let edifDetectado = stProv.edificioActivo || stProv.vecinoActivo?.edificio;
         if (!edifDetectado) {
             try {
-                const { buscarEdificioDeCasoAbiertoPorTecnico } = require('./datos-pg');
-                edifDetectado = await buscarEdificioDeCasoAbiertoPorTecnico(datosEmisor.nombre);
-            } catch (e) {
-                console.error('Error buscando el edificio del proveedor en PostgreSQL:', e.message);
-            }
-        }
-        // Respaldo contra la planilla, por si el caso todavía no llegó a la base.
-        if (!edifDetectado) {
-            try {
-                const { getSheet } = require('./datos');
+                const { getSheet } = require('./sheets');
                 const doc = await getSheet();
                 const sheet = doc.sheetsByTitle['EVENTOS'];
                 if (sheet) {
@@ -1077,24 +553,23 @@ function validarYSanitizarNombre(nombre) {
     // Comando de REINICIO manual
     if (msgClean === 'reiniciar' || msgClean === 'limpiar' || msgClean === 'chau') {
         global.marcosSesiones.delete(recipient);
-        await despacharRespuesta(recipient, "✅ Memoria de sesión reiniciada. ¿En qué puedo ayudarte?", msgTypeRespuesta);
+        await despacharRespuesta(recipient, "✅ Memoria de sesión reiniciada. ¿En qué puedo ayudarte?", msgType);
         return;
     }
 
     const historial = session.historial;
     const prefixEmisor = `${datosEmisor.rol === 'proveedor' ? 'Proveedor (' + datosEmisor.nombre + ')' : (datosEmisor.rol === 'encargado' ? 'Encargado' : 'Vecino')}: `;
 
-    if (itemsRafaga && Array.isArray(itemsRafaga) && itemsRafaga.length > 1) {
-        for (const it of itemsRafaga) {
-            let itText = it.texto || '';
-            if (it.tipo === 'image' && imgUrl) {
+    if (colaItems && Array.isArray(colaItems) && colaItems.length > 1) {
+        for (const it of colaItems) {
+            let itText = it.msgBody || '';
+            if (it.msgType === 'image' && imgUrl) {
                 itText = `[IMAGEN:${imgUrl}]` + (itText && itText !== '(Imagen adjunta)' ? ' ' + itText : '');
-            } else if (it.tipo === 'video' && videoUrl) {
+            } else if (it.msgType === 'video' && videoUrl) {
                 itText = `[VIDEO:${videoUrl}]` + (itText && itText !== '(Video adjunto)' ? ' ' + itText : '');
-            } else if (it.tipo === 'audio' && (it.urlWeb || session.audio_url)) {
-                const aUrl = it.urlWeb || session.audio_url;
-                itText = `[AUDIO:${aUrl}]` + (itText && itText !== '(Nota de voz)' ? ' ' + itText : '');
-            } else if (it.tipo === 'document' && (docUrl || media?.filePath)) {
+            } else if (it.msgType === 'audio' && session.audio_url) {
+                itText = `[AUDIO:${session.audio_url}]` + (itText && itText !== '(Nota de voz)' ? ' ' + itText : '');
+            } else if (it.msgType === 'document' && (docUrl || media?.filePath)) {
                 const fUrl = docUrl || `/archivos/${path.basename(media.filePath)}`;
                 itText = `[DOCUMENTO:${fUrl}]` + (itText && !itText.includes('(Documento') ? ' ' + itText : (it.docFilename ? ` (Documento: ${it.docFilename})` : ''));
             }
@@ -1111,16 +586,6 @@ function validarYSanitizarNombre(nombre) {
         } else if (msgType === 'document' && (docUrl || media?.filePath)) {
             const fUrl = docUrl || `/archivos/${path.basename(media.filePath)}`;
             messageText = `[DOCUMENTO:${fUrl}]` + (textoFinal && !textoFinal.includes('(Documento') ? ' ' + textoFinal : ` (Documento adjunto)`);
-        }
-
-        // Los audios que vinieron en la misma ráfaga que una foto
-        if (Array.isArray(audiosRafaga) && audiosRafaga.length > 0) {
-            const yaEtiquetado = audiosRafaga.every(u => msgBodyParaRegistro.includes(u));
-            if (yaEtiquetado && !audiosRafaga.every(u => messageText.includes(u))) {
-                const adjuntoPrevio = messageText.match(/^\[(IMAGEN|VIDEO):[^\]]+\]/);
-                messageText = (adjuntoPrevio ? adjuntoPrevio[0] + ' ' : '') + msgBodyParaRegistro;
-            }
-            if (!session.audio_url) session.audio_url = audiosRafaga[audiosRafaga.length - 1];
         }
         historial.push(`${prefixEmisor}${messageText}`);
     }
@@ -1142,11 +607,11 @@ function validarYSanitizarNombre(nombre) {
         }
 
         if (casoElegido) {
-            const { marcarCasoResueltoPorId } = require('./datos');
+            const { marcarCasoResueltoPorId } = require('./sheets');
             const resData = await marcarCasoResueltoPorId(casoElegido.id_evento);
             session.esperandoSeleccionCasoResuelto = null;
             const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, he marcado el caso *[${casoElegido.id_evento}]* (${casoElegido.problema}) como *RESUELTO* en *${session.nombreEdificio}*.\n\n¡Muchas gracias por confirmarnos!`;
-            await despacharRespuesta(recipient, confirmMsg, msgTypeRespuesta);
+            await despacharRespuesta(recipient, confirmMsg, msgType);
 
             if (resData && resData.telefono && resData.telefono !== from) {
                 try {
@@ -1158,86 +623,20 @@ function validarYSanitizarNombre(nombre) {
         }
     }
 
-    // ── CONSULTA DE ESTADO POR NÚMERO DE CASO ────────────────────────────────────
-    // "¿Cómo va el CASO-1001?". Se dispara solo con el código escrito de forma explícita: cualquier
-    // detección más amplia se comería preguntas que ya tienen su propio camino, como la del horario
-    // del técnico.
-    //
-    // La respuesta NO lleva importes. Lo que costó el arreglo es tema del administrador, que lo ve
-    // en el panel; el encargado, la guardia o el personal de limpieza no tienen por qué enterarse
-    // de los números del consorcio por WhatsApp.
-    const codigoConsultado = (textoFinal.match(/\bCASO[\s-]?0*(\d{2,})\b/i) || [])[1];
-    if (codigoConsultado && /\?|c[oó]mo|qu[eé] pas|estado|novedad|se resolvi|se soluciona|sigue|qued[oó]/i.test(textoFinal)) {
-        try {
-            const { buscarCasoPorCodigo } = require('./datos-pg');
-            const caso = await buscarCasoPorCodigo(codigoConsultado);
-
-            if (!caso) {
-                await despacharRespuesta(recipient, `No encuentro ningún caso con ese número. ¿Me lo repetís tal como te llegó? Va con el formato *CASO-1001*.`, msgTypeRespuesta);
-                return;
-            }
-
-            // Quién puede saber de este caso. El vecino, solo el suyo: el reclamo puede ser adentro
-            // de otra unidad y no es asunto de un tercero. El personal del edificio y quien lo
-            // administra, cualquiera de su edificio, que es justamente su trabajo.
-            const mismoTelefono = String(caso.telefono || '').replace(/\D/g, '').endsWith(String(from).replace(/\D/g, '').slice(-8));
-            const edificioPropio = String(session.nombreEdificio || datosEmisor.edificio || '').toLowerCase().trim();
-            const mismoEdificio = edificioPropio && String(caso.edificio || '').toLowerCase().trim().includes(edificioPropio);
-            const esDelEdificio = puedeVerVisitasDelEdificio(datosEmisor) && mismoEdificio;
-            const esElTecnico = datosEmisor.rol === 'proveedor' && mismoEdificio;
-
-            if (!mismoTelefono && !esDelEdificio && !esElTecnico) {
-                await despacharRespuesta(recipient, `Ese caso no figura a tu nombre ni corresponde a tu edificio, así que no puedo darte el detalle. Si necesitás saber de un reclamo puntual, hablalo con la Administración.`, msgTypeRespuesta);
-                console.log(`🔒 Consulta del [${caso.id_evento}] rechazada para ${from} (rol ${datosEmisor.rol}): no es su caso ni su edificio.`);
-                return;
-            }
-
-            let resp = `*${caso.id_evento}* — ${caso.edificio || 'consorcio'}\n\n` +
-                `📋 ${caso.problema || 'Sin detalle registrado'}\n`;
-
-            if (caso.cerrado) {
-                resp += `\n✅ Estado: *RESUELTO*.`;
-            } else {
-                resp += `\n🔄 Estado: *en curso*.`;
-                if (caso.tecnico) resp += `\n🔧 Técnico asignado: ${caso.tecnico}.`;
-                if (caso.confirmado) {
-                    resp += caso.eta
-                        ? `\n🕒 Confirmó que llega: ${caso.eta}.`
-                        : `\n🕒 El técnico confirmó la visita.`;
-                } else if (caso.tecnico) {
-                    resp += `\n🕒 Todavía no confirmó horario de llegada.`;
-                }
-            }
-
-            console.log(`📄 Consulta de estado del [${caso.id_evento}] respondida a ${from} (rol ${datosEmisor.rol}).`);
-            await despacharRespuesta(recipient, resp, msgTypeRespuesta);
-            return;
-        } catch (e) {
-            console.error('Error respondiendo la consulta de estado del caso:', e.message);
-        }
-    }
-
-    // "El técnico ya vino y resolvió" no entraba: el patrón pedía "resuelto" y la gente conjuga el
-    // verbo, con acento. Lo mismo con "lo solucionó", "ya lo arreglaron" o "ya finalicé".
-    const diceQueSeResolvio = /solucionad|solucion[oó]|resuelt|resolv[ií]|trabajo.*terminad|trabajo.*realizad|listo.*trabajo|ya qued. arreglad|ya qued. listo|ya arreglaron|ya lo arregl|ya vino y (lo )?(arregl|solucion|repar|resolv)|ya funciona|ya lo repar|ya finalic|ya termin[eé]/i.test(textoFinal);
-    // "Todavía no se resolvió" trae las mismas palabras que "ya se resolvió" y significa lo
-    // contrario. Cerrar un caso que sigue roto es peor que no cerrarlo: el vecino se queda sin
-    // reclamo abierto justo cuando más lo necesita.
-    const loNiega = /\bno\s+(se\s+|me\s+|lo\s+|la\s+)*(qued|resolv|solucion|arregl|funciona|anda|termin|finaliz|vino|pas[oó])/i.test(textoFinal);
-    const esGatilloResolucion = diceQueSeResolvio && !loNiega;
+    const esGatilloResolucion = /solucionad|resuelt|trabajo.*terminad|trabajo.*realizad|listo.*trabajo|ya qued. arreglad|ya qued. listo|ya arreglaron|ya funciona|ya lo repar/i.test(textoFinal);
     
     if (esGatilloResolucion) {
-        const { obtenerCasosAbiertosEdificio, marcarCasoResueltoPorId } = require('./datos');
+        const { obtenerCasosAbiertosEdificio, marcarCasoResueltoPorId } = require('./sheets');
         const casosAbiertos = await obtenerCasosAbiertosEdificio(session.nombreEdificio);
 
         if (casosAbiertos.length === 0) {
-            await despacharRespuesta(recipient, `Muchas gracias por avisar. En *${session.nombreEdificio || 'el consorcio'}* no tenemos reclamos pendientes abiertos en este momento.`, msgTypeRespuesta);
+            await despacharRespuesta(recipient, `Muchas gracias por avisar. En *${session.nombreEdificio || 'el consorcio'}* no tenemos reclamos pendientes abiertos en este momento.`, msgType);
             return;
         } else if (casosAbiertos.length === 1) {
             const cUnico = casosAbiertos[0];
             const resData = await marcarCasoResueltoPorId(cUnico.id_evento);
             const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, he marcado el caso *[${cUnico.id_evento}]* (${cUnico.problema}) como *RESUELTO* en *${session.nombreEdificio}*.\n\n¡Muchas gracias por tu confirmación!`;
-            await despacharRespuesta(recipient, confirmMsg, msgTypeRespuesta);
+            await despacharRespuesta(recipient, confirmMsg, msgType);
 
             if (resData && resData.telefono && resData.telefono !== from) {
                 try {
@@ -1255,7 +654,7 @@ function validarYSanitizarNombre(nombre) {
             if (coincidenciaDirecta) {
                 const resData = await marcarCasoResueltoPorId(coincidenciaDirecta.id_evento);
                 const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, asocié tu mensaje al caso *[${coincidenciaDirecta.id_evento}]* (${coincidenciaDirecta.problema}) y lo he marcado como *RESUELTO* en *${session.nombreEdificio}*.\n\nLos demás reclamos del edificio continúan en curso.`;
-                await despacharRespuesta(recipient, confirmMsg, msgTypeRespuesta);
+                await despacharRespuesta(recipient, confirmMsg, msgType);
 
                 if (resData && resData.telefono && resData.telefono !== from) {
                     try {
@@ -1272,7 +671,7 @@ function validarYSanitizarNombre(nombre) {
                 });
                 listaOpciones += `\n¿Cuál de estos inconvenientes es el que quedó solucionado? Podés responder con el número (ej: 1 o 2).`;
 
-                await despacharRespuesta(recipient, listaOpciones, msgTypeRespuesta);
+                await despacharRespuesta(recipient, listaOpciones, msgType);
                 return;
             }
         }
@@ -1392,8 +791,7 @@ function validarYSanitizarNombre(nombre) {
         const respuestaCaraStr = (typeof resCara === 'object' && resCara !== null && resCara.texto)
             ? String(resCara.texto)
             : String(resCara || '');
-        // El adjunto ya quedó retenido en FASE 0, así que este corte no lo pierde.
-        await despacharRespuesta(recipient, respuestaCaraStr, msgTypeRespuesta);
+        await despacharRespuesta(recipient, respuestaCaraStr, msgType);
         return;
     }
 
@@ -1462,85 +860,42 @@ function validarYSanitizarNombre(nombre) {
         );
 
         if (esFacturaODoc) {
-            // TRABAJO RESUELTO POR FUERA DEL CIRCUITO: el encargado/administrador llamó al técnico
-            // directo, se resolvió, y la factura llega a Marcos sin que exista ningún evento previo
-            // (nunca hubo un reclamo de vecino por WhatsApp). Antes la factura se guardaba con
-            // edificio "Consorcio" genérico y sin evento asociado -> un gasto huérfano en el
-            // dashboard que nadie podía rastrear. Ahora intentamos identificar el edificio por lo
-            // que escribió el técnico (o por lo que dice el propio comprobante) y damos de alta el
-            // evento retroactivamente, ya cerrado.
-            const edifDetectadoTexto = buscarEdificioEnTexto(msgClean, edificiosConocidos);
-            const edificioFactura = session.nombreEdificio
-                || edifDetectadoTexto?.nombre
-                || datosFactura?.edificio
-                || '';
-
+            let relativeUrlFactura = '';
             if (media?.filePath) {
                 const resEstFactura = guardarArchivoEstructurado({
                     filePath: media.filePath,
                     adminNombre: perfilEdificio?.adminNombre,
-                    edificioNombre: edificioFactura || 'Consorcio',
+                    edificioNombre: session.nombreEdificio || datosFactura?.edificio || 'Consorcio',
                     tipo: 'facturas'
                 });
-                if (resEstFactura && datosFactura) {
-                    datosFactura.url_archivo = resEstFactura.relativeUrl;
+                if (resEstFactura) {
+                    relativeUrlFactura = resEstFactura.relativeUrl;
+                    if (datosFactura) datosFactura.url_archivo = relativeUrlFactura;
                 }
             }
 
-            const { guardarFactura } = require('./datos');
+            const { guardarFactura, guardarReporte } = require('./sheets');
             await guardarFactura({
                 proveedor: datosEmisor.nombre || datosFactura?.proveedor || 'Proveedor',
                 monto: datosFactura?.monto || 'Según comprobante',
                 concepto: datosFactura?.concepto || 'Servicio técnico realizado',
-                edificio: edificioFactura || 'Consorcio',
-                url_archivo: datosFactura?.url_archivo || '',
+                edificio: session.nombreEdificio || datosFactura?.edificio || 'Consorcio',
+                url_archivo: datosFactura?.url_archivo || relativeUrlFactura || '',
                 numero_factura: datosFactura?.numero_factura || ''
             });
-
-            // Si no había un caso abierto de este técnico y sí pudimos identificar el edificio,
-            // registramos el trabajo como evento nuevo YA RESUELTO, para que quede la trazabilidad
-            // completa (qué se hizo, dónde, quién, con qué comprobante) aunque el reclamo nunca
-            // haya pasado por Marcos.
-            let respExtra = '';
-            const huboEventoPrevio = !!session.nombreEdificio;
-            if (!huboEventoPrevio && edificioFactura) {
-                try {
-                    const { guardarReporte } = require('./datos');
-                    await guardarReporte({
-                        edificio: edificioFactura,
-                        vecino: 'Trabajo coordinado fuera del sistema',
-                        problema: datosFactura?.concepto || 'Trabajo técnico resuelto y facturado',
-                        urgencia: 'baja',
-                        estado: 'resuelto',
-                        tecnico: datosEmisor.nombre || '',
-                        tipo: 'trabajo_externo',
-                        telefono: from,
-                        notas_ia: `Trabajo informado directamente por el técnico ${datosEmisor.nombre} al enviar la factura. No hubo reclamo previo de un vecino por este canal (lo coordinaron el encargado/administración con el técnico de forma directa).`,
-                        historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`])
-                    });
-                    console.log(`🧾 Evento retroactivo creado (trabajo externo ya resuelto) para ${edificioFactura} a partir de la factura de ${datosEmisor.nombre}.`);
-                    respExtra = ` También dejé registrado el trabajo en ${edifDetectadoTexto?.direccion || edificioFactura} como resuelto, así queda el antecedente completo.`;
-                } catch (e) {
-                    console.error('Error creando evento retroactivo desde factura:', e.message);
-                }
-            } else if (!huboEventoPrevio && !edificioFactura) {
-                // Sin edificio no podemos imputar el gasto a nadie: se lo pedimos al técnico.
-                respExtra = ` Para poder imputarla al consorcio correcto, ¿me confirmás la dirección donde hiciste el trabajo?`;
-            }
 
             const confirmacionesFactura = [
                 `Muchas gracias ${datosEmisor.nombre}, ya recibí y archivé la documentación/factura. Queda registrada para la Administración.`,
                 `Perfecto ${datosEmisor.nombre}, recibida la factura/comprobante. Ya la adjuntamos al expediente del consorcio para la Administración. ¡Gracias!`,
                 `Excelente ${datosEmisor.nombre}, comprobante registrado correctamente. Que tengas un buen día.`
             ];
-            const respFactura = confirmacionesFactura[Math.floor(Math.random() * confirmacionesFactura.length)] + respExtra;
+            const respFactura = confirmacionesFactura[Math.floor(Math.random() * confirmacionesFactura.length)];
 
-            await despacharRespuesta(recipient, respFactura, msgTypeRespuesta);
+            await despacharRespuesta(recipient, respFactura, msgType);
             historial.push(`Marcos: ${respFactura}`);
 
             try {
-                const { guardarReporte } = require('./datos');
-                const urlParaChat = resEstFactura?.relativeUrl || datosFactura?.url_archivo || docUrl || (media?.filePath ? `/archivos/${path.basename(media.filePath)}` : '');
+                const urlParaChat = relativeUrlFactura || datosFactura?.url_archivo || '';
                 const numFacturaStr = datosFactura?.numero_factura ? ` N° ${datosFactura.numero_factura}` : '';
                 const montoStr = datosFactura?.monto ? ` ($${datosFactura.monto})` : '';
                 const tagDoc = urlParaChat ? `[DOCUMENTO:${urlParaChat}]` : '';
@@ -1548,13 +903,13 @@ function validarYSanitizarNombre(nombre) {
                 const msgProveedorParaChat = `Proveedor (${datosEmisor.nombre}): ${tagDoc} ${detalleDoc} ${msgBody}`.trim();
 
                 await guardarReporte({
-                    edificio: session.nombreEdificio || edificioFactura || 'Consorcio',
+                    edificio: session.nombreEdificio || datosFactura?.edificio || 'Consorcio',
                     tecnico: datosEmisor.nombre || '',
                     tel_tecnico: from || '',
                     rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
                     historial_chat: JSON.stringify([msgProveedorParaChat, `Marcos (a Proveedor): ${respFactura}`])
                 });
-            } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
+            } catch (e) { console.error('Error guardando chat de proveedor con factura:', e.message); }
 
             return; // DETENER Y RESPONDER NATURALMENTE
         }
@@ -1564,51 +919,16 @@ function validarYSanitizarNombre(nombre) {
         // porque parecePreguntaSinAdjunto ya la excluyó de ahí arriba. Se responde con el estado
         // REAL guardado en Sheets (que el dueño/administración marca manualmente como Pagada desde
         // el dashboard), nunca inventando si se pagó o no.
-        // "Pagar" no es la única forma de decirlo: el proveedor pregunta si le DEPOSITARON, si le
-        // TRANSFIRIERON o si le ACREDITARON la factura, y con solo pag/cobr/abon esas preguntas no
-        // se reconocían y caían al ramal libre, donde Marcos improvisaba en vez de mirar la planilla.
-        // Los verbos van conjugados a propósito: "depósito" a secas es el cuartito del edificio, y
-        // "¿quién tiene la llave del depósito?" no es una consulta de plata.
-        const esConsultaPago = parecePreguntaSinAdjunto && (
-            /pag|cobr|abon/i.test(txtLow) ||
-            // Solo formas conjugadas: "depósito" a secas es el cuartito del edificio, y sin el
-            // acento queda igual que la primera persona del verbo.
-            /deposit(aron|aste|ó|aban|ada|ado|an)\b/i.test(txtLow) ||
-            /transfi(r|er)|transferenc|acredit|liquid(ar|aron)|cheque|giro banc/i.test(txtLow)
-        );
+        const esConsultaPago = parecePreguntaSinAdjunto && /pag|cobr|abon/i.test(txtLow);
 
         if (esConsultaPago) {
             const numeroMencionado = (txtLow.match(/\b\d{3,}\b/) || [])[0] || '';
-            const { buscarFacturasProveedor } = require('./datos');
-
-            // Se piden TODAS las facturas del proveedor, sin atarlas al edificio activo de la
-            // sesión. El técnico pregunta desde su lado del mostrador: "¿me pagaron Ortiz?" o
-            // "¿y San Patricio?". No tiene por qué saber si hay cuatro Ortiz en el sistema, ni
-            // cuál de ellos es el suyo -- eso lo resolvemos nosotros contra sus propias facturas.
-            const mias = await buscarFacturasProveedor({ proveedor: datosEmisor.nombre });
-
-            // Qué facturas nombra el mensaje. Se compara contra los datos que YA tenemos en vez de
-            // interpretar el texto: si una de sus facturas es de "san patricio casa" y el mensaje
-            // dice "san patricio", esa palabra alcanza para saber de cuál habla.
-            const textoBusqueda = normalizarParaBuscar(txtLow);
-            const mencionadas = mias.filter(f => textoMencionaFactura(textoBusqueda, f));
-
-            let facturasEncontradas = mias;
-            let comoSeAcoto = '';
-            if (numeroMencionado) {
-                const porNumero = mias.filter(f => String(f.numero_factura || '').replace(/\D/g, '') === numeroMencionado);
-                if (porNumero.length) { facturasEncontradas = porNumero; comoSeAcoto = `N° ${numeroMencionado}`; }
-                else if (mencionadas.length) { facturasEncontradas = mencionadas; comoSeAcoto = 'por el nombre mencionado'; }
-            } else if (mencionadas.length) {
-                facturasEncontradas = mencionadas;
-                comoSeAcoto = 'por el nombre mencionado';
-            }
-            if (comoSeAcoto) console.log(`🧾 Consulta de pago de ${datosEmisor.nombre}: ${facturasEncontradas.length} factura(s) acotadas ${comoSeAcoto}.`);
-
-            const detalleFactura = f =>
-                `• ${f.numero_factura ? 'N° ' + f.numero_factura : 'sin número'} — ${f.edificio || 'edificio s/d'}` +
-                `${f.concepto ? ' (' + f.concepto + ')' : ''}${f.monto ? ' — ' + f.monto : ''}` +
-                ` — *${/pagad/i.test(f.estado) ? 'pagada' : 'pendiente'}*${f.fecha ? ' — ' + f.fecha : ''}`;
+            const { buscarFacturasProveedor } = require('./sheets');
+            const facturasEncontradas = await buscarFacturasProveedor({
+                proveedor: datosEmisor.nombre,
+                edificio: session.nombreEdificio,
+                numeroFactura: numeroMencionado
+            });
 
             let respPago;
             if (facturasEncontradas.length === 0) {
@@ -1618,37 +938,27 @@ function validarYSanitizarNombre(nombre) {
             } else if (facturasEncontradas.length === 1) {
                 const f = facturasEncontradas[0];
                 const pagada = /pagad/i.test(f.estado);
-                const quePlata = `la factura${f.numero_factura ? ' N° ' + f.numero_factura : ''} de ${f.edificio || 'ese trabajo'}` +
-                    `${f.concepto ? ' (' + f.concepto + ')' : ''}${f.monto ? ', ' + f.monto : ''}`;
                 respPago = pagada
-                    ? `Sí ${datosEmisor.nombre}, ${quePlata} figura *pagada* en el sistema.`
-                    : `Todavía figura *pendiente de pago* ${quePlata}, ${datosEmisor.nombre}. En cuanto la Administración confirme el pago te aviso.`;
+                    ? `Sí ${datosEmisor.nombre}, la factura${f.numero_factura ? ' N° ' + f.numero_factura : ''} (${f.concepto || 'sin concepto'}, ${f.monto || 'monto s/d'}) figura *pagada* en el sistema.`
+                    : `Todavía figura *pendiente de pago* la factura${f.numero_factura ? ' N° ' + f.numero_factura : ''} (${f.concepto || 'sin concepto'}, ${f.monto || 'monto s/d'}), ${datosEmisor.nombre}. En cuanto la Administración confirme el pago te aviso.`;
             } else {
-                // Con varias en juego se listan en vez de pedirle el número: si pregunta es
-                // justamente porque no lo tiene a mano, y mandarlo a buscarlo es hacerle hacer a él
-                // el trabajo que podemos hacer nosotros.
                 const pendientes = facturasEncontradas.filter(f => !/pagad/i.test(f.estado));
-                if (pendientes.length === 0) {
-                    respPago = `Te figuran todas pagadas, ${datosEmisor.nombre}:\n\n${facturasEncontradas.slice(0, 8).map(detalleFactura).join('\n')}`;
-                } else {
-                    respPago = `Tenés ${pendientes.length} ${pendientes.length === 1 ? 'factura pendiente' : 'facturas pendientes'} de pago, ${datosEmisor.nombre}:\n\n` +
-                        `${pendientes.slice(0, 8).map(detalleFactura).join('\n')}` +
-                        `${pendientes.length > 8 ? `\n\n(y ${pendientes.length - 8} más)` : ''}` +
-                        `\n\nSi es por alguna en particular, decime el edificio o el número y te confirmo esa.`;
-                }
+                respPago = pendientes.length > 0
+                    ? `Tenés ${facturasEncontradas.length} facturas registradas, ${pendientes.length} todavía *pendientes de pago*${numeroMencionado ? '' : ' -- decime el número de comprobante puntual y te confirmo ese'}.`
+                    : `Tenés ${facturasEncontradas.length} facturas registradas y todas figuran *pagadas*, ${datosEmisor.nombre}.`;
             }
 
-            await despacharRespuesta(recipient, respPago, msgTypeRespuesta);
+            await despacharRespuesta(recipient, respPago, msgType);
             historial.push(`Marcos: ${respPago}`);
 
             try {
-                const { guardarReporte } = require('./datos');
+                const { guardarReporte } = require('./sheets');
                 await guardarReporte({
                     edificio: session.nombreEdificio,
                     tecnico: datosEmisor.nombre || '',
                     tel_tecnico: from || '',
                     rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
-                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos (a Proveedor): ${respPago}`])
+                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos (a Proveedor): ${respPago}`])
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
@@ -1678,60 +988,23 @@ function validarYSanitizarNombre(nombre) {
                 ? `${nomVecino}${deptoVecino ? ' (Depto ' + deptoVecino + ')' : ''}` 
                 : (deptoVecino ? `del Depto ${deptoVecino}` : 'del consorcio');
 
-            // ¿Ya tenemos lo que el técnico está pidiendo?
-            //
-            // El vecino manda la foto en el primer mensaje, junto con el problema. Cuando después el
-            // técnico pregunta "¿tenés fotos?", pedírsela otra vez al vecino es hacerle repetir algo
-            // que ya hizo: en la prueba terminó contestando "ya te la mandé, ¿no te acordás?" -- y
-            // tenía razón, la foto estaba guardada de la primera vuelta.
-            let fotoYaEnviada = false;
-            const sesionVecino = telVecino
-                ? (global.marcosSesiones?.get(telVecino) || global.marcosSesiones?.get(String(telVecino).replace(/\D/g, '')))
-                : null;
-            const guardada = sesionVecino?.mediaPendiente;
-
-            if (guardada?.filePath && (guardada.tipo === 'image' || guardada.tipo === 'video')) {
-                const antiguedad = Date.now() - (guardada.recibidoEn || 0);
-                if (antiguedad < 30 * 60 * 1000 && fs.existsSync(guardada.filePath)) {
-                    try {
-                        const idSubido = await subirMediaWhatsApp(guardada.filePath, guardada.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                        if (idSubido) {
-                            const pie = `📱 *MARCOS — ${guardada.tipo === 'image' ? 'FOTO' : 'VIDEO'} DEL RECLAMO*\n\n` +
-                                `Hola ${datosEmisor.nombre}, acá va ${guardada.tipo === 'image' ? 'la foto' : 'el video'} que ${nomVecino || 'el vecino'} ya había mandado del inconveniente en ${dirExacta}.`;
-                            const { enviarImagenWhatsApp, enviarVideoWhatsApp } = require('./agentes/marcos-ops');
-                            if (guardada.tipo === 'image') {
-                                await enviarImagenWhatsApp(from, idSubido, pie, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                            } else {
-                                await enviarVideoWhatsApp(from, idSubido, pie, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                            }
-                            fotoYaEnviada = true;
-                            console.log(`📷 El técnico pidió material y el vecino ya lo había mandado: se le reenvió de una, sin volver a molestarlo.`);
-                        }
-                    } catch (e) {
-                        console.error('Error reenviando al técnico el material que ya teníamos:', e.message);
-                    }
-                }
-            }
-
-            const respTecnico = fotoYaEnviada
-                ? `Ahí te mandé lo que ${nomVecino || 'el vecino'} ya había enviado sobre ${dirExacta}, ${datosEmisor.nombre}. Si necesitás algo más puntual, decime qué y se lo pido.`
-                : `Perfecto ${datosEmisor.nombre}, ya mismo me contacto con el vecino (${identVecinoMsg}) en ${dirExacta} para solicitarle la foto, video o detalles indicados y te los reenvío apenas me responda.`;
-
-            await despacharRespuesta(recipient, respTecnico, msgTypeRespuesta);
+            const respTecnico = `Perfecto ${datosEmisor.nombre}, ya mismo me contacto con el vecino (${identVecinoMsg}) en ${dirExacta} para solicitarle la foto, video o detalles indicados y te los reenvío apenas me responda.`;
+            
+            await despacharRespuesta(recipient, respTecnico, msgType);
             historial.push(`Marcos: ${respTecnico}`);
 
             try {
-                const { guardarReporte } = require('./datos');
+                const { guardarReporte } = require('./sheets');
                 await guardarReporte({
                     edificio: edifNom,
                     tecnico: datosEmisor.nombre || '',
                     tel_tecnico: from || '',
                     rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
-                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos (a Proveedor): ${respTecnico}`])
+                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos (a Proveedor): ${respTecnico}`])
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
-            if (!fotoYaEnviada && telVecino && String(telVecino).replace(/\D/g, '') !== String(from).replace(/\D/g, '')) {
+            if (telVecino && String(telVecino).replace(/\D/g, '') !== String(from).replace(/\D/g, '')) {
                 const saludoNombre = nomVecino || 'estimado/a vecino/a';
                 const msgParaVecino = `📋 *MARCOS — ATENCIÓN TÉCNICA*\n\n` +
                     `Hola ${saludoNombre}, el técnico asignado (*${datosEmisor.nombre}*) nos consulta si podrías enviarnos una foto, video o más detalles del inconveniente en ${dirExacta}${deptoVecino ? ' (Depto ' + deptoVecino + ')' : ''} para ir preparado con las herramientas correspondientes.`;
@@ -1741,7 +1014,7 @@ function validarYSanitizarNombre(nombre) {
                 if (!global.marcosSesiones) global.marcosSesiones = new Map();
                 let sesVecino = global.marcosSesiones.get(telVecino);
                 if (!sesVecino) {
-                    sesVecino = { historial: [], fechaInicio: fechaHoraAR(), ultimoMensajeTimestamp: Date.now() };
+                    sesVecino = { historial: [], fechaInicio: new Date().toLocaleString('es-AR'), ultimoMensajeTimestamp: Date.now() };
                     global.marcosSesiones.set(telVecino, sesVecino);
                 }
                 sesVecino.esperandoDatosVecinoParaProveedor = { telTech: from, nomTech: datosEmisor.nombre };
@@ -1774,7 +1047,6 @@ function validarYSanitizarNombre(nombre) {
             }
             return; // DETENER PROCESAMIENTO AQUÍ PARA NO RE-ENVIAR PLANTILLA
         }
-
         // C. CUALQUIER OTRO MENSAJE DEL TÉCNICO (confirmaciones tipo "Recibido/En camino",
         // quejas, preguntas puntuales, etc.) — NUNCA debe caer al flujo genérico de vecinos,
         // que le pediría nombre/departamento sin sentido a un proveedor.
@@ -1791,84 +1063,24 @@ function validarYSanitizarNombre(nombre) {
         // vez de una frase enlatada fija -- así, si el técnico pregunta algo puntual ("¿Quién me
         // recibe en el edificio?", "¿a qué hora puedo pasar?", etc.), Marcos le contesta de verdad
         // en lugar de repetir siempre "Recibido, cualquier novedad avisame".
-        // Si el vecino dejó un contacto alternativo para el ingreso (ej. "llamá a mi señora al
-        // 11..." porque él se tiene que ir), se lo pasamos al técnico cuando pregunta cómo entrar.
-        const sesVecinoAcceso = vecinoActivoCatchAll?.telefono
-            ? global.marcosSesiones?.get(String(vecinoActivoCatchAll.telefono))
-            : null;
-        // Además de la sesión en RAM (caso actual), miramos la autorización PERSISTIDA en Sheets:
-        // si este vecino ya autorizó antes a compartir su contacto, esa confianza sigue vigente
-        // en los eventos siguientes y no hay que volver a pedirle permiso.
-        let contactoAccesoExtra = sesVecinoAcceso?.contactoAccesoExtra || '';
-        if (!contactoAccesoExtra && vecinoActivoCatchAll?.telefono) {
-            try {
-                const vecinosGuardados = await buscarVecinosPorTelefono(vecinoActivoCatchAll.telefono);
-                const conAutorizacion = (vecinosGuardados || []).find(v => v.autorizaContacto || v.contactoAcceso);
-                if (conAutorizacion?.contactoAcceso) contactoAccesoExtra = conAutorizacion.contactoAcceso;
-            } catch (e) { console.error('Error leyendo autorización de contacto guardada:', e.message); }
-        }
-
-        let accesosDelEdificio = [];
-        try {
-            const { buscarAccesosEdificio } = require('./datos');
-            accesosDelEdificio = await buscarAccesosEdificio(edifNomCatchAll);
-        } catch (e) { console.error('Error cargando accesos del edificio:', e.message); }
-
         const respGenericaProveedor = await generarRespuestaTecnicoLibre({
             mensajeTecnico: msgBody,
             nombreTecnico: datosEmisor.nombre,
             vecino: vecinoActivoCatchAll,
             edificio: edifNomCatchAll,
-            perfilEdificio: perfilEdifCatchAll,
-            contactoAccesoExtra,
-            accesosEdificio: accesosDelEdificio
+            perfilEdificio: perfilEdifCatchAll
         });
-        await despacharRespuesta(recipient, respGenericaProveedor, msgTypeRespuesta);
+        await despacharRespuesta(recipient, respGenericaProveedor, msgType);
         historial.push(`Marcos: ${respGenericaProveedor}`);
 
-        // Sentido inverso: el técnico pide que le pasen SU teléfono al vecino ("pasale mi número
-        // así coordinamos directo"). Es el mismo criterio de siempre -- dato mínimo, con una
-        // necesidad operativa concreta -- solo que en la otra dirección.
-        const tecnicoOfreceSuTelefono = /pasal[ea]?\s*(le)?\s*mi|dale mi|mand[aá]le mi|d[aá]le mi|que me llame|puede llamarme|mi (tel|n[uú]mero|celular)/i.test(txtLow);
-        if (tecnicoOfreceSuTelefono && vecinoActivoCatchAll?.telefono) {
-            try {
-                const telTecnicoLimpio = String(from).replace(/\D/g, '');
-                const dirAvisoTel = perfilEdifCatchAll?.direccion || edifNomCatchAll;
-                const avisoTelTecnico = `📞 *MARCOS — CONTACTO DEL TÉCNICO*\n\n` +
-                    `${(vecinoActivoCatchAll.nombre && vecinoActivoCatchAll.nombre !== 'Vecino') ? vecinoActivoCatchAll.nombre : 'Hola'}, el técnico *${datosEmisor.nombre}* que va a atender el reclamo de ${dirAvisoTel} le deja su número para que puedan coordinar y despejar dudas directamente: *${telTecnicoLimpio}*.\n` +
-                    `Cualquier cosa, yo sigo acompañando el caso por acá.`;
-                await enviarWhatsApp(vecinoActivoCatchAll.telefono, avisoTelTecnico, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                console.log(`📞 Teléfono del técnico ${datosEmisor.nombre} compartido con el vecino ${vecinoActivoCatchAll.telefono} a pedido del propio técnico.`);
-            } catch (e) {
-                console.error('Error pasando el teléfono del técnico al vecino:', e.message);
-            }
-        }
-
-        // Si el técnico avisa que ya llegó / que no le abren, no alcanza con contestarle a él:
-        // hay que golpearle la puerta al vecino, que es quien tiene que bajar a abrir. Sin esto,
-        // el técnico quedaba en la calle esperando mientras el vecino nunca se enteraba.
-        const tecnicoEnPuerta = /llegu|llegue|estoy (aca|acá|afuera|en la puerta|abajo)|no hay nadie|no me abre|nadie (me )?abre|no sale nadie|toqu[eé] timbre/i.test(txtLow);
-        if (tecnicoEnPuerta && vecinoActivoCatchAll?.telefono) {
-            try {
-                const dirAvisoPuerta = perfilEdifCatchAll?.direccion || edifNomCatchAll;
-                const avisoPuerta = `🔔 *MARCOS — EL TÉCNICO ESTÁ EN LA PUERTA*\n\n` +
-                    `${(vecinoActivoCatchAll.nombre && vecinoActivoCatchAll.nombre !== 'Vecino') ? vecinoActivoCatchAll.nombre : 'Hola'}, el técnico *${datosEmisor.nombre}* ya llegó a ${dirAvisoPuerta} y avisa que no puede ingresar.\n` +
-                    `¿Podés bajar a abrirle o indicarme a quién puede llamar para que le abran? Gracias.`;
-                await enviarWhatsApp(vecinoActivoCatchAll.telefono, avisoPuerta, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                console.log(`🔔 Técnico ${datosEmisor.nombre} en la puerta sin acceso: avisado el vecino ${vecinoActivoCatchAll.telefono}.`);
-            } catch (e) {
-                console.error('Error avisando al vecino que el técnico está en la puerta:', e.message);
-            }
-        }
-
         try {
-            const { guardarReporte } = require('./datos');
+            const { guardarReporte } = require('./sheets');
             await guardarReporte({
                 edificio: edifNomCatchAll,
                 tecnico: datosEmisor.nombre || '',
                 tel_tecnico: from || '',
                 rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
-                historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos (a Proveedor): ${respGenericaProveedor}`])
+                historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBody}`, `Marcos (a Proveedor): ${respGenericaProveedor}`])
             });
         } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
@@ -1916,81 +1128,6 @@ function validarYSanitizarNombre(nombre) {
         }
     }
 
-    // Si el vecino deja otro teléfono para que le abran al técnico ("pasale el de mi señora,
-    // 11...", "llamá al 11... que te abre"), lo guardamos en la sesión para poder dárselo al
-    // técnico cuando pregunte cómo entrar. Antes Marcos decía "se lo paso al técnico" y no lo
-    // pasaba a ningún lado -- el dato se perdía y el técnico quedaba sin forma de contactar.
-    // Una ficha de contacto compartida por el vecino es la señal más explícita de todas:
-    // literalmente está diciendo "hablá con esta persona". Se guarda como contacto de acceso.
-    if (datosEmisor.rol !== 'proveedor' && Array.isArray(contactosCompartidos) && contactosCompartidos.length > 0) {
-        const ctoAcceso = contactosCompartidos[0];
-        const telsCto = ctoAcceso.telefonos?.length ? ctoAcceso.telefonos : [ctoAcceso.telefono];
-        session.contactoAccesoExtra = `${ctoAcceso.nombre} (${telsCto.join(' / ')})`;
-        // La ficha original se guarda tal cual para poder REENVIARLA como tarjeta, en vez de
-        // desglosarla en texto. Con dos números, cualquier desglose obliga a elegir uno y el
-        // técnico se queda sin saber si el otro también sirve.
-        session.contactoAccesoFicha = contactosCompartidos.map(c => c.ficha).filter(Boolean);
-        session.contactoAccesoNombre = ctoAcceso.nombre;
-        console.log(`📞 Contacto de acceso guardado desde ficha compartida: ${session.contactoAccesoExtra}`);
-        try {
-            const { guardarAutorizacionContacto } = require('./datos');
-            await guardarAutorizacionContacto({ telefono: from, autoriza: true, contactoAcceso: session.contactoAccesoExtra });
-        } catch (e) { console.error('Error persistiendo autorización de contacto:', e.message); }
-    }
-
-    // Un número dictado de palabra NO pisa una ficha de contacto ya compartida: la ficha es el dato
-    // explícito y completo, el número suelto puede ser cualquier cosa que el vecino mencionó al
-    // pasar. Antes el orden era al revés y por eso el informe salía con el nombre y un número, y
-    // el aviso de acceso con otro distinto.
-    if (datosEmisor.rol !== 'proveedor' && !session.contactoAccesoFicha &&
-        /pasal|pásal|pasale|llam[aá]|tel[eé]fono|celular|n[uú]mero/i.test(textoFinal || '')) {
-        const telsMencionados = String(textoFinal || '').match(/\b\d{8,}\b/g) || [];
-        const telPropio = String(from || '').replace(/\D/g, '');
-        const telOtro = telsMencionados
-            .map(t => t.replace(/\D/g, ''))
-            .find(t => t.length >= 8 && !telPropio.endsWith(t) && !t.endsWith(telPropio.slice(-8)));
-        if (telOtro) {
-            session.contactoAccesoExtra = telOtro;
-            console.log(`📞 Contacto alternativo de acceso guardado para el caso: ${telOtro}`);
-            try {
-                const { guardarAutorizacionContacto } = require('./datos');
-                await guardarAutorizacionContacto({ telefono: from, autoriza: true, contactoAcceso: telOtro });
-            } catch (e) { console.error('Error persistiendo autorización de contacto:', e.message); }
-        }
-    }
-
-    // Escuchar datos de accesos que la persona menciona al pasar. No se espera: si tarda o falla,
-    // la conversación sigue igual -- es información que se gana de yapa, nunca a costa de la
-    // atención.
-    if (session.nombreEdificio && textoFinal) {
-        aprenderAccesosDeConversacion({
-            texto: textoFinal,
-            edificio: session.nombreEdificio,
-            quienLoDijo: datosEmisor.rol === 'proveedor'
-                ? `el técnico ${datosEmisor.nombre || ''}`.trim()
-                : (vecino?.nombre && vecino.nombre !== 'Vecino' ? vecino.nombre : 'un vecino'),
-            telefono: from
-        }).catch(() => {});
-    }
-
-    // Si la sesión no tiene el contacto de acceso pero el vecino ya lo había autorizado antes, lo
-    // recuperamos de la planilla. La sesión vive en RAM: un `pm2 restart` la borra entera, y ahí
-    // Marcos volvía a dar por sentado que quien recibe al técnico es quien escribe -- justo el
-    // error que hay que evitar cuando el vecino avisó que se iba y dejaba a otra persona.
-    if (!session.contactoAccesoExtra && datosEmisor.rol !== 'proveedor') {
-        try {
-            const { buscarVecinosPorTelefono } = require('./datos');
-            const vecinosGuardados = await buscarVecinosPorTelefono(from);
-            const conAutorizacion = (vecinosGuardados || []).find(v => v.contactoAcceso);
-            if (conAutorizacion?.contactoAcceso) {
-                session.contactoAccesoExtra = conAutorizacion.contactoAcceso;
-                console.log(`📞 Contacto de acceso recuperado de la planilla para ${from}: ${session.contactoAccesoExtra}`);
-            }
-        } catch (e) {
-            console.error('Error recuperando contacto de acceso:', e.message);
-        }
-    }
-
     // ── FASE 3: RESPUESTA (Marcos-Cara) ───────────────────────────────────────────
 
     const resCara = await responderVecino({
@@ -2006,18 +1143,7 @@ function validarYSanitizarNombre(nombre) {
         edificioPendiente: null,
         edificiosConocidos: edificiosConocidos,
         session,
-        datosEmisor,
-        // Quién va a recibir al técnico cuando NO es el vecino que escribe. Marcos-Cara recibía
-        // `session` pero nunca leía nada de ella, así que este dato -- que sí le llegaba al
-        // técnico -- no existía para el agente que le habla al vecino: al preguntarle quién
-        // esperaba, contestaba el que había escrito, que era justamente el que se iba.
-        contactoAccesoExtra: session.contactoAccesoExtra || '',
-        // Lo que el técnico ya respondió sobre esta visita, para no volver a decir que se está
-        // consultando algo que ya está contestado.
-        confirmacionTecnico: session.confirmacionTecnico || await confirmacionDelCaso(from, {
-            edificio: session.edificioId || session.nombreEdificio || datosEmisor.edificio || '',
-            datosEmisor
-        })
+        datosEmisor
     });
 
     let respuesta = (typeof resCara === 'object' && resCara !== null && resCara.texto)
@@ -2031,7 +1157,7 @@ function validarYSanitizarNombre(nombre) {
                          .replace(/\n+/g, ' ')
                          .trim();
 
-    await despacharRespuesta(recipient, respuesta, msgTypeRespuesta);
+    await despacharRespuesta(recipient, respuesta, msgType);
 
     // Guardar respuesta en historial de sesión
     historial.push(`Marcos: ${respuesta}`);
@@ -2081,7 +1207,7 @@ function validarYSanitizarNombre(nombre) {
 
         // 4. REENVIAR DOCUMENTO / EXPENSA A UN VECINO
         if (mediaId && (msgType === 'document' || msgType === 'image')) {
-            const { buscarVecinosPorTelefono } = require('./datos');
+            const { buscarVecinosPorTelefono } = require('./sheets');
             const vecinosCoincidentes = await buscarVecinosPorTelefono('');
             if (vecinosCoincidentes && vecinosCoincidentes.length > 0) {
                 const primerVecino = vecinosCoincidentes[0];
@@ -2126,12 +1252,19 @@ function validarYSanitizarNombre(nombre) {
             const uploadMediaId = await subirMediaWhatsApp(media.filePath, media.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
             if (uploadMediaId) {
                 const { enviarImagenWhatsApp } = require('./agentes/marcos-ops');
-                const comentarioFoto = (textoFinal && textoFinal !== '(Imagen adjunta)')
-                    ? await redactarNovedadParaTecnico({ textoVecino: textoFinal, nombreVecino: nomVecinoDisp, direccion: edifDisp })
-                    : '';
-                const captionProv = `📱 *MARCOS — FOTO ENVIADA POR EL VECINO*\n\nHola ${nomTech}, ${nomVecinoDisp}${deptoDisp} en ${edifDisp} envió esta foto para la visita.` + (comentarioFoto ? `\n\n${comentarioFoto}` : '');
+                const captionProv = `📱 *MARCOS — FOTO ENVIADA POR EL VECINO*\n\nHola ${nomTech}, ${nomVecinoDisp}${deptoDisp} en ${edifDisp} envió esta foto para la visita.` + (textoFinal && textoFinal !== '(Imagen adjunta)' ? `\n\nComentario del vecino: "${textoFinal}"` : '');
                 await enviarImagenWhatsApp(telTech, uploadMediaId, captionProv, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                 console.log(`🖼️ Foto del vecino reenviada exitosamente al técnico ${telTech}`);
+                try {
+                    const { guardarReporte } = require('./sheets');
+                    const tagFoto = `[IMAGEN:/archivos/${path.basename(media.filePath)}]`;
+                    await guardarReporte({
+                        edificio: edifDisp,
+                        tecnico: nomTech,
+                        tel_tecnico: telTech,
+                        historial_chat: JSON.stringify([`Marcos (a Proveedor): ${tagFoto} ${captionProv}`])
+                    });
+                } catch(e) {}
             }
         } 
         // Reenviar Video si el vecino mandó video
@@ -2139,57 +1272,49 @@ function validarYSanitizarNombre(nombre) {
             const uploadMediaId = await subirMediaWhatsApp(media.filePath, media.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
             if (uploadMediaId) {
                 const { enviarVideoWhatsApp } = require('./agentes/marcos-ops');
-                const comentarioVideo = (textoFinal && textoFinal !== '(Video adjunto)')
-                    ? await redactarNovedadParaTecnico({ textoVecino: textoFinal, nombreVecino: nomVecinoDisp, direccion: edifDisp })
-                    : '';
-                const captionProv = `📱 *MARCOS — VIDEO ENVIADO POR EL VECINO*\n\nHola ${nomTech}, ${nomVecinoDisp}${deptoDisp} en ${edifDisp} envió este video para la visita.` + (comentarioVideo ? `\n\n${comentarioVideo}` : '');
+                const captionProv = `📱 *MARCOS — VIDEO ENVIADO POR EL VECINO*\n\nHola ${nomTech}, ${nomVecinoDisp}${deptoDisp} en ${edifDisp} envió este video para la visita.` + (textoFinal && textoFinal !== '(Video adjunto)' ? `\n\nComentario del vecino: "${textoFinal}"` : '');
                 await enviarVideoWhatsApp(telTech, uploadMediaId, captionProv, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                console.log(`🎥 Video del vecino reenviado exitosamente al técnico ${telTech}`);
+                console.log(`🎥 Video del vecino reenviada exitosamente al técnico ${telTech}`);
+                try {
+                    const { guardarReporte } = require('./sheets');
+                    const tagVideo = `[VIDEO:/archivos/${path.basename(media.filePath)}]`;
+                    await guardarReporte({
+                        edificio: edifDisp,
+                        tecnico: nomTech,
+                        tel_tecnico: telTech,
+                        historial_chat: JSON.stringify([`Marcos (a Proveedor): ${tagVideo} ${captionProv}`])
+                    });
+                } catch(e) {}
             }
         } 
         // Reenviar Texto / Audio transcrito
         else {
-            // El texto del vecino NO se reenvia crudo: se reescribe en neutro conservando los
-            // datos operativos. Aca es donde se filtraba el enojo al tecnico -- llego a leer
-            // textual "cuanto mas queres? Yo ya me fui del edificio".
-            const novedadNeutra = await redactarNovedadParaTecnico({
-                textoVecino: messageText,
-                nombreVecino: nomVecinoDisp,
-                direccion: edifDisp
-            });
-            if (novedadNeutra) {
-                const infoReenvio = `📱 *MARCOS — NOVEDAD DEL VECINO*\n\n` +
-                    `Hola ${nomTech}, sobre la visita a ${edifDisp}:\n\n${novedadNeutra}`;
-                await enviarWhatsApp(telTech, infoReenvio, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                console.log(`➡️ Novedad del vecino reenviada al técnico ${telTech} (reescrita en neutro)`);
-            } else {
-                console.log(`🧹 La respuesta del vecino no aportaba datos para el técnico: no se reenvía.`);
-            }
+            const infoReenvio = `📱 *MARCOS — NOVEDAD DEL VECINO*\n\n` +
+                `Hola ${nomTech}, ${nomVecinoDisp}${deptoDisp} en ${edifDisp} envió la siguiente información para tu visita:\n\n${messageText}`;
+            await enviarWhatsApp(telTech, infoReenvio, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+            console.log(`➡️ Novedad/texto del vecino reenviada al técnico ${telTech}`);
+            try {
+                const { guardarReporte } = require('./sheets');
+                await guardarReporte({
+                    edificio: edifDisp,
+                    tecnico: nomTech,
+                    tel_tecnico: telTech,
+                    historial_chat: JSON.stringify([`Marcos (a Proveedor): ${infoReenvio}`])
+                });
+            } catch(e) {}
         }
 
-        // Solo dejamos de esperar más datos una vez que efectivamente llegó la foto/video
-        // pedido. Si el vecino responde primero con texto (ej. "ya te mandé, no la ves?"),
-        // seguimos esperando por si la foto llega en un mensaje/ráfaga aparte -- antes se
-        // borraba la bandera con la primera respuesta fuera cual fuera, y una foto que
-        // llegaba después ya no se reenviaba por este camino (se perdía para el técnico).
-        const llegoLoPedido = (msgType === 'image' || msgType === 'video') && media;
-
-        if (llegoLoPedido) {
-            // Cancelar temporizador de 10 min si existía
-            if (global.timersFotoVecino && global.timersFotoVecino.has(from)) {
-                clearTimeout(global.timersFotoVecino.get(from));
-                global.timersFotoVecino.delete(from);
-            }
-            delete session.esperandoDatosVecinoParaProveedor;
-
-            const respAgr = `Muchas gracias ${nomVecinoDisp}, ya le reenvié esa información/multimedia al técnico ${nomTech} para que lo evalúe y pueda coordinar la asistencia.`;
-            await despacharRespuesta(recipient, respAgr, msgTypeRespuesta);
-            historial.push(`Marcos: ${respAgr}`);
-        } else {
-            const respAgr = `Gracias ${nomVecinoDisp}, ya le pasé eso al técnico ${nomTech}. Si podés mandarme también la foto/video que te pidió, se la reenvío enseguida.`;
-            await despacharRespuesta(recipient, respAgr, msgTypeRespuesta);
-            historial.push(`Marcos: ${respAgr}`);
+        // Cancelar temporizador de 10 min si existía
+        if (global.timersFotoVecino && global.timersFotoVecino.has(from)) {
+            clearTimeout(global.timersFotoVecino.get(from));
+            global.timersFotoVecino.delete(from);
         }
+
+        delete session.esperandoDatosVecinoParaProveedor;
+
+        const respAgr = `Muchas gracias ${nomVecinoDisp}, ya le reenvié esa información/multimedia al técnico ${nomTech} para que lo evalúe y pueda coordinar la asistencia.`;
+        await despacharRespuesta(recipient, respAgr, msgType);
+        historial.push(`Marcos: ${respAgr}`);
         return; // Finalizar ciclo de respuesta al vecino
     }
 
@@ -2245,22 +1370,6 @@ function validarYSanitizarNombre(nombre) {
 
     const idEventoAsignado = resAdmin?.id_evento || null;
 
-    // El [CASO-XXXX] recién existe ahora, pero los mensajes que lo originaron ya se registraron
-    // sin código (cuando el vecino escribió, el caso todavía no estaba creado). Los enganchamos
-    // hacia atrás para que el visor muestre la conversación desde el primer mensaje, y dejamos el
-    // código en la sesión para que el resto del chat quede etiquetado de una.
-    if (idEventoAsignado) {
-        session.idEventoActual = idEventoAsignado;
-        try {
-            const { asignarEventoAMensajes } = require('./db-pg');
-            asignarEventoAMensajes({ telefono: from, eventoId: idEventoAsignado })
-                .then(n => { if (n) console.log(`🗂️ ${n} mensaje(s) del chat asociados a ${idEventoAsignado}`); })
-                .catch(err => console.error('Error asociando mensajes al caso:', err.message));
-        } catch (err) {
-            console.error('Error asociando mensajes al caso:', err.message);
-        }
-    }
-
     // 2. Marcos-Ops: contacta técnico y encargado incluyendo el id_evento (CASO-XXXX)
     if (decisionCaso.contactar_tecnico || decisionCaso.contactar_encargado) {
         try {
@@ -2275,175 +1384,6 @@ function validarYSanitizarNombre(nombre) {
             });
         } catch (errOps) {
             console.error('⚠️ Error en gestionarOperaciones (notificación a técnico/encargado):', errOps.message);
-        }
-    }
-
-    // 2b. Reenvío automático de foto/video al técnico asignado del caso, aunque NO la haya
-    // pedido explícitamente ni este mensaje puntual haya disparado un nuevo contacto con él.
-    // Sin esto, una foto que el vecino manda espontáneamente (junto al reclamo inicial, o en
-    // cualquier mensaje posterior de un caso ya abierto) queda guardada en el servidor pero el
-    // técnico nunca la ve por WhatsApp -- solo se enteraba si él mismo la pedía primero
-    // (branch de esperandoDatosVecinoParaProveedor, más arriba en el flujo).
-    // Ademas del adjunto de este mensaje, puede haber uno guardado de la rafaga anterior: el que
-    // llego antes de que supieramos el edificio. Se toma el actual si existe, y si no el pendiente.
-    let mediaParaTecnico = (media?.filePath && (msgType === 'image' || msgType === 'video'))
-        ? { tipo: msgType, filePath: media.filePath, mimeType: media.mimeType, texto: textoFinal }
-        : null;
-
-    if (!mediaParaTecnico && session.mediaPendiente?.filePath) {
-        const antiguedad = Date.now() - (session.mediaPendiente.recibidoEn || 0);
-        // Media hora: pasado ese tiempo ya no es parte de esta conversacion.
-        if (antiguedad < 30 * 60 * 1000 && fs.existsSync(session.mediaPendiente.filePath)) {
-            mediaParaTecnico = session.mediaPendiente;
-            console.log(`📎 Se recupera el adjunto que el vecino habia mandado en una vuelta anterior.`);
-        } else {
-            // Vencido o ya no esta en disco: recien ahi se descarta.
-            delete session.mediaPendiente;
-        }
-    }
-
-    if (mediaParaTecnico?.filePath) {
-        const msgTypeMedia = mediaParaTecnico.tipo;
-        const media = { filePath: mediaParaTecnico.filePath, mimeType: mediaParaTecnico.mimeType };
-        const textoFinal = mediaParaTecnico.texto;
-        try {
-            let tecnicoParaFoto = tecnicoAsignado;
-            const edifParaFoto = session.nombreEdificio || vecino?.edificio;
-            if (!tecnicoParaFoto?.telefono && edifParaFoto && decisionCaso.tipo_problema) {
-                tecnicoParaFoto = await buscarTecnicoAsignado({
-                    edificio: edifParaFoto,
-                    especialidad: decisionCaso.tipo_problema,
-                    esUrgente: decisionCaso.urgencia === 'alta',
-                });
-            }
-
-            if (tecnicoParaFoto?.telefono) {
-                const nomVecinoAuto = (vecino?.nombre && vecino.nombre !== 'Vecino' && vecino.nombre !== 'Desconocido') ? vecino.nombre : 'El vecino';
-                const deptoAuto = vecino?.departamento ? ` (Depto ${vecino.departamento})` : '';
-                const edifAuto = edifParaFoto || 'el edificio';
-                const uploadMediaIdAuto = await subirMediaWhatsApp(media.filePath, media.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                if (uploadMediaIdAuto) {
-                    // Igual que en el reenvio a pedido: el comentario del vecino se reescribe en
-                    // neutro antes de que lo lea el tecnico, nunca va entre comillas tal cual.
-                    const comentarioLimpio = (textoFinal && !/^\(Imagen adjunta\)$|^\(Video adjunto\)$/i.test(textoFinal.trim()))
-                        ? await redactarNovedadParaTecnico({ textoVecino: textoFinal, nombreVecino: nomVecinoAuto, direccion: edifAuto })
-                        : '';
-                    const comentarioAuto = comentarioLimpio ? `\n\n${comentarioLimpio}` : '';
-                    if (msgTypeMedia === 'image') {
-                        const { enviarImagenWhatsApp } = require('./agentes/marcos-ops');
-                        const captionAuto = `📱 *MARCOS — FOTO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó esta foto del inconveniente.${comentarioAuto}`;
-                        await enviarImagenWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                    } else {
-                        const { enviarVideoWhatsApp } = require('./agentes/marcos-ops');
-                        const captionAuto = `📱 *MARCOS — VIDEO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó este video del inconveniente.${comentarioAuto}`;
-                        await enviarVideoWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-                    }
-                    console.log(`📷 Foto/video del vecino reenviado automáticamente al técnico ${tecnicoParaFoto.nombre} (sin que lo pidiera explícitamente).`);
-                    const tagMediaForward = (msgTypeMedia === 'image' ? '[IMAGEN:' : '[VIDEO:') + (imgUrl || videoUrl || `/archivos/${require('path').basename(media.filePath)}`) + ']';
-                    const msgFotoParaChat = `Marcos (a Proveedor): ${tagMediaForward} ${captionAuto}`.trim();
-                    try {
-                        const { guardarReporte } = require('./datos');
-                        await guardarReporte({
-                            id_evento: session.eventoActivoId || decisionCaso.id_evento,
-                            edificio: session.nombreEdificio || edifParaFoto,
-                            tecnico: tecnicoParaFoto.nombre || '',
-                            tel_tecnico: tecnicoParaFoto.telefono || '',
-                            rubro_tecnico: tecnicoParaFoto.especialidad || '',
-                            historial_chat: JSON.stringify([msgFotoParaChat])
-                        });
-                    } catch (e) { console.error('Error guardando registro de foto a técnico:', e.message); }
-
-                    // Recien ahora se descarta: si el envio fallaba, el adjunto tenia que seguir
-                    // disponible para el proximo intento en vez de perderse en silencio.
-                    delete session.mediaPendiente;
-                }
-            }
-        } catch (errFotoAuto) {
-            console.error('⚠️ Error reenviando foto/video automáticamente al técnico:', errFotoAuto.message);
-        }
-    }
-
-    // 2c. Si el vecino dejó un contacto de acceso (ficha compartida o teléfono dictado), el técnico
-    // asignado tiene que RECIBIRLO de una, junto con la notificación del caso -- no solo si se le
-    // ocurre preguntar. Es el dato que evita que llegue y se quede sin poder entrar.
-    // La marca de "ya se lo pasé" vivía solo en la sesión, así que cada reinicio de PM2 la borraba y
-    // el técnico volvía a recibir el mismo "CONTACTO PARA EL INGRESO" -- uno por cada mensaje del
-    // vecino. Se le pregunta al caso, que sobrevive al reinicio.
-    if (session.contactoAccesoExtra && !session.contactoAccesoAvisadoATecnico && idEventoAsignado) {
-        try {
-            const { fueContactoAccesoAvisado } = require('./datos');
-            if (await fueContactoAccesoAvisado(idEventoAsignado)) {
-                session.contactoAccesoAvisadoATecnico = true;
-                console.log(`ℹ️ Al técnico ya se le había pasado el contacto de acceso del [${idEventoAsignado}], no se reenvía.`);
-            }
-        } catch (e) {
-            console.error('Error chequeando si el contacto de acceso ya se había enviado:', e.message);
-        }
-    }
-
-    if (session.contactoAccesoExtra && !session.contactoAccesoAvisadoATecnico) {
-        try {
-            let tecnicoParaContacto = tecnicoAsignado;
-            const edifParaContacto = session.nombreEdificio || vecino?.edificio;
-            if (!tecnicoParaContacto?.telefono && edifParaContacto && decisionCaso.tipo_problema) {
-                tecnicoParaContacto = await buscarTecnicoAsignado({
-                    edificio: edifParaContacto,
-                    especialidad: decisionCaso.tipo_problema,
-                    esUrgente: decisionCaso.urgencia === 'alta',
-                });
-            }
-
-            if (tecnicoParaContacto?.telefono) {
-                const dirContacto = perfilEdificio?.direccion || edifParaContacto || 'el edificio';
-                const msgContactoAcceso = `📞 *MARCOS — CONTACTO PARA EL INGRESO*\n\n` +
-                    `Hola ${tecnicoParaContacto.nombre}, para la visita en ${dirContacto} el vecino dejó este contacto para que le abran: *${session.contactoAccesoExtra}*.\n` +
-                    (/\s\/\s/.test(session.contactoAccesoExtra)
-                        ? `Tiene más de un número registrado: te paso la ficha completa acá abajo, probá con cualquiera.\n`
-                        : '') +
-                    `Si al llegar no te abren, comunicate directamente con esa persona y avisame cualquier inconveniente.`;
-                await enviarWhatsApp(tecnicoParaContacto.telefono, msgContactoAcceso, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-
-                // Y además la ficha tal como la mandó el vecino. Es lo que haría cualquier persona:
-                // reenviar el contacto en vez de dictarlo. Con una ficha de dos números, cualquier
-                // texto obliga a elegir uno y el técnico se queda sin saber si el otro también
-                // sirve; la tarjeta llega completa y se guarda de un toque.
-                if (Array.isArray(session.contactoAccesoFicha) && session.contactoAccesoFicha.length > 0) {
-                    const { enviarContactoWhatsApp } = require('./agentes/marcos-ops');
-                    await enviarContactoWhatsApp(
-                        tecnicoParaContacto.telefono,
-                        session.contactoAccesoFicha,
-                        WHATSAPP_PHONE_NUMBER_ID,
-                        WHATSAPP_ACCESS_TOKEN
-                    );
-                }
-
-                const chatContactoAProv = [
-                    `Marcos (a Proveedor): ${msgContactoAcceso}`
-                ];
-                if (session.contactoAccesoExtra) {
-                    chatContactoAProv.push(`Marcos (a Proveedor): (Contacto compartido) ${session.contactoAccesoExtra}`);
-                }
-                try {
-                    const { guardarReporte } = require('./datos');
-                    await guardarReporte({
-                        id_evento: session.eventoActivoId || decisionCaso.id_evento,
-                        edificio: session.nombreEdificio || edifParaContacto,
-                        tecnico: tecnicoParaContacto.nombre || '',
-                        tel_tecnico: tecnicoParaContacto.telefono || '',
-                        rubro_tecnico: tecnicoParaContacto.especialidad || '',
-                        historial_chat: JSON.stringify(chatContactoAProv)
-                    });
-                } catch(e) { console.error('Error registrando contacto enviado a proveedor:', e.message); }
-
-                session.contactoAccesoAvisadoATecnico = true;
-                if (idEventoAsignado) {
-                    const { marcarContactoAccesoAvisado } = require('./datos');
-                    await marcarContactoAccesoAvisado(idEventoAsignado);
-                }
-                console.log(`📞 Contacto de acceso (${session.contactoAccesoExtra}) enviado proactivamente al técnico ${tecnicoParaContacto.nombre}.`);
-            }
-        } catch (errCtoAcceso) {
-            console.error('⚠️ Error enviando el contacto de acceso al técnico:', errCtoAcceso.message);
         }
     }
 
@@ -2469,50 +1409,16 @@ function validarYSanitizarNombre(nombre) {
 // Se usa para cualquier mensaje del técnico que no sea "pide foto/datos" ni "manda factura"
 // (confirmaciones, preguntas puntuales como "¿quién me recibe?", quejas, etc.), para que Marcos
 // conteste lo que realmente le preguntaron en vez de una frase enlatada fija.
-async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vecino, edificio, perfilEdificio, contactoAccesoExtra = '', accesosEdificio = [] }) {
+async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vecino, edificio, perfilEdificio }) {
     try {
         const nomVecino = (vecino?.nombre && vecino.nombre !== 'Vecino' && vecino.nombre !== 'Desconocido') ? vecino.nombre : '';
         const identVecino = nomVecino
             ? `${nomVecino}${vecino?.departamento ? ' (Depto ' + vecino.departamento + ')' : ''}`
             : (vecino?.departamento ? `el vecino del Depto ${vecino.departamento}` : 'el vecino que hizo el reclamo (todavía sin datos de contacto claros)');
         const direccion = perfilEdificio?.direccion || edificio || 'el edificio';
-        // Teléfonos que el técnico SÍ puede usar para entrar: el del vecino que hizo el reclamo, y
-        // cualquier contacto adicional que el propio vecino haya autorizado (ej. "llamá a mi señora
-        // al 11...", cuando avisa que él no va a estar).
-        const telVecinoAcceso = vecino?.telefono ? String(vecino.telefono).replace(/\D/g, '') : '';
-        // Cuando el vecino dejó un contacto de acceso es porque él NO va a estar. Su propio
-        // teléfono deja de ser "el que le abre" y pasa a ser secundario: ofrecerlo primero hacía
-        // que Marcos le dijera al técnico "llamá a Daniel, él te espera" justo después de que
-        // Daniel avisara que se iba, y el técnico terminaba preguntando a cuál de los dos números
-        // tenía que llamar.
-        const telefonosAcceso = [
-            contactoAccesoExtra ? `PARA ENTRAR, llamar a: ${contactoAccesoExtra}` : '',
-            telVecinoAcceso
-                ? (contactoAccesoExtra
-                    ? `${identVecino} (hizo el reclamo, NO está en el edificio): ${telVecinoAcceso}`
-                    : `${identVecino}: ${telVecinoAcceso}`)
-                : '',
-            perfilEdificio?.tel_seguridad ? `Portería/seguridad de la entrada: ${perfilEdificio.tel_seguridad}` : ''
-        ].filter(Boolean).join(' | ') || 'Sin teléfono de contacto cargado todavía.';
-        // Dónde está cada instalación y quién tiene la llave. Es lo que el técnico pregunta cuando
-        // ya está en el lugar ("¿dónde está la sala de medidores?", "está con candado, ¿quién abre?")
-        // y sin lo cual el trabajo se cae con el técnico parado en la puerta.
-        const infoInstalaciones = (accesosEdificio || []).length
-            ? (accesosEdificio || []).map(a => {
-                const partes = [a.lugar];
-                if (a.ubicacion) partes.push(`está en ${a.ubicacion}`);
-                if (a.tipoAcceso) partes.push(`acceso: ${a.tipoAcceso}`);
-                if (a.quienAbre) partes.push(`abre ${a.quienAbre}${a.telefono ? ` (${a.telefono})` : ''}`);
-                if (a.notas) partes.push(a.notas);
-                return `  · ${partes.join(' — ')}`;
-            }).join('\n')
-            : '  (todavía no hay datos cargados de instalaciones ni de llaves en este edificio)';
-
-        const accesoInfo = contactoAccesoExtra
-            ? `Quien le abre es ${contactoAccesoExtra}. ${identVecino} hizo el reclamo pero NO va a estar en el edificio: no lo mandes a llamarlo para entrar.`
-            : (perfilEdificio?.tel_seguridad
-                ? `Hay portería/seguridad en la entrada (tel: ${perfilEdificio.tel_seguridad}).`
-                : `El acceso ya fue coordinado por Marcos con ${identVecino}, que lo está esperando.`);
+        const accesoInfo = perfilEdificio?.tel_seguridad
+            ? `Hay portería/seguridad en la entrada (tel: ${perfilEdificio.tel_seguridad}).`
+            : `El acceso lo coordina Marcos directamente con ${identVecino}; el vecino va a estar disponible para recibirlo.`;
 
         const { GoogleGenAI } = require('@google/genai');
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -2524,20 +1430,10 @@ Datos reales del caso que tenés disponibles:
 - Vecino/solicitante: ${identVecino}
 - Dirección: ${direccion}
 - Acceso: ${accesoInfo}
-- Teléfonos de contacto para el ingreso: ${telefonosAcceso}
-- Instalaciones del edificio y quién tiene la llave de cada una:
-${infoInstalaciones}
-
-Si el técnico pregunta dónde está una instalación (sala de medidores, tablero, sala de máquinas,
-bombas, llave de gas, terraza, tanque) o quién le abre, contestale con estos datos. Si el lugar que
-pregunta NO figura arriba, decile con franqueza que no lo tenés cargado y que lo averiguás, y no lo
-inventes: mandarlo al lugar equivocado le hace perder el viaje.
 
 Instrucciones:
 - Respondé de forma breve (1-2 oraciones), profesional, en "usted".
 - Si te pregunta algo puntual (quién lo recibe, dirección, acceso, horario, etc.), contestale con el dato real de arriba. No inventes datos que no tenés: si no sabés algo puntual que pide, decile que lo estás confirmando y le respondés en breve.
-- 🚨 SI EL TÉCNICO YA ESTÁ EN LA PUERTA, DICE QUE LLEGÓ, QUE NO HAY NADIE, QUE NO LE ABREN, O TE PIDE EL TELÉFONO DEL VECINO: DALE EL NÚMERO DE CONTACTO DE ARRIBA INMEDIATAMENTE, en ese mismo mensaje. Es una urgencia operativa: tiene que poder entrar. TENÉS TERMINANTEMENTE PROHIBIDO responderle "no es necesario que lo llame", "ya está coordinado" o cualquier variante que le niegue el teléfono -- eso lo deja parado en la calle sin poder trabajar. Si no tenés ningún teléfono cargado, decíselo con honestidad y avisale que estás contactando al vecino ahora mismo.
-- NUNCA repitas la misma respuesta que ya diste antes. Si el técnico insiste con un pedido, es porque tu respuesta anterior no le sirvió: cambiá de enfoque y resolvé el problema concreto que tiene.
 - Si te pregunta CÓMO o A QUIÉN entregar una factura/comprobante de pago (sin adjuntarla todavía, solo preguntando el procedimiento): decile que te la puede mandar directo por acá (foto o PDF) y vos la registrás para que la Administración la procese. NO le digas "ya recibí la factura" -- todavía no mandó nada, solo está preguntando.
 - NUNCA le pidas nombre/departamento al técnico -- eso es del vecino, no de él.
 - No saludes ni te vuelvas a presentar (ya es una conversación en curso).
@@ -2921,8 +1817,8 @@ Tono: cálido, argentino, de "usted". SIN presentarte de nuevo. SIN emojis de co
 // ── Endpoint API para Asistente IA del Dashboard AC ─────────────────────────
 app.post('/api/asistente-consultar', async (req, res) => {
     try {
-        const { pregunta, seccion, historial } = req.body || {};
-        if (!pregunta || !String(pregunta).trim()) {
+        const { pregunta, seccion } = req.body || {};
+        if (!pregunta) {
             return res.status(400).json({ error: 'Falta la pregunta' });
         }
 
@@ -2936,42 +1832,25 @@ app.post('/api/asistente-consultar', async (req, res) => {
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
         const systemInstruction = `
-Sos el Asistente Virtual Inteligente de ayuda interactiva del Dashboard AC (Atención a Consorcios).
+Sos el Asistente Virtual de ayuda interactiva del Dashboard AC (Atención a Consorcios).
 Tu función es guiar amablemente a los clientes, responder sus dudas sobre el panel y explicarles qué hace cada sección o botón.
 
-REGLAS DE ORO OBLIGATORIAS DE RESPUESTA:
-1. NUNCA DIGAS QUE UNA FUNCIÓN NO EXISTE SI ESTÁ EN EL PANEL. Todo lo relativo a consorcios, encargados titulares, ayudantes de encargado, suplentes, personal de limpieza, vigiladores, accesos, proveedores, expensas y reclamos SÍ SE HACE DESDE ESTE PANEL. NUNCA mandes al usuario a escribir por WhatsApp si la tarea se resuelve dentro del panel.
-2. PASOS ESCALONADOS Y SEPARADOS (FORMATO VISUAL): Cada paso DEBE ir obligatoriamente en su propia línea, separado de los demás por un salto de línea doble (\n\n). NUNCA pegues dos pasos en el mismo renglón o párrafo continuo. La gente que usa este panel apenas maneja el celular y necesita ver los pasos 1, 2 y 3 separados por renglones limpios.
-3. NAVEGACIÓN VISUAL EXACTA: Indicá la ruta exacta en pantalla usando emojis y corchetes: ej. Menú Lateral ➡️ [ Mi Edificio ] ➡️ Bloque [ Personal, Limpieza y Seguridad ] ➡️ Botón [ + Añadir ].
-4. NO REPETIR "HOLA" SI LA CHARLA YA EMPEZÓ: Si en el historial ya hay mensajes previos o el usuario responde a una pregunta tuya (ej: "sí", "dale", "bueno", "ya lo hice", "ok", "sí por favor"), NO VUELVAS A SALUDAR CON "HOLA" NI TE PRESENTES DE NUEVO. Avanzá directo al siguiente paso o respuesta de forma fluida y natural como una charla continua.
-5. CIERRE INTERACTIVO: Terminá ofreciendo ayuda en el siguiente paso ("¿Querés que te guíe en algún otro dato?").
-6. El usuario te está escribiendo actualmente desde la sección: "${seccion || 'Inicio / General'}".
+REGLAS DE RESPUESTA:
+1. Responde de forma concisa, clara y profesional (máximo 2 o 3 párrafos cortos).
+2. Usa viñetas y formato legible cuando ayude a la claridad.
+3. Si el usuario pregunta sobre un área que en la base de conocimiento figura como "En Mantenimiento", explícale con cortesía que se están aplicando mejoras de rendimiento y que estará disponible a la brevedad.
+4. El usuario te está escribiendo desde el apartado: "${seccion || 'Inicio / General'}".
 
 BASE DE CONOCIMIENTO OFICIAL DEL DASHBOARD:
 ${conocimiento}
 `.trim();
 
-        const contents = [];
-        if (Array.isArray(historial) && historial.length > 0) {
-            for (const item of historial) {
-                if (item && item.role && item.text) {
-                    contents.push({
-                        role: item.role === 'user' ? 'user' : 'model',
-                        parts: [{ text: String(item.text) }]
-                    });
-                }
-            }
-        }
-        if (contents.length === 0 || contents[contents.length - 1].role !== 'user' || contents[contents.length - 1].parts[0].text !== String(pregunta).trim()) {
-            contents.push({ role: 'user', parts: [{ text: String(pregunta).trim() }] });
-        }
-
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents,
+            contents: [{ text: pregunta }],
             config: {
                 systemInstruction,
-                temperature: 0.3,
+                temperature: 0.4,
             },
         });
 
@@ -2983,29 +1862,6 @@ ${conocimiento}
         return res.status(500).json({ error: 'No se pudo procesar la consulta en este momento.' });
     }
 });
-
-// Barrido de seguimientos vencidos. Cada 5 minutos, y no con temporizadores en memoria: así un
-// `pm2 restart` -- que este proceso tuvo más de 150 veces -- ya no borra escalaciones pendientes.
-setInterval(() => {
-    try {
-        const { revisarSeguimientos } = require('./seguimiento');
-        const datos = require('./datos');
-        const ops = require('./agentes/marcos-ops');
-        const { notificarEscalacionAlAdmin } = require('./agentes/marcos-admin');
-        revisarSeguimientos({
-            obtenerSeguimientosVencidos: datos.obtenerSeguimientosVencidos,
-            programarSeguimiento: datos.programarSeguimiento,
-            buscarTecnicoAsignado: datos.buscarTecnicoAsignado,
-            buscarTecnicoSuplente: datos.buscarTecnicoSuplente,
-            enviarWhatsApp: ops.enviarWhatsApp,
-            notificarEscalacionAlAdmin,
-            phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
-            accessToken: WHATSAPP_ACCESS_TOKEN,
-        }).catch(err => console.error('Error en el barrido de seguimientos:', err.message));
-    } catch (err) {
-        console.error('Error iniciando el barrido de seguimientos:', err.message);
-    }
-}, 5 * 60 * 1000);
 
 iniciarCronReportes();
 const dashboard = require('./dashboard');

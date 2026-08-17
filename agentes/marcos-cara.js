@@ -62,11 +62,8 @@ async function responderVecino({
     edificioPendiente,
     edificiosConocidos,
     tecnicoAsignado,
-    perfilEdificio,
     session,
-    datosEmisor,
-    contactoAccesoExtra = '',
-    confirmacionTecnico = null
+    datosEmisor
 }) {
     const persona = getPersona();
 
@@ -90,46 +87,10 @@ DEBES indicarle amablemente y de forma empática que la imagen recibida no parec
         }
     }
 
-    // El vecino/técnico NUNCA debe escuchar el "nombre" interno del edificio (la clave que usamos
-    // internamente para buscar/matchear en Sheets, que puede ser algo largo tipo "Consorcio de
-    // administradores del edificio San Patricio 159, Capital Federal, Provincia de Buenos Aires").
-    // Para lo que se le dice a la persona siempre usamos la dirección limpia (ej. "San Patricio
-    // 159"), cayendo al nombre interno solo si todavía no tenemos la dirección cargada en Sheets.
-    const direccionParaVecino = perfilEdificio?.direccion || vecino?.edificio;
-
-    // Quién recibe al técnico cuando NO es el vecino que escribe ("me voy, queda mi señora, este
-    // es su teléfono"). Es un dato que Marcos ya le mandaba al técnico, pero que nunca entraba en
-    // este prompt: al preguntarle al vecino quién esperaba, Marcos caía en lo obvio y nombraba a
-    // quien había escrito -- que era justo el que se iba. También evita que vuelva a pedir una
-    // confirmación que el vecino ya dio.
-    const instruccionContactoAcceso = contactoAccesoExtra
-        ? `
-📌 QUIÉN RECIBE AL TÉCNICO — DATO YA CONFIRMADO:
-- El vecino que escribe NO va a estar presente. Quien recibe al técnico es: *${contactoAccesoExtra}*.
-- Esto YA está confirmado y ya se le pasó al técnico. NO vuelvas a pedir que lo confirme.
-- Si te preguntan quién espera al técnico, respondé ${contactoAccesoExtra} -- NUNCA el nombre del
-  vecino que escribe, aunque sea el titular del reclamo.
-`.trim()
-        : '';
-
-    // Lo que el técnico ya contestó. Sin esto, Marcos decía "estoy consultando con el técnico
-    // para darle un horario" cuando el técnico había confirmado hacía media hora y hasta había
-    // dado el plazo. El vecino no lo lee como un olvido: lo lee como que le mienten.
-    const instruccionConfirmacionTecnico = confirmacionTecnico?.confirmado
-        ? `
-📌 EL TÉCNICO YA CONFIRMÓ — NO DIGAS QUE ESTÁS CONSULTANDO:
-- ${confirmacionTecnico.tecnico || 'El técnico'} confirmó la visita el ${confirmacionTecnico.cuando}${confirmacionTecnico.eta ? `, y avisó que llega ${confirmacionTecnico.eta}` : ''}.
-- Si te preguntan si coordinaste, a qué hora viene o si ya está confirmado, respondé con ESTO.
-- TENÉS PROHIBIDO decir "estoy consultando", "estoy esperando la confirmación" o "le aviso cuando
-  me responda": ya te respondió, y decir lo contrario es mentirle al vecino.
-${confirmacionTecnico.eta ? '' : '- No dio un horario exacto, así que decí que confirmó la visita y que el horario todavía no lo precisó. No inventes una hora.'}
-`.trim()
-        : '';
-
     const contextoVecino = (vecino && vecino.edificio)
         ? `
 Nombre: ${vecino.nombre || 'Vecino'}
-Edificio / Consorcio Identificado: ${direccionParaVecino} — Depto: ${vecino.departamento || 'No especificado aún'}
+Edificio / Consorcio Identificado: ${vecino.edificio} — Depto: ${vecino.departamento || 'No especificado aún'}
 ${personalDeTurno
     ? `Personal de guardia activo: ${personalDeTurno.nombre} (${personalDeTurno.rol}) hasta las ${personalDeTurno.horario.split(' a ')[1]}.`
     : 'No hay personal de guardia activo ahora.'}
@@ -138,35 +99,19 @@ ${vecino.llaves   ? `Llaves/accesos: ${vecino.llaves}` : ''}
 ${vecino.notas    ? `Notas internas: ${vecino.notas}` : ''}
 
 📌 INSTRUCCIÓN CRÍTICA DE EDIFICIO IDENTIFICADO:
-- El edificio/dirección del vecino YA FUE IDENTIFICADO CORRECTAMENTE como "${direccionParaVecino}".
+- El edificio/dirección del vecino YA FUE IDENTIFICADO CORRECTAMENTE como "${vecino.edificio}".
 - TENES ESTRICTAMENTE PROHIBIDO volver a pedir la dirección o preguntar de qué edificio habla.
-- En tu respuesta, confirmale al vecino de forma natural que sabés que te contacta por "${direccionParaVecino}".
-- NUNCA menciones el nombre interno/administrativo del consorcio (el que usamos para buscarlo en el
-  sistema, ej. "Consorcio de administradores del edificio...") -- para el vecino/técnico el edificio
-  es simplemente la dirección de arriba, nada más.
+- En tu respuesta, confirmale al vecino de forma natural que sabés que te contacta por "${vecino.edificio}".
 `.trim()
         : 'Vecino no identificado todavía.';
 
-    // Igual que con el edificio ya identificado: para hablar CON LA PERSONA siempre usamos la
-    // dirección real (columna "direccion" de Sheets), nunca el nombre/alias interno que usamos
-    // para matchear (ej. "san patricio casa"). Es clave sobre todo acá, en la confirmación con
-    // dudas: puede escribir alguien a nombre de otro vecino (se quedó sin batería/luz) y decir
-    // un número de altura parecido pero no exacto (ej. "San Patricio 149" en vez de 159) -- Marcos
-    // tiene que confirmar con la dirección concreta ("¿Es San Patricio 159?"), no con el alias.
-    const direccionDe = (nombreInterno) => {
-        const match = (edificiosConocidos || []).find(e => e.nombre === nombreInterno);
-        return match?.direccion || nombreInterno;
-    };
-    const opcionesEdificioDireccion = opcionesEdificio ? opcionesEdificio.map(direccionDe) : null;
-    const edificioPendienteDireccion = edificioPendiente ? direccionDe(edificioPendiente) : null;
-
     const instruccionIdentificacion = (!vecino || !vecino.edificio) ? `
 INSTRUCCIÓN — IDENTIFICACIÓN NATURAL:
-${opcionesEdificioDireccion
-    ? `El vecino figura en varias direcciones: ${opcionesEdificioDireccion.join(', ')}. Preguntale amablemente por cuál de ellas te escribe (usando la dirección, nunca un nombre/alias interno).`
-    : (edificioPendienteDireccion
-        ? `Detectamos que podría ser de ${edificioPendienteDireccion}. Confirmalo con él de forma natural usando la dirección (ej: "¿Me escribe por ${edificioPendienteDireccion}?") antes de seguir -- puede estar escribiendo a nombre de otro vecino y decir un número de altura parecido pero no exacto, por eso hay que confirmar con la dirección puntual.`
-        : 'No sabemos quién es ni de qué edificio escribe. Pedile su dirección de forma muy humana y cálida.')
+${opcionesEdificio
+    ? `El vecino figura en varios edificios: ${opcionesEdificio.join(', ')}. Preguntale amablemente por cuál de ellos te escribe.`
+    : (edificioPendiente
+        ? `Detectamos que podría ser de ${edificioPendiente}. Confirmalo con él de forma natural (ej: "¿Me escribe por ${edificioPendiente}?") antes de seguir.`
+        : 'No sabemos quién es ni de qué edificio escribe. Pedile su dirección/edificio de forma muy humana y cálida.')
 }
 `.trim() : '';
 
@@ -207,25 +152,7 @@ REGLA ESTRICTA DE CARTERA:
 `.trim()
         : '';
 
-    // Cuando una nota de voz no se pudo transcribir, llega marcada como tal. El vecino tiene que
-    // enterarse de que fue una falla nuestra: si Marcos le vuelve a pedir datos que él ya dio en
-    // ese audio, sin explicar por qué, del otro lado se lee como desatención.
-    const ultimoMensajeVecino = String((historial || [])[historial?.length - 1] || '');
-    const instruccionAudioIlegible = ultimoMensajeVecino.includes('no se pudo escuchar esta nota de voz')
-        ? `
-🎙️ HUBO UNA NOTA DE VOZ QUE NO SE PUDO ESCUCHAR:
-- En el mensaje del vecino hay al menos una nota de voz marcada como "(no se pudo escuchar esta nota de voz)". Es una falla técnica NUESTRA: el audio no llegó bien.
-- DECÍSELO expresamente y disculpate en una línea, para que entienda que fue un problema del sistema y no que no le prestaste atención.
-- Pedile que te repita SOLO lo que decía en esa nota. NO le vuelvas a pedir lo que ya te dijo en los mensajes que sí se entendieron.
-- Ejemplo: "Disculpe, una de sus notas de voz no me llegó bien y no pude escucharla. ¿Me repite lo que me decía ahí?"
-`.trim()
-        : '';
-
-    // Solo se pregunta quién recibe si todavía no lo sabemos. Cuando el vecino ya dejó un contacto,
-    // este bloque contradecía al de arriba -- uno decía "no vuelvas a pedir que lo confirme" y este
-    // "DEBES preguntarle", y ganaba el imperativo. El vecino terminaba dando el dato de Natalia y
-    // recibiendo igual la pregunta de quién iba a abrir, como si no lo hubiera dicho.
-    const instruccionGestionAcceso = (!personalDeTurno && decisionCaso?.contactar_tecnico && !contactoAccesoExtra)
+    const instruccionGestionAcceso = (!personalDeTurno && decisionCaso?.contactar_tecnico)
         ? `- GESTIÓN DE ACCESO OBLIGATORIA: En este momento NO hay encargado de turno activo en el edificio. DEBES preguntarle amablemente al vecino si él o alguien de su departamento estará disponible en el lugar para recibir al técnico y facilitarle el ingreso.`
         : '';
 
@@ -249,12 +176,7 @@ NUNCA menciones el nombre "Bien Argentinos" al vecino. Para el vecino sos el asi
 - **NO REPETIR PÁRRAFOS DE ESTADO:** Si en mensajes anteriores del historial ya le dijiste al vecino que estás en tema o esperando respuesta, NO VUELVAS a escribir toda la explicación completa.
 - NUNCA des opciones ("Opción 1, Opción 2..."). Elegí una sola forma de decir las cosas.
 - UNA sola pregunta por mensaje si necesitás más datos. Si no hace falta más información, no preguntes nada.
-- Por regla general no compartas datos de contacto de terceros: la coordinación pasa por vos, no
-  se derivan teléfonos "porque sí". PERO esto NO es una prohibición absoluta: si hay una necesidad
-  operativa concreta y el dato sirve para destrabar el servicio (típico: el técnico ya está en la
-  puerta y nadie le abre, o el vecino avisa que no va a estar y hay que coordinar el ingreso con
-  otra persona), pasá el dato de contacto mínimo necesario para que la visita se concrete. Dejar a
-  un técnico esperando en la calle por no dar un teléfono es un error, no una buena práctica.
+- Nunca des el teléfono del técnico.
 
 # EVALUACIÓN DE URGENCIA Y EMPATÍA:
 - Si el inconveniente parece ser de urgencia media o genera dudas, consultale con empatía al vecino: "¿Considera usted que la situación requiere atención de urgencia en este momento?"
@@ -265,11 +187,8 @@ ${contextoMemoria ? contextoMemoria : 'Primera vez que contacta.'}
 
 # DATOS DEL VECINO
 ${contextoVecino}
-${instruccionContactoAcceso}
-${instruccionConfirmacionTecnico}
 
 ${instruccionIdentificacion}
-${instruccionAudioIlegible}
 ${instruccionDatosFaltantes}
 ${instruccionTecnicoDisponibilidad}
 
@@ -284,14 +203,7 @@ ${instruccionImagenIrrelevante}
 1. Si hay personal de guardia activo: recolectá lo básico y avisale que ya le pasás el reporte al encargado.
 2. Si el caso ya tiene suficiente info: si AÚN NO le avisaste que estás contactando al técnico, hacelo ahora. Si ya se lo avisaste, no lo repitas.`;
 
-    // OJO: para cuando llegamos acá, el mensaje ACTUAL del vecino ya fue agregado al historial
-    // por el orquestador. Entonces en una primera interacción historial.length ya vale 1, no 0 --
-    // con `> 0` el chat SIEMPRE se consideraba "en curso" y Marcos tenía prohibido saludar hasta
-    // en el primerísimo mensaje de un vecino nuevo. Hay chat previo solo si hay más de 1 entrada
-    // (o si alguna es una respuesta anterior de Marcos).
-    const tieneHistorial = Array.isArray(historial) && (
-        historial.length > 1 || historial.some(h => /^Marcos:/i.test(String(h || '')))
-    );
+    const tieneHistorial = Array.isArray(historial) && historial.length > 0;
 
     const reglaSaludoDinamica = tieneHistorial
         ? `\n\n🚨 REGLA ABSOLUTA DE SALUDO — CHAT EN CURSO:

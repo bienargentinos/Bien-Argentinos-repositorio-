@@ -224,13 +224,11 @@ function mapEvento(r) {
     audio_url: pick(r, ['audio_url', 'url_audio', 'nota_voz', 'audio']),
     urgencia,
     estado: pick(r, ['estado', 'status']),
-    tecnico: pick(r, ['tecnico', 'proveedor', 'tecnico_nombre', 'nombre_tecnico', 'proveedor_nombre', 'nombre_proveedor', 'tecnico_notificado', 'tecnico_confirmado']),
+    tecnico: pick(r, ['tecnico', 'proveedor', 'tecnico_nombre', 'nombre_tecnico', 'proveedor_nombre', 'nombre_proveedor']),
     tel_tecnico: pick(r, ['tel_tecnico', 'telefono_tecnico', 'celular_tecnico', 'tecnico_telefono', 'proveedor_telefono', 'tel_proveedor', 'telefono_proveedor']),
-    rubro_tecnico: pick(r, ['rubro_tecnico', 'rubro_proveedor', 'especialidad_tecnico', 'especialidad_proveedor', 'rubro', 'especialidad', 'servicio']),
+    rubro_tecnico: pick(r, ['rubro_tecnico', 'rubro_proveedor', 'especialidad_tecnico', 'especialidad_proveedor', 'rubro', 'especialidad']),
     historial_chat_vecino: pick(r, ['historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
     historial_chat_proveedor: pick(r, ['historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
-    chat_vecino_json: pick(r, ['chat_vecino_json', 'chat_vecino', 'conversacion_vecino', 'historial_chat_vecino', 'historial_vecino']),
-    chat_proveedor_json: pick(r, ['chat_proveedor_json', 'chat_proveedor', 'conversacion_proveedor', 'historial_chat_proveedor', 'historial_proveedor', 'historial_tecnico', 'chat_tecnico']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
     historial_chat: pick(r, ['historial_chat', 'historial', 'chat_log', 'conversacion']),
   };
@@ -391,11 +389,8 @@ async function obtenerDatosBancarios() {
 
 function mapFactura(r) {
   const url = pick(r, ['url_archivo', 'url', 'link', 'enlace', 'archivo']);
-  const comprobantePagoUrl = pick(r, ['comprobante_pago_url', 'comprobante_pago', 'comprobante_transferencia', 'recibo_url']);
-  const numeroFactura = pick(r, ['numero_factura', 'num_factura', 'factura_num', 'numero'], '');
   const concepto = pick(r, ['concepto', 'descripcion', 'detalle'], 'Comprobante');
   const monto = pick(r, ['monto', 'importe', 'total']);
-  const esPdf = /pdf/i.test(concepto) || /\.pdf(\?|$)/i.test(url);
   const esFoto = /foto|imagen/i.test(concepto) || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
   let moneda = 'ARS';
   if (/usd|u\$s|dolar/i.test(monto + ' ' + concepto)) moneda = 'USD';
@@ -408,10 +403,8 @@ function mapFactura(r) {
     concepto,
     edificio: pick(r, ['edificio', 'consorcio'], 'Sin edificio'),
     url,
-    comprobantePagoUrl,
-    numeroFactura,
     estado: pick(r, ['estado'], 'Pendiente'),
-    tipo: esPdf ? 'Factura PDF' : (esFoto ? 'Foto' : 'Factura'),
+    tipo: esFoto ? 'Foto' : 'Factura',
     moneda,
   };
 }
@@ -1431,16 +1424,6 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 .dark-theme .drawer-panel .chat-bubble[style*="background:#EDE9FE"],
 .dark-theme .drawer-panel .chat-bubble[style*="background: #EDE9FE"] { background:#4C1D95 !important; color:#EDE9FE !important; border-color:#5B21B6 !important; }
 
-/* Timestamp tag en globos de chat */
-.chat-time-tag { font-size:10px; font-weight:700; padding:2px 7px; border-radius:6px; background:rgba(0,0,0,0.06); color:#475569; letter-spacing:0.01em; display:inline-block; }
-.dark-theme .chat-time-tag { background:rgba(255,255,255,0.12) !important; color:#CBD5E1 !important; }
-.dark-theme .chat-bubble[style*="background:#005C4B"] .chat-time-tag,
-.dark-theme .chat-bubble[style*="background: #005C4B"] .chat-time-tag { background:rgba(0,0,0,0.25) !important; color:#86EFAC !important; }
-.dark-theme .chat-bubble[style*="background:#202C33"] .chat-time-tag,
-.dark-theme .chat-bubble[style*="background: #202C33"] .chat-time-tag { background:rgba(255,255,255,0.1) !important; color:#94A3B8 !important; }
-.dark-theme .chat-bubble[style*="background:#78350F"] .chat-time-tag,
-.dark-theme .chat-bubble[style*="background: #78350F"] .chat-time-tag { background:rgba(0,0,0,0.3) !important; color:#FDE68A !important; }
-
 /* Badges / Chips en Modo Oscuro */
 .dark-theme .ev-urgente { background:#3B1219 !important; border-left:4px solid #EF4444 !important; }
 .dark-theme .ev-urgente:hover { background:#4A1720 !important; }
@@ -1748,7 +1731,6 @@ window.renderTablaAccesosClient = function(lista) {
     var qaEsc = escapeHtml(a.quienAbre || a.quien_abre || '—');
     var telEsc = escapeHtml(a.telefono || '—');
     var tipoEsc = escapeHtml(a.tipoAcceso || a.tipo_acceso || '—');
-    var notasEsc = escapeHtml(a.notas || '—');
     var lugarAttr = escapeHtml(a.lugar || '');
 
     return '<tr style="border-bottom:1px solid #EEF1F6">' +
@@ -1883,17 +1865,13 @@ window.guardarAccesoNuevo = function(btn) {
 };
 
 window.quitarAcceso = function(lugar) {
-  if (!lugar) {
-    toast('Seleccioná una instalación', 'err');
-    return;
-  }
-  if (!confirm('¿Quitar "' + lugar + '" de la lista de instalaciones del edificio?')) return;
+  if (!lugar) return;
+  if (!confirm('¿Quitar ' + lugar + ' de la lista?')) return;
 
-  var curEd = window.__CUR_BUILDING__ ? window.__CUR_BUILDING__.nombre : '';
   fetch('/admin/api/acceso-quitar', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lugar: lugar, edificio: curEd })
+    body: JSON.stringify({ lugar: lugar })
   })
   .then(function(res){ return res.json(); })
   .then(function(data){
@@ -2189,7 +2167,6 @@ function iniciarRecorridoTour(pasos) {
   render();
 }
 
-window.acAiHistorial = window.acAiHistorial || [];
 window.enviarPreguntaAsistente = async function enviarPreguntaAsistente(){
   var input = document.getElementById('ac-ai-input');
   var msgs = document.getElementById('ac-ai-messages');
@@ -2204,8 +2181,6 @@ window.enviarPreguntaAsistente = async function enviarPreguntaAsistente(){
   input.value = '';
   msgs.scrollTop = msgs.scrollHeight;
 
-  window.acAiHistorial.push({ role: 'user', text: txt });
-
   var loadingDiv = document.createElement('div');
   loadingDiv.className = 'ac-ai-msg loading';
   loadingDiv.textContent = 'Pensando...';
@@ -2216,33 +2191,13 @@ window.enviarPreguntaAsistente = async function enviarPreguntaAsistente(){
     var res = await fetch('/api/asistente-consultar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pregunta: txt, seccion: window.location.pathname, historial: window.acAiHistorial })
+      body: JSON.stringify({ pregunta: txt, seccion: window.location.pathname })
     });
     var data = await res.json();
     if(loadingDiv.parentNode) loadingDiv.parentNode.removeChild(loadingDiv);
     var botDiv = document.createElement('div');
     botDiv.className = 'ac-ai-msg bot';
-    var txtRes = data.respuesta || data.error || 'No se pudo obtener respuesta.';
-    
-    window.acAiHistorial.push({ role: 'model', text: txtRes });
-    if (window.acAiHistorial.length > 10) {
-      window.acAiHistorial = window.acAiHistorial.slice(-10);
-    }
-
-    var str = String(txtRes)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    var parts = str.split('**');
-    var formattedHtml = '';
-    for (var i = 0; i < parts.length; i++) {
-      if (i % 2 === 1) {
-        formattedHtml += '<strong>' + parts[i] + '</strong>';
-      } else {
-        formattedHtml += parts[i];
-      }
-    }
-    botDiv.innerHTML = formattedHtml;
+    botDiv.textContent = data.respuesta || data.error || 'No se pudo obtener respuesta.';
     msgs.appendChild(botDiv);
     msgs.scrollTop = msgs.scrollHeight;
   } catch(err) {
@@ -2307,7 +2262,7 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
     var mediaId = u.replace(/^media[:_]/i, '').trim();
     var hasExt = /\.(jpeg|jpg|png|webp|gif|bmp|svg|mp4|mov|webm|mkv|avi|ogg|mp3|m4a|wav)$/i.test(mediaId);
     u = '/' + targetFolder + '/media_' + mediaId + (hasExt ? '' : defaultExt);
-  } else if (/^\\d{10,20}$/.test(u)) {
+  } else if (/^\d{10,20}$/.test(u)) {
     u = '/' + targetFolder + '/media_' + u + defaultExt;
   }
 
@@ -2328,7 +2283,7 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
   } else if (u.indexOf('/archivos/') !== -1) {
     u = '/archivos/' + u.substring(u.indexOf('/archivos/') + 10);
   } else {
-    var filename = u.replace(/^\\/+/g, '').replace(/^\\\\+/g, '');
+    var filename = u.replace(/^\/+/g, '').replace(/^\\+/g, '');
     if (filename.startsWith('temp/')) {
       u = '/' + targetFolder + '/' + filename.substring(5);
     } else if (filename.startsWith('almacenamiento/')) {
@@ -2375,7 +2330,7 @@ function parseAudiosDetallados(datos) {
         if (Array.isArray(parsed)) listJson = parsed;
         else if (typeof parsed === 'object') listJson = [parsed];
       } catch(e) {
-        listJson = String(rawJson).split(',').join('\\n').split(';').join('\\n').split('|').join('\\n').split('\\n').map(function(u){ return { url: u.trim() }; }).filter(function(x){ return Boolean(x.url); });
+        listJson = String(rawJson).split(new RegExp('[\\\\,\\\\n;|]')).map(function(u){ return { url: u.trim() }; });
       }
     } else if (Array.isArray(rawJson)) {
       listJson = rawJson;
@@ -2397,7 +2352,7 @@ function parseAudiosDetallados(datos) {
 
   // 2. Parse audio_url field (can contain multiple URLs delimited by comma, newline, pipe, semicolon, space)
   if (datos.audio_url) {
-    var parts = String(datos.audio_url).split(',').join('\\n').split(';').join('\\n').split('|').join('\\n').split(' ').join('\\n').split('\\n').filter(Boolean);
+    var parts = String(datos.audio_url).split(new RegExp('[\\\\,\\\\n;|\\\\s]+')).filter(Boolean);
     parts.forEach(function(p) {
       addAudioItem(p, datos.vecino, datos.when, datos.transcripcion);
     });
@@ -2418,7 +2373,7 @@ function parseAudiosDetallados(datos) {
     }
   }
 
-  var audioUrlRegex = new RegExp('(/root/marcos[^"\\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/archivos[^"\\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/almacenamiento[^"\\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\\'()\\\\s]*audio[^"\\\'()\\\\s]*)', 'gi');
+  var audioUrlRegex = new RegExp('(/root/marcos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/archivos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/almacenamiento[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]*audio[^"\\'()\\\\s]*)', 'gi');
 
   chatItems.forEach(function(line) {
     if (!line) return;
@@ -2436,10 +2391,10 @@ function parseAudiosDetallados(datos) {
       strText = (lineEmisor ? lineEmisor + ': ' : '') + (line.texto || line.mensaje || '');
     } else {
       strText = String(line);
-      var matchSender = strText.match(/^([^:\\(\\)]+)(\\s*\\([^\\)]+\\))?:\\s*/);
+      var matchSender = strText.match(/^([^:\(\)]+)(\s*\([^\)]+\))?:\s*/);
       if (matchSender) {
         lineEmisor = matchSender[1].trim();
-        if (matchSender[2]) lineHora = matchSender[2].replace(/[\\(\\)]/g, '').trim();
+        if (matchSender[2]) lineHora = matchSender[2].replace(/[\(\)]/g, '').trim();
       }
     }
 
@@ -2450,7 +2405,7 @@ function parseAudiosDetallados(datos) {
     var textMatches = strText.match(audioUrlRegex);
     if (textMatches) {
       textMatches.forEach(function(mUrl) {
-        var cleanTrans = strText.replace(/^[^:]+:\s*/, '').replace(mUrl, '').replace(/\\[audio\\]/gi, '').trim();
+        var cleanTrans = strText.replace(/^[^:]+:\s*/, '').replace(mUrl, '').replace(/\[audio\]/gi, '').trim();
         addAudioItem(mUrl, lineEmisor, lineHora, cleanTrans || lineTrans);
       });
     }
@@ -2485,7 +2440,7 @@ function parseInvolucrados(datos) {
         if (Array.isArray(parsed)) list = parsed;
         else if (typeof parsed === 'object') list = [parsed];
       } catch(e) {
-        list = String(raw).split(',').join('\\n').split(';').join('\\n').split('\\n').map(function(s){ return { nombre: s.trim() }; }).filter(function(x){ return Boolean(x.nombre); });
+        list = String(raw).split(new RegExp('[,\\n;]')).map(function(s){ return { nombre: s.trim() }; }).filter(function(x){ return Boolean(x.nombre); });
       }
     } else if (Array.isArray(raw)) {
       list = raw;
@@ -2604,9 +2559,9 @@ function procesarLineaMultimediaChat(strText) {
   var visualUrl = '', visualType = '', visualFilename = '';
   var audioUrl = '', audioFilename = '';
 
-  var allTags = cleanText.match(/\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^\\]]+)\\]/gi) || [];
+  var allTags = cleanText.match(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/gi) || [];
   allTags.forEach(function(tagStr) {
-    var m = tagStr.match(/\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^\\]]+)\\]/i);
+    var m = tagStr.match(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/i);
     if (m) {
       var tagType = m[1].toUpperCase();
       var rawUrl = m[2].trim();
@@ -2637,25 +2592,25 @@ function procesarLineaMultimediaChat(strText) {
     var prefixes = ['/root/marcos/', '/archivos/', '/audios/', '/almacenamiento/', 'http://', 'https://'];
     var foundIdx = -1;
 
-    for (var p = 0; p < prefixes.length; p++) {
-      var posP = cleanText.indexOf(prefixes[p]);
-      if (posP !== -1 && (foundIdx === -1 || posP < foundIdx)) {
-        foundIdx = posP;
+    for (var i = 0; i < prefixes.length; i++) {
+      var pos = cleanText.indexOf(prefixes[i]);
+      if (pos !== -1 && (foundIdx === -1 || pos < foundIdx)) {
+        foundIdx = pos;
       }
     }
 
     if (foundIdx !== -1) {
       var rest = cleanText.substring(foundIdx);
-      var endCut = rest.length;
+      var endPos = rest.length;
       for (var j = 0; j < rest.length; j++) {
         var ch = rest.charAt(j);
         if (ch <= ' ' || ch === ']' || ch === ')') {
-          endCut = j;
+          endPos = j;
           break;
         }
       }
 
-      var rawPath = rest.substring(0, endCut).trim();
+      var rawPath = rest.substring(0, endPos).trim();
       if (rawPath.length > 3) {
         var lastSlash2 = rawPath.lastIndexOf('/');
         var fn2 = lastSlash2 !== -1 ? rawPath.substring(lastSlash2 + 1) : rawPath;
@@ -2684,13 +2639,14 @@ function procesarLineaMultimediaChat(strText) {
 
         var startCut = foundIdx;
         if (startCut > 0 && cleanText.charAt(startCut - 1) === '[') startCut--;
-        var fullEndCut = foundIdx + rawPath.length;
-        if (fullEndCut < cleanText.length && cleanText.charAt(fullEndCut) === ']') fullEndCut++;
+
+        var endCut = foundIdx + rawPath.length;
+        if (endCut < cleanText.length && cleanText.charAt(endCut) === ']') endCut++;
 
         var before = cleanText.substring(0, startCut).trim();
-        var after = cleanText.substring(fullEndCut).trim();
+        var after = cleanText.substring(endCut).trim();
 
-        var tagRegexes = [/imagen:\\s*$/i, /foto:\\s*$/i, /video:\\s*$/i, /audio:\\s*$/i, /\\(imagen adjunta\\)\\s*$/i, /\\(video adjunto\\)\\s*$/i, /\\(nota de voz\\)\\s*$/i];
+        var tagRegexes = [/imagen:\s*$/i, /foto:\s*$/i, /video:\s*$/i, /audio:\s*$/i, /\(imagen adjunta\)\s*$/i, /\(video adjunto\)\s*$/i, /\(nota de voz\)\s*$/i];
         for (var t = 0; t < tagRegexes.length; t++) {
           if (tagRegexes[t].test(before)) {
             before = before.replace(tagRegexes[t], '').trim();
@@ -2707,10 +2663,10 @@ function procesarLineaMultimediaChat(strText) {
 
   // Limpiar cualquier residuo de etiquetas o rutas rotas
   cleanText = cleanText
-    .replace(/\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*[^\\]]+\\]/gi, '')
-    .replace(/(\\/archivos\\/|\\/audios\\/|\\/almacenamiento\\/)[^\\s\\]\\)]+(\\.jpeg|\\.jpg|\\.png|\\.ogg|\\.mp4|\\.pdf)?\\]?/gi, '')
-    .replace(/^[\\])\\s]+/, '')
-    .replace(/\\s+/g, ' ')
+    .replace(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*[^\]]+\]/gi, '')
+    .replace(/(\/archivos\/|\/audios\/|\/almacenamiento\/)[^\s\]\)]+(\.jpeg|\.jpg|\.png|\.ogg|\.mp4|\.pdf)?\]?/gi, '')
+    .replace(/^[\])\s]+/, '')
+    .replace(/\s+/g, ' ')
     .trim();
 
   if ((visualUrl || audioUrl) && !cleanText) {
@@ -2782,115 +2738,85 @@ function separarConversacionesEvento(datos) {
       if (src.trim().startsWith('[')) {
         try { return JSON.parse(src); } catch(e) { return [src]; }
       }
-      return String(src).split('\\n').filter(Boolean);
+      return String(src).split('\n').filter(Boolean);
     }
     if (Array.isArray(src)) return src;
     return [];
   }
 
-  function getFingerprint(item) {
-    if (!item) return '';
-    var str = typeof item === 'object' ? ((item.emisor || item.remitente || '') + ':' + (item.texto || item.mensaje || '')) : String(item);
-    return str.toLowerCase()
-      .replace(/\\[(audio|audio_url|imagen|foto|video|documento|doc|pdf|factura):[^\\]]+\\]/gi, '')
-      .replace(/[^a-z0-9]/g, '')
-      .trim();
-  }
+  // 1. Obtener lista específica de Vecino
+  var rawVecino = parseList(datos.chat_vecino_json);
+  if (!rawVecino.length) rawVecino = parseList(datos.historial_chat_vecino);
+
+  // 2. Obtener lista específica de Proveedor
+  var rawProveedor = parseList(datos.chat_proveedor_json);
+  if (!rawProveedor.length) rawProveedor = parseList(datos.historial_chat_proveedor);
 
   var chatVecino = [];
   var chatProveedor = [];
   var seenV = new Set();
   var seenP = new Set();
 
-  var telVecinoClean = datos.telefono ? String(datos.telefono).replace(/\\D/g, '') : '';
-  var telTecnicoClean = (datos.tel_tecnico || datos.telefono_tecnico) ? String(datos.tel_tecnico || datos.telefono_tecnico).replace(/\\D/g, '') : '';
-
-  // 1. Si tenemos chat_pg (mensajes reales ordenados de PostgreSQL), es la fuente principal más confiable
-  var pgMsgs = Array.isArray(datos.chat_pg) ? datos.chat_pg : [];
-  if (pgMsgs.length > 0) {
-    pgMsgs.forEach(function(msg) {
-      var rem = String(msg.remitente || '').toLowerCase();
-      var tel = String(msg.telefono || '').replace(/\\D/g, '');
-      var txt = String(msg.mensaje || '');
-      var txtLower = txt.toLowerCase();
-
-      var isProv = rem === 'tecnico' || rem === 'proveedor' || (telTecnicoClean && tel === telTecnicoClean) || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(txt);
-      var isVec = rem === 'vecino' || rem === 'usuario' || (telVecinoClean && tel === telVecinoClean) || /^(Vecino|Usuario|Cliente|Titular|Familiar)/i.test(txt);
-
-      if (!isProv && !isVec) {
-        if (rem === 'marcos') {
-          if (tel && telTecnicoClean && tel === telTecnicoClean) isProv = true;
-          else if (tel && telVecinoClean && tel === telVecinoClean) isVec = true;
-          else if (/al proveedor|al técnico|estimado técnico|hola técnico|julio|factura|coordinar visita|visita técnica/i.test(txtLower)) isProv = true;
-          else isVec = true;
-        }
-      }
-
-      var fp = getFingerprint(msg);
-      if (isProv) {
-        if (fp && !seenP.has(fp)) {
-          seenP.add(fp);
-          chatProveedor.push(msg);
-        }
-      } else {
-        if (fp && !seenV.has(fp)) {
-          seenV.add(fp);
-          chatVecino.push(msg);
-        }
+  if (rawVecino.length > 0) {
+    rawVecino.forEach(function(item) {
+      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+      if (k && !seenV.has(k)) {
+        seenV.add(k);
+        chatVecino.push(item);
       }
     });
   }
 
-  // 2. Si no hubo chat_pg o para complementar datos específicos (ej: chat_vecino_json / chat_proveedor_json)
-  var rawVecino = parseList(datos.chat_vecino_json);
-  if (!rawVecino.length) rawVecino = parseList(datos.historial_chat_vecino);
+  if (rawProveedor.length > 0) {
+    rawProveedor.forEach(function(item) {
+      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+      if (k && !seenP.has(k)) {
+        seenP.add(k);
+        chatProveedor.push(item);
+      }
+    });
+  }
 
-  var rawProveedor = parseList(datos.chat_proveedor_json);
-  if (!rawProveedor.length) rawProveedor = parseList(datos.historial_chat_proveedor);
-
-  rawVecino.forEach(function(item) {
-    var fp = getFingerprint(item);
-    if (fp && !seenV.has(fp)) {
-      seenV.add(fp);
-      chatVecino.push(item);
-    }
-  });
-
-  rawProveedor.forEach(function(item) {
-    var fp = getFingerprint(item);
-    if (fp && !seenP.has(fp)) {
-      seenP.add(fp);
-      chatProveedor.push(item);
-    }
-  });
-
-  // 3. Fallback de historial_chat tradicional para capturar plantillas o mensajes iniciales
-  var rawHistorial = parseList(datos.historial_chat);
-  if (rawHistorial.length > 0) {
+  // 3. Fallback solo si alguna de las dos listas está completamente vacía
+  if (chatVecino.length === 0 || chatProveedor.length === 0) {
+    var fallbackList = [].concat(parseList(datos.chat_pg), parseList(datos.historial_chat));
     var currentTarget = 'vecino';
-    rawHistorial.forEach(function(item) {
+
+    fallbackList.forEach(function(item) {
+      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+      if (!k) return;
+
+      var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
       var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
       var strLower = str.toLowerCase();
-      var isProv = /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Marcos \\(a Proveedor\\))/i.test(str) || /plantilla whatsapp|nueva solicitud de servicio/i.test(strLower);
-      var isVec = /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
 
-      if (isProv) currentTarget = 'proveedor';
-      else if (isVec) currentTarget = 'vecino';
+      var isProv = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
+      var isVec = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
 
-      var fp = getFingerprint(item);
-      if (isProv || currentTarget === 'proveedor') {
-        if (fp && !seenP.has(fp)) {
-          seenP.add(fp);
-          if (/plantilla whatsapp|nueva solicitud/i.test(strLower)) {
-            chatProveedor.unshift(item);
-          } else {
-            chatProveedor.push(item);
-          }
+      if (isProv) {
+        currentTarget = 'proveedor';
+        if (chatProveedor.length === 0 || !seenP.has(k)) {
+          seenP.add(k);
+          chatProveedor.push(item);
+        }
+      } else if (isVec) {
+        currentTarget = 'vecino';
+        if (chatVecino.length === 0 || !seenV.has(k)) {
+          seenV.add(k);
+          chatVecino.push(item);
         }
       } else {
-        if (fp && !seenV.has(fp)) {
-          seenV.add(fp);
-          chatVecino.push(item);
+        var isMarcosToTech = /al proveedor|al técnico|estimado técnico|hola técnico|notificación|julio|coordinar visita|visita técnica/i.test(strLower);
+        if (isMarcosToTech || currentTarget === 'proveedor') {
+          if (!seenP.has(k)) {
+            seenP.add(k);
+            chatProveedor.push(item);
+          }
+        } else {
+          if (!seenV.has(k)) {
+            seenV.add(k);
+            chatVecino.push(item);
+          }
         }
       }
     });
@@ -2924,9 +2850,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
     var bubbles = chatLines.map(function(line) {
       var rem = typeof line === 'object' ? String(line.remitente || line.emisor || '').toLowerCase() : '';
       var str = typeof line === 'object' ? ((line.emisor ? line.emisor + ': ' : (rem ? rem + ': ' : '')) + (line.texto || line.mensaje || '')) : String(line);
-
-      var fechaHoraDefault = (datos && (datos.fecha || datos.when || datos.fecha_inicio)) ? (datos.fecha || datos.when || datos.fecha_inicio) : '';
-      var horaTag = (typeof line === 'object' && (line.hora || line.when || line.fecha)) ? (line.hora || line.when || line.fecha) : fechaHoraDefault;
+      var horaTag = (typeof line === 'object' && line.hora) ? line.hora : '';
 
       var isFamiliar = rem === 'familiar' || /^(Familiar|Pariente)/i.test(str);
       var isVecino = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular)/i.test(str);
@@ -2934,26 +2858,26 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var isEncargado = rem === 'encargado' || rem === 'portero' || rem === 'seguridad' || /^(Encargado|Seguridad|Portero|Portería)/i.test(str);
       var isAdmin = rem === 'admin' || rem === 'administracion' || /^(Admin|Administración)/i.test(str);
 
-      var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería|Admin|Administración)(\\s*\\(.*\\?\\))?:\\s*/i, '');
-
+      var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería|Admin|Administración)(\s*\(.*\?\))?:\s*/i, '');
+      
       var senderLabel = 'Marcos IA';
       var align = 'margin-right:auto;background:#FFFFFF;color:#16233B;border:1px solid #E1E7F0;border-bottom-left-radius:2px;';
       var icon = '🤖';
       var tagBg = '#EAF1FB', tagFg = '#2E6FC0';
 
       if (isFamiliar) {
-        senderLabel = (str.match(/^(Familiar|Pariente)(\\s*\\(.*\\?\\))?/i)?.[0]) || 'Familiar';
+        senderLabel = (str.match(/^(Familiar|Pariente)(\s*\(.*\?\))?/i)?.[0]) || 'Familiar';
         align = 'margin-left:auto;background:#EFF6FF;color:#1E3A8A;border:1px solid #BFDBFE;border-bottom-right-radius:2px;';
         icon = '🔵';
         tagBg = '#DBEAFE'; tagFg = '#1E40AF';
       } else if (isVecino) {
-        var matchNom = str.match(/^(Vecino|Usuario|Cliente|Titular)(\\s*\\(.*\\?\\))?/i)?.[0];
+        var matchNom = str.match(/^(Vecino|Usuario|Cliente|Titular)(\s*\(.*\?\))?/i)?.[0];
         senderLabel = matchNom || (datos.vecino || 'Vecino (Titular)');
         align = 'margin-left:auto;background:#DCF8C6;color:#0F2310;border-bottom-right-radius:2px;';
         icon = '🟢';
         tagBg = '#D1FAE5'; tagFg = '#065F46';
       } else if (isProveedor) {
-        var matchProv = str.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)(\\s*\\(([^)]+)\\))?/i);
+        var matchProv = str.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)(\s*\(([^)]+)\))?/i);
         var nomProvInStr = (matchProv && matchProv[3]) ? matchProv[3].trim() : '';
         var nomTechClean = (nomProvInStr || datos.tecnico || 'Técnico / Proveedor').replace(/[()]/g, '').trim();
         senderLabel = nomTechClean || 'Técnico / Proveedor';
@@ -2961,7 +2885,8 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         icon = '🔧';
         tagBg = '#FDE68A'; tagFg = '#92400E';
       } else if (isEncargado) {
-        senderLabel = (str.match(/^(Encargado|Seguridad|Portero|Portería)(\\s*\\(.*\\?\\))?/i)?.[0]) || 'Personal del Edificio';
+        var mEnc = str.match(/^(Encargado|Seguridad|Portero|Portería)(\s*\(([^)]+)\))?/i);
+        senderLabel = (mEnc && mEnc[3]) ? mEnc[3].trim() : 'Personal del Edificio';
         align = 'margin-left:auto;background:#EDE9FE;color:#4C1D95;border:1px solid #DDD6FE;border-bottom-right-radius:2px;';
         icon = '👷';
         tagBg = '#DDD6FE'; tagFg = '#5B21B6';
@@ -2987,26 +2912,17 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var fnObj = lastSlashObj !== -1 ? rawObjMedia.substring(lastSlashObj + 1) : rawObjMedia;
         var extObj = fnObj.split('.').pop().toLowerCase();
 
-        var isAudioExtObj = ['ogg', 'mp3', 'wav', 'aac', 'm4a', 'opus', 'oga', 'amr', 'flac'].indexOf(extObj) !== -1;
-        var isImageExtObj = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1 || rawObjMedia.indexOf('/fotos/') !== -1 || /imagen|foto/i.test(cleanText) || (typeof line === 'object' && line.tipo === 'image');
-        var isVideoExtObj = ['mp4', 'mov', 'webm', 'mkv', 'avi', '3gp'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1 || /video/i.test(cleanText);
-        var isPdfExtObj = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/facturas/') !== -1 || rawObjMedia.indexOf('/documentos/') !== -1 || /documento|factura|pdf/i.test(cleanText);
+        var isLineExplicitImage = /imagen|foto/i.test(cleanText) || /\[(IMAGEN|FOTO):/i.test(String(line.mensaje || line.texto || ''));
+        var isLineExplicitVideo = /video/i.test(cleanText) || /\[VIDEO:/i.test(String(line.mensaje || line.texto || ''));
 
-        if (isImageExtObj) {
+        if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
           visualType = 'image';
           visualFilename = fnObj;
-        } else if (isVideoExtObj) {
+        } else if (isLineExplicitVideo || ['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'video');
           visualType = 'video';
           visualFilename = fnObj;
-        } else if (isPdfExtObj) {
-          visualUrl = normalizarUrlAudio(rawObjMedia, 'pdf');
-          visualType = 'pdf';
-          visualFilename = fnObj;
-        } else if (isAudioExtObj || rawObjMedia.indexOf('/audios/') !== -1) {
-          audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
-          audioFilename = fnObj;
         } else {
           audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
           audioFilename = fnObj;
@@ -3042,7 +2958,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var visualMediaHtml = '';
       if (visualUrl) {
         var urlEsc = escapeHtml(visualUrl);
-        var fnEsc = escapeHtml(visualFilename || 'archivo');
+        var fnEsc = escapeHtml(visualFilename);
         if (visualType === 'pdf') {
           visualMediaHtml = '<div style="margin-top:8px;padding:10px 12px;background:#FFF9F2;border-radius:10px;border:1px solid #FDE68A">' +
             '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
@@ -3108,7 +3024,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       return '<div style="max-width:88%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.06);' + align + '" class="chat-bubble">' +
         '<div style="font-size:10.5px;font-weight:800;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
           '<span style="display:flex;align-items:center;gap:4px"><span>' + icon + '</span><span style="padding:1px 6px;border-radius:999px;background:' + tagBg + ';color:' + tagFg + '">' + escapeHtml(senderLabel) + '</span></span>' +
-          '<span class="chat-time-tag">' + escapeHtml(horaTag || 'Reciente') + '</span>' +
+          (horaTag ? '<span style="font-size:10px;opacity:.65;font-weight:600">🕒 ' + escapeHtml(horaTag) + '</span>' : '') +
         '</div>' +
         '<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>' +
         mediaLinkHtml +
@@ -3176,6 +3092,7 @@ function abrirDrawerEvento(idx){
       '</div>'+
     '</div>'+
     '<div style="padding:22px 24px">'+
+      bannerExterno+
       // ── Bloques de Comunicación (Vecino vs Proveedor) ──
       (function(){
         var convSep = separarConversacionesEvento(datos);
@@ -3185,38 +3102,29 @@ function abrirDrawerEvento(idx){
         var bulkBtn = allAudios.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer;margin-right:6px" class="hv-soft">🎙️ Descargar todos los audios (' + allAudios.length + ')</button>' : '';
         var telVecinoClean = datos.telefono ? String(datos.telefono).replace(/[^0-9]/g, '') : '';
         var telVecinoLink = telVecinoClean ? '<a href="https://wa.me/' + escapeHtml(telVecinoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(datos.telefono) + '</a>' : (datos.telefono ? escapeHtml(datos.telefono) : '—');
-
-        var rawTechName = (datos.tecnico || datos.tecnico_asignado || datos.proveedor || datos.nombre_tecnico || '').replace(/[()]/g, '').trim();
-        if (!rawTechName && convSep.chatProveedor.length > 0) {
-          for (var p = 0; p < convSep.chatProveedor.length; p++) {
-            var pLine = convSep.chatProveedor[p];
-            var pStr = typeof pLine === 'object' ? (pLine.emisor || pLine.remitente || pLine.texto || '') : String(pLine);
-            var matchProvName = pStr.match(/(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)\\s*\\(([^)]+)\\)/i);
-            if (matchProvName && matchProvName[2]) {
-              rawTechName = matchProvName[2].trim().replace(/[()]/g, '');
-              break;
-            }
-          }
+        
+        var rawTechName = (datos.tecnico || '').replace(/[()]/g, '').trim();
+        if (!rawTechName) {
+          var mProvChat = String(datos.historial_chat || '').match(/Proveedor\s*\(([^)]+)\)/i);
+          if (mProvChat && mProvChat[1]) rawTechName = mProvChat[1].trim().replace(/[()]/g, '');
         }
 
         var tecEncontrado = null;
         var provList = window.__PROVEEDORES__ || [];
         if (rawTechName && Array.isArray(provList)) {
-          tecEncontrado = provList.find(function(prov) {
-            var pNom = String(prov.nombre || prov.proveedor || '').toLowerCase().trim();
+          tecEncontrado = provList.find(function(p) {
+            var pNom = String(p.nombre || p.proveedor || '').toLowerCase().trim();
             var tNom = rawTechName.toLowerCase().trim();
             return pNom && (pNom === tNom || pNom.includes(tNom) || tNom.includes(pNom));
           });
         }
 
-        var telTecnicoFinal = datos.tel_tecnico || datos.telefono_tecnico || (tecEncontrado ? (tecEncontrado.telefono || tecEncontrado.celular || '') : '');
+        var telTecnicoFinal = datos.tel_tecnico || (tecEncontrado ? (tecEncontrado.telefono || tecEncontrado.celular || '') : '');
         var rubroTecnicoFinal = datos.rubro_tecnico || (tecEncontrado ? (tecEncontrado.rubro || tecEncontrado.especialidad || '') : (rawTechName ? 'Especialista Asignado' : '—'));
         var tecNombreFinal = rawTechName || (tecEncontrado ? tecEncontrado.nombre : 'Sin asignación aún');
 
         var telTecnicoClean = telTecnicoFinal ? String(telTecnicoFinal).replace(/[^0-9]/g, '') : '';
-        var telTecnicoLink = telTecnicoClean 
-          ? '<a href="https://wa.me/' + escapeHtml(telTecnicoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(telTecnicoFinal) + '</a>' 
-          : (telTecnicoFinal ? escapeHtml(telTecnicoFinal) : '—');
+        var telTecnicoLink = telTecnicoClean ? '<a href="https://wa.me/' + escapeHtml(telTecnicoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(telTecnicoFinal) + '</a>' : (telTecnicoFinal ? escapeHtml(telTecnicoFinal) : '—');
 
         return '<div style="display:flex;gap:8px;margin-bottom:18px;background:#F1F5FB;padding:5px;border-radius:14px;border:1px solid #E2E8F0">'+
           '<button id="tab-btn-ambos" onclick="cambiarTabChatEvento(&quot;ambos&quot;)" style="flex:1;padding:9px 12px;border:1px solid #1E5FB4;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#FFFFFF;font-weight:800;font-size:12.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s ease" class="hv-primary">'+
@@ -3349,16 +3257,9 @@ function descargarResumenEvento(){
   }
 
   // Convertir rutas locales en URLs web absolutas totalmente funcionales
-  if (chatTexto.indexOf('/root/marcos/') !== -1) {
-    var pStr = chatTexto.split('/root/marcos/');
-    for (var pi = 1; pi < pStr.length; pi++) {
-      var subPath = pStr[pi].split(/[\s"<>\)]/)[0];
-      if (subPath) {
-        var rawMatch = '/root/marcos/' + subPath;
-        chatTexto = chatTexto.split(rawMatch).join(normalizarUrlAudio(rawMatch));
-      }
-    }
-  }
+  chatTexto = chatTexto.replace(new RegExp('\\/root\\/marcos\\/[^\\s"\\)]+\\/almacenamiento\\/[^\\s"\\)]+', 'gi'), function(match) {
+    return normalizarUrlAudio(match);
+  });
 
   var audios = obtenerAudiosEvento(d);
   var audiosSection = audios.length ? [
@@ -4148,8 +4049,8 @@ function parseHorario3Lineas(str) {
 
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
-  var rawNames = String(namesStr || '').split(',').join('\\n').split(';').join('\\n').split('\\n').map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(',').join('\\n').split(';').join('\\n').split('\\n').map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawNames = String(namesStr || '').split(/[,\\n;]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawTels = String(telsStr || '').split(/[,\\n;]/).map(function(s){ return s.trim(); }).filter(Boolean);
   var res = [];
 
   for (var i = 0; i < rawNames.length; i++) {
@@ -4158,32 +4059,31 @@ function parseStaffClient(namesStr, telsStr) {
     var estado = 'activo';
     var horario = '';
 
-    var openB = str.indexOf('[');
-    var closeB = str.indexOf(']', openB);
-    if (openB !== -1 && closeB > openB) {
-      var metaStr = str.substring(openB + 1, closeB).trim();
-      str = (str.substring(0, openB) + str.substring(closeB + 1)).trim();
-      var metaParts = metaStr.split('|');
-      if (metaParts.length > 0) {
-        var firstPart = metaParts[0].trim().toLowerCase();
-        if (firstPart === 'activo' || firstPart === 'licencia' || firstPart === 'vacaciones') {
-          estado = firstPart;
-          if (metaParts.length > 1) horario = metaParts.slice(1).join('|').trim();
-        } else {
-          horario = metaStr;
-        }
+    var isScheduleFragment = new RegExp('^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\\d{1,2}:)', 'i').test(str.replace(new RegExp('^[^a-z0-9]+', 'i'), ''));
+    if (isScheduleFragment && res.length > 0) {
+      var cleanHor = str.replace(new RegExp('\\[[^\\]]*\\]', 'g'), '').replace(new RegExp('\\]', 'g'), '').replace(new RegExp('^[^a-z0-9]+', 'i'), '').trim();
+      if (cleanHor) {
+        res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
+          ? cleanHor
+          : res[res.length - 1].horario + ' · ' + cleanHor;
       }
+      continue;
     }
 
-    var openP = str.indexOf('(');
-    var closeP = str.indexOf(')', openP);
-    if (openP !== -1 && closeP > openP) {
-      var insideP = str.substring(openP + 1, closeP).trim();
-      if (!tel || tel === '—') tel = insideP;
-      str = (str.substring(0, openP) + str.substring(closeP + 1)).trim();
+    var matchMeta = str.match(new RegExp('\\[(activo|licencia|vacaciones)?\\s*\\|?\\s*([^\\]]*)\\]', 'i'));
+    if (matchMeta) {
+      if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
+      if (matchMeta[2]) horario = matchMeta[2].trim();
+      str = str.replace(new RegExp('\\[[^\\]]*\\]', 'g'), '').trim();
     }
 
-    str = str.split('[').join('').split(']').join('').trim();
+    var matchTel = str.match(new RegExp('\\(([^)]+)\\)'));
+    if (matchTel && (!tel || tel === '—')) {
+      tel = matchTel[1].trim();
+      str = str.replace(/\\([^)]+\\)/g, '').trim();
+    }
+
+    str = str.replace(/\\[|\\]/g, '').trim();
 
     if (str || tel !== '—') {
       res.push({
@@ -4326,7 +4226,7 @@ async function guardarStaffItem(btn) {
   }
 
   var items = parseStaffClient(namesStr, telsStr);
-  var cleanNombre = nombre.trim().replace(/\\[|\\]/g, '');
+  var cleanNombre = nombre.trim().replace(/\[|\]/g, '');
   var newItem = {
     nombre: cleanNombre || 'Personal',
     tel: tel.trim() || '—',
@@ -4341,7 +4241,7 @@ async function guardarStaffItem(btn) {
   }
 
   var formattedNames = items.map(function(x){
-    var cNom = (x.nombre || 'Personal').replace(/\\[|\\]/g, '').trim();
+    var cNom = (x.nombre || 'Personal').replace(/\[|\]/g, '').trim();
     return cNom + ' [' + (x.estado || 'activo') + ' | ' + (x.horario || 'Sin horario') + ']';
   }).join(', ');
 
@@ -5428,7 +5328,7 @@ ${(() => {
 </div>
 
 <style>
-.ac-ai-msg { padding: 10px 14px; border-radius: 12px; max-width: 88%; line-height: 1.5; word-wrap: break-word; white-space: pre-wrap; }
+.ac-ai-msg { padding: 9px 12px; border-radius: 12px; max-width: 85%; line-height: 1.45; word-wrap: break-word; }
 .ac-ai-msg.bot { background: #EAF1FB; color: #16233B; border-bottom-left-radius: 4px; align-self: flex-start; }
 .ac-ai-msg.user { background: #17408B; color: #ffffff; border-bottom-right-radius: 4px; align-self: flex-end; }
 .ac-ai-msg.loading { font-style: italic; color: #64748B; background: #F1F5FB; }
@@ -6449,7 +6349,7 @@ router.get('/mi-edificio', async (req, res) => {
         const matchTel = str.match(/\(([^)]+)\)/);
         if (matchTel && (!tel || tel === '—')) {
           tel = matchTel[1].trim();
-          str = str.replace(/\\([^)]+\\)/g, '').trim();
+          str = str.replace(/\([^)]+\)/g, '').trim();
         }
 
         str = str.replace(/\[|\]/g, '').trim();
@@ -7049,68 +6949,34 @@ router.get('/archivos', async (req, res) => {
     const cards = facturas.map((f) => {
       const mon = monStyle(f.moneda);
       const pagada = /pagad/i.test(f.estado);
-      const esFactura = f.tipo === 'Factura' || f.tipo === 'Factura PDF' || /factura/i.test(f.tipo);
+      const esFactura = f.tipo === 'Factura' || /factura/i.test(f.tipo);
       const nuevoEstado = pagada ? 'pendiente' : 'pagada';
-      const thumbBg = f.tipo === 'Foto' ? 'linear-gradient(135deg,#E7F4EC,#D5EADD)' : 'linear-gradient(135deg,#FFF9F2,#FDE68A)';
-      const iconoHeader = f.tipo === 'Factura PDF' ? '📄' : (f.tipo === 'Foto' ? '🖼️' : '🧾');
-      
-      const fileUrlEsc = f.url ? esc(f.url) : '';
-      const compPagoUrlEsc = f.comprobantePagoUrl ? esc(f.comprobantePagoUrl) : '';
-
-      const btnDescargarPdf = fileUrlEsc ? `
-        <a href="${fileUrlEsc}" download target="_blank" onclick="event.stopPropagation()"
-           style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:800;color:#92400E;background:#FDE68A;border:1px solid #F7D070;padding:5px 11px;border-radius:7px;text-decoration:none;transition:all .15s ease" class="hv-soft">
-          ⬇️ Descargar ${f.tipo === 'Factura PDF' ? 'PDF' : 'Archivo'}
-        </a>` : '';
-
-      const btnVerDocumento = fileUrlEsc ? `
-        <a href="${fileUrlEsc}" target="_blank" onclick="event.stopPropagation()"
-           style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:5px 10px;border-radius:7px;text-decoration:none;transition:all .15s ease" class="hv-soft">
-          👁️ Ver ${f.tipo === 'Foto' ? 'Foto' : 'Documento'}
-        </a>` : '';
-
-      const btnComprobantePago = compPagoUrlEsc ? `
-        <a href="${compPagoUrlEsc}" target="_blank" download onclick="event.stopPropagation()"
-           style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:800;color:#1B7A43;background:#E7F4EC;border:1px solid #A3D9B1;padding:5px 11px;border-radius:7px;text-decoration:none;transition:all .15s ease" class="hv-soft">
-          📎 Recibo Pago (Descargar)
-        </a>` : '';
-
-      const numFacturaBadge = f.numeroFactura ? `<div style="font-size:12px;font-weight:800;color:#2E6FC0;margin-bottom:4px">📄 N° ${esc(f.numeroFactura)}</div>` : '';
+      const thumbBg = f.tipo === 'Foto' ? 'linear-gradient(135deg,#E7F4EC,#D5EADD)' : 'linear-gradient(135deg,#EAF1FB,#DCE9FA)';
+      const abrir = f.url && /^https?:/i.test(f.url) ? `onclick="window.open('${escJs(f.url)}','_blank')" style="cursor:pointer"` : '';
 
       const btnEstadoHtml = esFactura ? `
         <button type="button" onclick="event.stopPropagation(); toggleFacturaEstado(this, ${f._row}, '${nuevoEstado}')"
-                style="font-size:12px;font-weight:800;padding:6px 14px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'};border:1px solid ${pagada ? '#A3D9B1' : '#F7D070'};cursor:pointer;transition:all .15s ease"
+                style="font-size:11.5px;font-weight:700;padding:4px 12px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'};border:1px solid ${pagada ? '#A3D9B1' : '#F7D070'};cursor:pointer;transition:all .15s ease"
                 title="Haz clic para cambiar estado a ${pagada ? 'Pendiente' : 'Pagada'}">
           ${pagada ? '✓ Pagada' : '⏳ Pendiente'}
         </button>`
         : `<span style="font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'}">${esc(f.estado || 'Pendiente')}</span>`;
 
       return `
-        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.03);display:flex;flex-direction:column;justify-content:space-between">
-          <div>
-            <div style="height:110px;background:${thumbBg};display:flex;align-items:center;justify-content:center;position:relative">
-              <span style="font-size:42px">${iconoHeader}</span>
-              <span style="position:absolute;top:10px;left:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.95);color:#16233B">${f.tipo}</span>
-              <span style="position:absolute;top:10px;right:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:${mon.bg};color:${mon.fg}">${f.moneda}</span>
-            </div>
-            <div style="padding:14px 16px">
-              ${dueno ? `<span style="display:inline-block;font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;background:#EEF2F8;color:#5A6B85;margin-bottom:8px">🏢 ${esc(f.edificio)}</span>` : ''}
-              ${numFacturaBadge}
-              <div style="font-size:15px;font-weight:800;color:#16233B;margin-bottom:4px;line-height:1.3">${esc(truncate(f.concepto, 75))}</div>
-              <div style="font-size:12.5px;color:#64748B;margin-bottom:12px;font-weight:600">👤 Proveedor: <strong>${esc(f.proveedor)}</strong><br>🕒 Fecha: ${esc(fechaCorta(parseFecha(f.fecha)) || f.fecha || 'Sin fecha')}</div>
-              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-                ${btnDescargarPdf}
-                ${btnVerDocumento}
-                ${btnComprobantePago}
-              </div>
-            </div>
+        <div ${abrir ? abrir.replace('style="cursor:pointer"', '') : ''} style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden${abrir ? ';cursor:pointer' : ''}">
+          <div style="height:120px;background:${thumbBg};display:flex;align-items:center;justify-content:center;position:relative">
+            <span style="font-size:40px">${f.tipo === 'Foto' ? '🖼️' : '🧾'}</span>
+            <span style="position:absolute;top:10px;left:10px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.9);color:#334259">${f.tipo}</span>
+            <span style="position:absolute;top:10px;right:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:${mon.bg};color:${mon.fg}">${f.moneda}</span>
           </div>
-          <div style="padding:12px 16px;background:#F8FAFC;border-top:1px solid #E7ECF3;display:flex;align-items:center;justify-content:space-between">
-            <div>
-              <span style="font-size:11px;color:#8595AD;display:block;font-weight:700;text-transform:uppercase">Monto Total</span>
-              <span style="font-size:20px;font-weight:800;color:#16233B;letter-spacing:-.02em">${esc(f.monto || '—')}</span>
+          <div style="padding:14px 16px">
+            ${dueno ? `<span style="display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EEF2F8;color:#5A6B85;margin-bottom:8px">🏢 ${esc(f.edificio)}</span>` : ''}
+            <div style="font-size:15px;font-weight:700;margin-bottom:2px">${esc(truncate(f.concepto, 60))}</div>
+            <div style="font-size:13px;color:#8595AD;margin-bottom:12px">${esc(f.proveedor)} · ${esc(fechaCorta(parseFecha(f.fecha)) || f.fecha)}</div>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font-size:19px;font-weight:800;letter-spacing:-.02em">${esc(f.monto || '—')}</span>
+              ${btnEstadoHtml}
             </div>
-            ${btnEstadoHtml}
           </div>
         </div>`;
     }).join('');
@@ -9161,77 +9027,9 @@ router.get('/api/busqueda-global', async (req, res) => {
   }
 });
 
-// --- ASISTENTE VIRTUAL DE DASHBOARD (IA INTERACTIVA PARA EL USUARIO) ---
-router.post('/api/asistente-consultar', async (req, res) => {
-  try {
-    const { pregunta, seccion } = req.body || {};
-    if (!pregunta || !String(pregunta).trim()) {
-      return res.status(400).json({ error: 'Falta la pregunta' });
-    }
-
-    const esUserDueno = esDueno(req);
-    const rolTexto = esUserDueno ? 'Dueño del Sistema (Daniel / Administración Global)' : 'Administrador de Consorcio (Cliente)';
-    const permitidos = edificiosPermitidos(req) || [];
-    const edificioActivo = req.session?.edificioActivo || permitidos[0] || 'Todos los edificios';
-
-    const promptSistema = `Sos el Asistente Virtual Inteligente del Panel Administrativo de Marcos IA. Tu misión es guiar de forma sabia, súper amable, paciente y didáctica a Administradores de Consorcio y al Dueño del sistema.
-
-CONTEXTO DEL USUARIO QUE PREGUNTA:
-- Rol del usuario: ${rolTexto}
-- Edificio activo en pantalla: ${edificioActivo}
-- Sección del panel donde está ubicado actualmente: ${seccion || '/admin'}
-
-REGLAS DE ORO OBLIGATORIAS:
-1. NUNCA DIGAS QUE UNA FUNCIÓN NO EXISTE SI ESTÁ EN EL PANEL. Todo lo relativo a consorcios, encargados, ayudantes, suplentes, limpieza, seguridad, accesos, proveedores, expensas y reclamos SÍ SE HACE DESDE ESTE PANEL. NUNCA mandes al usuario a escribir por WhatsApp si la tarea se resuelve dentro del panel.
-2. PASOS ESCALONADOS Y SEPARADOS (FORMATO VISUAL): Cada paso DEBE ir obligatoriamente en su propia línea, separado de los demás por un salto de línea doble (\n\n). NUNCA pegues dos pasos en el mismo renglón o párrafo continuo. La gente que usa este panel apenas maneja el celular y necesita ver los pasos 1, 2 y 3 separados por renglones limpios.
-3. NAVEGACIÓN VISUAL EXACTA: Indicá la ruta exacta usando emojis y corchetes para los botones: ej. Menú Lateral ➡️ [ Mi Edificio ] ➡️ Bloque [ Personal, Limpieza y Seguridad ] ➡️ Botón [ + Añadir ].
-4. LENGUAJE CÁLIDO Y SERVICIAL: Sé muy empático ("¡Hola! Claro que sí, podés agregarlo fácilmente en 2 pasos...").
-5. CIERRE INTERACTIVO: Terminá ofreciendo ayuda en el siguiente paso ("¿Querés que te guíe en algún otro dato?").
-
-MAPEO DETALLADO DE FUNCIONES DEL PANEL:
-
-🏢 SECCIÓN "MI EDIFICIO" (/admin/mi-edificio):
-- 👥 Bloque "Personal, Limpieza y Seguridad del Edificio":
-  * 🧑‍🔧 "Encargados Titulares": Editar estado (Activo, Vacaciones, Licencia) y horarios con reloj interactivo de 2 rangos L-V + Sábados.
-  * 🧹 "Encargados Suplentes y Personal de Limpieza": ¡ACÁ SE AGREGAN AYUDANTES DE ENCARGADO, SUPLENTES Y PERSONAL DE LIMPIEZA! Para agregar uno, ir a esta sección y hacer clic en el botón azul [ + Añadir ].
-  * 🛡️ "Personal de Portería y Seguridad Entrada": Se agregan vigiladores y seguridad usando el botón [ + Añadir ].
-- 🛋️ Bloque "Espacios Comunes, Horarios y Cocheras": Reglamento del SUM y cocheras.
-- 🔑 Pestaña "Instalaciones y Accesos": Registro de puertas, llaves, bombas, tableros y terraza. Incluye la función "Cargar por Relato" (escribir un texto libre y Marcos acomoda los accesos solo).
-- 🛠️ Pestaña "Proveedores y Servicios": Asignar técnicos de la lista maestra por prioridad (1º Opción, 2º Opción, Urgencias).
-- 👥 Pestaña "Consejo de Administración": Miembros del consejo de propietarios.
-
-📋 OTRAS SECCIONES DEL PANEL:
-- 🏠 Resumen (/admin): Tablero KIPs y estado general.
-- ⚡ Eventos (/admin/eventos): Reclamos y llamadas en tiempo real con visor lateral "Qué hizo Marcos".
-- 🧰 Proveedores (/admin/proveedores): Lista Maestra de proveedores (se cargan 1 sola vez).
-- 💵 Expensas (/admin/expensas): Cargar PDF/Imagen/Link de la liquidación mensual para que Marcos se la envíe a los vecinos por WhatsApp.
-- 📚 Archivos (/admin/archivos): Reglamento de Copropiedad y actas.
-- 💬 Sugerencias (/admin/sugerencias): Mensajes directos al soporte/Daniel.
-- 👔 Clientes (/admin/clientes) & ✉️ Solicitudes (/admin/solicitudes): Exclusivo para el Dueño.
-
-Pregunta del usuario: "${String(pregunta).trim()}"
-
-Respuesta (corta, amable, esquemática y paso a paso):`;
-
-    const { GoogleGenAI } = require('@google/genai');
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const respGemini = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: promptSistema,
-    });
-
-    const respuestaTexto = String(respGemini?.text || '').trim();
-    res.json({ ok: true, respuesta: respuestaTexto || '¡Hola! En este momento no pude consultar la respuesta, por favor intentá de nuevo.' });
-  } catch (e) {
-    console.error('Error en /api/asistente-consultar:', e);
-    res.status(500).json({ error: 'Ocurrió un error al procesar tu consulta con el asistente.' });
-  }
-});
-
 /* ===================================================================
  * EXPORT
  * =================================================================== */
 
 module.exports = router;
-
 
