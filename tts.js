@@ -91,6 +91,10 @@ async function generarAudio(texto, fileName = 'audio_marcos.ogg') {
     if (textoParaVoz !== texto) {
         console.log('🔇 Se omitieron números de teléfono en la nota de voz (van escritos igual).');
     }
+    // Se registra EXACTAMENTE lo que se manda a sintetizar. Cuando un audio sale mal, sin esta
+    // línea no hay forma de saber si el problema fue el texto o la voz: se escucha algo raro y no
+    // se puede comparar contra nada.
+    console.log(`🗣️ Texto que se manda a la voz: "${textoParaVoz}"`);
 
     const options = { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', hour12: false };
     const formatter = new Intl.DateTimeFormat('es-AR', options);
