@@ -2688,7 +2688,7 @@ function procesarLineaMultimediaChat(strText) {
         var before = cleanText.substring(0, startCut).trim();
         var after = cleanText.substring(fullEndCut).trim();
 
-        var tagRegexes = [/imagen:\s*$/i, /foto:\s*$/i, /video:\s*$/i, /audio:\s*$/i, /\(imagen adjunta\)\s*$/i, /\(video adjunto\)\s*$/i, /\(nota de voz\)\s*$/i];
+        var tagRegexes = [/imagen:\\s*$/i, /foto:\\s*$/i, /video:\\s*$/i, /audio:\\s*$/i, /\\(imagen adjunta\\)\\s*$/i, /\\(video adjunto\\)\\s*$/i, /\\(nota de voz\\)\\s*$/i];
         for (var t = 0; t < tagRegexes.length; t++) {
           if (tagRegexes[t].test(before)) {
             before = before.replace(tagRegexes[t], '').trim();
@@ -2921,7 +2921,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         icon = '🟢';
         tagBg = '#D1FAE5'; tagFg = '#065F46';
       } else if (isProveedor) {
-        var matchProv = str.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)(\s*\(([^)]+)\))?/i);
+        var matchProv = str.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)(\\s*\\(([^)]+)\\))?/i);
         var nomProvInStr = (matchProv && matchProv[3]) ? matchProv[3].trim() : '';
         var nomTechClean = (nomProvInStr || datos.tecnico || 'Técnico / Proveedor').replace(/[()]/g, '').trim();
         senderLabel = nomTechClean || 'Técnico / Proveedor';
@@ -3159,7 +3159,7 @@ function abrirDrawerEvento(idx){
           for (var p = 0; p < convSep.chatProveedor.length; p++) {
             var pLine = convSep.chatProveedor[p];
             var pStr = typeof pLine === 'object' ? (pLine.emisor || pLine.remitente || pLine.texto || '') : String(pLine);
-            var matchProvName = pStr.match(/(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)\s*\(([^)]+)\)/i);
+            var matchProvName = pStr.match(/(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)\\s*\\(([^)]+)\\)/i);
             if (matchProvName && matchProvName[2]) {
               rawTechName = matchProvName[2].trim().replace(/[()]/g, '');
               break;
