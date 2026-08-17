@@ -2326,7 +2326,7 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
   } else if (u.indexOf('/archivos/') !== -1) {
     u = '/archivos/' + u.substring(u.indexOf('/archivos/') + 10);
   } else {
-    var filename = u.replace(/^\/+/g, '').replace(/^\\+/g, '');
+    var filename = u.replace(/^\\/+/g, '').replace(/^\\\\+/g, '');
     if (filename.startsWith('temp/')) {
       u = '/' + targetFolder + '/' + filename.substring(5);
     } else if (filename.startsWith('almacenamiento/')) {
@@ -2780,7 +2780,7 @@ function separarConversacionesEvento(datos) {
       if (src.trim().startsWith('[')) {
         try { return JSON.parse(src); } catch(e) { return [src]; }
       }
-      return String(src).split('\n').filter(Boolean);
+      return String(src).split('\\n').filter(Boolean);
     }
     if (Array.isArray(src)) return src;
     return [];
