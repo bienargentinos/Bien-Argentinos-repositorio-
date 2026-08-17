@@ -2305,7 +2305,7 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
     var mediaId = u.replace(/^media[:_]/i, '').trim();
     var hasExt = /\.(jpeg|jpg|png|webp|gif|bmp|svg|mp4|mov|webm|mkv|avi|ogg|mp3|m4a|wav)$/i.test(mediaId);
     u = '/' + targetFolder + '/media_' + mediaId + (hasExt ? '' : defaultExt);
-  } else if (/^\d{10,20}$/.test(u)) {
+  } else if (/^\\d{10,20}$/.test(u)) {
     u = '/' + targetFolder + '/media_' + u + defaultExt;
   }
 
@@ -2434,10 +2434,10 @@ function parseAudiosDetallados(datos) {
       strText = (lineEmisor ? lineEmisor + ': ' : '') + (line.texto || line.mensaje || '');
     } else {
       strText = String(line);
-      var matchSender = strText.match(/^([^:\(\)]+)(\s*\([^\)]+\))?:\s*/);
+      var matchSender = strText.match(/^([^:\\(\\)]+)(\\s*\\([^\\)]+\\))?:\\s*/);
       if (matchSender) {
         lineEmisor = matchSender[1].trim();
-        if (matchSender[2]) lineHora = matchSender[2].replace(/[\(\)]/g, '').trim();
+        if (matchSender[2]) lineHora = matchSender[2].replace(/[\\(\\)]/g, '').trim();
       }
     }
 
@@ -2602,9 +2602,9 @@ function procesarLineaMultimediaChat(strText) {
   var visualUrl = '', visualType = '', visualFilename = '';
   var audioUrl = '', audioFilename = '';
 
-  var allTags = cleanText.match(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/gi) || [];
+  var allTags = cleanText.match(/\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^\\]]+)\\]/gi) || [];
   allTags.forEach(function(tagStr) {
-    var m = tagStr.match(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/i);
+    var m = tagStr.match(/\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^\\]]+)\\]/i);
     if (m) {
       var tagType = m[1].toUpperCase();
       var rawUrl = m[2].trim();
@@ -2902,7 +2902,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var isEncargado = rem === 'encargado' || rem === 'portero' || rem === 'seguridad' || /^(Encargado|Seguridad|Portero|Portería)/i.test(str);
       var isAdmin = rem === 'admin' || rem === 'administracion' || /^(Admin|Administración)/i.test(str);
 
-      var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería|Admin|Administración)(\s*\(.*\?\))?:\s*/i, '');
+      var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería|Admin|Administración)(\\s*\\(.*\\?\\))?:\\s*/i, '');
 
       var senderLabel = 'Marcos IA';
       var align = 'margin-right:auto;background:#FFFFFF;color:#16233B;border:1px solid #E1E7F0;border-bottom-left-radius:2px;';
@@ -2910,12 +2910,12 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var tagBg = '#EAF1FB', tagFg = '#2E6FC0';
 
       if (isFamiliar) {
-        senderLabel = (str.match(/^(Familiar|Pariente)(\s*\(.*\?\))?/i)?.[0]) || 'Familiar';
+        senderLabel = (str.match(/^(Familiar|Pariente)(\\s*\\(.*\\?\\))?/i)?.[0]) || 'Familiar';
         align = 'margin-left:auto;background:#EFF6FF;color:#1E3A8A;border:1px solid #BFDBFE;border-bottom-right-radius:2px;';
         icon = '🔵';
         tagBg = '#DBEAFE'; tagFg = '#1E40AF';
       } else if (isVecino) {
-        var matchNom = str.match(/^(Vecino|Usuario|Cliente|Titular)(\s*\(.*\?\))?/i)?.[0];
+        var matchNom = str.match(/^(Vecino|Usuario|Cliente|Titular)(\\s*\\(.*\\?\\))?/i)?.[0];
         senderLabel = matchNom || (datos.vecino || 'Vecino (Titular)');
         align = 'margin-left:auto;background:#DCF8C6;color:#0F2310;border-bottom-right-radius:2px;';
         icon = '🟢';
@@ -2929,7 +2929,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         icon = '🔧';
         tagBg = '#FDE68A'; tagFg = '#92400E';
       } else if (isEncargado) {
-        senderLabel = (str.match(/^(Encargado|Seguridad|Portero|Portería)(\s*\(.*\?\))?/i)?.[0]) || 'Personal del Edificio';
+        senderLabel = (str.match(/^(Encargado|Seguridad|Portero|Portería)(\\s*\\(.*\\?\\))?/i)?.[0]) || 'Personal del Edificio';
         align = 'margin-left:auto;background:#EDE9FE;color:#4C1D95;border:1px solid #DDD6FE;border-bottom-right-radius:2px;';
         icon = '👷';
         tagBg = '#DDD6FE'; tagFg = '#5B21B6';
@@ -6396,9 +6396,9 @@ router.get('/mi-edificio', async (req, res) => {
         let estado = 'activo';
         let horario = '';
 
-        const isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
+        const isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
         if (isScheduleFragment && res.length > 0) {
-          const cleanHor = str.replace(/\[[^\]]*\]/g, '').replace(/\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
+          const cleanHor = str.replace(/\\[[^\\]]*\\]/g, '').replace(/\\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
           if (cleanHor) {
             res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
               ? cleanHor
@@ -6407,20 +6407,20 @@ router.get('/mi-edificio', async (req, res) => {
           continue;
         }
 
-        const matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
+        const matchMeta = str.match(/\\[(activo|licencia|vacaciones)?\\s*\\|?\\s*([^\\]]*)\\]/i);
         if (matchMeta) {
           if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
           if (matchMeta[2]) horario = matchMeta[2].trim();
-          str = str.replace(/\[[^\]]*\]/g, '').trim();
+          str = str.replace(/\\[[^\\]]*\\]/g, '').trim();
         }
 
-        const matchTel = str.match(/\(([^)]+)\)/);
+        const matchTel = str.match(/\\(([^)]+)\\)/);
         if (matchTel && (!tel || tel === '—')) {
           tel = matchTel[1].trim();
           str = str.replace(/\\([^)]+\\)/g, '').trim();
         }
 
-        str = str.replace(/\[|\]/g, '').trim();
+        str = str.replace(/\\[|\\]/g, '').trim();
 
         if (str || tel !== '—') {
           res.push({
@@ -8628,7 +8628,7 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
     // Usamos [^\]] para matchear todo hasta el cierre del corchete (más robusto que .*?)
     let targetEdificios = [];
     const motivoTxt = String(motivo || '');
-    const matchAsignados = motivoTxt.match(/Edificios asignados \(\d+\):\s*\[([^\]]+)\]/i);
+    const matchAsignados = motivoTxt.match(/Edificios asignados \\(\\d+\\):\\s*\\[([^\\]]+)\\]/i);
     if (matchAsignados && matchAsignados[1]) {
       targetEdificios = matchAsignados[1].split(',').map((s) => s.trim()).filter(Boolean);
     }
