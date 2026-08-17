@@ -401,15 +401,35 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
     }
 }
 
+/**
+ * Frena el aviso de "el técnico no contestó" cuando el técnico sí contestó.
+ *
+ * La comparación va por los últimos 8 dígitos y no por el número entero. El mismo teléfono llega
+ * escrito distinto según de dónde salga: la asignación lo tiene como `541169241157` y el webhook de
+ * Meta lo manda como `5491169241157`, con el 9 de celular. La clave del temporizador se arma con el
+ * primero y la cancelación llegaba con el segundo, así que el `includes` no daba nunca: el técnico
+ * confirmaba, el temporizador seguía corriendo igual y a los 20 minutos le entraba a la
+ * Administración un mail diciendo que nadie había contestado.
+ *
+ * @returns {number} Cuántos temporizadores se frenaron. Cero significa que no se canceló nada, y el
+ *   llamador no debería decir que sí.
+ */
 function cancelarEscalacionProveedor(telefonoProveedor) {
     const telClean = String(telefonoProveedor).replace(/\D/g, '');
+    if (!telClean) return 0;
+    const cola = telClean.slice(-8);
+
+    let cancelados = 0;
     for (const [key, timer] of global.timersEscalacionProveedores.entries()) {
-        if (key.includes(telClean)) {
+        const telDeLaClave = String(key).split('_').pop().replace(/\D/g, '');
+        if (telDeLaClave && telDeLaClave.slice(-8) === cola) {
             clearTimeout(timer);
             global.timersEscalacionProveedores.delete(key);
+            cancelados++;
             console.log(`🛑 Escalación cancelada para el técnico (${telClean}) por respuesta activa.`);
         }
     }
+    return cancelados;
 }
 
 async function retransmitirMediaAlProveedor({ tecnicoTelefono, filePath, mimeType, id_evento, edificio, caption, phoneNumberId, accessToken }) {
@@ -782,6 +802,30 @@ function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, p
         if (yaRespondio) {
             console.log(`✅ Técnico ${tecnicoAsignado.nombre} respondió. Cancelando escalación.`);
             return;
+        }
+
+        // Última verificación antes de molestar a nadie: preguntarle al CASO, no a la memoria.
+        //
+        // Las dos comprobaciones de arriba dependen de estructuras en RAM que se pierden con cada
+        // reinicio de PM2 y que además se indexan por teléfono, con los problemas de normalización
+        // que eso trae. El caso, en cambio, sabe si el técnico confirmó y si ya está resuelto. Sin
+        // este chequeo, la Administración recibió un mail de "el técnico no contestó" cuando el
+        // técnico había confirmado, ido, arreglado y facturado.
+        try {
+            const { buscarCasoPorCodigo } = require('../datos-pg');
+            const caso = await buscarCasoPorCodigo(id_evento);
+            if (caso?.cerrado) {
+                console.log(`✅ [${id_evento}] ya está resuelto: no se escala.`);
+                return;
+            }
+            if (caso?.confirmado) {
+                console.log(`✅ El técnico ya había confirmado [${id_evento}]: no se escala.`);
+                return;
+            }
+        } catch (e) {
+            // Si no se puede consultar el caso se sigue con la escalación: dejar un caso urgente sin
+            // avisar es peor que un aviso de más.
+            console.error(`No se pudo verificar el estado de [${id_evento}] antes de escalar:`, e.message);
         }
 
         console.log(`⚠️ TIMEOUT 20 MIN: Técnico ${tecnicoAsignado.nombre} no confirmó [${id_evento}]. Escalando...`);

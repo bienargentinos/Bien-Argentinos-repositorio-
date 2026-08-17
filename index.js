@@ -973,8 +973,12 @@ function validarYSanitizarNombre(nombre) {
                     cuando: fechaHoraAR(),
                     tecnico: datosEmisor.nombre || ''
                 };
-                cancelarEscalacionProveedor(from);
-                console.log(`✅ El técnico ${datosEmisor.nombre} confirmó la visita${lectura.eta ? ` (${lectura.eta})` : ''}. Recordatorios cancelados.`);
+                // Se informa lo que realmente pasó: antes decía "Recordatorios cancelados" siempre,
+                // aunque no hubiera cancelado ninguno, y por eso el aviso de "el técnico no
+                // contestó" seguía saliendo sin que el log lo delatara.
+                const frenados = cancelarEscalacionProveedor(from);
+                console.log(`✅ El técnico ${datosEmisor.nombre} confirmó la visita${lectura.eta ? ` (${lectura.eta})` : ''}. ` +
+                    (frenados > 0 ? `Recordatorios cancelados (${frenados}).` : `No había recordatorios pendientes que frenar.`));
 
                 // Confirmar no es haber ido. Se agenda un control para después del plazo que dio:
                 // antes, con la confirmación se cancelaba el temporizador y nadie volvía a
