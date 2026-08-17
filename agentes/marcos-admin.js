@@ -81,6 +81,8 @@ async function reportarAlAdmin({
         problema:  decisionCaso.resumen_problema || resumenReporte,
         urgencia:  decisionCaso.urgencia || 'baja',
         tecnico:   tecnicoAsignado?.nombre || '',
+        tel_tecnico: tecnicoAsignado?.telefono || '',
+        rubro_tecnico: tecnicoAsignado?.especialidad || decisionCaso.tipo_problema || '',
         acceso:    tecnicoAsignado?.acceso || '',
         // Un caso se cierra cuando la IA decide que está resuelto y no queda nada que derivar.
         //

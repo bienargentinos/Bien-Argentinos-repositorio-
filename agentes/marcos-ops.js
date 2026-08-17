@@ -369,6 +369,22 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
         const mensajeTecnico = await generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id_evento });
         await enviarWhatsApp(tecnicoAsignado.telefono, mensajeTecnico, phoneNumberId, accessToken);
     }
+
+    const resumenNotifProveedor = `Marcos (a Proveedor): [Plantilla WhatsApp] Hola ${tecnicoAsignado.nombre || 'Técnico'}, tenés una nueva solicitud de servicio en ${direccionExacta} para ${vecinoConDepto} — ${textoProblemaConCaso}. Urgencia: ${(decisionCaso.urgencia || 'media').toUpperCase()}. Acceso: ${tecnicoAsignado.acceso || accesoFinal}.`;
+
+    try {
+        const { guardarReporte } = require('../sheets');
+        await guardarReporte({
+            id_evento,
+            edificio: vecino?.edificio || direccionExacta,
+            tecnico: tecnicoAsignado.nombre || '',
+            tel_tecnico: tecnicoAsignado.telefono || '',
+            rubro_tecnico: tecnicoAsignado.especialidad || decisionCaso.tipo_problema || '',
+            historial_chat: JSON.stringify([resumenNotifProveedor])
+        });
+    } catch (e) {
+        console.error('Error registrando mensaje inicial a técnico en Sheets:', e.message);
+    }
 }
 
 function cancelarEscalacionProveedor(telefonoProveedor) {

@@ -589,7 +589,7 @@ async function guardarMemoriaVecino({ telefono, nombre, resumenHistorial, notasT
 // REPORTES DE CASOS
 // ─────────────────────────────────────────────
 
-async function guardarReporte({ edificio, vecino, depto, problema, urgencia, estado, notas, notas_ia, fechaInicio, tipo = 'whatsapp', telefono = '', audio_url = '', transcripcion = '', historial_chat = '', id_evento = '' }) {
+async function guardarReporte({ edificio, vecino, depto, problema, urgencia, estado, notas, notas_ia, fechaInicio, tipo = 'whatsapp', telefono = '', audio_url = '', transcripcion = '', historial_chat = '', id_evento = '', tecnico = '', tel_tecnico = '', rubro_tecnico = '' }) {
     try {
         const doc = await getSheet();
         const sheet = doc.sheetsByTitle['EVENTOS'];
@@ -598,8 +598,8 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
         await sheet.loadHeaderRow().catch(() => {});
         const headers = sheet.headerValues || [];
 
-        // Asegurar que los headers tengan los campos requeridos incluyendo id_evento, audios_json, involucrados_json, chat_vecino_json y chat_proveedor_json
-        const headersNecesarios = ['id_evento', 'fecha', 'edificio', 'vecino', 'depto', 'unidad', 'mensaje', 'tipo', 'urgencia', 'estado', 'notas', 'feedback', 'telefono', 'hora_fin', 'audio_url', 'transcripcion', 'historial_chat', 'audios_json', 'involucrados_json', 'chat_vecino_json', 'chat_proveedor_json', 'tecnico_notificado'];
+        // Asegurar que los headers tengan los campos requeridos incluyendo id_evento, audios_json, involucrados_json, chat_vecino_json, chat_proveedor_json, tecnico, tel_tecnico, rubro_tecnico
+        const headersNecesarios = ['id_evento', 'fecha', 'edificio', 'vecino', 'depto', 'unidad', 'mensaje', 'tipo', 'urgencia', 'estado', 'notas', 'feedback', 'telefono', 'tecnico', 'tel_tecnico', 'rubro_tecnico', 'hora_fin', 'audio_url', 'transcripcion', 'historial_chat', 'audios_json', 'involucrados_json', 'chat_vecino_json', 'chat_proveedor_json', 'tecnico_notificado'];
         const nuevosHeaders = Array.from(new Set([...headers, ...headersNecesarios]));
         if (nuevosHeaders.length > headers.length) {
             await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
@@ -733,7 +733,7 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
         let esContextoProveedor = false;
         chatNuevosArr.forEach(m => {
             const strM = typeof m === 'object' ? (m.emisor ? m.emisor + ': ' + (m.texto || m.mensaje || '') : JSON.stringify(m)) : String(m || '');
-            const isProv = /proveedor|t.cnico|instalador|plomero|electricista|gasista|marcos ➔ proveedor|marcos -> proveedor/i.test(strM);
+            const isProv = /proveedor|t.cnico|instalador|plomero|electricista|gasista|marcos ➔ proveedor|marcos -> proveedor|marcos \(a proveedor\)/i.test(strM);
 
             if (isProv) {
                 esContextoProveedor = true;
@@ -763,6 +763,9 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             const estadoNuevoEsCierre = ['resuelto', 'cerrado'].includes(String(estado || '').toLowerCase().trim());
             if (estado && !(unificadoEnCerrado && !estadoNuevoEsCierre)) rowExistente.set('estado', estado);
             if (notasFinales) rowExistente.set('notas', notasFinales);
+            if (tecnico) rowExistente.set('tecnico', tecnico);
+            if (tel_tecnico) rowExistente.set('tel_tecnico', tel_tecnico);
+            if (rubro_tecnico) rowExistente.set('rubro_tecnico', rubro_tecnico);
             if (audio_url) rowExistente.set('audio_url', audio_url);
             if (transcripcion) rowExistente.set('transcripcion', transcripcion);
             if (audiosLista.length > 0) rowExistente.set('audios_json', JSON.stringify(audiosLista));
@@ -806,6 +809,9 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
                 urgencia:           urgencia|| '',
                 estado:             estado  || 'nuevo',
                 notas:              notasFinales,
+                tecnico:            tecnico || '',
+                tel_tecnico:        tel_tecnico || '',
+                rubro_tecnico:      rubro_tecnico || '',
                 audio_url:          audio_url || '',
                 transcripcion:      transcripcion || '',
                 historial_chat:     chatCombinado.length > 0 ? JSON.stringify(chatCombinado) : '',

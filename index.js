@@ -27,7 +27,10 @@ const app = express();
 app.use(bodyParser.json());
 const path = require('path');
 app.use('/audios', express.static(path.join(__dirname, 'temp')));
+app.use('/audios', express.static(path.join(__dirname, 'almacenamiento')));
 app.use('/archivos', express.static(path.join(__dirname, 'almacenamiento')));
+app.use('/archivos', express.static(path.join(__dirname, 'temp')));
+app.use('/temp', express.static(path.join(__dirname, 'temp')));
 
 const fs = require('fs');
 function logDebug(msg) {
@@ -301,7 +304,10 @@ app.post('/webhook', async (req, res) => {
             msgBody = '(Nota de voz)';
         } else if (msgType === 'document') {
             mediaId = message.document.id;
-            msgBody = message.document.caption || '(Documento adjunto)';
+            const docFilename = message.document.filename || '';
+            msgBody = message.document.caption 
+                ? `${message.document.caption} (Documento: ${docFilename || 'archivo.pdf'})`
+                : (docFilename ? `(Documento adjunto: ${docFilename})` : '(Documento adjunto)');
         } else if (msgType === 'button') {
             // Respuesta a botón de plantilla (Quick Reply de template)
             msgBody = message.button?.text || '(Botón presionado)';
@@ -391,7 +397,7 @@ app.post('/webhook', async (req, res) => {
         const cola = global.colasMensajes.get(recipient);
         // Guardamos cada mensaje de la ráfaga en orden (tipo + texto + mediaId) para no perder
         // ninguno al armar el contexto combinado.
-        cola.items.push({ tipo: msgType, texto: msgBody, mediaId, contactos: contactosCompartidos });
+        cola.items.push({ tipo: msgType, texto: msgBody, mediaId, contactos: contactosCompartidos, docFilename: message.document?.filename || '' });
         if (pushName && !cola.pushName) cola.pushName = pushName;
 
         // Reiniciamos el tiempo de espera (25 segundos)
@@ -876,9 +882,10 @@ function validarYSanitizarNombre(nombre) {
         session.transcripcion = transcripcionFinal;
     }
 
-    // Guardar la última imagen o video recibido en almacenamiento permanente
+    // Guardar la última imagen, video o documento recibido en almacenamiento permanente
     let imgUrl = '';
     let videoUrl = '';
+    let docUrl = '';
     if (msgType === 'image' && media) {
         const resEst = guardarArchivoEstructurado({
             filePath: media.filePath,
@@ -895,6 +902,14 @@ function validarYSanitizarNombre(nombre) {
             tipo: 'imagenes'
         });
         videoUrl = resEst?.relativeUrl || `/archivos/${path.basename(media.filePath)}`;
+    } else if (msgType === 'document' && media) {
+        const resEst = guardarArchivoEstructurado({
+            filePath: media.filePath,
+            adminNombre: session.datosVecino?.adminNombre,
+            edificioNombre: session.nombreEdificio,
+            tipo: 'documentos'
+        });
+        docUrl = resEst?.relativeUrl || `/archivos/${path.basename(media.filePath)}`;
     }
 
     // 1b. Cargar edificios y detección de Rol por Teléfono (Proveedor, Encargado, Admin, Vecino)
@@ -1063,31 +1078,49 @@ function validarYSanitizarNombre(nombre) {
     }
 
     const historial = session.historial;
-    let messageText = textoFinal;
-    if (msgType === 'image' && imgUrl) {
-        messageText = `[IMAGEN:${imgUrl}]` + (textoFinal && textoFinal !== '(Imagen adjunta)' ? ' ' + textoFinal : '');
-    } else if (msgType === 'video' && videoUrl) {
-        messageText = `[VIDEO:${videoUrl}]` + (textoFinal && textoFinal !== '(Video adjunto)' ? ' ' + textoFinal : '');
-    } else if (msgType === 'audio' && session.audio_url) {
-        messageText = `[AUDIO:${session.audio_url}]` + (textoFinal && textoFinal !== '(Nota de voz)' ? ' ' + textoFinal : '');
-    }
+    const prefixEmisor = `${datosEmisor.rol === 'proveedor' ? 'Proveedor (' + datosEmisor.nombre + ')' : (datosEmisor.rol === 'encargado' ? 'Encargado' : 'Vecino')}: `;
 
-    // Los audios que vinieron en la misma ráfaga que una foto: el bloque de arriba no los alcanza
-    // porque ahí `msgType` es 'image'. Sin esto, el panel muestra la transcripción pero no tiene
-    // con qué reproducir lo que el vecino realmente dijo.
-    if (Array.isArray(audiosRafaga) && audiosRafaga.length > 0) {
-        // Si la ráfaga trajo audios, el texto ya etiquetado por mensaje es el que va al historial:
-        // conserva cada etiqueta junto a su propia transcripción.
-        const yaEtiquetado = audiosRafaga.every(u => msgBodyParaRegistro.includes(u));
-        if (yaEtiquetado && !audiosRafaga.every(u => messageText.includes(u))) {
-            const adjuntoPrevio = messageText.match(/^\[(IMAGEN|VIDEO):[^\]]+\]/);
-            messageText = (adjuntoPrevio ? adjuntoPrevio[0] + ' ' : '') + msgBodyParaRegistro;
+    if (itemsRafaga && Array.isArray(itemsRafaga) && itemsRafaga.length > 1) {
+        for (const it of itemsRafaga) {
+            let itText = it.texto || '';
+            if (it.tipo === 'image' && imgUrl) {
+                itText = `[IMAGEN:${imgUrl}]` + (itText && itText !== '(Imagen adjunta)' ? ' ' + itText : '');
+            } else if (it.tipo === 'video' && videoUrl) {
+                itText = `[VIDEO:${videoUrl}]` + (itText && itText !== '(Video adjunto)' ? ' ' + itText : '');
+            } else if (it.tipo === 'audio' && (it.urlWeb || session.audio_url)) {
+                const aUrl = it.urlWeb || session.audio_url;
+                itText = `[AUDIO:${aUrl}]` + (itText && itText !== '(Nota de voz)' ? ' ' + itText : '');
+            } else if (it.tipo === 'document' && (docUrl || media?.filePath)) {
+                const fUrl = docUrl || `/archivos/${path.basename(media.filePath)}`;
+                itText = `[DOCUMENTO:${fUrl}]` + (itText && !itText.includes('(Documento') ? ' ' + itText : (it.docFilename ? ` (Documento: ${it.docFilename})` : ''));
+            }
+            historial.push(`${prefixEmisor}${itText}`);
         }
-        // El reporte guarda una sola url de audio: la del último, que es el criterio que ya usaba.
-        if (!session.audio_url) session.audio_url = audiosRafaga[audiosRafaga.length - 1];
+    } else {
+        let messageText = textoFinal;
+        if (msgType === 'image' && imgUrl) {
+            messageText = `[IMAGEN:${imgUrl}]` + (textoFinal && textoFinal !== '(Imagen adjunta)' ? ' ' + textoFinal : '');
+        } else if (msgType === 'video' && videoUrl) {
+            messageText = `[VIDEO:${videoUrl}]` + (textoFinal && textoFinal !== '(Video adjunto)' ? ' ' + textoFinal : '');
+        } else if (msgType === 'audio' && session.audio_url) {
+            messageText = `[AUDIO:${session.audio_url}]` + (textoFinal && textoFinal !== '(Nota de voz)' ? ' ' + textoFinal : '');
+        } else if (msgType === 'document' && (docUrl || media?.filePath)) {
+            const fUrl = docUrl || `/archivos/${path.basename(media.filePath)}`;
+            messageText = `[DOCUMENTO:${fUrl}]` + (textoFinal && !textoFinal.includes('(Documento') ? ' ' + textoFinal : ` (Documento adjunto)`);
+        }
+
+        // Los audios que vinieron en la misma ráfaga que una foto
+        if (Array.isArray(audiosRafaga) && audiosRafaga.length > 0) {
+            const yaEtiquetado = audiosRafaga.every(u => msgBodyParaRegistro.includes(u));
+            if (yaEtiquetado && !audiosRafaga.every(u => messageText.includes(u))) {
+                const adjuntoPrevio = messageText.match(/^\[(IMAGEN|VIDEO):[^\]]+\]/);
+                messageText = (adjuntoPrevio ? adjuntoPrevio[0] + ' ' : '') + msgBodyParaRegistro;
+            }
+            if (!session.audio_url) session.audio_url = audiosRafaga[audiosRafaga.length - 1];
+        }
+        historial.push(`${prefixEmisor}${messageText}`);
     }
-    historial.push(`${datosEmisor.rol === 'proveedor' ? 'Proveedor (' + datosEmisor.nombre + ')' : (datosEmisor.rol === 'encargado' ? 'Encargado' : 'Vecino')}: ${messageText}`);
-    if (historial.length > 30) historial.shift();
+    while (historial.length > 30) historial.shift();
 
     // ──────── DISCRIMINADOR DE RESOLUCIÓN DE CASOS ────────
     if (session.esperandoSeleccionCasoResuelto && Array.isArray(session.esperandoSeleccionCasoResuelto)) {
@@ -1503,9 +1536,19 @@ function validarYSanitizarNombre(nombre) {
 
             try {
                 const { guardarReporte } = require('./datos');
+                const urlParaChat = resEstFactura?.relativeUrl || datosFactura?.url_archivo || docUrl || (media?.filePath ? `/archivos/${path.basename(media.filePath)}` : '');
+                const numFacturaStr = datosFactura?.numero_factura ? ` N° ${datosFactura.numero_factura}` : '';
+                const montoStr = datosFactura?.monto ? ` ($${datosFactura.monto})` : '';
+                const tagDoc = urlParaChat ? `[DOCUMENTO:${urlParaChat}]` : '';
+                const detalleDoc = `(Factura / Comprobante adjunto${numFacturaStr}${montoStr})`;
+                const msgProveedorParaChat = `Proveedor (${datosEmisor.nombre}): ${tagDoc} ${detalleDoc} ${msgBody}`.trim();
+
                 await guardarReporte({
-                    edificio: session.nombreEdificio || datosFactura?.edificio || 'Consorcio',
-                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos: ${respFactura}`])
+                    edificio: session.nombreEdificio || edificioFactura || 'Consorcio',
+                    tecnico: datosEmisor.nombre || '',
+                    tel_tecnico: from || '',
+                    rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
+                    historial_chat: JSON.stringify([msgProveedorParaChat, `Marcos (a Proveedor): ${respFactura}`])
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
@@ -1598,7 +1641,10 @@ function validarYSanitizarNombre(nombre) {
                 const { guardarReporte } = require('./datos');
                 await guardarReporte({
                     edificio: session.nombreEdificio,
-                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos: ${respPago}`])
+                    tecnico: datosEmisor.nombre || '',
+                    tel_tecnico: from || '',
+                    rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
+                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos (a Proveedor): ${respPago}`])
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
@@ -1674,7 +1720,10 @@ function validarYSanitizarNombre(nombre) {
                 const { guardarReporte } = require('./datos');
                 await guardarReporte({
                     edificio: edifNom,
-                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos: ${respTecnico}`])
+                    tecnico: datosEmisor.nombre || '',
+                    tel_tecnico: from || '',
+                    rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
+                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos (a Proveedor): ${respTecnico}`])
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
@@ -1812,7 +1861,10 @@ function validarYSanitizarNombre(nombre) {
             const { guardarReporte } = require('./datos');
             await guardarReporte({
                 edificio: edifNomCatchAll,
-                historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos: ${respGenericaProveedor}`])
+                tecnico: datosEmisor.nombre || '',
+                tel_tecnico: from || '',
+                rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
+                historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos (a Proveedor): ${respGenericaProveedor}`])
             });
         } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
 
@@ -2283,6 +2335,20 @@ function validarYSanitizarNombre(nombre) {
                         await enviarVideoWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                     }
                     console.log(`📷 Foto/video del vecino reenviado automáticamente al técnico ${tecnicoParaFoto.nombre} (sin que lo pidiera explícitamente).`);
+                    const tagMediaForward = (msgTypeMedia === 'image' ? '[IMAGEN:' : '[VIDEO:') + (imgUrl || videoUrl || `/archivos/${require('path').basename(media.filePath)}`) + ']';
+                    const msgFotoParaChat = `Marcos (a Proveedor): ${tagMediaForward} ${captionAuto}`.trim();
+                    try {
+                        const { guardarReporte } = require('./datos');
+                        await guardarReporte({
+                            id_evento: session.eventoActivoId || decisionCaso.id_evento,
+                            edificio: session.nombreEdificio || edifParaFoto,
+                            tecnico: tecnicoParaFoto.nombre || '',
+                            tel_tecnico: tecnicoParaFoto.telefono || '',
+                            rubro_tecnico: tecnicoParaFoto.especialidad || '',
+                            historial_chat: JSON.stringify([msgFotoParaChat])
+                        });
+                    } catch (e) { console.error('Error guardando registro de foto a técnico:', e.message); }
+
                     // Recien ahora se descarta: si el envio fallaba, el adjunto tenia que seguir
                     // disponible para el proximo intento en vez de perderse en silencio.
                     delete session.mediaPendiente;
@@ -2346,6 +2412,24 @@ function validarYSanitizarNombre(nombre) {
                         WHATSAPP_ACCESS_TOKEN
                     );
                 }
+
+                const chatContactoAProv = [
+                    `Marcos (a Proveedor): ${msgContactoAcceso}`
+                ];
+                if (session.contactoAccesoExtra) {
+                    chatContactoAProv.push(`Marcos (a Proveedor): (Contacto compartido) ${session.contactoAccesoExtra}`);
+                }
+                try {
+                    const { guardarReporte } = require('./datos');
+                    await guardarReporte({
+                        id_evento: session.eventoActivoId || decisionCaso.id_evento,
+                        edificio: session.nombreEdificio || edifParaContacto,
+                        tecnico: tecnicoParaContacto.nombre || '',
+                        tel_tecnico: tecnicoParaContacto.telefono || '',
+                        rubro_tecnico: tecnicoParaContacto.especialidad || '',
+                        historial_chat: JSON.stringify(chatContactoAProv)
+                    });
+                } catch(e) { console.error('Error registrando contacto enviado a proveedor:', e.message); }
 
                 session.contactoAccesoAvisadoATecnico = true;
                 if (idEventoAsignado) {

@@ -2299,13 +2299,14 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
   var isImg = explicitType === 'image' || /jpeg|jpg|png|webp|gif|bmp|svg|imagenes|fotos/i.test(u);
   var isVid = explicitType === 'video' || /mp4|mov|webm|mkv|avi|videos/i.test(u);
   var defaultExt = isImg ? '.jpeg' : (isVid ? '.mp4' : '.ogg');
+  var targetFolder = isImg ? 'archivos' : (isVid ? 'archivos' : 'audios');
 
   if (/^media[:_]/i.test(u)) {
     var mediaId = u.replace(/^media[:_]/i, '').trim();
     var hasExt = /\.(jpeg|jpg|png|webp|gif|bmp|svg|mp4|mov|webm|mkv|avi|ogg|mp3|m4a|wav)$/i.test(mediaId);
-    u = '/audios/media_' + mediaId + (hasExt ? '' : defaultExt);
+    u = '/' + targetFolder + '/media_' + mediaId + (hasExt ? '' : defaultExt);
   } else if (/^\d{10,20}$/.test(u)) {
-    u = '/audios/media_' + u + defaultExt;
+    u = '/' + targetFolder + '/media_' + u + defaultExt;
   }
 
   // Quitar prefijos del sistema de archivos local o del servidor VPS
@@ -2319,24 +2320,24 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
   if (u.indexOf('/almacenamiento/') !== -1) {
     u = '/archivos/' + u.substring(u.indexOf('/almacenamiento/') + 16);
   } else if (u.indexOf('/temp/') !== -1) {
-    u = '/audios/' + u.substring(u.indexOf('/temp/') + 6);
+    u = '/' + targetFolder + '/' + u.substring(u.indexOf('/temp/') + 6);
   } else if (u.indexOf('/audios/') !== -1) {
-    u = '/audios/' + u.substring(u.indexOf('/audios/') + 8);
+    u = '/' + (isImg ? 'archivos' : 'audios') + '/' + u.substring(u.indexOf('/audios/') + 8);
   } else if (u.indexOf('/archivos/') !== -1) {
     u = '/archivos/' + u.substring(u.indexOf('/archivos/') + 10);
   } else {
-    var filename = u.replace(/^\\/+/g, '').replace(/^\\\\+/g, '');
+    var filename = u.replace(/^\/+/g, '').replace(/^\\+/g, '');
     if (filename.startsWith('temp/')) {
-      u = '/audios/' + filename.substring(5);
+      u = '/' + targetFolder + '/' + filename.substring(5);
     } else if (filename.startsWith('almacenamiento/')) {
       u = '/archivos/' + filename.substring(15);
     } else if (!filename.startsWith('audios/') && !filename.startsWith('/audios/') && !filename.startsWith('archivos/') && !filename.startsWith('/archivos/')) {
-      u = '/audios/' + filename;
+      u = '/' + targetFolder + '/' + filename;
     }
   }
 
   if (u.charAt(0) !== '/') u = '/' + u;
-  return window.location.origin + u;
+  return (window.location ? window.location.origin : '') + u;
 }
 function stopEv(e){e.stopPropagation();}
 
@@ -2598,34 +2599,39 @@ if (typeof window !== 'undefined' && !window.__VISOR_ESC_REGISTERED__) {
 
 function procesarLineaMultimediaChat(strText) {
   var cleanText = String(strText || '');
-  var webUrl = '';
-  var filename = '';
-  var mediaType = '';
+  var visualUrl = '', visualType = '', visualFilename = '';
+  var audioUrl = '', audioFilename = '';
 
-  var tags = ['[IMAGEN:', '[FOTO:', '[VIDEO:', '[AUDIO:', '[AUDIO_URL:'];
-  for (var i = 0; i < tags.length; i++) {
-    var tag = tags[i];
-    var pos = cleanText.toUpperCase().indexOf(tag);
-    if (pos !== -1) {
-      var endPos = cleanText.indexOf(']', pos);
-      if (endPos > pos) {
-        var rawUrlFromTag = cleanText.substring(pos + tag.length, endPos).trim();
-        var tagType = tag.substring(1, tag.length - 1).toUpperCase();
-        webUrl = normalizarUrlAudio(rawUrlFromTag);
-        var lastSlashTag = rawUrlFromTag.lastIndexOf('/');
-        filename = lastSlashTag !== -1 ? rawUrlFromTag.substring(lastSlashTag + 1) : rawUrlFromTag;
+  var allTags = cleanText.match(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/gi) || [];
+  allTags.forEach(function(tagStr) {
+    var m = tagStr.match(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/i);
+    if (m) {
+      var tagType = m[1].toUpperCase();
+      var rawUrl = m[2].trim();
+      var lastSlash = rawUrl.lastIndexOf('/');
+      var fn = lastSlash !== -1 ? rawUrl.substring(lastSlash + 1) : rawUrl;
 
-        if (tagType === 'IMAGEN' || tagType === 'FOTO') mediaType = 'image';
-        else if (tagType === 'VIDEO') mediaType = 'video';
-        else mediaType = 'audio';
-
-        cleanText = (cleanText.substring(0, pos) + cleanText.substring(endPos + 1)).trim();
-        break;
+      if (tagType === 'IMAGEN' || tagType === 'FOTO') {
+        visualUrl = normalizarUrlAudio(rawUrl, 'image');
+        visualType = 'image';
+        visualFilename = fn;
+      } else if (tagType === 'VIDEO') {
+        visualUrl = normalizarUrlAudio(rawUrl, 'video');
+        visualType = 'video';
+        visualFilename = fn;
+      } else if (tagType === 'DOCUMENTO' || tagType === 'DOC' || tagType === 'PDF' || tagType === 'FACTURA') {
+        visualUrl = normalizarUrlAudio(rawUrl, 'pdf');
+        visualType = 'pdf';
+        visualFilename = fn;
+      } else {
+        audioUrl = normalizarUrlAudio(rawUrl, 'audio');
+        audioFilename = fn;
       }
+      cleanText = cleanText.replace(tagStr, '').trim();
     }
-  }
+  });
 
-  if (!webUrl) {
+  if (!visualUrl && !audioUrl) {
     var prefixes = ['/root/marcos/', '/archivos/', '/audios/', '/almacenamiento/', 'http://', 'https://'];
     var foundIdx = -1;
 
@@ -2649,26 +2655,29 @@ function procesarLineaMultimediaChat(strText) {
 
       var rawPath = rest.substring(0, endCut).trim();
       if (rawPath.length > 3) {
-        webUrl = normalizarUrlAudio(rawPath);
-        var lastSlash = rawPath.lastIndexOf('/');
-        filename = lastSlash !== -1 ? rawPath.substring(lastSlash + 1) : rawPath;
+        var lastSlash2 = rawPath.lastIndexOf('/');
+        var fn2 = lastSlash2 !== -1 ? rawPath.substring(lastSlash2 + 1) : rawPath;
+        var ext2 = fn2.split('.').pop().toLowerCase();
 
-        var ext = filename.split('.').pop().toLowerCase();
-        var isAudioExt = ['ogg', 'mp3', 'wav', 'aac', 'm4a', 'opus', 'oga', 'amr', 'flac'].indexOf(ext) !== -1;
-        var isImageExt = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1;
-        var isVideoExt = ['mp4', 'mov', 'webm', 'mkv', 'avi', '3gp'].indexOf(ext) !== -1;
-        var isPdfExt = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv'].indexOf(ext) !== -1;
+        var isImgPath = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext2) !== -1 || rawPath.indexOf('/imagenes/') !== -1 || rawPath.indexOf('/fotos/') !== -1 || /imagen|foto/i.test(cleanText);
+        var isVidPath = ['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext2) !== -1 || rawPath.indexOf('/videos/') !== -1;
+        var isPdfPath = ['pdf', 'doc', 'docx', 'xls', 'xlsx'].indexOf(ext2) !== -1 || rawPath.indexOf('/facturas/') !== -1 || rawPath.indexOf('/documentos/') !== -1 || /documento|factura|pdf/i.test(cleanText);
 
-        if (isAudioExt || rawPath.indexOf('/audios/') !== -1) {
-          mediaType = 'audio';
-        } else if (isImageExt || rawPath.indexOf('/imagenes/') !== -1 || rawPath.indexOf('/fotos/') !== -1) {
-          mediaType = 'image';
-        } else if (isVideoExt || rawPath.indexOf('/videos/') !== -1) {
-          mediaType = 'video';
-        } else if (isPdfExt || rawPath.indexOf('/facturas/') !== -1 || rawPath.indexOf('/documentos/') !== -1) {
-          mediaType = 'pdf';
+        if (isImgPath) {
+          visualUrl = normalizarUrlAudio(rawPath, 'image');
+          visualType = 'image';
+          visualFilename = fn2;
+        } else if (isVidPath) {
+          visualUrl = normalizarUrlAudio(rawPath, 'video');
+          visualType = 'video';
+          visualFilename = fn2;
+        } else if (isPdfPath) {
+          visualUrl = normalizarUrlAudio(rawPath, 'pdf');
+          visualType = 'pdf';
+          visualFilename = fn2;
         } else {
-          mediaType = 'audio';
+          audioUrl = normalizarUrlAudio(rawPath, 'audio');
+          audioFilename = fn2;
         }
 
         var startCut = foundIdx;
@@ -2679,12 +2688,10 @@ function procesarLineaMultimediaChat(strText) {
         var before = cleanText.substring(0, startCut).trim();
         var after = cleanText.substring(fullEndCut).trim();
 
-        var suffixes = ['imagen:', 'foto:', 'video:', 'audio:', '(imagen adjunta)', '(video adjunto)', '(nota de voz)'];
-        var bLower = before.toLowerCase();
-        for (var s = 0; s < suffixes.length; s++) {
-          if (bLower.endsWith(suffixes[s])) {
-            before = before.substring(0, before.length - suffixes[s].length).trim();
-            break;
+        var tagRegexes = [/imagen:\s*$/i, /foto:\s*$/i, /video:\s*$/i, /audio:\s*$/i, /\(imagen adjunta\)\s*$/i, /\(video adjunto\)\s*$/i, /\(nota de voz\)\s*$/i];
+        for (var t = 0; t < tagRegexes.length; t++) {
+          if (tagRegexes[t].test(before)) {
+            before = before.replace(tagRegexes[t], '').trim();
           }
         }
         if (before.endsWith('[')) {
@@ -2696,16 +2703,29 @@ function procesarLineaMultimediaChat(strText) {
     }
   }
 
-  if (webUrl && !cleanText) {
-    var label = mediaType === 'image' ? '(imagen adjunta)' : (mediaType === 'video' ? '(video adjunto)' : '(nota de voz)');
+  // Limpiar cualquier residuo de etiquetas o rutas rotas
+  cleanText = cleanText
+    .replace(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*[^\]]+\]/gi, '')
+    .replace(/(\/archivos\/|\/audios\/|\/almacenamiento\/)[^\s\])]+(\.jpeg|\.jpg|\.png|\.ogg|\.mp4|\.pdf)?\]?/gi, '')
+    .replace(/^[\])\s]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if ((visualUrl || audioUrl) && !cleanText) {
+    var label = visualType === 'image' ? '(imagen adjunta)' : (visualType === 'video' ? '(video adjunto)' : '(nota de voz)');
     cleanText = label;
   }
 
   return {
     cleanText: cleanText,
-    webUrl: webUrl,
-    filename: filename,
-    mediaType: mediaType
+    visualUrl: visualUrl,
+    visualType: visualType,
+    visualFilename: visualFilename,
+    audioUrl: audioUrl,
+    audioFilename: audioFilename,
+    webUrl: visualUrl || audioUrl,
+    filename: visualFilename || audioFilename,
+    mediaType: visualType || (audioUrl ? 'audio' : '')
   };
 }
 
@@ -2760,79 +2780,89 @@ function separarConversacionesEvento(datos) {
       if (src.trim().startsWith('[')) {
         try { return JSON.parse(src); } catch(e) { return [src]; }
       }
-      return String(src).split('\\n').filter(Boolean);
+      return String(src).split('\n').filter(Boolean);
     }
     if (Array.isArray(src)) return src;
     return [];
   }
 
+  // 1. Obtener lista específica de Vecino
+  var rawVecino = parseList(datos.chat_vecino_json);
+  if (!rawVecino.length) rawVecino = parseList(datos.historial_chat_vecino);
+
+  // 2. Obtener lista específica de Proveedor
+  var rawProveedor = parseList(datos.chat_proveedor_json);
+  if (!rawProveedor.length) rawProveedor = parseList(datos.historial_chat_proveedor);
+
   var chatVecino = [];
   var chatProveedor = [];
-  var seenVecino = new Set();
-  var seenProveedor = new Set();
+  var seenV = new Set();
+  var seenP = new Set();
 
-  // 1. Cargar explícitamente chat de vecino
-  var listVecino = [].concat(parseList(datos.chat_vecino_json), parseList(datos.historial_chat_vecino));
-  listVecino.forEach(function(item) {
-    var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-    if (k && !seenVecino.has(k)) {
-      seenVecino.add(k);
-      chatVecino.push(item);
-    }
-  });
-
-  // 2. Cargar explícitamente chat de proveedor
-  var listProv = [].concat(parseList(datos.chat_proveedor_json), parseList(datos.historial_chat_proveedor));
-  listProv.forEach(function(item) {
-    var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-    if (k && !seenProveedor.has(k)) {
-      seenProveedor.add(k);
-      chatProveedor.push(item);
-    }
-  });
-
-  // 3. Procesar historial_chat o chat_pg si las listas específicas estaban incompletas
-  var genericList = [].concat(parseList(datos.chat_pg), parseList(datos.historial_chat));
-  var currentTarget = 'vecino';
-
-  genericList.forEach(function(item) {
-    var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-    if (!k) return;
-
-    var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
-    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
-    var strLower = str.toLowerCase();
-
-    var isProveedorMsg = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
-    var isVecinoMsg = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
-
-    if (isProveedorMsg) {
-      currentTarget = 'proveedor';
-      if (!seenProveedor.has(k)) {
-        seenProveedor.add(k);
-        chatProveedor.push(item);
-      }
-    } else if (isVecinoMsg) {
-      currentTarget = 'vecino';
-      if (!seenVecino.has(k)) {
-        seenVecino.add(k);
+  if (rawVecino.length > 0) {
+    rawVecino.forEach(function(item) {
+      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+      if (k && !seenV.has(k)) {
+        seenV.add(k);
         chatVecino.push(item);
       }
-    } else {
-      var isMarcosToTech = /al proveedor|al t.cnico|estimado t.cnico|hola t.cnico|atenci.n t.cnico|julio|coordinar visita|visita t.cnica/i.test(strLower);
-      if (isMarcosToTech || currentTarget === 'proveedor') {
-        if (!seenProveedor.has(k) && !seenVecino.has(k)) {
-          seenProveedor.add(k);
+    });
+  }
+
+  if (rawProveedor.length > 0) {
+    rawProveedor.forEach(function(item) {
+      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+      if (k && !seenP.has(k)) {
+        seenP.add(k);
+        chatProveedor.push(item);
+      }
+    });
+  }
+
+  // 3. Fallback solo si alguna de las dos listas está completamente vacía
+  if (chatVecino.length === 0 || chatProveedor.length === 0) {
+    var fallbackList = [].concat(parseList(datos.chat_pg), parseList(datos.historial_chat));
+    var currentTarget = 'vecino';
+
+    fallbackList.forEach(function(item) {
+      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+      if (!k) return;
+
+      var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
+      var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+      var strLower = str.toLowerCase();
+
+      var isProv = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
+      var isVec = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
+
+      if (isProv) {
+        currentTarget = 'proveedor';
+        if (chatProveedor.length === 0 || !seenP.has(k)) {
+          seenP.add(k);
           chatProveedor.push(item);
         }
-      } else {
-        if (!seenVecino.has(k) && !seenProveedor.has(k)) {
-          seenVecino.add(k);
+      } else if (isVec) {
+        currentTarget = 'vecino';
+        if (chatVecino.length === 0 || !seenV.has(k)) {
+          seenV.add(k);
           chatVecino.push(item);
         }
+      } else {
+        var isMarcosToTech = /al proveedor|al técnico|estimado técnico|hola técnico|notificación|julio|coordinar visita|visita técnica/i.test(strLower);
+        if (isMarcosToTech || currentTarget === 'proveedor') {
+          if (!seenP.has(k)) {
+            seenP.add(k);
+            chatProveedor.push(item);
+          }
+        } else {
+          if (!seenV.has(k)) {
+            seenV.add(k);
+            chatVecino.push(item);
+          }
+        }
       }
-    }
-  });
+    });
+  }
 
   return {
     chatVecino: chatVecino,
@@ -2891,8 +2921,10 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         icon = '🟢';
         tagBg = '#D1FAE5'; tagFg = '#065F46';
       } else if (isProveedor) {
-        var matchProv = str.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)(\s*\(.*\?\))?/i)?.[0];
-        senderLabel = matchProv || (datos.tecnico || 'Técnico / Proveedor');
+        var matchProv = str.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)(\s*\(([^)]+)\))?/i);
+        var nomProvInStr = (matchProv && matchProv[3]) ? matchProv[3].trim() : '';
+        var nomTechClean = (nomProvInStr || datos.tecnico || 'Técnico / Proveedor').replace(/[()]/g, '').trim();
+        senderLabel = nomTechClean || 'Técnico / Proveedor';
         align = 'margin-left:auto;background:#FEF3C7;color:#78350F;border:1px solid #FDE68A;border-bottom-right-radius:2px;';
         icon = '🔧';
         tagBg = '#FDE68A'; tagFg = '#92400E';
@@ -2911,22 +2943,11 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var mediaRes = procesarLineaMultimediaChat(cleanText);
       cleanText = mediaRes.cleanText;
 
-      var visualUrl = '';
-      var visualType = '';
-      var visualFilename = '';
-      var audioUrl = '';
-      var audioFilename = '';
-
-      if (mediaRes.webUrl) {
-        if (mediaRes.mediaType === 'image' || mediaRes.mediaType === 'video' || mediaRes.mediaType === 'pdf') {
-          visualUrl = mediaRes.webUrl;
-          visualType = mediaRes.mediaType;
-          visualFilename = mediaRes.filename;
-        } else if (mediaRes.mediaType === 'audio') {
-          audioUrl = mediaRes.webUrl;
-          audioFilename = mediaRes.filename;
-        }
-      }
+      var visualUrl = mediaRes.visualUrl || '';
+      var visualType = mediaRes.visualType || '';
+      var visualFilename = mediaRes.visualFilename || '';
+      var audioUrl = mediaRes.audioUrl || '';
+      var audioFilename = mediaRes.audioFilename || '';
 
       var rawObjMedia = typeof line === 'object' ? (line.url_media || line.audio_url || line.url || line.audio || '') : '';
       if (rawObjMedia && !audioUrl && !visualUrl) {
@@ -2935,28 +2956,54 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var extObj = fnObj.split('.').pop().toLowerCase();
 
         var isAudioExtObj = ['ogg', 'mp3', 'wav', 'aac', 'm4a', 'opus', 'oga', 'amr', 'flac'].indexOf(extObj) !== -1;
-        var isImageExtObj = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1;
-        var isVideoExtObj = ['mp4', 'mov', 'webm', 'mkv', 'avi', '3gp'].indexOf(extObj) !== -1;
-        var isPdfExtObj = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv'].indexOf(extObj) !== -1;
+        var isImageExtObj = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1 || rawObjMedia.indexOf('/fotos/') !== -1 || /imagen|foto/i.test(cleanText) || (typeof line === 'object' && line.tipo === 'image');
+        var isVideoExtObj = ['mp4', 'mov', 'webm', 'mkv', 'avi', '3gp'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1 || /video/i.test(cleanText);
+        var isPdfExtObj = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/facturas/') !== -1 || rawObjMedia.indexOf('/documentos/') !== -1 || /documento|factura|pdf/i.test(cleanText);
 
-        if (isAudioExtObj || rawObjMedia.indexOf('/audios/') !== -1) {
-          audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
-          audioFilename = fnObj;
-        } else if (isImageExtObj || rawObjMedia.indexOf('/imagenes/') !== -1 || rawObjMedia.indexOf('/fotos/') !== -1) {
+        if (isImageExtObj) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
           visualType = 'image';
           visualFilename = fnObj;
-        } else if (isVideoExtObj || rawObjMedia.indexOf('/videos/') !== -1) {
+        } else if (isVideoExtObj) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'video');
           visualType = 'video';
           visualFilename = fnObj;
-        } else if (isPdfExtObj || rawObjMedia.indexOf('/facturas/') !== -1 || rawObjMedia.indexOf('/documentos/') !== -1) {
+        } else if (isPdfExtObj) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'pdf');
           visualType = 'pdf';
           visualFilename = fnObj;
+        } else if (isAudioExtObj || rawObjMedia.indexOf('/audios/') !== -1) {
+          audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
+          audioFilename = fnObj;
         } else {
           audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
           audioFilename = fnObj;
+        }
+      }
+
+      if (!audioUrl && !visualUrl && datos.audio_url && !audioFallbackUsado && (isVecino || isFamiliar || isProveedor)) {
+        var isAudioMentioned = /audio|voz|nota de voz|escuchar|grabación/i.test(str) && !/imagen|foto|video/i.test(str);
+        if (isAudioMentioned) {
+          var rawAudioUrl = String(datos.audio_url).trim();
+          if (rawAudioUrl.length > 3) {
+            var ext = rawAudioUrl.split('.').pop().toLowerCase();
+            if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/imagenes/') !== -1) {
+              visualUrl = normalizarUrlAudio(rawAudioUrl, 'image');
+              visualType = 'image';
+              var lastSlash = rawAudioUrl.lastIndexOf('/');
+              visualFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+            } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/videos/') !== -1) {
+              visualUrl = normalizarUrlAudio(rawAudioUrl, 'video');
+              visualType = 'video';
+              var lastSlash = rawAudioUrl.lastIndexOf('/');
+              visualFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+            } else {
+              audioUrl = normalizarUrlAudio(rawAudioUrl, 'audio');
+              var lastSlash = rawAudioUrl.lastIndexOf('/');
+              audioFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+              audioFallbackUsado = true;
+            }
+          }
         }
       }
 
@@ -3107,29 +3154,37 @@ function abrirDrawerEvento(idx){
         var telVecinoClean = datos.telefono ? String(datos.telefono).replace(/[^0-9]/g, '') : '';
         var telVecinoLink = telVecinoClean ? '<a href="https://wa.me/' + escapeHtml(telVecinoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(datos.telefono) + '</a>' : (datos.telefono ? escapeHtml(datos.telefono) : '—');
 
-        var nomTecnico = datos.tecnico || datos.tecnico_asignado || datos.proveedor || datos.nombre_tecnico || datos.tecnico_confirmado || datos.tecnico_notificado || '';
-        var telTecnico = datos.tel_tecnico || datos.telefono_tecnico || datos.telefono_proveedor || datos.tel_proveedor || '';
-        var rubroTecnico = datos.rubro_tecnico || datos.rubro || datos.especialidad || datos.servicio || '';
-
-        if (!nomTecnico && convSep.chatProveedor.length > 0) {
+        var rawTechName = (datos.tecnico || datos.tecnico_asignado || datos.proveedor || datos.nombre_tecnico || '').replace(/[()]/g, '').trim();
+        if (!rawTechName && convSep.chatProveedor.length > 0) {
           for (var p = 0; p < convSep.chatProveedor.length; p++) {
             var pLine = convSep.chatProveedor[p];
             var pStr = typeof pLine === 'object' ? (pLine.emisor || pLine.remitente || pLine.texto || '') : String(pLine);
-            var matchProvName = pStr.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)\s*\(([^)]+)\)/i);
+            var matchProvName = pStr.match(/(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)\s*\(([^)]+)\)/i);
             if (matchProvName && matchProvName[2]) {
-              nomTecnico = matchProvName[2].trim();
-              if (!rubroTecnico) rubroTecnico = matchProvName[1].trim();
+              rawTechName = matchProvName[2].trim().replace(/[()]/g, '');
               break;
             }
           }
         }
 
-        var tecLabelFinal = nomTecnico || 'Sin asignación aún';
-        var telTecnicoClean = telTecnico ? String(telTecnico).replace(/[^0-9]/g, '') : '';
+        var tecEncontrado = null;
+        var provList = window.__PROVEEDORES__ || [];
+        if (rawTechName && Array.isArray(provList)) {
+          tecEncontrado = provList.find(function(prov) {
+            var pNom = String(prov.nombre || prov.proveedor || '').toLowerCase().trim();
+            var tNom = rawTechName.toLowerCase().trim();
+            return pNom && (pNom === tNom || pNom.includes(tNom) || tNom.includes(pNom));
+          });
+        }
+
+        var telTecnicoFinal = datos.tel_tecnico || datos.telefono_tecnico || (tecEncontrado ? (tecEncontrado.telefono || tecEncontrado.celular || '') : '');
+        var rubroTecnicoFinal = datos.rubro_tecnico || (tecEncontrado ? (tecEncontrado.rubro || tecEncontrado.especialidad || '') : (rawTechName ? 'Especialista Asignado' : '—'));
+        var tecNombreFinal = rawTechName || (tecEncontrado ? tecEncontrado.nombre : 'Sin asignación aún');
+
+        var telTecnicoClean = telTecnicoFinal ? String(telTecnicoFinal).replace(/[^0-9]/g, '') : '';
         var telTecnicoLink = telTecnicoClean 
-          ? '<a href="https://wa.me/' + escapeHtml(telTecnicoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(telTecnico) + '</a>' 
-          : (telTecnico ? escapeHtml(telTecnico) : '—');
-        var rubroFinal = rubroTecnico || (nomTecnico ? 'Servicio / Trabajo Técnico' : '—');
+          ? '<a href="https://wa.me/' + escapeHtml(telTecnicoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(telTecnicoFinal) + '</a>' 
+          : (telTecnicoFinal ? escapeHtml(telTecnicoFinal) : '—');
 
         return '<div style="display:flex;gap:8px;margin-bottom:18px;background:#F1F5FB;padding:5px;border-radius:14px;border:1px solid #E2E8F0">'+
           '<button id="tab-btn-ambos" onclick="cambiarTabChatEvento(&quot;ambos&quot;)" style="flex:1;padding:9px 12px;border:1px solid #1E5FB4;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#FFFFFF;font-weight:800;font-size:12.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s ease" class="hv-primary">'+
@@ -3192,10 +3247,10 @@ function abrirDrawerEvento(idx){
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'+
             '<div class="drawer-grid-card" style="grid-column:span 2;background:#FFFDF5;border:1px solid #FDE68A">'+
               '<div style="font-size:10px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.04em">🔧 Técnico / Proveedor Asignado</div>'+
-              '<div style="font-size:15px;font-weight:800;margin-top:3px;color:#78350F">'+escapeHtml(tecLabelFinal)+'</div>'+
+              '<div style="font-size:15px;font-weight:800;margin-top:3px;color:#78350F">'+escapeHtml(tecNombreFinal)+'</div>'+
             '</div>'+
             '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Teléfono Técnico</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+telTecnicoLink+'</div></div>'+
-            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Rubro / Especialidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(rubroFinal)+'</div></div>'+
+            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Rubro / Especialidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(rubroTecnicoFinal)+'</div></div>'+
           '</div>'+
           '<div style="margin-top:16px">'+
             '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">'+
@@ -4896,6 +4951,11 @@ function vistaEvento(e, filterFn, listaEdificios) {
       return dias > 0 ? dias : 0;
     })(),
     feedback: e.feedback, nuevo,
+    tecnico: e.tecnico || '',
+    tel_tecnico: e.tel_tecnico || '',
+    rubro_tecnico: e.rubro_tecnico || '',
+    chat_vecino_json: e.chat_vecino_json || '',
+    chat_proveedor_json: e.chat_proveedor_json || '',
     historial_chat: e.historial_chat || '',
     tipo: e.tipo || '',
   };

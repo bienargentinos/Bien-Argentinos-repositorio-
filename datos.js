@@ -235,6 +235,8 @@ async function guardarReporte(datos) {
             notas:          datos.notas_ia || datos.notas || '',
             notas_ia:       datos.notas_ia || '',
             tecnico:        datos.tecnico || '',
+            tel_tecnico:    datos.tel_tecnico ? soloDigitos(datos.tel_tecnico) : '',
+            rubro_tecnico:  datos.rubro_tecnico || '',
             acceso:         datos.acceso || '',
             audio_url:      datos.audio_url || '',
             transcripcion:  datos.transcripcion || '',
