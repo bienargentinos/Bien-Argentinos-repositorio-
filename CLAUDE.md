@@ -257,12 +257,34 @@ La forma correcta de identificarlo sería la terna **nombre + oficio/rubro + tel
 el nombre por el rubro del caso abierto (que ya se conoce: `decisionCaso.tipo_problema`) y no por el
 orden de la planilla. **Decisión de Daniel pendiente** — no implementar hasta que lo confirme.
 
+## Modificaciones Recientes de Visualización, Multimedia y Chat
+
+### 1. Separación de Chats y Eliminación de Duplicados en Dashboard
+- `dashboard.js` (`separarConversacionesEvento`): Ahora procesa de forma estricta y prioritaria `chat_vecino_json` y `chat_proveedor_json` como fuentes independientes. Se eliminó la sobreescritura/concatenación con `historial_chat` que provocaba repetición de mensajes y cadenas concatenadas tipo Frankenstein.
+- `procesarLineaMultimediaChat`: Sanitización automática de residuos de etiquetas o rutas (`/archivos/...jpeg]`, corchetes huérfanos).
+
+### 2. Visor Multimedia HD y Soporte PDF / Facturas en Chat
+- **Imágenes / Fotos**: Los IDs numéricos de Meta (ej. `1388680856523978`) se reconocen como imágenes según contexto y tipo, evitando el fallback erróneo a notas de voz. Se renderiza tarjeta visual con miniatura, botón **"🔍 Ver HD"** y visor modal.
+- **Documentos / PDF**: Detección de etiquetas `[DOCUMENTO:...]` y `.pdf`. Genera tarjeta interactiva 📄 con nombre de archivo real (`filename`), N° de factura y monto reconocidos por OCR, botón **"⬇️ Descargar PDF / Comprobante"** y **"👁️ Ver Documento"**.
+
+### 3. Registro Integral de Envíos de Marcos a Proveedores (`chat_proveedor_json`)
+- Al despachar o actualizar un caso al técnico en `marcos-ops.js` e `index.js`, se persisten en el historial del proveedor:
+  1. Plantilla oficial de Meta WhatsApp de asignación inicial.
+  2. Retransmisión de fotos/videos del reclamo (`[IMAGEN:...] Foto del reclamo reenviada al técnico`).
+  3. Mensaje de contacto de ingreso (`📞 Contacto para el ingreso`).
+  4. Ficha de contacto compartida (`(Contacto compartido)`).
+  5. Confirmaciones de facturas y respuestas a consultas de estado/pago.
+
+### 4. Persistencia Dual Sheets / PostgreSQL
+- Sincronización de `tel_tecnico` y `rubro_tecnico` en `datos.js` y `datos-pg.js` al actualizar reportes y eventos.
+
 ## Pendientes
 
 - [x] Aplicar últimos cambios del dashboard en VPS (curl + pm2 restart)
 - [x] Verificar que los eventos aparecen en el dashboard (fix de columnas)
 - [x] Rediseño visual completo (sidebar + paleta de marca + logo real)
 - [x] Sección Clientes (alta desde el dashboard, tab `clientes` en Sheets)
+- [x] Visor interactivo de chats (Separación Vecino/Proveedor, imágenes HD, PDFs con descarga)
 - [ ] Expensas: nueva sección para que el cliente suba PDF/imagen/link mensual
 - [ ] Auth real: contraseñas hasheadas (bcrypt), activación por token, recuperación por email
 - [ ] Consumos / facturación por excedente: derivar uso de los logs de Marcos, definir precios
