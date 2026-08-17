@@ -4,6 +4,7 @@
 
 ```
 ssh -p5436 root@200.58.102.182
+# Contraseña: Triana--2014
 ```
 
 - Proyecto en: `/root/marcos/Consorcio-AI-Assistant/`
