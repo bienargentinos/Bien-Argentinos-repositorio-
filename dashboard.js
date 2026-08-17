@@ -6396,9 +6396,9 @@ router.get('/mi-edificio', async (req, res) => {
         let estado = 'activo';
         let horario = '';
 
-        const isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
+        const isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
         if (isScheduleFragment && res.length > 0) {
-          const cleanHor = str.replace(/\\[[^\\]]*\\]/g, '').replace(/\\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
+          const cleanHor = str.replace(/\[[^\]]*\]/g, '').replace(/\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
           if (cleanHor) {
             res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
               ? cleanHor
@@ -6407,20 +6407,20 @@ router.get('/mi-edificio', async (req, res) => {
           continue;
         }
 
-        const matchMeta = str.match(/\\[(activo|licencia|vacaciones)?\\s*\\|?\\s*([^\\]]*)\\]/i);
+        const matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
         if (matchMeta) {
           if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
           if (matchMeta[2]) horario = matchMeta[2].trim();
-          str = str.replace(/\\[[^\\]]*\\]/g, '').trim();
+          str = str.replace(/\[[^\]]*\]/g, '').trim();
         }
 
-        const matchTel = str.match(/\\(([^)]+)\\)/);
+        const matchTel = str.match(/\(([^)]+)\)/);
         if (matchTel && (!tel || tel === '—')) {
           tel = matchTel[1].trim();
           str = str.replace(/\\([^)]+\\)/g, '').trim();
         }
 
-        str = str.replace(/\\[|\\]/g, '').trim();
+        str = str.replace(/\[|\]/g, '').trim();
 
         if (str || tel !== '—') {
           res.push({
@@ -8628,7 +8628,7 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
     // Usamos [^\]] para matchear todo hasta el cierre del corchete (más robusto que .*?)
     let targetEdificios = [];
     const motivoTxt = String(motivo || '');
-    const matchAsignados = motivoTxt.match(/Edificios asignados \\(\\d+\\):\\s*\\[([^\\]]+)\\]/i);
+    const matchAsignados = motivoTxt.match(/Edificios asignados \(\d+\):\s*\[([^\]]+)\]/i);
     if (matchAsignados && matchAsignados[1]) {
       targetEdificios = matchAsignados[1].split(',').map((s) => s.trim()).filter(Boolean);
     }
