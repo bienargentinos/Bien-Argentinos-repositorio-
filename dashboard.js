@@ -20,9 +20,30 @@
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const { google } = require('googleapis');
 
 const router = express.Router();
+
+const storageFacturas = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = path.join(__dirname, 'almacenamiento', 'facturas');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname);
+    const name = 'media_' + Date.now() + ext;
+    cb(null, name);
+  }
+});
+const uploadMulter = multer({
+  storage: storageFacturas,
+  limits: { fileSize: 20 * 1024 * 1024 }
+});
 
 // Logo de marca (design/assets/logo.png). Servido cacheable, sin sesion.
 router.use('/assets', express.static(path.join(__dirname, 'design', 'assets'), {
