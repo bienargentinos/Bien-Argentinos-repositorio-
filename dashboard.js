@@ -5137,6 +5137,29 @@ window.addEventListener('DOMContentLoaded', function() {
     }
   }
 });
+
+// Explicit Global Attachments
+window.abrirDrawerEvento = abrirDrawerEvento;
+window.cerrarDrawerEvento = cerrarDrawerEvento;
+window.marcarEventoResuelto = marcarEventoResuelto;
+window.guardarFeedbackDrawer = guardarFeedbackDrawer;
+window.descargarResumenEvento = descargarResumenEvento;
+window.toggleFacturaEstado = toggleFacturaEstado;
+window.cambiarTabClase = cambiarTabClase;
+window.cambiarChipOrigen = cambiarChipOrigen;
+window.onBuscadorInput = onBuscadorInput;
+window.togglePopoverMenu = togglePopoverMenu;
+window.cambiarEstadoFacturaKey = cambiarEstadoFacturaKey;
+window.moverClaseFacturaKey = moverClaseFacturaKey;
+window.eliminarFacturaKey = eliminarFacturaKey;
+window.enviarConsejoFacturaKey = enviarConsejoFacturaKey;
+window.abrirModalSubirDocumento = abrirModalSubirDocumento;
+window.abrirModalEditarDocumento = abrirModalEditarDocumento;
+window.abrirModalCambiarOrigen = abrirModalCambiarOrigen;
+window.abrirModalFiltrosAvanzados = abrirModalFiltrosAvanzados;
+window.abrirModal = abrirModal;
+window.cerrarModal = cerrarModal;
+window.toast = toast;
 `;
 
 /* ===================================================================
@@ -5484,6 +5507,7 @@ function shell(req, d, activeKey, contenido) {
 <script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js"></script>
 <style>${CSS}</style>
 <script>(function(){if(localStorage.getItem('marcos_theme')==='dark'){document.documentElement.classList.add('dark-theme');document.addEventListener('DOMContentLoaded',function(){if(document.body)document.body.classList.add('dark-theme');});}})();</script>
+<script>${CLIENT_JS}</script>
 </head>
 <body class="${''}">
 <div style="min-height:100vh;display:flex;flex-direction:column">
@@ -5720,7 +5744,6 @@ ${(() => {
     document.body.appendChild(d);
   };
 </script>
-<script>${CLIENT_JS}</script>
 </body>
 </html>`;
 }
