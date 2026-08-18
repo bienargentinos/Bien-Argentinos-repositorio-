@@ -3063,7 +3063,6 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         '<div><strong style="color:#92400E;display:block;font-size:14px;margin-bottom:3px">' + (tecNombre ? 'Técnico Asignado: ' + tecNombre : 'Sin técnico asignado aún') + '</strong>' +
         '<span>' + (tecNombre ? 'Marcos IA gestionará los detalles por WhatsApp cuando el técnico confirme o consulte el reclamo.' : 'Marcos IA coordinará automáticamente con el proveedor cuando la Administración le asigne un especialista al caso.') + '</span></div>' +
       '</div>';
-    } else {
       return '<div style="display:flex;align-items:flex-start;gap:9px;background:#F1F5FB;border-radius:11px;padding:11px 14px;font-size:12.5px;color:#5A6B85;line-height:1.5;margin-top:10px">' +
         '<span style="font-size:15px">🔒</span>' +
         '<span>Registro textual completo de lo conversado con el vecino. Queda como <strong style="color:#334259">comprobante</strong> ante cualquier reclamo.</span>' +
@@ -3258,6 +3257,7 @@ function abrirDrawerEvento(idx){
       .catch(function(e) { console.warn('Error cargando mensajes de PostgreSQL:', e); });
   }
 }
+window.abrirDrawerEvento = abrirDrawerEvento;
 
 function cerrarDrawerEvento(){
   var p=document.getElementById('drawer-panel');
@@ -3265,6 +3265,7 @@ function cerrarDrawerEvento(){
   if(p)p.classList.remove('open');
   if(o)o.classList.remove('open');
 }
+window.cerrarDrawerEvento = cerrarDrawerEvento;
 
 function descargarResumenEvento(){
   var d=_drawerActual;
@@ -3326,6 +3327,8 @@ function descargarResumenEvento(){
   document.body.appendChild(a);a.click();document.body.removeChild(a);
   setTimeout(function(){URL.revokeObjectURL(url);},2000);
 }
+window.descargarResumenEvento = descargarResumenEvento;
+
 async function guardarFeedbackDrawer(btn,row){
   var ta=btn.parentElement.querySelector('textarea[data-fb-drawer]');
   var nota=ta?ta.value.trim():'';
@@ -3339,6 +3342,8 @@ async function guardarFeedbackDrawer(btn,row){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
+window.guardarFeedbackDrawer = guardarFeedbackDrawer;
+
 async function marcarEventoResuelto(btn,row){
   if(!confirm('¿Estás seguro de marcar este caso como Resuelto?')) return;
   btn.disabled=true;var old=btn.textContent;btn.textContent='...';
@@ -3346,6 +3351,18 @@ async function marcarEventoResuelto(btn,row){
     var r=await fetch('/admin/api/evento-resolver',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({row:row})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast('Caso marcado como Resuelto con éxito.','ok');
+    if(_drawerActual) {
+      _drawerActual.estKey='resuelto';
+      _drawerActual.estLabel='Resuelto';
+      _drawerActual.estBg='#E7F4EC';
+      _drawerActual.estFg='#1B7A43';
+    }
+    setTimeout(function(){ location.reload(); }, 1200);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+window.marcarEventoResuelto = marcarEventoResuelto;ew Error(j.error||'Error');
     toast('Caso marcado como Resuelto con éxito.','ok');
     if(_drawerActual) {
       _drawerActual.estKey='resuelto';
