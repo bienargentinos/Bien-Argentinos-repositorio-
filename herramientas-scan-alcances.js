@@ -1,8 +1,15 @@
 // Busca identificadores que se usan fuera del bloque donde fueron declarados con let/const.
 // Es el error que ya aparecio tres veces en produccion (itemsRafaga, messageText, captionAuto):
 // node --check no lo detecta porque es sintacticamente valido, y solo revienta al ejecutarse.
-const acorn = require('/tmp/node_modules/acorn');
-const walk = require('/tmp/node_modules/acorn-walk');
+let acorn, walk;
+try {
+    acorn = require('acorn');
+    walk = require('acorn-walk');
+} catch {
+    console.error('Faltan las dependencias del scanner. Instalalas una sola vez con:');
+    console.error('  npm install --no-save acorn acorn-walk');
+    process.exit(1);
+}
 const fs = require('fs');
 
 const archivo = process.argv[2];
