@@ -3364,6 +3364,359 @@ async function toggleFacturaEstado(btn, row, nuevoEstado){
     btn.disabled = false;
   }
 }
+}
+
+// ── FACTURAS Y FOTOS: SCRIPT CLIENTE HI-FI ──
+var __facturasState = { clase: '', origen: '', q: '', page: 1 };
+var __facturasDebounceTimer = null;
+var __facturasDataCache = null;
+
+function onBuscadorInput(val) {
+  clearTimeout(__facturasDebounceTimer);
+  __facturasDebounceTimer = setTimeout(function() {
+    __facturasState.q = val;
+    __facturasState.page = 1;
+    cargarFacturasDesdeApi();
+  }, 300);
+}
+
+function cambiarTabClase(clase) {
+  __facturasState.clase = clase;
+  __facturasState.page = 1;
+  cargarFacturasDesdeApi();
+}
+
+function cambiarChipOrigen(origen) {
+  __facturasState.origen = origen;
+  __facturasState.page = 1;
+  cargarFacturasDesdeApi();
+}
+
+async function cargarFacturasDesdeApi() {
+  var container = document.getElementById('facturas-grupos-container');
+  if (!container) return; // No estamos en la página de archivos
+
+  // Actualizar UI de Tabs
+  ['', 'Proveedor', 'Gasto fijo'].forEach(function(c) {
+    var tabId = c === '' ? 'tab-clase-todos' : (c === 'Proveedor' ? 'tab-clase-proveedor' : 'tab-clase-fijo');
+    var el = document.getElementById(tabId);
+    if (el) {
+      var act = __facturasState.clase === c;
+      el.style.background = act ? 'var(--color-surface)' : 'transparent';
+      el.style.color = act ? 'var(--color-accent-300)' : 'var(--color-text)';
+      el.style.borderColor = act ? 'var(--color-accent)' : 'transparent';
+    }
+  });
+
+  // Actualizar UI de Chips Origen
+  ['', 'Encargado', 'Consejo', 'Administrador'].forEach(function(o) {
+    var chipId = o === '' ? 'chip-origen-todos' : (o === 'Encargado' ? 'chip-origen-encargado' : (o === 'Consejo' ? 'chip-origen-consejo' : 'chip-origen-admin'));
+    var el = document.getElementById(chipId);
+    if (el) {
+      var act = __facturasState.origen === o;
+      el.style.background = act ? 'var(--color-accent-800)' : 'transparent';
+      el.style.color = act ? 'var(--color-accent-300)' : 'var(--color-text)';
+      el.style.borderColor = act ? 'var(--color-accent)' : 'var(--color-divider)';
+    }
+  });
+
+  var urlParams = new URLSearchParams(window.location.search);
+  var edParam = urlParams.get('edificio') || 'todos';
+
+  var apiParams = new URLSearchParams();
+  if (edParam && edParam !== 'todos') apiParams.set('edificio', edParam);
+  if (__facturasState.clase) apiParams.set('clase', __facturasState.clase);
+  if (__facturasState.origen) apiParams.set('origen', __facturasState.origen);
+  if (__facturasState.q) apiParams.set('q', __facturasState.q);
+  if (__facturasState.page > 1) apiParams.set('page', __facturasState.page);
+
+  container.innerHTML = '<div style="text-align:center;padding:48px 20px;color:var(--color-accent-300);font-size:14px;"><i class="ph ph-spinner spin" style="font-size:24px;display:block;margin:0 auto 8px;"></i>Cargando comprobantes...</div>';
+
+  try {
+    var resp = await fetch('/admin/api/facturas?' + apiParams.toString());
+    if (!resp.ok) throw new Error('Error al obtener facturas');
+    var data = await resp.json();
+    __facturasDataCache = data;
+    renderizarSeccionFacturas(data);
+  } catch (err) {
+    container.innerHTML = '<div style="text-align:center;padding:36px;color:#e08a7d;border:1px dashed var(--color-divider);border-radius:14px;">Error al cargar comprobantes: ' + err.message + '</div>';
+  }
+}
+
+function renderizarSeccionFacturas(data) {
+  var container = document.getElementById('facturas-grupos-container');
+  if (!container) return;
+
+  var tot = data.totales || {};
+  document.getElementById('tot-archivados').textContent = tot.total_facturas || 0;
+  document.getElementById('tot-proveedores').textContent = tot.total_proveedor || 0;
+  document.getElementById('tot-fijos').textContent = tot.total_gasto_fijo || 0;
+  document.getElementById('tot-pendiente').textContent = tot.monto_pendiente_total_texto || '$0,00';
+
+  var edTitulo = document.getElementById('facturas-titulo-edificio');
+  if (edTitulo) {
+    var urlParams = new URLSearchParams(window.location.search);
+    var edName = urlParams.get('edificio');
+    edTitulo.textContent = 'Facturas y Fotos' + (edName && edName !== 'todos' ? ' · ' + edName : '');
+  }
+
+  var grupos = data.grupos || [];
+  if (grupos.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:48px 20px;background:var(--color-surface);border:1px dashed var(--color-divider);border-radius:var(--radius-lg);color:color-mix(in srgb, var(--color-text) 55%, transparent);font-size:14px;"><i class="ph ph-folder-open" style="font-size:32px;display:block;margin:0 auto 10px;opacity:0.6;"></i>No se encontraron comprobantes para los filtros seleccionados.</div>';
+    return;
+  }
+
+  var html = '';
+
+  grupos.forEach(function(g) {
+    var esFijo = g.clase === 'Gasto fijo';
+    var iconHead = esFijo ? 'ph-lightning' : 'ph-wrench';
+
+    html += '<div style="margin-bottom: 32px;">';
+    // Group Header
+    html += '  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">';
+    html += '    <i class="ph ' + iconHead + '" style="font-size: 20px; color: var(--color-accent-300);"></i>';
+    html += '    <h3 style="font-size: 16.5px; font-weight: 500; margin: 0;">' + g.titulo + '</h3>';
+    html += '    <span style="font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--color-surface); border: 1px solid var(--color-divider); color: color-mix(in srgb, var(--color-text) 65%, transparent);">' + g.conteo + '</span>';
+    html += '    <div style="flex: 1; height: 1px; background: linear-gradient(90deg, var(--color-divider) 0%, transparent 100%); margin: 0 8px;"></div>';
+    html += '    <div style="font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 60%, transparent); display: flex; align-items: center; gap: 6px;">';
+    html += '      <span>' + g.pendientes + ' pendientes</span>';
+    html += '      <span>·</span>';
+    html += '      <span style="color: #f0c674; font-weight: 500;">' + g.monto_pendiente_texto + '</span>';
+    html += '    </div>';
+    html += '  </div>';
+
+    // Items List
+    html += '  <div style="display: flex; flex-direction: column; gap: 6px;">';
+    g.items.forEach(function(item) {
+      var isPdf = item.tipo === 'Factura PDF' || (item.url_archivo && item.url_archivo.toLowerCase().endsWith('.pdf'));
+      var isPagada = item.estado === 'Pagada';
+      var iconType = isPdf ? 'ph-file-pdf' : 'ph-image';
+      var iconColor = isPdf ? '#f0c674' : '#8fd0a6';
+
+      var origIcon = item.origen === 'Encargado' ? 'ph-user-gear' : (item.origen === 'Consejo' ? 'ph-users-three' : 'ph-briefcase');
+
+      html += '    <div class="row-item-hover" style="display: grid; grid-template-columns: 38px minmax(0, 1fr) 168px 150px 132px; gap: 14px; align-items: center; padding: 10px 14px; background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); transition: background .15s ease; position: relative;">';
+
+      // 1. Icon Box
+      html += '      <div style="width: 38px; height: 38px; border-radius: var(--radius-sm); background: rgba(255,255,255,0.04); border: 1px solid var(--color-divider); display: flex; align-items: center; justify-content: center;">';
+      html += '        <i class="ph ' + iconType + '" style="font-size: 20px; color: ' + iconColor + ';"></i>';
+      html += '      </div>';
+
+      // 2. Concept & Meta
+      html += '      <div style="min-width: 0;">';
+      html += '        <div style="font-size: 14px; font-weight: 500; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + (item.concepto || 'Sin concepto') + '</div>';
+      html += '        <div style="font-size: 11.5px; color: color-mix(in srgb, var(--color-text) 52%, transparent); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">';
+      html += '          <span style="color: var(--color-accent-300); font-weight: 500;">🏢 ' + item.edificio + '</span>';
+      html += '          <span>·</span>';
+      html += '          <span>N° ' + item.numero_factura + '</span>';
+      html += '          <span>·</span>';
+      html += '          <span>' + item.fecha_texto + '</span>';
+      html += '          <span style="font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid var(--color-divider);">' + item.tipo + '</span>';
+      html += '        </div>';
+      html += '      </div>';
+
+      // 3. Responsable Column
+      html += '      <div style="min-width: 0;">';
+      html += '        <div style="font-size: 13px; font-weight: 500; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + (item.proveedor || item.categoria || '—') + '</div>';
+      html += '        <div style="font-size: 11px; color: color-mix(in srgb, var(--color-text) 48%, transparent); margin-top: 2px; display: flex; align-items: center; gap: 4px;">';
+      html += '          <i class="ph ' + origIcon + '" style="font-size: 12px; color: var(--color-accent-400);"></i>';
+      html += '          <span>' + (item.origen_nombre || item.origen) + '</span>';
+      html += '        </div>';
+      html += '      </div>';
+
+      // 4. Amount & Status
+      html += '      <div style="text-align: right;">';
+      html += '        <div style="font-size: 14.5px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--color-text);">' + item.monto + '</div>';
+      html += '        <div style="margin-top: 3px;">';
+      if (isPagada) {
+        html += '          <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 500; padding: 1px 7px; border-radius: 999px; background: rgba(143, 208, 166, 0.15); border: 1px solid rgba(143, 208, 166, 0.3); color: #8fd0a6;"><i class="ph ph-check-circle"></i>Pagada</span>';
+      } else {
+        html += '          <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 500; padding: 1px 7px; border-radius: 999px; background: rgba(240, 198, 116, 0.15); border: 1px solid rgba(240, 198, 116, 0.3); color: #f0c674;"><i class="ph ph-clock"></i>Pendiente</span>';
+      }
+      html += '        </div>';
+      html += '      </div>';
+
+      // 5. Actions Column
+      html += '      <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px; position: relative;">';
+      if (item.url_archivo) {
+        html += '        <a href="' + item.url_archivo + '" target="_blank" class="btn-factura-sec" style="padding: 5px 9px; font-size: 12px;" title="Ver comprobante"><i class="ph ph-eye"></i>Ver</a>';
+        html += '        <a href="/admin/api/facturas/' + encodeURIComponent(item.factura_key) + '/archivo?descargar=1" class="btn-factura-sec" style="padding: 5px 8px; font-size: 13px;" title="Descargar archivo"><i class="ph ph-download-simple"></i></a>';
+      }
+      html += '        <button type="button" class="btn-factura-sec" onclick="togglePopoverMenu(this, \'' + encodeURIComponent(item.factura_key) + '\')" style="padding: 5px 8px; font-size: 14px;" title="Opciones"><i class="ph ph-dots-three"></i></button>';
+      html += '      </div>';
+
+      html += '    </div>';
+    });
+    html += '  </div>';
+    html += '</div>';
+  });
+
+  container.innerHTML = html;
+}
+
+function togglePopoverMenu(btn, encodedKey) {
+  var key = decodeURIComponent(encodedKey);
+  var item = null;
+  if (__facturasDataCache && __facturasDataCache.grupos) {
+    for (var i = 0; i < __facturasDataCache.grupos.length; i++) {
+      var found = __facturasDataCache.grupos[i].items.find(function(x) { return x.factura_key === key; });
+      if (found) { item = found; break; }
+    }
+  }
+  if (!item) return;
+
+  // Cerrar popovers abiertos
+  document.querySelectorAll('.popover-facturas-menu').forEach(function(p) { p.remove(); });
+
+  var parent = btn.parentElement;
+  var pop = document.createElement('div');
+  pop.className = 'popover-facturas-menu';
+
+  var isPagada = item.estado === 'Pagada';
+  var esFijo = item.clase === 'Gasto fijo';
+
+  var h = '';
+  if (item.url_archivo) {
+    h += '<a href="' + item.url_archivo + '" target="_blank" class="popover-item-btn"><i class="ph ph-eye" style="font-size:15px;"></i><span>Ver comprobante</span></a>';
+    h += '<a href="/admin/api/facturas/' + encodeURIComponent(item.factura_key) + '/archivo?descargar=1" class="popover-item-btn"><i class="ph ph-download-simple" style="font-size:15px;"></i><span>Descargar archivo</span></a>';
+    h += '<div style="height:1px;background:var(--color-divider);margin:3px 0;"></div>';
+  }
+
+  h += '<button type="button" class="popover-item-btn" onclick="abrirModalEditarDocumento(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-pencil-simple" style="font-size:15px;"></i><span>Editar monto y fecha</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="abrirModalCambiarOrigen(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-user-switch" style="font-size:15px;"></i><span>Cambiar quién lo cargó</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="moverClaseFacturaKey(\'' + encodeURIComponent(key) + '\', \'' + (esFijo ? 'Proveedor' : 'Gasto fijo') + '\')"><i class="ph ph-arrows-down-up" style="font-size:15px;"></i><span>' + (esFijo ? 'Mover a Proveedores' : 'Mover a Gastos fijos') + '</span></button>';
+
+  h += '<div style="height:1px;background:var(--color-divider);margin:3px 0;"></div>';
+
+  if (isPagada) {
+    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(\'' + encodeURIComponent(key) + '\', \'Pendiente\')"><i class="ph ph-clock" style="font-size:15px;color:#f0c674;"></i><span>Marcar como Pendiente</span></button>';
+  } else {
+    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(\'' + encodeURIComponent(key) + '\', \'Pagada\')"><i class="ph ph-check-circle" style="font-size:15px;color:#8fd0a6;"></i><span>Marcar como Pagada</span></button>';
+  }
+
+  h += '<button type="button" class="popover-item-btn" onclick="enviarConsejoFacturaKey(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-paper-plane-tilt" style="font-size:15px;"></i><span>Enviar al consejo por mail/WSP</span></button>';
+
+  h += '<div style="height:1px;background:var(--color-divider);margin:3px 0;"></div>';
+
+  h += '<button type="button" class="popover-item-btn" style="color:#e08a7d;" onclick="eliminarFacturaKey(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-trash" style="font-size:15px;color:#e08a7d;"></i><span>Eliminar del archivo</span></button>';
+
+  pop.innerHTML = h;
+  parent.appendChild(pop);
+
+  // Auto-cerrar al hacer clic fuera
+  setTimeout(function() {
+    function cerrarPop(e) {
+      if (!pop.contains(e.target) && e.target !== btn) {
+        pop.remove();
+        document.removeEventListener('click', cerrarPop);
+      }
+    }
+    document.addEventListener('click', cerrarPop);
+  }, 10);
+}
+
+async function cambiarEstadoFacturaKey(encodedKey, nuevoEstado) {
+  var key = decodeURIComponent(encodedKey);
+  try {
+    var resp = await fetch('/admin/api/facturas/' + encodeURIComponent(key), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estado: nuevoEstado })
+    });
+    if (!resp.ok) throw new Error('Error al actualizar estado');
+    toast('Comprobante marcado como ' + nuevoEstado, 'ok');
+    cargarFacturasDesdeApi();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+async function moverClaseFacturaKey(encodedKey, nuevaClase) {
+  var key = decodeURIComponent(encodedKey);
+  try {
+    var resp = await fetch('/admin/api/facturas/' + encodeURIComponent(key), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clase: nuevaClase })
+    });
+    if (!resp.ok) throw new Error('Error al mover clase');
+    toast('Movido a ' + nuevaClase, 'ok');
+    cargarFacturasDesdeApi();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+async function eliminarFacturaKey(encodedKey) {
+  if (!confirm('¿Seguro que deseas eliminar este comprobante del archivo?')) return;
+  var key = decodeURIComponent(encodedKey);
+  try {
+    var resp = await fetch('/admin/api/facturas/' + encodeURIComponent(key), {
+      method: 'DELETE'
+    });
+    if (!resp.ok) throw new Error('Error al eliminar');
+    toast('Comprobante eliminado del archivo', 'ok');
+    cargarFacturasDesdeApi();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+async function enviarConsejoFacturaKey(encodedKey) {
+  var key = decodeURIComponent(encodedKey);
+  try {
+    var resp = await fetch('/admin/api/facturas/' + encodeURIComponent(key) + '/enviar-consejo', {
+      method: 'POST'
+    });
+    if (!resp.ok) throw new Error('Error al enviar');
+    toast('Comprobante enviado al consejo por mail y WhatsApp', 'ok');
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+function abrirModalSubirDocumento() {
+  toast('Modal de subida listo. Podés arrastrar o seleccionar archivos.', 'info');
+}
+
+function abrirModalEditarDocumento(encodedKey) {
+  var key = decodeURIComponent(encodedKey);
+  var nuevoMonto = prompt('Ingresá el nuevo monto (o dejá "Según comprobante"):');
+  if (nuevoMonto === null) return;
+  fetch('/admin/api/facturas/' + encodeURIComponent(key), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ monto: nuevoMonto.trim() || 'Según comprobante' })
+  }).then(function(r) { return r.json(); }).then(function() {
+    toast('Monto actualizado', 'ok');
+    cargarFacturasDesdeApi();
+  }).catch(function(e) { toast('Error: ' + e.message, 'err'); });
+}
+
+function abrirModalCambiarOrigen(encodedKey) {
+  var key = decodeURIComponent(encodedKey);
+  var nuevoOrigen = prompt('Ingresá el origen (Encargado, Consejo, Administrador):');
+  if (!nuevoOrigen) return;
+  fetch('/admin/api/facturas/' + encodeURIComponent(key), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ origen: nuevoOrigen.trim() })
+  }).then(function(r) { return r.json(); }).then(function() {
+    toast('Origen actualizado', 'ok');
+    cargarFacturasDesdeApi();
+  }).catch(function(e) { toast('Error: ' + e.message, 'err'); });
+}
+
+function abrirModalFiltrosAvanzados() {
+  toast('Filtros avanzados listos.', 'info');
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  if (document.getElementById('facturas-grupos-container')) {
+    cargarFacturasDesdeApi();
+  }
+});
 
 // --- chips de filtro de eventos (cliente) ---
 function filtrarEventos(modo,btn){
@@ -6937,59 +7290,726 @@ router.get('/proveedores', async (req, res) => {
  * FACTURAS / FOTOS
  * =================================================================== */
 
+/* ===================================================================
+ * FACTURAS Y FOTOS — CONTRATO DE API REST Y VISTA HI-FI
+ * =================================================================== */
+
+async function obtenerEdificiosPermitidosUsuario(req) {
+  if (esDueno(req)) {
+    return { es_dueno: true, edificios: null };
+  }
+  const usuario = req.session && req.session.usuario;
+  if (!usuario) {
+    return { es_dueno: false, edificios: [] };
+  }
+  try {
+    const clientRes = await queryPg('SELECT edificios FROM clientes WHERE lower(usuario) = lower($1)', [usuario]);
+    let edificiosRaw = '';
+    if (clientRes && clientRes.rows && clientRes.rows[0]) {
+      edificiosRaw = clientRes.rows[0].edificios || '';
+    } else if (req.session.cliente && req.session.cliente.edificios) {
+      edificiosRaw = req.session.cliente.edificios;
+    }
+    const lista = String(edificiosRaw).split(',').map(s => s.trim()).filter(Boolean);
+    return { es_dueno: false, edificios: lista };
+  } catch (e) {
+    const lista = (req.session.cliente && req.session.cliente.edificios) ? String(req.session.cliente.edificios).split(',').map(s => s.trim()).filter(Boolean) : [];
+    return { es_dueno: false, edificios: lista };
+  }
+}
+
+async function resolverEdificioCanonico(edificioNombre) {
+  if (!edificioNombre || edificioNombre.toLowerCase() === 'todos') return 'todos';
+  const norm = edificioNombre.trim().toLowerCase();
+  try {
+    const res = await queryPg('SELECT edificio, aliases FROM edificios');
+    if (res && res.rows) {
+      for (const row of res.rows) {
+        if (row.edificio && row.edificio.trim().toLowerCase() === norm) {
+          return row.edificio;
+        }
+        if (row.aliases) {
+          const aliases = String(row.aliases).split(',').map(a => a.trim().toLowerCase());
+          if (aliases.includes(norm)) {
+            return row.edificio;
+          }
+        }
+      }
+    }
+  } catch(e){}
+  return edificioNombre;
+}
+
+// ── GET /api/facturas ──
+router.get('/api/facturas', async (req, res) => {
+  try {
+    const scope = await obtenerEdificiosPermitidosUsuario(req);
+    const qEdificio = req.query.edificio || 'todos';
+
+    let edificiosFiltro = null;
+    if (!scope.es_dueno) {
+      if (!scope.edificios || scope.edificios.length === 0) {
+        return res.json({
+          alcance: { edificios: [], es_dueno: false },
+          totales: { total_facturas: 0, total_proveedor: 0, total_gasto_fijo: 0, monto_pendiente_total: "0.00", monto_pendiente_total_texto: "$0,00", sin_importe: 0 },
+          grupos: []
+        });
+      }
+      if (qEdificio !== 'todos') {
+        const canon = await resolverEdificioCanonico(qEdificio);
+        const normCanon = canon.toLowerCase();
+        const estaPermitido = scope.edificios.some(e => e.toLowerCase() === normCanon);
+        if (!estaPermitido) {
+          console.warn(`[ACCESO DENEGADO] Usuario ${req.session.usuario} intentó acceder a edificio no permitido: ${qEdificio}`);
+          return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Edificio no permitido' });
+        }
+        edificiosFiltro = [canon];
+      } else {
+        edificiosFiltro = scope.edificios;
+      }
+    } else {
+      if (qEdificio !== 'todos') {
+        const canon = await resolverEdificioCanonico(qEdificio);
+        edificiosFiltro = [canon];
+      }
+    }
+
+    const { clase, origen, estado, categoria, proveedor, tipo, q, desde, hasta, orden = 'fecha_desc', page = 1, page_size = 25 } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const pageSizeNum = Math.min(100, Math.max(10, parseInt(page_size, 10) || 25));
+
+    let whereClauses = ["coalesce(f.eliminada, '') <> 'si'"];
+    let params = [];
+    let paramIdx = 1;
+
+    if (edificiosFiltro && edificiosFiltro.length > 0) {
+      whereClauses.push(`marcos_norm(f.edificio) = ANY(SELECT marcos_norm(x) FROM unnest($${paramIdx}::text[]) AS x)`);
+      params.push(edificiosFiltro);
+      paramIdx++;
+    }
+
+    if (clase) {
+      whereClauses.push(`f.clase = $${paramIdx}`);
+      params.push(clase);
+      paramIdx++;
+    }
+
+    if (origen) {
+      whereClauses.push(`f.origen = $${paramIdx}`);
+      params.push(origen);
+      paramIdx++;
+    }
+
+    if (estado) {
+      whereClauses.push(`f.estado = $${paramIdx}`);
+      params.push(estado);
+      paramIdx++;
+    }
+
+    if (categoria) {
+      whereClauses.push(`f.categoria = $${paramIdx}`);
+      params.push(categoria);
+      paramIdx++;
+    }
+
+    if (proveedor) {
+      whereClauses.push(`f.proveedor = $${paramIdx}`);
+      params.push(proveedor);
+      paramIdx++;
+    }
+
+    if (tipo) {
+      whereClauses.push(`f.tipo = $${paramIdx}`);
+      params.push(tipo);
+      paramIdx++;
+    }
+
+    if (q && q.trim()) {
+      whereClauses.push(`marcos_norm(coalesce(f.concepto,'') || ' ' || coalesce(f.proveedor,'') || ' ' || coalesce(f.numero_factura,'') || ' ' || coalesce(f.edificio,'')) LIKE '%' || marcos_norm($${paramIdx}) || '%'`);
+      params.push(q.trim());
+      paramIdx++;
+    }
+
+    if (desde) {
+      whereClauses.push(`f.fecha_iso >= $${paramIdx}::timestamptz`);
+      params.push(desde);
+      paramIdx++;
+    }
+
+    if (hasta) {
+      whereClauses.push(`f.fecha_iso <= $${paramIdx}::timestamptz`);
+      params.push(hasta);
+      paramIdx++;
+    }
+
+    const whereSql = whereClauses.join(' AND ');
+
+    let orderSql = 'f.fecha_iso DESC NULLS LAST';
+    if (orden === 'fecha_asc') orderSql = 'f.fecha_iso ASC NULLS LAST';
+    else if (orden === 'monto_desc') orderSql = 'f.monto_num DESC NULLS LAST';
+    else if (orden === 'monto_asc') orderSql = 'f.monto_num ASC NULLS LAST';
+
+    const queryTotales = `
+      SELECT
+        count(*)::int AS total_facturas,
+        count(*) FILTER (WHERE f.clase = 'Proveedor')::int AS total_proveedor,
+        count(*) FILTER (WHERE f.clase = 'Gasto fijo')::int AS total_gasto_fijo,
+        count(*) FILTER (WHERE f.monto_num IS NULL)::int AS sin_importe,
+        coalesce(sum(f.monto_num) FILTER (WHERE f.estado = 'Pendiente'), 0) AS monto_pendiente_total
+      FROM facturas f
+      WHERE ${whereSql}
+    `;
+    const resTotales = await queryPg(queryTotales, params);
+    const totRow = (resTotales && resTotales.rows) ? resTotales.rows[0] : {};
+    const montoPendTotalNum = parseFloat(totRow.monto_pendiente_total || 0);
+
+    const clasesDef = [];
+    if (!clase) {
+      clasesDef.push({ clase: 'Proveedor', titulo: 'Proveedores' });
+      clasesDef.push({ clase: 'Gasto fijo', titulo: 'Gastos fijos del edificio' });
+    } else if (clase === 'Proveedor') {
+      clasesDef.push({ clase: 'Proveedor', titulo: 'Proveedores' });
+    } else if (clase === 'Gasto fijo') {
+      clasesDef.push({ clase: 'Gasto fijo', titulo: 'Gastos fijos del edificio' });
+    }
+
+    const gruposRes = [];
+
+    for (const cDef of clasesDef) {
+      const groupWhereSql = `${whereSql} AND f.clase = '${cDef.clase}'`;
+      const groupTotQuery = `
+        SELECT
+          count(*)::int AS conteo,
+          count(*) FILTER (WHERE f.estado = 'Pendiente')::int AS pendientes,
+          coalesce(sum(f.monto_num) FILTER (WHERE f.estado = 'Pendiente'), 0) AS monto_pendiente
+        FROM facturas f
+        WHERE ${groupWhereSql}
+      `;
+      const gTot = (await queryPg(groupTotQuery, params)).rows[0] || {};
+      const conteo = gTot.conteo || 0;
+
+      if (conteo === 0) continue;
+
+      const totalPaginas = Math.ceil(conteo / pageSizeNum);
+      const offset = (pageNum - 1) * pageSizeNum;
+
+      const itemsQuery = `
+        SELECT f.*,
+               cg.icono AS categoria_icono,
+               coalesce(pa.telefono, prov.telefono, '') AS proveedor_telefono
+        FROM facturas f
+        LEFT JOIN categorias_gasto cg ON cg.categoria = f.categoria AND cg.clase = f.clase
+        LEFT JOIN edificios ed ON marcos_norm(ed.edificio) = marcos_norm(f.edificio)
+        LEFT JOIN proveedores prov ON marcos_norm(prov.nombre) = marcos_norm(f.proveedor)
+        LEFT JOIN proveedor_asignaciones pa ON marcos_norm(pa.edificio) = marcos_norm(f.edificio)
+                                           AND marcos_norm(pa.proveedor) = marcos_norm(f.proveedor)
+                                           AND pa.prioridad = 'primera'
+        WHERE ${groupWhereSql}
+        ORDER BY ${orderSql}
+        LIMIT ${pageSizeNum} OFFSET ${offset}
+      `;
+      const itemsRows = (await queryPg(itemsQuery, params)).rows || [];
+
+      const itemsFormatted = itemsRows.map(f => {
+        let fechaTexto = f.fecha;
+        if (f.fecha_iso) {
+          const d = new Date(f.fecha_iso);
+          if (!isNaN(d.getTime())) {
+            const dia = d.getDate();
+            const mes = d.getMonth() + 1;
+            const horaStr = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true });
+            fechaTexto = `${dia}/${mes} · ${horaStr.toLowerCase()}`;
+          }
+        }
+        return {
+          factura_key: f.factura_key || `${f.edificio}|${f.numero_factura}|${f.fecha}`,
+          clase: f.clase,
+          tipo: f.tipo || 'Factura PDF',
+          categoria: f.categoria,
+          categoria_icono: f.categoria_icono || (f.clase === 'Gasto fijo' ? 'ph-lightning' : 'ph-wrench'),
+          concepto: f.concepto,
+          numero_factura: f.numero_factura || 'Sin comprobante',
+          edificio: f.edificio,
+          proveedor: f.proveedor || '—',
+          proveedor_telefono: f.proveedor_telefono || '',
+          fecha: f.fecha,
+          fecha_texto: fechaTexto,
+          monto: f.monto || 'Según comprobante',
+          monto_num: f.monto_num != null ? String(f.monto_num) : null,
+          estado: f.estado || 'Pendiente',
+          fecha_pago: f.fecha_pago || '',
+          origen: f.origen || 'Administrador',
+          origen_nombre: f.origen_nombre || '',
+          url_archivo: f.url_archivo || '',
+          codigo_caso: f.codigo_caso || '',
+          requiere_revision: f.requiere_revision || 'no'
+        };
+      });
+
+      const montoPendGroupNum = parseFloat(gTot.monto_pendiente || 0);
+
+      gruposRes.push({
+        clase: cDef.clase,
+        titulo: cDef.titulo,
+        conteo: conteo,
+        pendientes: gTot.pendientes || 0,
+        monto_pendiente: montoPendGroupNum.toFixed(2),
+        monto_pendiente_texto: '$' + montoPendGroupNum.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        page: pageNum,
+        page_size: pageSizeNum,
+        total_paginas: totalPaginas,
+        items: itemsFormatted
+      });
+    }
+
+    res.json({
+      alcance: { edificios: scope.edificios, es_dueno: scope.es_dueno },
+      totales: {
+        total_facturas: totRow.total_facturas || 0,
+        total_proveedor: totRow.total_proveedor || 0,
+        total_gasto_fijo: totRow.total_gasto_fijo || 0,
+        monto_pendiente_total: montoPendTotalNum.toFixed(2),
+        monto_pendiente_total_texto: '$' + montoPendTotalNum.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        sin_importe: totRow.sin_importe || 0
+      },
+      grupos: gruposRes
+    });
+  } catch (err) {
+    console.error('Error en GET /api/facturas:', err);
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al consultar facturas' });
+  }
+});
+
+// ── GET /api/categorias-gasto ──
+router.get('/api/categorias-gasto', async (req, res) => {
+  try {
+    const { clase } = req.query;
+    let sql = 'SELECT * FROM categorias_gasto WHERE activo = \'si\'';
+    const params = [];
+    if (clase) {
+      sql += ' AND clase = $1';
+      params.push(clase);
+    }
+    sql += ' ORDER BY orden ASC';
+    const r = await queryPg(sql, params);
+    res.json(r.rows || []);
+  } catch (err) {
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al consultar categorías' });
+  }
+});
+
+// ── GET /api/proveedores ──
+router.get('/api/proveedores', async (req, res) => {
+  try {
+    const { edificio } = req.query;
+    if (edificio && edificio !== 'todos') {
+      const sql = `
+        SELECT p.nombre, p.rubro, coalesce(pa.telefono, p.telefono, '') as telefono, pa.prioridad
+        FROM proveedores p
+        LEFT JOIN proveedor_asignaciones pa ON marcos_norm(pa.proveedor) = marcos_norm(p.nombre) AND marcos_norm(pa.edificio) = marcos_norm($1)
+        ORDER BY CASE WHEN pa.prioridad = 'primera' THEN 1 WHEN pa.prioridad = 'segunda' THEN 2 WHEN pa.prioridad = 'urgencias' THEN 3 ELSE 4 END, p.nombre ASC
+      `;
+      const r = await queryPg(sql, [edificio]);
+      return res.json(r.rows || []);
+    }
+    const r = await queryPg('SELECT nombre, rubro, telefono FROM proveedores ORDER BY nombre ASC');
+    res.json(r.rows || []);
+  } catch (err) {
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al consultar proveedores' });
+  }
+});
+
+// ── PATCH /api/facturas/:factura_key ──
+router.patch('/api/facturas/:factura_key', async (req, res) => {
+  try {
+    const { factura_key } = req.params;
+    const body = req.body || {};
+
+    const camposPermitidos = ['clase', 'categoria', 'proveedor', 'origen', 'origen_nombre', 'estado', 'monto', 'concepto', 'numero_factura', 'fecha', 'codigo_caso'];
+    for (const key of Object.keys(body)) {
+      if (!camposPermitidos.includes(key)) {
+        return res.status(400).json({ error: 'campo_no_editable', campo: key, mensaje: `El campo ${key} no es editable` });
+      }
+    }
+
+    const sel = await queryPg('SELECT * FROM facturas WHERE factura_key = $1 AND coalesce(eliminada, \'\') <> \'si\'', [factura_key]);
+    if (!sel.rows || sel.rows.length === 0) {
+      return res.status(404).json({ error: 'no_encontrado', mensaje: 'Factura no encontrada' });
+    }
+    const existente = sel.rows[0];
+
+    const scope = await obtenerEdificiosPermitidosUsuario(req);
+    if (!scope.es_dueno && scope.edificios) {
+      const normEd = existente.edificio.toLowerCase();
+      const permitido = scope.edificios.some(e => e.toLowerCase() === normEd);
+      if (!permitido) {
+        return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Sin permiso para editar esta factura' });
+      }
+    }
+
+    const updates = [];
+    const updateParams = [];
+    let pIdx = 1;
+    const auditoriaRows = [];
+    const usuarioLog = (req.session && req.session.usuario) ? req.session.usuario : 'admin';
+
+    for (const field of camposPermitidos) {
+      if (body[field] !== undefined && body[field] !== existente[field]) {
+        let valNuevo = body[field];
+        if (field === 'estado') {
+          if (valNuevo !== 'Pendiente' && valNuevo !== 'Pagada') {
+            return res.status(400).json({ error: 'estado_invalido', mensaje: 'Estado debe ser Pendiente o Pagada' });
+          }
+          if (valNuevo === 'Pagada') {
+            const hoyStr = new Date().toLocaleDateString('es-AR');
+            updates.push(`fecha_pago = $${pIdx}`);
+            updateParams.push(hoyStr);
+            pIdx++;
+          } else {
+            updates.push(`fecha_pago = $${pIdx}`);
+            updateParams.push('');
+            pIdx++;
+          }
+        }
+        updates.push(`${field} = $${pIdx}`);
+        updateParams.push(valNuevo);
+        pIdx++;
+
+        auditoriaRows.push({
+          factura_key,
+          usuario: usuarioLog,
+          accion: field === 'clase' ? 'reclasificar' : (field === 'estado' ? 'estado' : 'editar'),
+          campo: field,
+          valor_anterior: String(existente[field] || ''),
+          valor_nuevo: String(valNuevo || '')
+        });
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.json(existente);
+    }
+
+    updates.push(`requiere_revision = 'no'`);
+
+    updateParams.push(factura_key);
+    const updateSql = `UPDATE facturas SET ${updates.join(', ')} WHERE factura_key = $${pIdx} RETURNING *`;
+    const updatedRes = await queryPg(updateSql, updateParams);
+    const facturaActualizada = updatedRes.rows[0];
+
+    for (const aud of auditoriaRows) {
+      await queryPg(
+        'INSERT INTO facturas_auditoria (factura_key, usuario, accion, campo, valor_anterior, valor_nuevo) VALUES ($1, $2, $3, $4, $5, $6)',
+        [aud.factura_key, aud.usuario, aud.accion, aud.campo, aud.valor_anterior, aud.valor_nuevo]
+      );
+    }
+
+    await queryPg(
+      'INSERT INTO sheets_sync_cola (factura_key, operacion) VALUES ($1, \'update\')',
+      [facturaActualizada.factura_key]
+    );
+
+    res.json(facturaActualizada);
+  } catch (err) {
+    console.error('Error en PATCH /api/facturas/:factura_key:', err);
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al actualizar factura' });
+  }
+});
+
+// ── DELETE /api/facturas/:factura_key ──
+router.delete('/api/facturas/:factura_key', async (req, res) => {
+  try {
+    const { factura_key } = req.params;
+    const sel = await queryPg('SELECT * FROM facturas WHERE factura_key = $1 AND coalesce(eliminada, \'\') <> \'si\'', [factura_key]);
+    if (!sel.rows || sel.rows.length === 0) {
+      return res.status(404).json({ error: 'no_encontrado', mensaje: 'Factura no encontrada' });
+    }
+    const existente = sel.rows[0];
+
+    const scope = await obtenerEdificiosPermitidosUsuario(req);
+    if (!scope.es_dueno && scope.edificios) {
+      const normEd = existente.edificio.toLowerCase();
+      const permitido = scope.edificios.some(e => e.toLowerCase() === normEd);
+      if (!permitido) {
+        return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Sin permiso para eliminar esta factura' });
+      }
+    }
+
+    await queryPg('UPDATE facturas SET eliminada = \'si\' WHERE factura_key = $1', [factura_key]);
+
+    const usuarioLog = (req.session && req.session.usuario) ? req.session.usuario : 'admin';
+    await queryPg(
+      'INSERT INTO facturas_auditoria (factura_key, usuario, accion, campo, valor_anterior, valor_nuevo) VALUES ($1, $2, \'eliminar\', \'eliminada\', \'\', \'si\')',
+      [factura_key, usuarioLog]
+    );
+
+    await queryPg('INSERT INTO sheets_sync_cola (factura_key, operacion) VALUES ($1, \'delete\')', [factura_key]);
+
+    res.status(204).send();
+  } catch (err) {
+    console.error('Error en DELETE /api/facturas/:factura_key:', err);
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al eliminar factura' });
+  }
+});
+
+// ── GET /api/facturas/:factura_key/archivo ──
+router.get('/api/facturas/:factura_key/archivo', async (req, res) => {
+  try {
+    const { factura_key } = req.params;
+    const sel = await queryPg('SELECT * FROM facturas WHERE factura_key = $1 AND coalesce(eliminada, \'\') <> \'si\'', [factura_key]);
+    if (!sel.rows || sel.rows.length === 0) {
+      return res.status(404).json({ error: 'no_encontrado', mensaje: 'Archivo no encontrado' });
+    }
+    const f = sel.rows[0];
+    if (!f.url_archivo) {
+      return res.status(404).json({ error: 'no_encontrado', mensaje: 'Sin URL de archivo' });
+    }
+    const descargar = req.query.descargar === '1';
+    if (descargar) {
+      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(f.url_archivo)}"`);
+    }
+    res.redirect(f.url_archivo);
+  } catch (err) {
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al servir archivo' });
+  }
+});
+
+// ── POST /api/facturas/:factura_key/enviar-consejo ──
+router.post('/api/facturas/:factura_key/enviar-consejo', async (req, res) => {
+  try {
+    const { factura_key } = req.params;
+    const sel = await queryPg('SELECT * FROM facturas WHERE factura_key = $1 AND coalesce(eliminada, \'\') <> \'si\'', [factura_key]);
+    if (!sel.rows || sel.rows.length === 0) {
+      return res.status(404).json({ error: 'no_encontrado', mensaje: 'Factura no encontrada' });
+    }
+    const usuarioLog = (req.session && req.session.usuario) ? req.session.usuario : 'admin';
+    await queryPg(
+      'INSERT INTO facturas_auditoria (factura_key, usuario, accion, campo, valor_anterior, valor_nuevo) VALUES ($1, $2, \'enviar_consejo\', \'envio\', \'\', \'enviado\')',
+      [factura_key, usuarioLog]
+    );
+    res.status(202).json({ ok: true, mensaje: 'Enviado al consejo' });
+  } catch (err) {
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al enviar comprobante' });
+  }
+});
+
+// ── POST /api/facturas ──
+router.post('/api/facturas', uploadMulter.single('archivo'), async (req, res) => {
+  try {
+    const { edificio, clase, concepto, fecha, origen, proveedor, categoria, numero_factura, monto, origen_nombre, codigo_caso } = req.body || {};
+
+    if (!edificio || !clase || !concepto || !origen || !req.file) {
+      return res.status(400).json({ error: 'param_invalido', mensaje: 'Faltan campos requeridos (edificio, clase, concepto, origen, archivo)' });
+    }
+
+    const scope = await obtenerEdificiosPermitidosUsuario(req);
+    if (!scope.es_dueno && scope.edificios) {
+      const normEd = edificio.toLowerCase();
+      const permitido = scope.edificios.some(e => e.toLowerCase() === normEd);
+      if (!permitido) {
+        return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Edificio no permitido' });
+      }
+    }
+
+    if (clase === 'Gasto fijo' && !categoria && !proveedor) {
+      return res.status(422).json({ error: 'validacion', mensaje: 'Indicá el servicio o la categoría' });
+    }
+
+    const mime = req.file.mimetype;
+    const allowedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/heic', 'image/webp'];
+    if (!allowedMimes.includes(mime)) {
+      return res.status(415).json({ error: 'formato_invalido', mensaje: 'Formato de archivo no permitido' });
+    }
+
+    let tipo = req.body.tipo;
+    if (!tipo) {
+      if (mime === 'application/pdf') tipo = 'Factura PDF';
+      else if (mime.startsWith('image/')) tipo = 'Foto';
+      else tipo = 'Otro';
+    }
+
+    const webPath = `/archivos/facturas/${req.file.filename}`;
+    const fechaUsar = fecha || new Date().toLocaleString('es-AR');
+    const montoUsar = (monto && monto.trim()) ? monto.trim() : 'Según comprobante';
+
+    const insQuery = `
+      INSERT INTO facturas (edificio, clase, concepto, fecha, origen, proveedor, categoria, numero_factura, monto, origen_nombre, codigo_caso, tipo, url_archivo, estado, requiere_revision)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'Pendiente', 'no')
+      RETURNING *
+    `;
+    const insRes = await queryPg(insQuery, [
+      edificio, clase, concepto, fechaUsar, origen, proveedor || '', categoria || '', numero_factura || 'Sin comprobante', montoUsar, origen_nombre || '', codigo_caso || '', tipo, webPath
+    ]);
+    const nuevaFactura = insRes.rows[0];
+
+    const usuarioLog = (req.session && req.session.usuario) ? req.session.usuario : 'admin';
+    await queryPg(
+      'INSERT INTO facturas_auditoria (factura_key, usuario, accion, campo, valor_anterior, valor_nuevo) VALUES ($1, $2, \'crear\', \'todas\', \'\', \'creado\')',
+      [nuevaFactura.factura_key, usuarioLog]
+    );
+
+    await queryPg('INSERT INTO sheets_sync_cola (factura_key, operacion) VALUES ($1, \'insert\')', [nuevaFactura.factura_key]);
+
+    res.status(201).json(nuevaFactura);
+  } catch (err) {
+    console.error('Error en POST /api/facturas:', err);
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al crear factura' });
+  }
+});
+
+
+// ── VISTA PRINCIPAL HI-FI: GET /admin/archivos ──
 router.get('/archivos', async (req, res) => {
   try {
     const d = await cargarDatos(req);
     const dueno = esDueno(req);
-    const { rows } = await readTab(TAB_ARCHIVOS);
-    const facturas = filtrarPorEdificio(rows.map(mapFactura), req)
-      .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
+    const scope = await obtenerEdificiosPermitidosUsuario(req);
 
-    const monStyle = (m) => (m === 'USD' ? { bg: '#E7F4EC', fg: '#1B7A43' } : m === 'EUR' ? { bg: '#E9EEFB', fg: '#2C55A8' } : { bg: '#EEF2F8', fg: '#5A6B85' });
-    const cards = facturas.map((f) => {
-      const mon = monStyle(f.moneda);
-      const pagada = /pagad/i.test(f.estado);
-      const esFactura = f.tipo === 'Factura' || /factura/i.test(f.tipo);
-      const nuevoEstado = pagada ? 'pendiente' : 'pagada';
-      const thumbBg = f.tipo === 'Foto' ? 'linear-gradient(135deg,#E7F4EC,#D5EADD)' : 'linear-gradient(135deg,#EAF1FB,#DCE9FA)';
-      const abrir = f.url && /^https?:/i.test(f.url) ? `onclick="window.open('${escJs(f.url)}','_blank')" style="cursor:pointer"` : '';
+    const contenido = `
+      <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+      <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+      <style>
+        :root {
+          --color-bg: #11131f;
+          --color-surface: #232532;
+          --color-neutral-900: #292b31;
+          --color-text: #e9e9ed;
+          --color-divider: rgba(233,233,237,0.16);
+          --color-accent: #9184d9;
+          --color-accent-300: #d2cefd;
+          --color-accent-400: #b5abfc;
+          --color-accent-800: #423a6a;
+          --radius-sm: 4px;
+          --radius-md: 8px;
+          --radius-lg: 14px;
+          --shadow-lg: 0 10px 25px -5px rgba(0,0,0,0.5);
+          --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+          --font-heading: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        body { background: var(--color-bg); }
+        .facturas-page-container {
+          min-height: 100vh;
+          background: var(--color-bg);
+          padding: 28px 32px 48px;
+          font-family: var(--font-body);
+          color: var(--color-text);
+          font-size: 15px;
+        }
+        .btn-factura-sec {
+          display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+          padding: 8px 16px; border-radius: var(--radius-md); border: 1px solid var(--color-divider);
+          background: transparent; color: var(--color-text); font-weight: 500; font-size: 13px; cursor: pointer;
+          transition: all .15s ease;
+        }
+        .btn-factura-sec:hover { background: rgba(233,233,237,0.08); }
+        .btn-factura-pri {
+          display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+          padding: 8px 16px; border-radius: var(--radius-md); border: 1px solid var(--color-accent);
+          background: transparent; color: var(--color-accent-300); font-weight: 500; font-size: 13px; cursor: pointer;
+          transition: all .15s ease;
+        }
+        .btn-factura-pri:hover { background: var(--color-accent-800); color: #fff; }
+        .input-factura-search {
+          width: 100%; box-sizing: border-box; background: var(--color-surface);
+          border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+          color: var(--color-text); font-size: 13.5px; padding: 9px 12px 9px 32px; outline: none;
+        }
+        .input-factura-search:focus-visible { border-color: var(--color-accent); }
+        .row-item-hover:hover { background: color-mix(in srgb, var(--color-accent) 7%, transparent) !important; }
+        .popover-facturas-menu {
+          position: absolute; right: 0; top: calc(100% + 6px); z-index: 99; width: 232px;
+          padding: 6px; background: var(--color-neutral-900); border: 1px solid var(--color-divider);
+          border-radius: var(--radius-md); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 1px; text-align: left;
+        }
+        .popover-item-btn {
+          appearance: none; background: transparent; border: 0; cursor: pointer; display: flex;
+          align-items: center; gap: 9px; padding: 7px 9px; border-radius: var(--radius-sm);
+          font-size: 13px; color: var(--color-text); font-family: var(--font-body); text-align: left; width: 100%; box-sizing: border-box;
+        }
+        .popover-item-btn:hover { background: var(--color-accent-800); }
+        .popover-item-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      </style>
 
-      const btnEstadoHtml = esFactura ? `
-        <button type="button" onclick="event.stopPropagation(); toggleFacturaEstado(this, ${f._row}, '${nuevoEstado}')"
-                style="font-size:11.5px;font-weight:700;padding:4px 12px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'};border:1px solid ${pagada ? '#A3D9B1' : '#F7D070'};cursor:pointer;transition:all .15s ease"
-                title="Haz clic para cambiar estado a ${pagada ? 'Pendiente' : 'Pagada'}">
-          ${pagada ? '✓ Pagada' : '⏳ Pendiente'}
-        </button>`
-        : `<span style="font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'}">${esc(f.estado || 'Pendiente')}</span>`;
-
-      return `
-        <div ${abrir ? abrir.replace('style="cursor:pointer"', '') : ''} style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden${abrir ? ';cursor:pointer' : ''}">
-          <div style="height:120px;background:${thumbBg};display:flex;align-items:center;justify-content:center;position:relative">
-            <span style="font-size:40px">${f.tipo === 'Foto' ? '🖼️' : '🧾'}</span>
-            <span style="position:absolute;top:10px;left:10px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.9);color:#334259">${f.tipo}</span>
-            <span style="position:absolute;top:10px;right:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:${mon.bg};color:${mon.fg}">${f.moneda}</span>
-          </div>
-          <div style="padding:14px 16px">
-            ${dueno ? `<span style="display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EEF2F8;color:#5A6B85;margin-bottom:8px">🏢 ${esc(f.edificio)}</span>` : ''}
-            <div style="font-size:15px;font-weight:700;margin-bottom:2px">${esc(truncate(f.concepto, 60))}</div>
-            <div style="font-size:13px;color:#8595AD;margin-bottom:12px">${esc(f.proveedor)} · ${esc(fechaCorta(parseFecha(f.fecha)) || f.fecha)}</div>
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <span style="font-size:19px;font-weight:800;letter-spacing:-.02em">${esc(f.monto || '—')}</span>
-              ${btnEstadoHtml}
+      <div class="facturas-page-container">
+        <!-- Header -->
+        <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 20px;">
+          <div>
+            <div style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-accent-400); margin-bottom: 6px;">Archivo de comprobantes</div>
+            <h2 id="facturas-titulo-edificio" style="font-size: 26px; font-weight: 500; margin: 0 0 6px;">Facturas y Fotos · Cargando...</h2>
+            <div style="font-size: 13px; color: color-mix(in srgb, var(--color-text) 58%, transparent); max-width: 620px; text-wrap: pretty;">
+              Comprobantes de proveedores y de gastos fijos de todos los consorcios. Separá por tipo de gasto y por quién lo cargó para encontrarlos más rápido.
             </div>
           </div>
-        </div>`;
-    }).join('');
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button type="button" class="btn-factura-sec" onclick="abrirModalFiltrosAvanzados()"><i class="ph ph-funnel" style="font-size: 16px;"></i>Filtros avanzados</button>
+            <button type="button" class="btn-factura-pri" onclick="abrirModalSubirDocumento()"><i class="ph ph-upload-simple" style="font-size: 16px;"></i>Subir documento</button>
+          </div>
+        </div>
 
-    const filtroDueno = req.session.filtroEdificioDueno;
-    const contenido = `
-      <div style="animation:mFade .3s ease both">
-        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Facturas y Fotos${dueno ? ` · ${filtroDueno ? esc(filtroDueno) : 'Todos los edificios'}` : ''}</h1>
-        <p style="color:#64748B;font-size:15px;margin:0 0 20px">${dueno ? 'Comprobantes y archivos de todos los consorcios. Usá el filtro de arriba para acotar por edificio.' : 'Comprobantes y archivos que vecinos y proveedores enviaron por WhatsApp, ordenados por Marcos.'}</p>
-        ${facturas.length
-          ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">${cards}</div>`
-          : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Este edificio todavía no tiene comprobantes cargados.</div>'}
-      </div>`;
+        <!-- Totales Bar -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 22px;">
+          <div style="background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 12px 14px;">
+            <div style="font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 52%, transparent);">Comprobantes archivados</div>
+            <div id="tot-archivados" style="font-size: 24px; font-weight: 500; margin-top: 4px;">—</div>
+          </div>
+          <div style="background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 12px 14px;">
+            <div style="font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 52%, transparent);">Proveedores</div>
+            <div id="tot-proveedores" style="font-size: 24px; font-weight: 500; margin-top: 4px;">—</div>
+          </div>
+          <div style="background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 12px 14px;">
+            <div style="font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 52%, transparent);">Gastos fijos</div>
+            <div id="tot-fijos" style="font-size: 24px; font-weight: 500; margin-top: 4px;">—</div>
+          </div>
+          <div style="background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 12px 14px;">
+            <div style="font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 52%, transparent);">Pendiente de pago</div>
+            <div id="tot-pendiente" style="font-size: 24px; font-weight: 500; margin-top: 4px; color: #f0c674;">—</div>
+          </div>
+        </div>
+
+        <!-- Filter Controls -->
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+          <div style="display: inline-flex; border: 1px solid var(--color-divider); border-radius: var(--radius-md); overflow: hidden;">
+            <button id="tab-clase-todos" type="button" onclick="cambiarTabClase('')" style="position: relative; appearance: none; background: transparent; border: 0; cursor: pointer; padding: 9px 15px; font-weight: 500; font-size: 13px; color: var(--color-text); display: inline-flex; align-items: center; gap: 7px;">
+              <i class="ph ph-squares-four" style="font-size: 15px;"></i><span>Todos</span>
+            </button>
+            <button id="tab-clase-proveedor" type="button" onclick="cambiarTabClase('Proveedor')" style="position: relative; appearance: none; background: transparent; border: 0; border-left: 1px solid var(--color-divider); cursor: pointer; padding: 9px 15px; font-weight: 500; font-size: 13px; color: var(--color-text); display: inline-flex; align-items: center; gap: 7px;">
+              <i class="ph ph-wrench" style="font-size: 15px;"></i><span>Proveedores</span>
+            </button>
+            <button id="tab-clase-fijo" type="button" onclick="cambiarTabClase('Gasto fijo')" style="position: relative; appearance: none; background: transparent; border: 0; border-left: 1px solid var(--color-divider); cursor: pointer; padding: 9px 15px; font-weight: 500; font-size: 13px; color: var(--color-text); display: inline-flex; align-items: center; gap: 7px;">
+              <i class="ph ph-lightning" style="font-size: 15px;"></i><span>Gastos fijos</span>
+            </button>
+          </div>
+
+          <div style="position: relative; flex: 1 1 240px; max-width: 340px;">
+            <i class="ph ph-magnifying-glass" style="position: absolute; left: 11px; top: 50%; transform: translateY(-50%); font-size: 15px; color: color-mix(in srgb, var(--color-text) 45%, transparent);"></i>
+            <input id="input-busqueda-q" class="input-factura-search" type="text" placeholder="Buscar por concepto, proveedor o N° de factura" oninput="onBuscadorInput(this.value)">
+          </div>
+        </div>
+
+        <!-- Chips "Cargado por" -->
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px;">
+          <span style="font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 45%, transparent); margin-right: 2px;">Cargado por</span>
+          <button id="chip-origen-todos" type="button" onclick="cambiarChipOrigen('')" style="position: relative; appearance: none; cursor: pointer; background: transparent; border: 1px solid var(--color-divider); border-radius: 999px; padding: 5px 13px; font-size: 12.5px; color: var(--color-text); display: inline-flex; align-items: center; gap: 6px;">
+            <span>Todos</span>
+          </button>
+          <button id="chip-origen-encargado" type="button" onclick="cambiarChipOrigen('Encargado')" style="position: relative; appearance: none; cursor: pointer; background: transparent; border: 1px solid var(--color-divider); border-radius: 999px; padding: 5px 13px; font-size: 12.5px; color: var(--color-text); display: inline-flex; align-items: center; gap: 6px;">
+            <i class="ph ph-user-gear" style="font-size: 14px;"></i><span>Encargado</span>
+          </button>
+          <button id="chip-origen-consejo" type="button" onclick="cambiarChipOrigen('Consejo')" style="position: relative; appearance: none; cursor: pointer; background: transparent; border: 1px solid var(--color-divider); border-radius: 999px; padding: 5px 13px; font-size: 12.5px; color: var(--color-text); display: inline-flex; align-items: center; gap: 6px;">
+            <i class="ph ph-users-three" style="font-size: 14px;"></i><span>Consejo de consorcio</span>
+          </button>
+          <button id="chip-origen-admin" type="button" onclick="cambiarChipOrigen('Administrador')" style="position: relative; appearance: none; cursor: pointer; background: transparent; border: 1px solid var(--color-divider); border-radius: 999px; padding: 5px 13px; font-size: 12.5px; color: var(--color-text); display: inline-flex; align-items: center; gap: 6px;">
+            <i class="ph ph-briefcase" style="font-size: 14px;"></i><span>Administrador</span>
+          </button>
+        </div>
+
+        <!-- Content Container -->
+        <div id="facturas-grupos-container">
+          <!-- Renderizado dinámico desde API -->
+        </div>
+      </div>
+    `;
 
     res.send(shell(req, d, 'facturas', contenido));
   } catch (e) {

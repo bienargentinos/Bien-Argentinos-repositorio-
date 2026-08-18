@@ -52,7 +52,17 @@ INSERT INTO categorias_gasto (categoria, clase, icono, orden) VALUES
   ('Otros trabajos',      'Proveedor',  'ph-dots-three',   99)
 ON CONFLICT (categoria, clase) DO NOTHING;
 
--- 3. AUDITORÍA
+-- 3. AUDITORÍA Y COLA DE SYNCRONIZACIÓN
+CREATE TABLE IF NOT EXISTS sheets_sync_cola (
+  id            bigserial PRIMARY KEY,
+  factura_key   text NOT NULL,
+  operacion     text NOT NULL,     -- 'insert' | 'update' | 'delete'
+  reintentos    int NOT NULL DEFAULT 0,
+  ultimo_error  text,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS sheets_sync_cola_idx ON sheets_sync_cola (created_at ASC);
+
 CREATE TABLE IF NOT EXISTS facturas_auditoria (
   id             bigserial PRIMARY KEY,
   factura_key    text NOT NULL,
