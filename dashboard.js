@@ -3258,6 +3258,7 @@ function abrirDrawerEvento(idx){
   }
 }
 window.abrirDrawerEvento = abrirDrawerEvento;
+window._abrirDrawerEventoImpl = abrirDrawerEvento;
 
 function cerrarDrawerEvento(){
   var p=document.getElementById('drawer-panel');
@@ -3266,6 +3267,7 @@ function cerrarDrawerEvento(){
   if(o)o.classList.remove('open');
 }
 window.cerrarDrawerEvento = cerrarDrawerEvento;
+window._cerrarDrawerEventoImpl = cerrarDrawerEvento;
 
 function descargarResumenEvento(){
   var d=_drawerActual;
@@ -5516,7 +5518,19 @@ function shell(req, d, activeKey, contenido) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Marcos IA · Panel</title>
+<script>
+  window.abrirDrawerEvento = window.abrirDrawerEvento || function(idx) {
+    if (window._abrirDrawerEventoImpl) return window._abrirDrawerEventoImpl(idx);
+    console.warn('abrirDrawerEvento llamado antes de cargar script cliente completado', idx);
+  };
+  window.cerrarDrawerEvento = window.cerrarDrawerEvento || function() {
+    if (window._cerrarDrawerEventoImpl) return window._cerrarDrawerEventoImpl();
+  };
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
@@ -5985,10 +5999,12 @@ router.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/admin/login'));
 });
 
-/* ===================================================================
- * A partir de aca todo requiere autenticacion.
- * =================================================================== */
-
+router.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 router.use(requireAuth);
 
 // Selector de edificio (ambos roles).
