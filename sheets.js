@@ -1,4 +1,5 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
+const { fechaHoraAR, fechaAR } = require('./fecha');
 const { JWT } = require('google-auth-library');
 const path = require('path');
 
@@ -65,6 +66,10 @@ async function buscarVecinosPorTelefono(telefono) {
             seguridad:        row.get('seguridad')         || '',
             consejo:          row.get('consejo')           || '',
             notas:            row.get('notas')             || '',
+            // Autorización persistente para compartir su contacto con el técnico asignado a un
+            // caso. Una vez que el vecino la dio, se recuerda para los próximos eventos.
+            autorizaContacto:  String(row.get('autoriza_contacto') || '').toLowerCase().startsWith('s'),
+            contactoAcceso:    row.get('contacto_acceso')   || '',
         }));
     } catch (err) {
         console.error('Error buscando vecino en Sheets:', err.message);
@@ -110,6 +115,55 @@ async function agregarVecinoNuevo({ telefono, nombre, edificio, departamento }) 
     }
 }
 
+// Registra que un vecino autorizó a compartir su contacto (o un contacto alternativo) con el
+// técnico asignado. Queda persistido en la pestaña VECINOS, así en el próximo evento Marcos ya
+// sabe que puede pasar el dato sin volver a pedir permiso -- la confianza se acumula, no se
+// reinicia en cada caso.
+async function guardarAutorizacionContacto({ telefono, autoriza = true, contactoAcceso = '' }) {
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByIndex[0];
+        await sheet.loadHeaderRow().catch(() => {});
+        const headers = sheet.headerValues || [];
+        const necesarios = ['autoriza_contacto', 'contacto_acceso'];
+        const nuevos = Array.from(new Set([...headers, ...necesarios]));
+        if (nuevos.length > headers.length) {
+            await sheet.setHeaderRow(nuevos).catch(() => {});
+        }
+
+        const rows = await sheet.getRows();
+        const telBuscado = String(telefono || '').replace(/\D/g, '');
+        const fila = rows.find(r => String(r.get('telefono') || '').replace(/\D/g, '') === telBuscado);
+
+        // Si el vecino todavía no tiene fila, se crea acá mismo.
+        //
+        // Antes esto hacía `return false` y el dato se perdía en silencio, y era justo el caso más
+        // común: el vecino comparte el contacto de quien va a recibir al técnico en su PRIMER
+        // mensaje, y su ficha recién se crea al final del flujo. Como el contacto solo quedaba en
+        // la sesión, cualquier reinicio lo borraba y Marcos volvía a preguntar quién iba a abrir
+        // -- teniendo el dato desde el principio.
+        if (!fila) {
+            await sheet.addRow({
+                telefono,
+                autoriza_contacto: autoriza ? 'si' : '',
+                contacto_acceso: contactoAcceso || '',
+                notas: 'Registro automático por bot',
+            });
+            console.log(`🔓 Autorización de contacto guardada para ${telBuscado} (vecino nuevo)${contactoAcceso ? ` — contacto de acceso: ${contactoAcceso}` : ''}`);
+            return true;
+        }
+
+        if (autoriza) fila.set('autoriza_contacto', 'si');
+        if (contactoAcceso) fila.set('contacto_acceso', contactoAcceso);
+        await fila.save();
+        console.log(`🔓 Autorización de contacto guardada para ${telBuscado}${contactoAcceso ? ` (contacto de acceso: ${contactoAcceso})` : ''}`);
+        return true;
+    } catch (err) {
+        console.error('Error guardando autorización de contacto:', err.message);
+        return false;
+    }
+}
+
 // ─────────────────────────────────────────────
 // TÉCNICOS — selección inteligente con fallback
 // Columnas: nombre | especialidad | telefono | edificios | acceso |
@@ -145,10 +199,14 @@ async function buscarTecnicoAsignado({ edificio, especialidad, esUrgente = false
 
             if (coincide) {
                 console.log(`🔧 Técnico encontrado en 'proveedor_asignaciones': ${coincide.get('proveedor')} (${coincide.get('telefono')})`);
+                // "acceso" viaja tal cual en la plantilla de Meta que recibe el técnico -- nunca
+                // debe leerse como que el técnico tiene que gestionarlo por su cuenta. Es Marcos
+                // quien coordina el acceso con el vecino, no el técnico. (No puede ser dinámico
+                // acá porque todavía no sabemos quién es el vecino en este punto de la búsqueda.)
                 return {
                     nombre:    coincide.get('proveedor'),
                     telefono:  coincide.get('telefono'),
-                    acceso:    'Coordinar con consorcio',
+                    acceso:    'Coordinado por Marcos con el vecino',
                     puntaje:   '5',
                     urgencia:  true
                 };
@@ -174,7 +232,7 @@ async function buscarTecnicoAsignado({ edificio, especialidad, esUrgente = false
                 return {
                     nombre:    coincideProv.get('nombre'),
                     telefono:  coincideProv.get('telefono'),
-                    acceso:    'Coordinar con consorcio',
+                    acceso:    'Coordinado por Marcos con el vecino',
                     puntaje:   '5',
                     urgencia:  true
                 };
@@ -392,11 +450,14 @@ async function buscarCliente(nombreAdmin) {
 
         if (!row) return null;
 
+        // Mismos valores por defecto que el panel: el mail va salvo que lo apaguen, el WhatsApp
+        // solo si lo piden.
         return {
             nombre:      row.get('nombre')      || '',
             email:       row.get('email')       || '',
             wsp:         row.get('wsp')         || '',
-            notifEmail:  (row.get('notif_email') || '').toLowerCase() === 'si',
+            notifEmail:  (row.get('notif_email') || '').toLowerCase() !== 'no',
+            notifWsp:    (row.get('notif_wsp')  || '').toLowerCase() === 'si',
         };
     } catch (err) {
         console.error('Error buscando cliente:', err.message);
@@ -501,7 +562,7 @@ async function guardarMemoriaVecino({ telefono, nombre, resumenHistorial, notasT
             String(r.get('telefono') || '').replace(/\D/g, '') === telBuscado
         );
 
-        const fecha = new Date().toLocaleString('es-AR');
+        const fecha = fechaHoraAR();
 
         if (existing) {
             existing.set('fecha_ultimo_contacto', fecha);
@@ -538,7 +599,7 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
         const headers = sheet.headerValues || [];
 
         // Asegurar que los headers tengan los campos requeridos incluyendo id_evento, audios_json, involucrados_json, chat_vecino_json, chat_proveedor_json, tecnico, tel_tecnico, rubro_tecnico
-        const headersNecesarios = ['id_evento', 'fecha', 'edificio', 'vecino', 'depto', 'unidad', 'mensaje', 'tipo', 'urgencia', 'estado', 'notas', 'feedback', 'telefono', 'tecnico', 'tel_tecnico', 'rubro_tecnico', 'hora_fin', 'audio_url', 'transcripcion', 'historial_chat', 'audios_json', 'involucrados_json', 'chat_vecino_json', 'chat_proveedor_json'];
+        const headersNecesarios = ['id_evento', 'fecha', 'edificio', 'vecino', 'depto', 'unidad', 'mensaje', 'tipo', 'urgencia', 'estado', 'notas', 'feedback', 'telefono', 'tecnico', 'tel_tecnico', 'rubro_tecnico', 'hora_fin', 'audio_url', 'transcripcion', 'historial_chat', 'audios_json', 'involucrados_json', 'chat_vecino_json', 'chat_proveedor_json', 'tecnico_notificado'];
         const nuevosHeaders = Array.from(new Set([...headers, ...headersNecesarios]));
         if (nuevosHeaders.length > headers.length) {
             await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
@@ -575,6 +636,36 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             });
         }
 
+        // 4. La cola del caso que ACABA de cerrarse.
+        //
+        // Los tres pasos de arriba exigen un caso abierto, y una conversación no termina cuando el
+        // caso se cierra: el vecino agradece, el técnico manda la factura del trabajo que hizo. Esos
+        // mensajes ya no encontraban dónde meterse y abrían un caso nuevo cada uno. Visto en
+        // producción: un solo desperfecto quedó partido en CASO-1001, CASO-1002 y CASO-1003, y el
+        // motivo de cierre del 1002 decía "el vecino confirma la resolución del caso 1001".
+        //
+        // Lo que los delata es que NO traen un problema propio: son la cola de algo ya contado. Un
+        // reclamo nuevo de verdad siempre viene con su descripción, así que sigue abriendo su caso.
+        const esSeguimientoSinProblemaNuevo = !String(problema || '').trim();
+        let unificadoEnCerrado = false;
+        if (!rowExistente && esSeguimientoSinProblemaNuevo) {
+            const eBuscado = String(edificio || '').toLowerCase().trim();
+            rowExistente = [...rows].reverse().find(r => {
+                const rTel = String(r.get('telefono') || '').replace(/\D/g, '');
+                const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
+                const coincideTel = telBuscado && telBuscado.length >= 6 && rTel && (rTel === telBuscado || rTel.includes(telBuscado));
+                const coincideEdif = eBuscado && rEdif === eBuscado;
+                return coincideTel || coincideEdif;
+            });
+            if (rowExistente) {
+                const estCerrado = String(rowExistente.get('estado') || '').toLowerCase().trim();
+                unificadoEnCerrado = estCerrado === 'resuelto' || estCerrado === 'cerrado';
+                if (unificadoEnCerrado) {
+                    console.log(`🔗 Mensaje sin problema nuevo asociado al [${rowExistente.get('id_evento')}], que ya estaba cerrado, en vez de abrir un caso nuevo.`);
+                }
+            }
+        }
+
         const notasFinales = notas || notas_ia || (rowExistente ? rowExistente.get('notas') : '');
 
         // Manejar lista acumulativa de audios (audios_json)
@@ -591,7 +682,7 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
                 audiosLista.push({
                     url: audio_url,
                     transcripcion: transcripcion || '',
-                    fecha: new Date().toLocaleString('es-AR'),
+                    fecha: fechaHoraAR(),
                     vecino: vecino || 'Vecino',
                     telefono: telefono || ''
                 });
@@ -613,7 +704,7 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
                     nombre: vecino || 'Participante',
                     telefono: telefono,
                     depto: depto || '',
-                    fecha: new Date().toLocaleString('es-AR')
+                    fecha: fechaHoraAR()
                 });
             }
         }
@@ -639,11 +730,21 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             else if (historial_chat) chatNuevosArr = String(historial_chat).split('\n').filter(Boolean);
         } catch(e) {}
 
+        let esContextoProveedor = false;
         chatNuevosArr.forEach(m => {
-            const strM = String(m || '');
-            if (/proveedor|t.cnico|marcos ➔ proveedor|marcos -> proveedor|marcos \(a proveedor\)/i.test(strM)) {
+            const strM = typeof m === 'object' ? (m.emisor ? m.emisor + ': ' + (m.texto || m.mensaje || '') : JSON.stringify(m)) : String(m || '');
+            const isProv = /proveedor|t.cnico|instalador|plomero|electricista|gasista|marcos ➔ proveedor|marcos -> proveedor|marcos \(a proveedor\)/i.test(strM);
+
+            if (isProv) {
+                esContextoProveedor = true;
                 if (!chatProveedorLista.includes(strM)) chatProveedorLista.push(strM);
+            } else if (esContextoProveedor && /^marcos/i.test(strM.trim())) {
+                const strFormatted = strM.replace(/^marcos:/i, 'Marcos (a Proveedor):');
+                if (!chatProveedorLista.includes(strFormatted) && !chatProveedorLista.includes(strM)) {
+                    chatProveedorLista.push(strFormatted);
+                }
             } else {
+                esContextoProveedor = false;
                 if (!chatVecinoLista.includes(strM)) chatVecinoLista.push(strM);
             }
         });
@@ -656,7 +757,23 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             if (depto && !rowExistente.get('depto')) rowExistente.set('depto', depto);
             if (problema && !rowExistente.get('mensaje')) rowExistente.set('mensaje', problema);
             if (urgencia) rowExistente.set('urgencia', urgencia);
-            if (estado) rowExistente.set('estado', estado);
+            // Un caso cerrado no se reabre por su propia cola: la factura del trabajo terminado
+            // llega con estado "en_proceso" por defecto, y sin este reparo devolvía a la vida un
+            // caso que el vecino y el técnico ya habían dado por resuelto.
+            const estadoNuevoEsCierre = ['resuelto', 'cerrado'].includes(String(estado || '').toLowerCase().trim());
+            if (estado && !(unificadoEnCerrado && !estadoNuevoEsCierre)) rowExistente.set('estado', estado);
+
+            // Al cerrar un caso hay que levantar la cita que quedó agendada. El seguimiento se
+            // programa cuando el técnico confirma ("controlar dentro de 3 horas") y vive en la fila;
+            // cerrar el caso no lo tocaba, así que el control vencía igual y arrancaba a preguntar
+            // por un trabajo ya terminado: al técnico si pudo pasar -- cuando ya había pasado y
+            // facturado --, al vecino si vino el técnico, y al final un mail a la Administración
+            // avisando que nadie confirmó la visita.
+            if (estadoNuevoEsCierre) {
+                rowExistente.set('proximo_seguimiento', '');
+                rowExistente.set('seguimiento_paso', '');
+                rowExistente.set('seguimiento_nota', '');
+            }
             if (notasFinales) rowExistente.set('notas', notasFinales);
             if (tecnico) rowExistente.set('tecnico', tecnico);
             if (tel_tecnico) rowExistente.set('tel_tecnico', tel_tecnico);
@@ -693,7 +810,7 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
 
             await sheet.addRow({
                 id_evento:          nuevoCodigoCaso,
-                fecha:              fechaInicio || new Date().toLocaleString('es-AR'),
+                fecha:              fechaInicio || fechaHoraAR(),
                 hora_fin:           new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }),
                 telefono:           telefono || '',
                 edificio:           edificio|| 'No especificado',
@@ -724,6 +841,127 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
     }
 }
 
+// Chequeo de plantilla ya enviada al técnico, persistido en Sheets (no solo en memoria RAM).
+// La deduplicación en memoria (global.colasProveedores) se pierde en cada reinicio de PM2 --
+// muy frecuente durante desarrollo activo -- y eso hacía que el técnico recibiera la misma
+// plantilla de Meta de nuevo apenas se reiniciaba el proceso entre dos mensajes del mismo caso.
+// El aviso al administrador es una ESCALACIÓN: se manda cuando el caso necesita que él tome las
+// riendas, y una sola vez. Sin esta marca salía un mail por cada mensaje del vecino -- tres correos
+// de la misma puerta en una conversación.
+async function fueAdminNotificado(id_evento) {
+    if (!id_evento) return false;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        return !!(row && row.get('admin_notificado'));
+    } catch (err) {
+        console.error('Error chequeando admin_notificado:', err.message);
+        return false;
+    }
+}
+
+async function marcarAdminNotificado(id_evento, motivo = '') {
+    if (!id_evento) return;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return;
+        await sheet.loadHeaderRow().catch(() => {});
+        if (!(sheet.headerValues || []).includes('admin_notificado')) {
+            const nuevosHeaders = Array.from(new Set([...(sheet.headerValues || []), 'admin_notificado']));
+            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
+        }
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        if (row) {
+            row.set('admin_notificado', `${fechaHoraAR()}${motivo ? ` — ${motivo}` : ''}`);
+            await row.save();
+        }
+    } catch (err) {
+        console.error('Error marcando admin_notificado:', err.message);
+    }
+}
+
+// Si al técnico ya se le pasó el contacto de quien le abre. La marca vive en el caso porque la de
+// la sesión se borraba en cada reinicio de PM2, y el técnico recibía el mismo "CONTACTO PARA EL
+// INGRESO" una vez por cada mensaje del vecino.
+async function fueContactoAccesoAvisado(id_evento) {
+    if (!id_evento) return false;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        return !!(row && row.get('contacto_acceso_avisado'));
+    } catch (err) {
+        console.error('Error chequeando contacto_acceso_avisado:', err.message);
+        return false;
+    }
+}
+
+async function marcarContactoAccesoAvisado(id_evento) {
+    if (!id_evento) return;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return;
+        await sheet.loadHeaderRow().catch(() => {});
+        if (!(sheet.headerValues || []).includes('contacto_acceso_avisado')) {
+            const nuevosHeaders = Array.from(new Set([...(sheet.headerValues || []), 'contacto_acceso_avisado']));
+            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
+        }
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        if (row) {
+            row.set('contacto_acceso_avisado', fechaHoraAR());
+            await row.save();
+        }
+    } catch (err) {
+        console.error('Error marcando contacto_acceso_avisado:', err.message);
+    }
+}
+
+async function fueTecnicoNotificado(id_evento) {
+    if (!id_evento) return false;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        return !!(row && row.get('tecnico_notificado'));
+    } catch (err) {
+        console.error('Error chequeando tecnico_notificado:', err.message);
+        return false;
+    }
+}
+
+async function marcarTecnicoNotificado(id_evento) {
+    if (!id_evento) return;
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return;
+        await sheet.loadHeaderRow().catch(() => {});
+        if (!(sheet.headerValues || []).includes('tecnico_notificado')) {
+            const nuevosHeaders = Array.from(new Set([...(sheet.headerValues || []), 'tecnico_notificado']));
+            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
+        }
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        if (row) {
+            row.set('tecnico_notificado', fechaHoraAR());
+            await row.save();
+        }
+    } catch (err) {
+        console.error('Error marcando tecnico_notificado:', err.message);
+    }
+}
+
 // ─────────────────────────────────────────────
 // FACTURAS / CONTABILIDAD
 // ─────────────────────────────────────────────
@@ -749,7 +987,7 @@ async function guardarFactura({ proveedor, monto, concepto, edificio, url_archiv
         }
 
         await sheet.addRow({
-            fecha:          new Date().toLocaleString('es-AR'),
+            fecha:          fechaHoraAR(),
             proveedor:      proveedor  || 'Desconocido',
             monto:          monto      || '0',
             concepto:       concepto   || '',
@@ -833,7 +1071,7 @@ async function guardarLlamada({
         }
 
         await sheet.addRow({
-            fecha:           new Date().toLocaleString('es-AR'),
+            fecha:           fechaHoraAR(),
             duracion:        duracion        || '',
             telefono:        telefono        || '',
             vecino:          vecino          || 'Desconocido',
@@ -926,7 +1164,11 @@ async function marcarCasoResueltoPorId(idEvento) {
 
         if (row) {
             row.set('estado', 'resuelto');
-            row.set('hora_fin', new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }));
+            row.set('hora_fin', fechaHoraAR());
+            // Se levanta la cita de control pendiente: un caso resuelto no tiene nada que seguir.
+            row.set('proximo_seguimiento', '');
+            row.set('seguimiento_paso', '');
+            row.set('seguimiento_nota', '');
             await row.save();
             console.log(`✅ Caso [${idBuscado}] marcado como RESUELTO en Sheets.`);
             return {
@@ -1034,22 +1276,312 @@ async function buscarRolPorTelefono(telefono) {
     return { rol: 'vecino' };
 }
 
+/**
+ * Deja registrado que el técnico confirmó la visita, y el plazo que dio.
+ *
+ * Vivía únicamente en memoria (`global.colasProveedores`), así que cada `pm2 restart` la borraba y
+ * Marcos volvía a contestarle al vecino "estoy consultando con el técnico" cuando el técnico había
+ * confirmado hacía rato. Para el vecino eso no es un olvido: es que le mienten.
+ */
+async function guardarConfirmacionTecnico({ id_evento, eta = '', tecnico = '' }) {
+    try {
+        if (!id_evento) return false;
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+
+        await sheet.loadHeaderRow().catch(() => {});
+        const headers = sheet.headerValues || [];
+        const necesarios = ['tecnico_confirmado', 'tecnico_eta'];
+        const completos = Array.from(new Set([...headers, ...necesarios]));
+        if (completos.length > headers.length) await sheet.setHeaderRow(completos).catch(() => {});
+
+        const rows = await sheet.getRows();
+        const buscado = String(id_evento).toUpperCase().trim();
+        const fila = rows.find(r => String(r.get('id_evento') || '').toUpperCase().trim() === buscado);
+        if (!fila) return false;
+
+        fila.set('tecnico_confirmado', fechaHoraAR());
+        if (eta) fila.set('tecnico_eta', eta);
+        if (tecnico) fila.set('tecnico', tecnico);
+        await fila.save();
+        console.log(`📌 Confirmación del técnico registrada en [${id_evento}]${eta ? ` (${eta})` : ''}`);
+        return true;
+    } catch (err) {
+        console.error('Error guardando la confirmación del técnico:', err.message);
+        return false;
+    }
+}
+
+// ─────────────────────────────────────────────
+// SEGUIMIENTO DE CASOS (a prueba de reinicios)
+//
+// Los temporizadores de escalación vivían únicamente en `setTimeout`, es decir en memoria RAM. Cada
+// `pm2 restart` los borraba a todos en silencio -- y el proceso lleva más de 150 reinicios. En la
+// práctica eso significa que muchas escalaciones simplemente nunca ocurrieron: ni el suplente, ni
+// el aviso al administrador, sin que quedara rastro de que se habían perdido.
+//
+// La fecha del próximo control se guarda en el propio caso, y un barrido periódico levanta los
+// vencidos. Sobrevive a los reinicios y, de paso, queda a la vista en la planilla qué caso está
+// esperando qué.
+// ─────────────────────────────────────────────
+
+async function programarSeguimiento({ id_evento, cuando, paso = 1, nota = '' }) {
+    try {
+        if (!id_evento || !cuando) return false;
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+
+        await sheet.loadHeaderRow().catch(() => {});
+        const headers = sheet.headerValues || [];
+        const necesarios = ['proximo_seguimiento', 'seguimiento_paso', 'seguimiento_nota'];
+        const completos = Array.from(new Set([...headers, ...necesarios]));
+        if (completos.length > headers.length) await sheet.setHeaderRow(completos).catch(() => {});
+
+        const rows = await sheet.getRows();
+        const buscado = String(id_evento).toUpperCase().trim();
+        const fila = rows.find(r => String(r.get('id_evento') || '').toUpperCase().trim() === buscado);
+        if (!fila) return false;
+
+        fila.set('proximo_seguimiento', new Date(cuando).toISOString());
+        fila.set('seguimiento_paso', String(paso));
+        if (nota) fila.set('seguimiento_nota', nota);
+        await fila.save();
+
+        const enMin = Math.round((new Date(cuando).getTime() - Date.now()) / 60000);
+        console.log(`⏱️ Seguimiento de [${id_evento}] programado para dentro de ${enMin} min (paso ${paso}).`);
+        return true;
+    } catch (err) {
+        console.error('Error programando seguimiento:', err.message);
+        return false;
+    }
+}
+
+/** Quita el control pendiente: el caso se resolvió o dejó de requerirlo. */
+async function cancelarSeguimiento(id_evento) {
+    try {
+        if (!id_evento) return false;
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return false;
+        const rows = await sheet.getRows();
+        const buscado = String(id_evento).toUpperCase().trim();
+        const fila = rows.find(r => String(r.get('id_evento') || '').toUpperCase().trim() === buscado);
+        if (!fila) return false;
+        fila.set('proximo_seguimiento', '');
+        fila.set('seguimiento_paso', '');
+        await fila.save();
+        return true;
+    } catch (err) {
+        console.error('Error cancelando seguimiento:', err.message);
+        return false;
+    }
+}
+
+/** Casos abiertos cuyo control ya venció. */
+async function obtenerSeguimientosVencidos() {
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return [];
+        const rows = await sheet.getRows();
+        const ahora = Date.now();
+
+        return rows
+            .filter(r => {
+                const estado = String(r.get('estado') || '').toLowerCase();
+                if (estado === 'resuelto' || estado === 'cerrado') return false;
+                const prox = r.get('proximo_seguimiento');
+                if (!prox) return false;
+                const t = new Date(prox).getTime();
+                return Number.isFinite(t) && t <= ahora;
+            })
+            .map(r => ({
+                id_evento:   r.get('id_evento') || '',
+                edificio:    r.get('edificio') || '',
+                vecino:      r.get('vecino') || '',
+                telefono:    r.get('telefono') || '',
+                depto:       r.get('depto') || '',
+                problema:    r.get('mensaje') || r.get('problema') || '',
+                urgencia:    r.get('urgencia') || '',
+                tecnico:     r.get('tecnico') || '',
+                paso:        parseInt(r.get('seguimiento_paso') || '1', 10) || 1,
+                nota:        r.get('seguimiento_nota') || '',
+            }));
+    } catch (err) {
+        console.error('Error obteniendo seguimientos vencidos:', err.message);
+        return [];
+    }
+}
+
+// ─────────────────────────────────────────────
+// ACCESOS E INSTALACIONES DEL EDIFICIO
+//
+// Dónde está cada cosa y quién tiene la llave: sala de medidores, tablero eléctrico, sala de
+// máquinas, bombas, llave de gas, terraza, tanque. Sin esto, cuando el técnico llega y pregunta
+// "¿dónde está la sala de medidores?" o se encuentra la puerta con candado, Marcos no tiene nada
+// para contestarle y el trabajo se cae aunque el técnico ya esté en la puerta.
+//
+// La tabla se llena de dos maneras y las dos importan:
+//   - El administrador carga lo que sabe desde el panel.
+//   - Marcos anota lo que aparece hablando. Un vecino que dice "yo le abro, tengo llave de la sala
+//     de electricidad" está aportando un dato que el administrador no tenía. Los edificios sin
+//     encargado se sostienen justamente sobre esos vecinos, y esa información no está escrita en
+//     ningún lado hasta que alguien la dice.
+//
+// Por eso cada fila guarda de dónde salió (`origen`): no es lo mismo un dato cargado por la
+// administración que uno que mencionó un vecino al pasar.
+// ─────────────────────────────────────────────
+
+const HEADERS_ACCESOS = ['edificio', 'lugar', 'ubicacion', 'quien_abre', 'telefono', 'tipo_acceso', 'notas', 'origen', 'fecha'];
+
+async function getSheetAccesos() {
+    const doc = await getSheet();
+    let sheet = doc.sheetsByTitle['accesos'];
+    if (!sheet) {
+        sheet = await doc.addSheet({ title: 'accesos', headerValues: HEADERS_ACCESOS });
+        console.log('🔑 Pestaña accesos creada.');
+        return sheet;
+    }
+    await sheet.loadHeaderRow().catch(() => {});
+    const headers = sheet.headerValues || [];
+    const completos = Array.from(new Set([...headers, ...HEADERS_ACCESOS]));
+    if (completos.length > headers.length) await sheet.setHeaderRow(completos).catch(() => {});
+    return sheet;
+}
+
+/**
+ * Todo lo que sabemos sobre accesos e instalaciones de un edificio.
+ */
+async function buscarAccesosEdificio(nombreEdificio) {
+    try {
+        if (!nombreEdificio) return [];
+        const sheet = await getSheetAccesos();
+        const rows = await sheet.getRows();
+        const buscado = String(nombreEdificio).toLowerCase().trim();
+
+        return rows
+            .filter(r => String(r.get('edificio') || '').toLowerCase().trim() === buscado)
+            .filter(r => String(r.get('lugar') || '').trim())
+            .map(r => ({
+                lugar:       r.get('lugar') || '',
+                ubicacion:   r.get('ubicacion') || '',
+                quienAbre:   r.get('quien_abre') || '',
+                telefono:    r.get('telefono') || '',
+                tipoAcceso:  r.get('tipo_acceso') || '',
+                notas:       r.get('notas') || '',
+                origen:      r.get('origen') || '',
+            }));
+    } catch (err) {
+        console.error('Error buscando accesos del edificio:', err.message);
+        return [];
+    }
+}
+
+/**
+ * Guarda o completa un dato de acceso. La clave es edificio + lugar: si el lugar ya estaba
+ * cargado, se completan únicamente los campos que vienen con valor, para que un dato suelto
+ * mencionado al pasar no borre lo que el administrador ya había cargado con más detalle.
+ */
+async function guardarAccesoEdificio({ edificio, lugar, ubicacion = '', quienAbre = '', telefono = '', tipoAcceso = '', notas = '', origen = '' }) {
+    try {
+        if (!edificio || !lugar) return false;
+        const sheet = await getSheetAccesos();
+        const rows = await sheet.getRows();
+
+        const edifBuscado = String(edificio).toLowerCase().trim();
+        const lugarBuscado = String(lugar).toLowerCase().trim();
+        const fila = rows.find(r =>
+            String(r.get('edificio') || '').toLowerCase().trim() === edifBuscado &&
+            String(r.get('lugar') || '').toLowerCase().trim() === lugarBuscado
+        );
+
+        const fecha = fechaHoraAR();
+
+        if (fila) {
+            if (ubicacion)  fila.set('ubicacion', ubicacion);
+            if (quienAbre)  fila.set('quien_abre', quienAbre);
+            if (telefono)   fila.set('telefono', telefono);
+            if (tipoAcceso) fila.set('tipo_acceso', tipoAcceso);
+            if (notas)      fila.set('notas', notas);
+            if (origen)     fila.set('origen', origen);
+            fila.set('fecha', fecha);
+            await fila.save();
+            console.log(`🔑 Acceso actualizado en ${edificio}: ${lugar}`);
+        } else {
+            await sheet.addRow({
+                edificio, lugar,
+                ubicacion, quien_abre: quienAbre, telefono,
+                tipo_acceso: tipoAcceso, notas, origen, fecha
+            });
+            console.log(`🔑 Nuevo acceso registrado en ${edificio}: ${lugar}${quienAbre ? ` — abre ${quienAbre}` : ''}`);
+        }
+        return true;
+    } catch (err) {
+        console.error('Error guardando acceso del edificio:', err.message);
+        return false;
+    }
+}
+
+async function quitarAccesoEdificio({ edificio, lugar }) {
+    try {
+        if (!edificio || !lugar) return false;
+        const sheet = await getSheetAccesos();
+        const rows = await sheet.getRows();
+
+        const edifBuscado = String(edificio).toLowerCase().trim();
+        const lugarBuscado = String(lugar).toLowerCase().trim();
+
+        const filasABorrar = rows.filter(r => {
+            const rEd = String(r.get('edificio') || '').toLowerCase().trim();
+            const rLug = String(r.get('lugar') || '').toLowerCase().trim();
+            if (rEd !== edifBuscado) return false;
+            return rLug === lugarBuscado || rLug.includes(lugarBuscado) || lugarBuscado.includes(rLug);
+        });
+
+        for (const f of filasABorrar) {
+            await f.delete();
+            console.log(`🔑 Acceso eliminado en ${edificio}: ${f.get('lugar')}`);
+        }
+        return true;
+    } catch (err) {
+        console.error('Error quitando acceso del edificio:', err.message);
+        return false;
+    }
+}
+
 module.exports = {
     getSheet,
     buscarVecinoPorTelefono,
     buscarVecinosPorTelefono,
     agregarVecinoNuevo,
+    guardarAutorizacionContacto,
     buscarTecnicoAsignado,
     buscarTecnicoSuplente,
     buscarPersonalDeTurno,
     buscarPerfilEdificio,
+    guardarConfirmacionTecnico,
+    programarSeguimiento,
+    cancelarSeguimiento,
+    obtenerSeguimientosVencidos,
+    buscarAccesosEdificio,
+    guardarAccesoEdificio,
+    quitarAccesoEdificio,
     buscarCliente,
     listarEdificiosConocidos,
     buscarMemoriaVecino,
     guardarMemoriaVecino,
     guardarReporte,
+    fueTecnicoNotificado,
+    marcarTecnicoNotificado,
+    fueAdminNotificado,
+    marcarAdminNotificado,
+    fueContactoAccesoAvisado,
+    marcarContactoAccesoAvisado,
     guardarFactura,
     buscarFacturasProveedor,
+    guardarLlamada,
     buscarRolPorTelefono,
     obtenerEventosPendientesAdmin,
     obtenerCasosAbiertosEdificio,

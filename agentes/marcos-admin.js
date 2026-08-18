@@ -1,4 +1,4 @@
-const { guardarReporte, guardarFactura, guardarMemoriaVecino, buscarPerfilEdificio, buscarCliente } = require('../sheets');
+const { guardarReporte, guardarFactura, guardarMemoriaVecino, buscarPerfilEdificio, buscarCliente } = require('../datos');
 const nodemailer = require('nodemailer');
 const cron = require('node-cron');
 
@@ -84,7 +84,13 @@ async function reportarAlAdmin({
         tel_tecnico: tecnicoAsignado?.telefono || '',
         rubro_tecnico: tecnicoAsignado?.especialidad || decisionCaso.tipo_problema || '',
         acceso:    tecnicoAsignado?.acceso || '',
-        estado: (decisionCaso.cerrar_caso && !decisionCaso.contactar_tecnico && !tecnicoAsignado) ? 'cerrado' : 'en_proceso',
+        // Un caso se cierra cuando la IA decide que está resuelto y no queda nada que derivar.
+        //
+        // Antes se exigía además que NO hubiera técnico asignado, y eso hacía el cierre imposible en
+        // el caso normal: un reclamo que se resolvió es justamente uno al que se le mandó un técnico.
+        // El vecino avisaba "ya vino y lo arregló", Marcos le contestaba que quedaba registrado, y
+        // el caso seguía en_proceso para siempre en la planilla y en el panel.
+        estado: (decisionCaso.cerrar_caso && !decisionCaso.contactar_tecnico) ? 'cerrado' : 'en_proceso',
         notas_ia:  resumenReporte,
         tipo:      'whatsapp'
     });
@@ -115,13 +121,39 @@ async function reportarAlAdmin({
         tareasList.push('memoria actualizada');
     }
 
-    // ── 4. NOTIFICAR AL ADMINISTRADOR HUMANO (Solo email para URGENCIA ALTA Abierta y Sin Resolver) ──
+    // ── 4. ESCALAR AL ADMINISTRADOR HUMANO ──
+    //
+    // El mail al administrador NO es un aviso de cada evento: es para que TOME LAS RIENDAS cuando
+    // Marcos no puede resolverlo solo. Antes salía con la sola urgencia alta, así que una misma
+    // puerta rota generaba un correo por cada mensaje del vecino -- tres en una conversación --, y
+    // el administrador terminaba ignorándolos justo cuando alguno importaba de verdad.
+    //
+    // Los motivos de escalación son: que no haya técnico para ese problema (acá), que el técnico no
+    // conteste (lo maneja notificarEscalacionAlAdmin), y que la visita falle o quede a medias (lo
+    // maneja el seguimiento del caso).
     const estadoCasoNorm = String(decisionCaso.estado || '').toLowerCase();
     const esCasoResuelto = estadoCasoNorm === 'resuelto' || estadoCasoNorm === 'cerrado' || decisionCaso.cerrar_caso === true;
 
-    if (decisionCaso.urgencia === 'alta' && !esCasoResuelto) {
-        console.log(`[Email] 🚨 Caso de urgencia ALTA ABIERTA detectado. Iniciando notificación por email a la Administración...`);
-        
+    // El caso necesita un técnico y no hay ninguno cargado para ese rubro: Marcos no tiene a quién
+    // mandar, y solo el administrador puede conseguir uno.
+    const sinTecnicoParaElProblema = decisionCaso.contactar_tecnico === true && !tecnicoAsignado;
+    const motivoEscalacion = sinTecnicoParaElProblema ? 'sin técnico asignado para el problema' : '';
+
+    // Una sola vez por caso. La marca vive en el evento, no en memoria, así que un reinicio de PM2
+    // no vuelve a habilitar el mismo correo.
+    let yaEscalado = false;
+    if (motivoEscalacion && resReporte?.id_evento) {
+        try {
+            const { fueAdminNotificado } = require('../datos');
+            yaEscalado = await fueAdminNotificado(resReporte.id_evento);
+        } catch (e) {
+            console.error('[Email] Error chequeando si el caso ya se había escalado:', e.message);
+        }
+    }
+
+    if (motivoEscalacion && !esCasoResuelto && !yaEscalado) {
+        console.log(`[Email] 🚨 Escalando [${resReporte?.id_evento || 'caso'}] a la Administración: ${motivoEscalacion}.`);
+
         if (vecino?.edificio) {
             const perfil = await buscarPerfilEdificio(vecino.edificio);
             
@@ -132,30 +164,68 @@ async function reportarAlAdmin({
                     const cliente = await buscarCliente(perfil.adminNombre);
                     
                     if (cliente) {
-                        console.log(`[Email] Cliente/Admin encontrado: "${cliente.nombre}". Email: "${cliente.email || 'Ninguno'}"`);
-                        
-                        if (cliente.email) {
-                            const titulo = `🚨 MARCOS: AVISO DE EMERGENCIA - ${vecino.edificio}`;
-                            let mensaje = `Se ha reportado una EMERGENCIA.\n\n` +
-                                `📍 Edificio: ${vecino.edificio}\n` +
-                                `🏠 Depto: ${vecino.departamento || 'Por confirmar'}\n` +
-                                `👤 Vecino: ${vecino.nombre || 'Desconocido'}\n` +
-                                `⚠️ Problema: ${decisionCaso.resumen_problema}\n`;
+                        // El canal lo elige el administrador desde el panel. Hasta ahora esa
+                        // preferencia se guardaba y se ignoraba: Marcos mandaba mail siempre, y el
+                        // tilde de WhatsApp no hacía nada.
+                        const quiereEmail = cliente.notifEmail !== false && Boolean(cliente.email);
+                        const quiereWsp   = cliente.notifWsp === true && Boolean(cliente.wsp);
 
-                            if (tecnicoAsignado) {
-                                mensaje += `🔧 Técnico asignado: ${tecnicoAsignado.nombre}\n`;
-                            }
-                            
-                            mensaje += `\n🤖 Este evento ya fue registrado en la pestaña EVENTOS del panel web.`;
-                            
-                            const enviado = await enviarEmail(cliente.email, titulo, mensaje);
-                            if (enviado) {
+                        console.log(`[Escalación] Administrador "${cliente.nombre}" — email: ${quiereEmail ? cliente.email : 'no'} | WhatsApp: ${quiereWsp ? cliente.wsp : 'no'}`);
+
+                        const titulo = `🚨 MARCOS: REQUIERE SU INTERVENCIÓN - ${vecino.edificio}`;
+                        let mensaje = `Hay un caso que no se puede resolver sin usted.\n\n` +
+                            `❗ Motivo: ${motivoEscalacion}\n\n` +
+                            `📍 Edificio: ${vecino.edificio}\n` +
+                            `🏠 Depto: ${vecino.departamento || 'Por confirmar'}\n` +
+                            `👤 Vecino: ${vecino.nombre || 'Desconocido'}\n` +
+                            `⚠️ Problema: ${decisionCaso.resumen_problema}\n` +
+                            `🚦 Urgencia: ${(decisionCaso.urgencia || 'media').toUpperCase()}\n`;
+
+                        if (sinTecnicoParaElProblema) {
+                            mensaje += `\nNo figura ningún proveedor de ${decisionCaso.tipo_problema || 'ese rubro'} asignado a este edificio, ` +
+                                `así que no hay a quién derivarlo. Hace falta que usted coordine el envío de un profesional ` +
+                                `o cargue uno en el panel.\n`;
+                        }
+
+                        mensaje += `\n🤖 Este evento ya fue registrado en la pestaña EVENTOS del panel web.`;
+
+                        let llegoPorAlgunLado = false;
+
+                        if (quiereEmail) {
+                            if (await enviarEmail(cliente.email, titulo, mensaje)) {
                                 tareasList.push('administrador notificado por email');
+                                llegoPorAlgunLado = true;
                             } else {
-                                console.warn(`[Email] ⚠️ No se pudo enviar el correo de emergencia al administrador (${cliente.email}).`);
+                                console.warn(`[Escalación] ⚠️ No se pudo enviar el correo al administrador (${cliente.email}).`);
                             }
-                        } else {
-                            console.warn(`[Email] ⚠️ Advertencia: El administrador "${perfil.adminNombre}" no tiene email configurado en la pestaña CLIENTES.`);
+                        }
+
+                        if (quiereWsp) {
+                            try {
+                                const { enviarWhatsApp } = require('./marcos-ops');
+                                // El administrador SÍ sabe que Marcos es una IA, así que acá no
+                                // hace falta el tono de persona que se usa con el vecino.
+                                await enviarWhatsApp(cliente.wsp, `*${titulo}*\n\n${mensaje}`, phoneNumberId, accessToken);
+                                tareasList.push('administrador notificado por WhatsApp');
+                                llegoPorAlgunLado = true;
+                            } catch (e) {
+                                console.error(`[Escalación] ⚠️ No se pudo avisar por WhatsApp al administrador (${cliente.wsp}):`, e.message);
+                            }
+                        }
+
+                        if (!quiereEmail && !quiereWsp) {
+                            console.warn(`[Escalación] ⚠️ El administrador "${cliente.nombre}" no tiene ningún canal disponible: sin email ni WhatsApp cargado, o con las dos notificaciones apagadas.`);
+                        }
+
+                        // Se marca recién si llegó por algún canal: si fallaron todos, el caso sigue
+                        // sin escalar y el próximo mensaje puede reintentarlo.
+                        if (llegoPorAlgunLado) {
+                            try {
+                                const { marcarAdminNotificado } = require('../datos');
+                                await marcarAdminNotificado(resReporte?.id_evento, motivoEscalacion);
+                            } catch (e) {
+                                console.error('[Escalación] Error marcando el caso como escalado:', e.message);
+                            }
                         }
                     } else {
                         console.warn(`[Email] ⚠️ Advertencia: No se encontró al administrador "${perfil.adminNombre}" en la pestaña CLIENTES del Sheets.`);
@@ -180,8 +250,8 @@ function iniciarCronReportes() {
     cron.schedule('0 8,20 * * *', async () => {
         console.log('⏳ Ejecutando Cron de Reportes cada 12 hs...');
         try {
-            const { getSheet } = require('../sheets'); // Requerimos local para evitar ciclos
-            const sheetMod = require('../sheets'); 
+            const { getSheet } = require('../datos'); // Requerimos local para evitar ciclos
+            const sheetMod = require('../datos'); 
             const doc = await sheetMod.buscarPerfilEdificio(''); // dummy call just to init
             console.log('✅ Cron de reportes ejecutado.');
         } catch (err) {
@@ -194,7 +264,23 @@ function iniciarCronReportes() {
 async function notificarEscalacionAlAdmin({ vecino, decisionCaso, tecnicoAsignado, intentosRealizados }) {
     try {
         const perfilEdificio = await buscarPerfilEdificio(vecino?.edificio);
-        const emailAdmin = perfilEdificio?.adminEmail || process.env.ADMIN_EMAIL || 'administracion@bienargentinos.com';
+        // El email del administrador NO vive en el perfil del edificio (ahí solo está su nombre):
+        // hay que buscarlo en la pestaña "clientes", igual que hace reportarAlAdmin más arriba.
+        // Antes se leía perfilEdificio.adminEmail -- un campo que no existe -- así que SIEMPRE
+        // caía al fallback hardcodeado 'administracion@bienargentinos.com', una casilla que no
+        // existe en el servidor de correo: cada alerta de escalación moría con "550 No Such User
+        // Here" y la Administración nunca se enteraba de un caso urgente sin confirmar.
+        let emailAdmin = '';
+        if (perfilEdificio?.adminNombre) {
+            const clienteEsc = await buscarCliente(perfilEdificio.adminNombre);
+            if (clienteEsc?.email) emailAdmin = clienteEsc.email;
+        }
+        emailAdmin = emailAdmin || perfilEdificio?.adminEmail || process.env.ADMIN_EMAIL || '';
+
+        if (!emailAdmin) {
+            console.warn(`[Email] ⚠️ Escalación de ${vecino?.edificio || 'consorcio'} sin destinatario: el administrador no tiene email cargado en la pestaña CLIENTES ni hay ADMIN_EMAIL configurado.`);
+            return;
+        }
 
         const asunto = `🚨 ALERTA SIN CONFIRMACIÓN — ${vecino?.edificio || 'Consorcio'} [Urgencia: ${(decisionCaso?.urgencia || 'alta').toUpperCase()}]`;
         const cuerpo = `Estimada Administración,\n\n` +
