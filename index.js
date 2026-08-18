@@ -1487,8 +1487,12 @@ function validarYSanitizarNombre(nombre) {
                 || datosFactura?.edificio
                 || '';
 
+            // Se declara afuera del if porque más abajo se usa para armar el link del comprobante
+            // en el chat del proveedor. Declarado adentro, ese uso posterior rompía la respuesta
+            // entera justo cuando el técnico mandaba la factura.
+            let resEstFactura = null;
             if (media?.filePath) {
-                const resEstFactura = guardarArchivoEstructurado({
+                resEstFactura = guardarArchivoEstructurado({
                     filePath: media.filePath,
                     adminNombre: perfilEdificio?.adminNombre,
                     edificioNombre: edificioFactura || 'Consorcio',
@@ -2341,13 +2345,19 @@ function validarYSanitizarNombre(nombre) {
                         ? await redactarNovedadParaTecnico({ textoVecino: textoFinal, nombreVecino: nomVecinoAuto, direccion: edifAuto })
                         : '';
                     const comentarioAuto = comentarioLimpio ? `\n\n${comentarioLimpio}` : '';
+                    // El pie se declara acá afuera porque unas líneas más abajo se usa para dejar el
+                    // envío registrado en el chat del proveedor. Estaba declarado con `const` dentro
+                    // de cada rama del if, así que al salir ya no existía: la foto le llegaba al
+                    // técnico y justo después reventaba con "captionAuto is not defined", con lo cual
+                    // el envío no quedaba anotado en el historial del caso.
+                    let captionAuto;
                     if (msgTypeMedia === 'image') {
                         const { enviarImagenWhatsApp } = require('./agentes/marcos-ops');
-                        const captionAuto = `📱 *MARCOS — FOTO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó esta foto del inconveniente.${comentarioAuto}`;
+                        captionAuto = `📱 *MARCOS — FOTO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó esta foto del inconveniente.${comentarioAuto}`;
                         await enviarImagenWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                     } else {
                         const { enviarVideoWhatsApp } = require('./agentes/marcos-ops');
-                        const captionAuto = `📱 *MARCOS — VIDEO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó este video del inconveniente.${comentarioAuto}`;
+                        captionAuto = `📱 *MARCOS — VIDEO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó este video del inconveniente.${comentarioAuto}`;
                         await enviarVideoWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                     }
                     console.log(`📷 Foto/video del vecino reenviado automáticamente al técnico ${tecnicoParaFoto.nombre} (sin que lo pidiera explícitamente).`);
