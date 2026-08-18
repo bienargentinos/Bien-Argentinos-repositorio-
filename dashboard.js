@@ -2351,7 +2351,7 @@ function parseAudiosDetallados(datos) {
         if (Array.isArray(parsed)) listJson = parsed;
         else if (typeof parsed === 'object') listJson = [parsed];
       } catch(e) {
-        listJson = String(rawJson).split(new RegExp('[\\\\,\\\\n;|]')).map(function(u){ return { url: u.trim() }; });
+        listJson = String(rawJson).split(/[,;\n|]/).map(function(u){ return { url: u.trim() }; });
       }
     } else if (Array.isArray(rawJson)) {
       listJson = rawJson;
@@ -2373,7 +2373,7 @@ function parseAudiosDetallados(datos) {
 
   // 2. Parse audio_url field (can contain multiple URLs delimited by comma, newline, pipe, semicolon, space)
   if (datos.audio_url) {
-    var parts = String(datos.audio_url).split(new RegExp('[\\\\,\\\\n;|\\\\s]+')).filter(Boolean);
+    var parts = String(datos.audio_url).split(/[,;\n|\s]+/).filter(Boolean);
     parts.forEach(function(p) {
       addAudioItem(p, datos.vecino, datos.when, datos.transcripcion);
     });
@@ -2394,7 +2394,7 @@ function parseAudiosDetallados(datos) {
     }
   }
 
-  var audioUrlRegex = new RegExp('(/root/marcos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/archivos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/almacenamiento[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]*audio[^"\\'()\\\\s]*)', 'gi');
+  var audioUrlRegex = /(\/root\/marcos[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|\/archivos[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|\/almacenamiento[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\/\/[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\/\/[^\s"'()]*audio[^\s"'()]*)/gi;
 
   chatItems.forEach(function(line) {
     if (!line) return;
