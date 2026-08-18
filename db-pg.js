@@ -331,6 +331,12 @@ async function _initPgSchema() {
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS chat_vecino_json TEXT;
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS chat_proveedor_json TEXT;
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS tecnico_notificado VARCHAR(100);
+            -- Telefono y rubro del tecnico del caso. Se escriben desde datos.js y se consultan para
+            -- resolver a quien pertenece un mensaje, pero nunca se habian creado: cada copia del
+            -- reporte a PostgreSQL fallaba entera con "column tel_tecnico does not exist", asi que
+            -- la base se quedaba sin el caso y las lecturas caian a Sheets.
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS tel_tecnico VARCHAR(50);
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS rubro_tecnico VARCHAR(100);
             -- Cuando hay que volver a controlar el caso. Vive en la fila y no en un setTimeout
             -- justamente para que un reinicio del proceso no lo borre.
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS proximo_seguimiento TEXT;

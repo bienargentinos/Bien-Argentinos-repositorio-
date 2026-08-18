@@ -1088,7 +1088,16 @@ function validarYSanitizarNombre(nombre) {
     const historial = session.historial;
     const prefixEmisor = `${datosEmisor.rol === 'proveedor' ? 'Proveedor (' + datosEmisor.nombre + ')' : (datosEmisor.rol === 'encargado' ? 'Encargado' : 'Vecino')}: `;
 
+    // `messageText` es lo que dijo el vecino en esta vuelta, con las etiquetas de sus adjuntos.
+    // Se declara acá afuera porque más abajo se usa para redactarle la novedad al técnico: estaba
+    // declarada adentro del `else`, así que cuando la ráfaga traía varios mensajes -- justo el caso
+    // normal -- ese uso posterior tiraba "messageText is not defined" y cortaba la atención entera.
+    let messageText = textoFinal;
+
     if (itemsRafaga && Array.isArray(itemsRafaga) && itemsRafaga.length > 1) {
+        // Con varios mensajes en la tanda, lo que representa "lo que dijo" es el texto completo de
+        // la ráfaga, no el del último mensaje suelto.
+        messageText = msgBodyParaRegistro || textoFinal;
         for (const it of itemsRafaga) {
             let itText = it.texto || '';
             if (it.tipo === 'image' && imgUrl) {
@@ -1105,7 +1114,6 @@ function validarYSanitizarNombre(nombre) {
             historial.push(`${prefixEmisor}${itText}`);
         }
     } else {
-        let messageText = textoFinal;
         if (msgType === 'image' && imgUrl) {
             messageText = `[IMAGEN:${imgUrl}]` + (textoFinal && textoFinal !== '(Imagen adjunta)' ? ' ' + textoFinal : '');
         } else if (msgType === 'video' && videoUrl) {
