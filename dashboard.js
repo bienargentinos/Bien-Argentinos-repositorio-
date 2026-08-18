@@ -3385,9 +3385,8 @@ async function toggleFacturaEstado(btn, row, nuevoEstado){
     btn.disabled = false;
   }
 }
-}
 
-// ── FACTURAS Y FOTOS: SCRIPT CLIENTE HI-FI ──
+// ── FACTURAS Y FOTOS: SCRIPT CLIENTE ──
 var __facturasState = { clase: '', origen: '', q: '', page: 1 };
 var __facturasDebounceTimer = null;
 var __facturasDataCache = null;
@@ -3423,9 +3422,9 @@ async function cargarFacturasDesdeApi() {
     var el = document.getElementById(tabId);
     if (el) {
       var act = __facturasState.clase === c;
-      el.style.background = act ? 'var(--color-surface)' : 'transparent';
-      el.style.color = act ? 'var(--color-accent-300)' : 'var(--color-text)';
-      el.style.borderColor = act ? 'var(--color-accent)' : 'transparent';
+      el.style.background = act ? '#2E6FC0' : '#FFFFFF';
+      el.style.color = act ? '#FFFFFF' : '#475569';
+      el.style.borderColor = act ? '#2E6FC0' : '#E2E8F0';
     }
   });
 
@@ -3435,9 +3434,9 @@ async function cargarFacturasDesdeApi() {
     var el = document.getElementById(chipId);
     if (el) {
       var act = __facturasState.origen === o;
-      el.style.background = act ? 'var(--color-accent-800)' : 'transparent';
-      el.style.color = act ? 'var(--color-accent-300)' : 'var(--color-text)';
-      el.style.borderColor = act ? 'var(--color-accent)' : 'var(--color-divider)';
+      el.style.background = act ? '#1E408B' : '#FFFFFF';
+      el.style.color = act ? '#FFFFFF' : '#475569';
+      el.style.borderColor = act ? '#1E408B' : '#E2E8F0';
     }
   });
 
@@ -3451,7 +3450,7 @@ async function cargarFacturasDesdeApi() {
   if (__facturasState.q) apiParams.set('q', __facturasState.q);
   if (__facturasState.page > 1) apiParams.set('page', __facturasState.page);
 
-  container.innerHTML = '<div style="text-align:center;padding:48px 20px;color:var(--color-accent-300);font-size:14px;"><i class="ph ph-spinner spin" style="font-size:24px;display:block;margin:0 auto 8px;"></i>Cargando comprobantes...</div>';
+  container.innerHTML = '<div style="text-align:center;padding:48px 20px;color:#64748B;font-size:14px;"><i class="ph ph-spinner spin" style="font-size:24px;display:block;margin:0 auto 8px;color:#2E6FC0;"></i>Cargando comprobantes...</div>';
 
   try {
     var resp = await fetch('/admin/api/facturas?' + apiParams.toString());
@@ -3460,7 +3459,7 @@ async function cargarFacturasDesdeApi() {
     __facturasDataCache = data;
     renderizarSeccionFacturas(data);
   } catch (err) {
-    container.innerHTML = '<div style="text-align:center;padding:36px;color:#e08a7d;border:1px dashed var(--color-divider);border-radius:14px;">Error al cargar comprobantes: ' + err.message + '</div>';
+    container.innerHTML = '<div style="text-align:center;padding:36px;color:#DC2626;border:1px dashed #FCA5A5;background:#FEF2F2;border-radius:14px;">Error al cargar comprobantes: ' + err.message + '</div>';
   }
 }
 
@@ -3483,7 +3482,7 @@ function renderizarSeccionFacturas(data) {
 
   var grupos = data.grupos || [];
   if (grupos.length === 0) {
-    container.innerHTML = '<div style="text-align:center;padding:48px 20px;background:var(--color-surface);border:1px dashed var(--color-divider);border-radius:var(--radius-lg);color:color-mix(in srgb, var(--color-text) 55%, transparent);font-size:14px;"><i class="ph ph-folder-open" style="font-size:32px;display:block;margin:0 auto 10px;opacity:0.6;"></i>No se encontraron comprobantes para los filtros seleccionados.</div>';
+    container.innerHTML = '<div style="text-align:center;padding:48px 20px;background:#FFFFFF;border:1px dashed #CBD5E1;border-radius:16px;color:#64748B;font-size:14px;"><i class="ph ph-folder-open" style="font-size:36px;display:block;margin:0 auto 10px;color:#94A3B8;"></i>No se encontraron comprobantes para los filtros seleccionados.</div>';
     return;
   }
 
@@ -3496,75 +3495,76 @@ function renderizarSeccionFacturas(data) {
     html += '<div style="margin-bottom: 32px;">';
     // Group Header
     html += '  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">';
-    html += '    <i class="ph ' + iconHead + '" style="font-size: 20px; color: var(--color-accent-300);"></i>';
-    html += '    <h3 style="font-size: 16.5px; font-weight: 500; margin: 0;">' + g.titulo + '</h3>';
-    html += '    <span style="font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--color-surface); border: 1px solid var(--color-divider); color: color-mix(in srgb, var(--color-text) 65%, transparent);">' + g.conteo + '</span>';
-    html += '    <div style="flex: 1; height: 1px; background: linear-gradient(90deg, var(--color-divider) 0%, transparent 100%); margin: 0 8px;"></div>';
-    html += '    <div style="font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 60%, transparent); display: flex; align-items: center; gap: 6px;">';
+    html += '    <i class="ph ' + iconHead + '" style="font-size: 20px; color: #2E6FC0;"></i>';
+    html += '    <h3 style="font-size: 17.5px; font-weight: 700; color: #0F172A; margin: 0;">' + g.titulo + '</h3>';
+    html += '    <span style="font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: #F1F5F9; border: 1px solid #E2E8F0; color: #475569;">' + g.conteo + '</span>';
+    html += '    <div style="flex: 1; height: 1px; background: linear-gradient(90deg, #CBD5E1 0%, transparent 100%); margin: 0 8px;"></div>';
+    html += '    <div style="font-size: 13px; color: #64748B; display: flex; align-items: center; gap: 6px;">';
     html += '      <span>' + g.pendientes + ' pendientes</span>';
     html += '      <span>·</span>';
-    html += '      <span style="color: #f0c674; font-weight: 500;">' + g.monto_pendiente_texto + '</span>';
+    html += '      <span style="color: #D97706; font-weight: 700;">' + g.monto_pendiente_texto + '</span>';
     html += '    </div>';
     html += '  </div>';
 
     // Items List
-    html += '  <div style="display: flex; flex-direction: column; gap: 6px;">';
+    html += '  <div style="display: flex; flex-direction: column; gap: 8px;">';
     g.items.forEach(function(item) {
       var isPdf = item.tipo === 'Factura PDF' || (item.url_archivo && item.url_archivo.toLowerCase().endsWith('.pdf'));
       var isPagada = item.estado === 'Pagada';
       var iconType = isPdf ? 'ph-file-pdf' : 'ph-image';
-      var iconColor = isPdf ? '#f0c674' : '#8fd0a6';
+      var iconBg = isPdf ? '#FEF3C7' : '#D1FAE5';
+      var iconColor = isPdf ? '#D97706' : '#059669';
 
       var origIcon = item.origen === 'Encargado' ? 'ph-user-gear' : (item.origen === 'Consejo' ? 'ph-users-three' : 'ph-briefcase');
 
-      html += '    <div class="row-item-hover" style="display: grid; grid-template-columns: 38px minmax(0, 1fr) 168px 150px 132px; gap: 14px; align-items: center; padding: 10px 14px; background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); transition: background .15s ease; position: relative;">';
+      html += '    <div class="row-item-hover" style="display: grid; grid-template-columns: 40px minmax(0, 1fr) 170px 150px 140px; gap: 14px; align-items: center; padding: 11px 16px; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); transition: all .15s ease; position: relative;">';
 
       // 1. Icon Box
-      html += '      <div style="width: 38px; height: 38px; border-radius: var(--radius-sm); background: rgba(255,255,255,0.04); border: 1px solid var(--color-divider); display: flex; align-items: center; justify-content: center;">';
-      html += '        <i class="ph ' + iconType + '" style="font-size: 20px; color: ' + iconColor + ';"></i>';
+      html += '      <div style="width: 40px; height: 40px; border-radius: 9px; background: ' + iconBg + '; display: flex; align-items: center; justify-content: center;">';
+      html += '        <i class="ph ' + iconType + '" style="font-size: 22px; color: ' + iconColor + ';"></i>';
       html += '      </div>';
 
       // 2. Concept & Meta
       html += '      <div style="min-width: 0;">';
-      html += '        <div style="font-size: 14px; font-weight: 500; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + (item.concepto || 'Sin concepto') + '</div>';
-      html += '        <div style="font-size: 11.5px; color: color-mix(in srgb, var(--color-text) 52%, transparent); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">';
-      html += '          <span style="color: var(--color-accent-300); font-weight: 500;">🏢 ' + item.edificio + '</span>';
+      html += '        <div style="font-size: 14.5px; font-weight: 700; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + (item.concepto || 'Sin concepto') + '</div>';
+      html += '        <div style="font-size: 12px; color: #64748B; margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">';
+      html += '          <span style="color: #1E5FB4; font-weight: 700; background: #EFF6FF; padding: 1px 7px; border-radius: 4px; border: 1px solid #BFDBFE;">🏢 ' + item.edificio + '</span>';
       html += '          <span>·</span>';
       html += '          <span>N° ' + item.numero_factura + '</span>';
       html += '          <span>·</span>';
       html += '          <span>' + item.fecha_texto + '</span>';
-      html += '          <span style="font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid var(--color-divider);">' + item.tipo + '</span>';
+      html += '          <span style="font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: #F1F5F9; border: 1px solid #E2E8F0; color: #475569;">' + item.tipo + '</span>';
       html += '        </div>';
       html += '      </div>';
 
       // 3. Responsable Column
       html += '      <div style="min-width: 0;">';
-      html += '        <div style="font-size: 13px; font-weight: 500; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + (item.proveedor || item.categoria || '—') + '</div>';
-      html += '        <div style="font-size: 11px; color: color-mix(in srgb, var(--color-text) 48%, transparent); margin-top: 2px; display: flex; align-items: center; gap: 4px;">';
-      html += '          <i class="ph ' + origIcon + '" style="font-size: 12px; color: var(--color-accent-400);"></i>';
+      html += '        <div style="font-size: 13.5px; font-weight: 700; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + (item.proveedor || item.categoria || '—') + '</div>';
+      html += '        <div style="font-size: 11.5px; color: #64748B; margin-top: 3px; display: flex; align-items: center; gap: 4px;">';
+      html += '          <i class="ph ' + origIcon + '" style="font-size: 13px; color: #2E6FC0;"></i>';
       html += '          <span>' + (item.origen_nombre || item.origen) + '</span>';
       html += '        </div>';
       html += '      </div>';
 
       // 4. Amount & Status
       html += '      <div style="text-align: right;">';
-      html += '        <div style="font-size: 14.5px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--color-text);">' + item.monto + '</div>';
+      html += '        <div style="font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; color: #0F172A;">' + item.monto + '</div>';
       html += '        <div style="margin-top: 3px;">';
       if (isPagada) {
-        html += '          <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 500; padding: 1px 7px; border-radius: 999px; background: rgba(143, 208, 166, 0.15); border: 1px solid rgba(143, 208, 166, 0.3); color: #8fd0a6;"><i class="ph ph-check-circle"></i>Pagada</span>';
+        html += '          <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #DCFCE7; border: 1px solid #86EFAC; color: #15803D;"><i class="ph ph-check-circle"></i>Pagada</span>';
       } else {
-        html += '          <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 500; padding: 1px 7px; border-radius: 999px; background: rgba(240, 198, 116, 0.15); border: 1px solid rgba(240, 198, 116, 0.3); color: #f0c674;"><i class="ph ph-clock"></i>Pendiente</span>';
+        html += '          <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #FEF3C7; border: 1px solid #FDE68A; color: #B45309;"><i class="ph ph-clock"></i>Pendiente</span>';
       }
       html += '        </div>';
       html += '      </div>';
 
       // 5. Actions Column
-      html += '      <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px; position: relative;">';
+      html += '      <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; position: relative;">';
       if (item.url_archivo) {
-        html += '        <a href="' + item.url_archivo + '" target="_blank" class="btn-factura-sec" style="padding: 5px 9px; font-size: 12px;" title="Ver comprobante"><i class="ph ph-eye"></i>Ver</a>';
-        html += '        <a href="/admin/api/facturas/' + encodeURIComponent(item.factura_key) + '/archivo?descargar=1" class="btn-factura-sec" style="padding: 5px 8px; font-size: 13px;" title="Descargar archivo"><i class="ph ph-download-simple"></i></a>';
+        html += '        <a href="' + item.url_archivo + '" target="_blank" class="btn-factura-sec" style="padding: 6px 10px; font-size: 12.5px;" title="Ver comprobante"><i class="ph ph-eye"></i>Ver</a>';
+        html += '        <a href="/admin/api/facturas/' + encodeURIComponent(item.factura_key) + '/archivo?descargar=1" class="btn-factura-sec" style="padding: 6px 9px; font-size: 13.5px;" title="Descargar archivo"><i class="ph ph-download-simple"></i></a>';
       }
-      html += '        <button type="button" class="btn-factura-sec" onclick="togglePopoverMenu(this, \'' + encodeURIComponent(item.factura_key) + '\')" style="padding: 5px 8px; font-size: 14px;" title="Opciones"><i class="ph ph-dots-three"></i></button>';
+      html += '        <button type="button" class="btn-factura-sec" onclick="togglePopoverMenu(this, \'' + encodeURIComponent(item.factura_key) + '\')" style="padding: 6px 9px; font-size: 15px;" title="Opciones"><i class="ph ph-dots-three"></i></button>';
       html += '      </div>';
 
       html += '    </div>';
@@ -3599,28 +3599,28 @@ function togglePopoverMenu(btn, encodedKey) {
 
   var h = '';
   if (item.url_archivo) {
-    h += '<a href="' + item.url_archivo + '" target="_blank" class="popover-item-btn"><i class="ph ph-eye" style="font-size:15px;"></i><span>Ver comprobante</span></a>';
-    h += '<a href="/admin/api/facturas/' + encodeURIComponent(item.factura_key) + '/archivo?descargar=1" class="popover-item-btn"><i class="ph ph-download-simple" style="font-size:15px;"></i><span>Descargar archivo</span></a>';
-    h += '<div style="height:1px;background:var(--color-divider);margin:3px 0;"></div>';
+    h += '<a href="' + item.url_archivo + '" target="_blank" class="popover-item-btn"><i class="ph ph-eye" style="font-size:16px;color:#2E6FC0;"></i><span>Ver comprobante</span></a>';
+    h += '<a href="/admin/api/facturas/' + encodeURIComponent(item.factura_key) + '/archivo?descargar=1" class="popover-item-btn"><i class="ph ph-download-simple" style="font-size:16px;color:#2E6FC0;"></i><span>Descargar archivo</span></a>';
+    h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
   }
 
-  h += '<button type="button" class="popover-item-btn" onclick="abrirModalEditarDocumento(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-pencil-simple" style="font-size:15px;"></i><span>Editar monto y fecha</span></button>';
-  h += '<button type="button" class="popover-item-btn" onclick="abrirModalCambiarOrigen(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-user-switch" style="font-size:15px;"></i><span>Cambiar quién lo cargó</span></button>';
-  h += '<button type="button" class="popover-item-btn" onclick="moverClaseFacturaKey(\'' + encodeURIComponent(key) + '\', \'' + (esFijo ? 'Proveedor' : 'Gasto fijo') + '\')"><i class="ph ph-arrows-down-up" style="font-size:15px;"></i><span>' + (esFijo ? 'Mover a Proveedores' : 'Mover a Gastos fijos') + '</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="abrirModalEditarDocumento(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-pencil-simple" style="font-size:16px;color:#475569;"></i><span>Editar monto y fecha</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="abrirModalCambiarOrigen(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-user-switch" style="font-size:16px;color:#475569;"></i><span>Cambiar quién lo cargó</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="moverClaseFacturaKey(\'' + encodeURIComponent(key) + '\', \'' + (esFijo ? 'Proveedor' : 'Gasto fijo') + '\')"><i class="ph ph-arrows-down-up" style="font-size:16px;color:#475569;"></i><span>' + (esFijo ? 'Mover a Proveedores' : 'Mover a Gastos fijos') + '</span></button>';
 
-  h += '<div style="height:1px;background:var(--color-divider);margin:3px 0;"></div>';
+  h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
 
   if (isPagada) {
-    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(\'' + encodeURIComponent(key) + '\', \'Pendiente\')"><i class="ph ph-clock" style="font-size:15px;color:#f0c674;"></i><span>Marcar como Pendiente</span></button>';
+    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(\'' + encodeURIComponent(key) + '\', \'Pendiente\')"><i class="ph ph-clock" style="font-size:16px;color:#D97706;"></i><span>Marcar como Pendiente</span></button>';
   } else {
-    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(\'' + encodeURIComponent(key) + '\', \'Pagada\')"><i class="ph ph-check-circle" style="font-size:15px;color:#8fd0a6;"></i><span>Marcar como Pagada</span></button>';
+    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(\'' + encodeURIComponent(key) + '\', \'Pagada\')"><i class="ph ph-check-circle" style="font-size:16px;color:#16A34A;"></i><span>Marcar como Pagada</span></button>';
   }
 
-  h += '<button type="button" class="popover-item-btn" onclick="enviarConsejoFacturaKey(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-paper-plane-tilt" style="font-size:15px;"></i><span>Enviar al consejo por mail/WSP</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="enviarConsejoFacturaKey(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-paper-plane-tilt" style="font-size:16px;color:#2E6FC0;"></i><span>Enviar al consejo por mail/WSP</span></button>';
 
-  h += '<div style="height:1px;background:var(--color-divider);margin:3px 0;"></div>';
+  h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
 
-  h += '<button type="button" class="popover-item-btn" style="color:#e08a7d;" onclick="eliminarFacturaKey(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-trash" style="font-size:15px;color:#e08a7d;"></i><span>Eliminar del archivo</span></button>';
+  h += '<button type="button" class="popover-item-btn" style="color:#DC2626;" onclick="eliminarFacturaKey(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-trash" style="font-size:16px;color:#DC2626;"></i><span>Eliminar del archivo</span></button>';
 
   pop.innerHTML = h;
   parent.appendChild(pop);
@@ -7891,64 +7891,46 @@ router.get('/archivos', async (req, res) => {
       <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
       <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
       <style>
-        :root {
-          --color-bg: #11131f;
-          --color-surface: #232532;
-          --color-neutral-900: #292b31;
-          --color-text: #e9e9ed;
-          --color-divider: rgba(233,233,237,0.16);
-          --color-accent: #9184d9;
-          --color-accent-300: #d2cefd;
-          --color-accent-400: #b5abfc;
-          --color-accent-800: #423a6a;
-          --radius-sm: 4px;
-          --radius-md: 8px;
-          --radius-lg: 14px;
-          --shadow-lg: 0 10px 25px -5px rgba(0,0,0,0.5);
-          --font-body: 'Inter', system-ui, -apple-system, sans-serif;
-          --font-heading: 'Inter', system-ui, -apple-system, sans-serif;
-        }
-        body { background: var(--color-bg); }
         .facturas-page-container {
-          min-height: 100vh;
-          background: var(--color-bg);
-          padding: 28px 32px 48px;
-          font-family: var(--font-body);
-          color: var(--color-text);
-          font-size: 15px;
+          padding: 24px 28px 48px;
+          font-family: inherit;
+          color: #0F172A;
+          font-size: 14.5px;
+          animation: mFade .3s ease both;
         }
         .btn-factura-sec {
           display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-          padding: 8px 16px; border-radius: var(--radius-md); border: 1px solid var(--color-divider);
-          background: transparent; color: var(--color-text); font-weight: 500; font-size: 13px; cursor: pointer;
-          transition: all .15s ease;
+          padding: 8px 16px; border-radius: 10px; border: 1px solid #CBD5E1;
+          background: #FFFFFF; color: #334155; font-weight: 600; font-size: 13px; cursor: pointer;
+          transition: all .15s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
-        .btn-factura-sec:hover { background: rgba(233,233,237,0.08); }
+        .btn-factura-sec:hover { background: #F8FAFC; border-color: #94A3B8; color: #0F172A; }
         .btn-factura-pri {
           display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-          padding: 8px 16px; border-radius: var(--radius-md); border: 1px solid var(--color-accent);
-          background: transparent; color: var(--color-accent-300); font-weight: 500; font-size: 13px; cursor: pointer;
-          transition: all .15s ease;
+          padding: 8px 16px; border-radius: 10px; border: none;
+          background: linear-gradient(180deg, #2E6FC0, #1E5FB4); color: #FFFFFF; font-weight: 700; font-size: 13px; cursor: pointer;
+          transition: all .15s ease; box-shadow: 0 2px 4px rgba(30,95,180,0.25);
         }
-        .btn-factura-pri:hover { background: var(--color-accent-800); color: #fff; }
+        .btn-factura-pri:hover { background: linear-gradient(180deg, #1E5FB4, #17408B); }
         .input-factura-search {
-          width: 100%; box-sizing: border-box; background: var(--color-surface);
-          border: 1px solid var(--color-divider); border-radius: var(--radius-md);
-          color: var(--color-text); font-size: 13.5px; padding: 9px 12px 9px 32px; outline: none;
+          width: 100%; box-sizing: border-box; background: #FFFFFF;
+          border: 1px solid #CBD5E1; border-radius: 10px;
+          color: #0F172A; font-size: 13.5px; padding: 9px 12px 9px 34px; outline: none; transition: border-color .15s ease;
         }
-        .input-factura-search:focus-visible { border-color: var(--color-accent); }
-        .row-item-hover:hover { background: color-mix(in srgb, var(--color-accent) 7%, transparent) !important; }
+        .input-factura-search:focus-visible { border-color: #2E6FC0; box-shadow: 0 0 0 3px rgba(46,111,192,0.15); }
+        .row-item-hover { background: #FFFFFF; border: 1px solid #E2E8F0; transition: all .15s ease; }
+        .row-item-hover:hover { background: #F8FAFC !important; border-color: #CBD5E1 !important; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
         .popover-facturas-menu {
           position: absolute; right: 0; top: calc(100% + 6px); z-index: 99; width: 232px;
-          padding: 6px; background: var(--color-neutral-900); border: 1px solid var(--color-divider);
-          border-radius: var(--radius-md); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 1px; text-align: left;
+          padding: 6px; background: #FFFFFF; border: 1px solid #E2E8F0;
+          border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 1px; text-align: left;
         }
         .popover-item-btn {
           appearance: none; background: transparent; border: 0; cursor: pointer; display: flex;
-          align-items: center; gap: 9px; padding: 7px 9px; border-radius: var(--radius-sm);
-          font-size: 13px; color: var(--color-text); font-family: var(--font-body); text-align: left; width: 100%; box-sizing: border-box;
+          align-items: center; gap: 9px; padding: 8px 10px; border-radius: 6px;
+          font-size: 13px; color: #334155; font-family: inherit; font-weight: 500; text-align: left; width: 100%; box-sizing: border-box; transition: background .12s ease;
         }
-        .popover-item-btn:hover { background: var(--color-accent-800); }
+        .popover-item-btn:hover { background: #F1F5F9; color: #0F172A; }
         .popover-item-btn:disabled { opacity: 0.45; cursor: not-allowed; }
       </style>
 
@@ -7956,71 +7938,71 @@ router.get('/archivos', async (req, res) => {
         <!-- Header -->
         <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 20px;">
           <div>
-            <div style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-accent-400); margin-bottom: 6px;">Archivo de comprobantes</div>
-            <h2 id="facturas-titulo-edificio" style="font-size: 26px; font-weight: 500; margin: 0 0 6px;">Facturas y Fotos · Cargando...</h2>
-            <div style="font-size: 13px; color: color-mix(in srgb, var(--color-text) 58%, transparent); max-width: 620px; text-wrap: pretty;">
+            <div style="font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 800; color: #2E6FC0; margin-bottom: 6px;">Archivo de comprobantes</div>
+            <h2 id="facturas-titulo-edificio" style="font-size: 26px; font-weight: 800; color: #0F172A; letter-spacing: -0.02em; margin: 0 0 6px;">Facturas y Fotos · Cargando...</h2>
+            <div style="font-size: 14px; color: #64748B; max-width: 640px;">
               Comprobantes de proveedores y de gastos fijos de todos los consorcios. Separá por tipo de gasto y por quién lo cargó para encontrarlos más rápido.
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <button type="button" class="btn-factura-sec" onclick="abrirModalFiltrosAvanzados()"><i class="ph ph-funnel" style="font-size: 16px;"></i>Filtros avanzados</button>
+            <button type="button" class="btn-factura-sec" onclick="abrirModalFiltrosAvanzados()"><i class="ph ph-funnel" style="font-size: 16px; color: #475569;"></i>Filtros avanzados</button>
             <button type="button" class="btn-factura-pri" onclick="abrirModalSubirDocumento()"><i class="ph ph-upload-simple" style="font-size: 16px;"></i>Subir documento</button>
           </div>
         </div>
 
         <!-- Totales Bar -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 22px;">
-          <div style="background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 12px 14px;">
-            <div style="font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 52%, transparent);">Comprobantes archivados</div>
-            <div id="tot-archivados" style="font-size: 24px; font-weight: 500; margin-top: 4px;">—</div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 24px;">
+          <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+            <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: #64748B;">Comprobantes archivados</div>
+            <div id="tot-archivados" style="font-size: 24px; font-weight: 800; color: #0F172A; margin-top: 4px;">—</div>
           </div>
-          <div style="background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 12px 14px;">
-            <div style="font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 52%, transparent);">Proveedores</div>
-            <div id="tot-proveedores" style="font-size: 24px; font-weight: 500; margin-top: 4px;">—</div>
+          <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+            <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: #64748B;">Proveedores</div>
+            <div id="tot-proveedores" style="font-size: 24px; font-weight: 800; color: #0F172A; margin-top: 4px;">—</div>
           </div>
-          <div style="background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 12px 14px;">
-            <div style="font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 52%, transparent);">Gastos fijos</div>
-            <div id="tot-fijos" style="font-size: 24px; font-weight: 500; margin-top: 4px;">—</div>
+          <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+            <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: #64748B;">Gastos fijos</div>
+            <div id="tot-fijos" style="font-size: 24px; font-weight: 800; color: #0F172A; margin-top: 4px;">—</div>
           </div>
-          <div style="background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 12px 14px;">
-            <div style="font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 52%, transparent);">Pendiente de pago</div>
-            <div id="tot-pendiente" style="font-size: 24px; font-weight: 500; margin-top: 4px; color: #f0c674;">—</div>
+          <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+            <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: #64748B;">Pendiente de pago</div>
+            <div id="tot-pendiente" style="font-size: 24px; font-weight: 800; color: #D97706; margin-top: 4px;">—</div>
           </div>
         </div>
 
         <!-- Filter Controls -->
-        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
-          <div style="display: inline-flex; border: 1px solid var(--color-divider); border-radius: var(--radius-md); overflow: hidden;">
-            <button id="tab-clase-todos" type="button" onclick="cambiarTabClase('')" style="position: relative; appearance: none; background: transparent; border: 0; cursor: pointer; padding: 9px 15px; font-weight: 500; font-size: 13px; color: var(--color-text); display: inline-flex; align-items: center; gap: 7px;">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px;">
+          <div style="display: inline-flex; border: 1px solid #E2E8F0; border-radius: 10px; background: #FFFFFF; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+            <button id="tab-clase-todos" type="button" onclick="cambiarTabClase('')" style="appearance: none; background: #2E6FC0; border: 0; cursor: pointer; padding: 9px 16px; font-weight: 700; font-size: 13px; color: #FFFFFF; display: inline-flex; align-items: center; gap: 7px; transition: all .15s ease;">
               <i class="ph ph-squares-four" style="font-size: 15px;"></i><span>Todos</span>
             </button>
-            <button id="tab-clase-proveedor" type="button" onclick="cambiarTabClase('Proveedor')" style="position: relative; appearance: none; background: transparent; border: 0; border-left: 1px solid var(--color-divider); cursor: pointer; padding: 9px 15px; font-weight: 500; font-size: 13px; color: var(--color-text); display: inline-flex; align-items: center; gap: 7px;">
+            <button id="tab-clase-proveedor" type="button" onclick="cambiarTabClase('Proveedor')" style="appearance: none; background: #FFFFFF; border: 0; border-left: 1px solid #E2E8F0; cursor: pointer; padding: 9px 16px; font-weight: 600; font-size: 13px; color: #475569; display: inline-flex; align-items: center; gap: 7px; transition: all .15s ease;">
               <i class="ph ph-wrench" style="font-size: 15px;"></i><span>Proveedores</span>
             </button>
-            <button id="tab-clase-fijo" type="button" onclick="cambiarTabClase('Gasto fijo')" style="position: relative; appearance: none; background: transparent; border: 0; border-left: 1px solid var(--color-divider); cursor: pointer; padding: 9px 15px; font-weight: 500; font-size: 13px; color: var(--color-text); display: inline-flex; align-items: center; gap: 7px;">
+            <button id="tab-clase-fijo" type="button" onclick="cambiarTabClase('Gasto fijo')" style="appearance: none; background: #FFFFFF; border: 0; border-left: 1px solid #E2E8F0; cursor: pointer; padding: 9px 16px; font-weight: 600; font-size: 13px; color: #475569; display: inline-flex; align-items: center; gap: 7px; transition: all .15s ease;">
               <i class="ph ph-lightning" style="font-size: 15px;"></i><span>Gastos fijos</span>
             </button>
           </div>
 
-          <div style="position: relative; flex: 1 1 240px; max-width: 340px;">
-            <i class="ph ph-magnifying-glass" style="position: absolute; left: 11px; top: 50%; transform: translateY(-50%); font-size: 15px; color: color-mix(in srgb, var(--color-text) 45%, transparent);"></i>
+          <div style="position: relative; flex: 1 1 240px; max-width: 360px;">
+            <i class="ph ph-magnifying-glass" style="position: absolute; left: 11px; top: 50%; transform: translateY(-50%); font-size: 16px; color: #94A3B8;"></i>
             <input id="input-busqueda-q" class="input-factura-search" type="text" placeholder="Buscar por concepto, proveedor o N° de factura" oninput="onBuscadorInput(this.value)">
           </div>
         </div>
 
         <!-- Chips "Cargado por" -->
-        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px;">
-          <span style="font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 45%, transparent); margin-right: 2px;">Cargado por</span>
-          <button id="chip-origen-todos" type="button" onclick="cambiarChipOrigen('')" style="position: relative; appearance: none; cursor: pointer; background: transparent; border: 1px solid var(--color-divider); border-radius: 999px; padding: 5px 13px; font-size: 12.5px; color: var(--color-text); display: inline-flex; align-items: center; gap: 6px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;">
+          <span style="font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: #64748B; margin-right: 2px;">Cargado por</span>
+          <button id="chip-origen-todos" type="button" onclick="cambiarChipOrigen('')" style="appearance: none; cursor: pointer; background: #1E408B; border: 1px solid #1E408B; border-radius: 999px; padding: 5px 14px; font-size: 12.5px; font-weight: 700; color: #FFFFFF; display: inline-flex; align-items: center; gap: 6px; transition: all .15s ease;">
             <span>Todos</span>
           </button>
-          <button id="chip-origen-encargado" type="button" onclick="cambiarChipOrigen('Encargado')" style="position: relative; appearance: none; cursor: pointer; background: transparent; border: 1px solid var(--color-divider); border-radius: 999px; padding: 5px 13px; font-size: 12.5px; color: var(--color-text); display: inline-flex; align-items: center; gap: 6px;">
+          <button id="chip-origen-encargado" type="button" onclick="cambiarChipOrigen('Encargado')" style="appearance: none; cursor: pointer; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 999px; padding: 5px 14px; font-size: 12.5px; font-weight: 600; color: #475569; display: inline-flex; align-items: center; gap: 6px; transition: all .15s ease;">
             <i class="ph ph-user-gear" style="font-size: 14px;"></i><span>Encargado</span>
           </button>
-          <button id="chip-origen-consejo" type="button" onclick="cambiarChipOrigen('Consejo')" style="position: relative; appearance: none; cursor: pointer; background: transparent; border: 1px solid var(--color-divider); border-radius: 999px; padding: 5px 13px; font-size: 12.5px; color: var(--color-text); display: inline-flex; align-items: center; gap: 6px;">
+          <button id="chip-origen-consejo" type="button" onclick="cambiarChipOrigen('Consejo')" style="appearance: none; cursor: pointer; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 999px; padding: 5px 14px; font-size: 12.5px; font-weight: 600; color: #475569; display: inline-flex; align-items: center; gap: 6px; transition: all .15s ease;">
             <i class="ph ph-users-three" style="font-size: 14px;"></i><span>Consejo de consorcio</span>
           </button>
-          <button id="chip-origen-admin" type="button" onclick="cambiarChipOrigen('Administrador')" style="position: relative; appearance: none; cursor: pointer; background: transparent; border: 1px solid var(--color-divider); border-radius: 999px; padding: 5px 13px; font-size: 12.5px; color: var(--color-text); display: inline-flex; align-items: center; gap: 6px;">
+          <button id="chip-origen-admin" type="button" onclick="cambiarChipOrigen('Administrador')" style="appearance: none; cursor: pointer; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 999px; padding: 5px 14px; font-size: 12.5px; font-weight: 600; color: #475569; display: inline-flex; align-items: center; gap: 6px; transition: all .15s ease;">
             <i class="ph ph-briefcase" style="font-size: 14px;"></i><span>Administrador</span>
           </button>
         </div>
