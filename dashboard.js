@@ -3634,23 +3634,23 @@ function togglePopoverMenu(btn, encodedKey) {
     h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
   }
 
-  h += '<button type="button" class="popover-item-btn" onclick="abrirModalEditarDocumento(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-pencil-simple" style="font-size:16px;color:#475569;"></i><span>Editar monto y fecha</span></button>';
-  h += '<button type="button" class="popover-item-btn" onclick="abrirModalCambiarOrigen(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-user-switch" style="font-size:16px;color:#475569;"></i><span>Cambiar quién lo cargó</span></button>';
-  h += '<button type="button" class="popover-item-btn" onclick="moverClaseFacturaKey(\'' + encodeURIComponent(key) + '\', \'' + (esFijo ? 'Proveedor' : 'Gasto fijo') + '\')"><i class="ph ph-arrows-down-up" style="font-size:16px;color:#475569;"></i><span>' + (esFijo ? 'Mover a Proveedores' : 'Mover a Gastos fijos') + '</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="abrirModalEditarDocumento(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-pencil-simple" style="font-size:16px;color:#475569;"></i><span>Editar monto y fecha</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="abrirModalCambiarOrigen(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-user-switch" style="font-size:16px;color:#475569;"></i><span>Cambiar quién lo cargó</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="moverClaseFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;, &quot;' + (esFijo ? 'Proveedor' : 'Gasto fijo') + '&quot;)"><i class="ph ph-arrows-down-up" style="font-size:16px;color:#475569;"></i><span>' + (esFijo ? 'Mover a Proveedores' : 'Mover a Gastos fijos') + '</span></button>';
 
   h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
 
   if (isPagada) {
-    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(\'' + encodeURIComponent(key) + '\', \'Pendiente\')"><i class="ph ph-clock" style="font-size:16px;color:#D97706;"></i><span>Marcar como Pendiente</span></button>';
+    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;, &quot;Pendiente&quot;)"><i class="ph ph-clock" style="font-size:16px;color:#D97706;"></i><span>Marcar como Pendiente</span></button>';
   } else {
-    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(\'' + encodeURIComponent(key) + '\', \'Pagada\')"><i class="ph ph-check-circle" style="font-size:16px;color:#16A34A;"></i><span>Marcar como Pagada</span></button>';
+    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;, &quot;Pagada&quot;)"><i class="ph ph-check-circle" style="font-size:16px;color:#16A34A;"></i><span>Marcar como Pagada</span></button>';
   }
 
-  h += '<button type="button" class="popover-item-btn" onclick="enviarConsejoFacturaKey(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-paper-plane-tilt" style="font-size:16px;color:#2E6FC0;"></i><span>Enviar al consejo por mail/WSP</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="enviarConsejoFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-paper-plane-tilt" style="font-size:16px;color:#2E6FC0;"></i><span>Enviar al consejo por mail/WSP</span></button>';
 
   h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
 
-  h += '<button type="button" class="popover-item-btn" style="color:#DC2626;" onclick="eliminarFacturaKey(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-trash" style="font-size:16px;color:#DC2626;"></i><span>Eliminar del archivo</span></button>';
+  h += '<button type="button" class="popover-item-btn" style="color:#DC2626;" onclick="eliminarFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-trash" style="font-size:16px;color:#DC2626;"></i><span>Eliminar del archivo</span></button>';
 
   pop.innerHTML = h;
   parent.appendChild(pop);
