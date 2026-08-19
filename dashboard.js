@@ -2588,8 +2588,8 @@ function procesarLineaMultimediaChat(strText) {
   var visualUrl = '', visualType = '', visualFilename = '';
   var audioUrl = '', audioFilename = '';
 
-  var tagRegexGlobal = new RegExp('\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^\\]]+)\\]', 'gi');
-  var tagRegexSingle = new RegExp('\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^\\]]+)\\]', 'i');
+  var tagRegexGlobal = new RegExp('\\\\[' + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):' + '\\\\s*' + '([^' + '\\\\]' + ']+)' + '\\\\]', 'gi');
+  var tagRegexSingle = new RegExp('\\\\[' + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):' + '\\\\s*' + '([^' + '\\\\]' + ']+)' + '\\\\]', 'i');
   var allTags = cleanText.match(tagRegexGlobal) || [];
   allTags.forEach(function(tagStr) {
     var m = tagStr.match(tagRegexSingle);
