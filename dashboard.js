@@ -2399,7 +2399,7 @@ function parseAudiosDetallados(datos) {
     }
   }
 
-  var audioUrlRegex = /(?:\/root\/marcos|\/archivos|\/almacenamiento|https?:\/\/)[\w\.\-\_\/]+\.(?:ogg|mp3|wav|m4a|aac|opus|webm)/gi;
+  var audioUrlRegex = new RegExp('(?:/root/marcos|/archivos|/almacenamiento|https?://)[\\\\w\\\\.\\\\-\\\\_/]+\\\\.(?:ogg|mp3|wav|m4a|aac|opus|webm)', 'gi');
 
   chatItems.forEach(function(line) {
     if (!line) return;
