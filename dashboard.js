@@ -2778,7 +2778,7 @@ function separarConversacionesEvento(datos) {
       if (src.trim().startsWith('[')) {
         try { return JSON.parse(src); } catch(e) { return [src]; }
       }
-      return String(src).split('\n').filter(Boolean);
+      return String(src).split('\\n').filter(Boolean);
     }
     if (Array.isArray(src)) return src;
     return [];
