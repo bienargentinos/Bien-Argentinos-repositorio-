@@ -3594,7 +3594,7 @@ function renderizarSeccionFacturas(data) {
         html += '        <a href="' + item.url_archivo + '" target="_blank" class="btn-factura-sec" style="padding: 6px 10px; font-size: 12.5px;" title="Ver comprobante"><i class="ph ph-eye"></i>Ver</a>';
         html += '        <a href="/admin/api/facturas/' + encodeURIComponent(item.factura_key) + '/archivo?descargar=1" class="btn-factura-sec" style="padding: 6px 9px; font-size: 13.5px;" title="Descargar archivo"><i class="ph ph-download-simple"></i></a>';
       }
-      html += '        <button type="button" class="btn-factura-sec" onclick="togglePopoverMenu(this, \'' + encodeURIComponent(item.factura_key) + '\')" style="padding: 6px 9px; font-size: 15px;" title="Opciones"><i class="ph ph-dots-three"></i></button>';
+      html += '        <button type="button" class="btn-factura-sec" onclick="togglePopoverMenu(this, &quot;' + encodeURIComponent(item.factura_key) + '&quot;)" style="padding: 6px 9px; font-size: 15px;" title="Opciones"><i class="ph ph-dots-three"></i></button>';
       html += '      </div>';
 
       html += '    </div>';
