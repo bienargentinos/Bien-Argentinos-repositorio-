@@ -2431,7 +2431,7 @@ function parseAudiosDetallados(datos) {
     var textMatches = strText.match(audioUrlRegex);
     if (textMatches) {
       textMatches.forEach(function(mUrl) {
-        var cleanTrans = strText.replace(/^[^:]+:\s*/, '').replace(mUrl, '').replace(/\[audio\]/gi, '').trim();
+        var cleanTrans = strText.replace(new RegExp('^[^:]+:\\s*', ''), '').replace(mUrl, '').replace(new RegExp('\\[audio\\]', 'gi'), '').trim();
         addAudioItem(mUrl, lineEmisor, lineHora, cleanTrans || lineTrans);
       });
     }
@@ -2953,8 +2953,8 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var fnObj = lastSlashObj !== -1 ? rawObjMedia.substring(lastSlashObj + 1) : rawObjMedia;
         var extObj = fnObj.split('.').pop().toLowerCase();
 
-        var isLineExplicitImage = /imagen|foto/i.test(cleanText) || /\[(IMAGEN|FOTO):/i.test(String(line.mensaje || line.texto || ''));
-        var isLineExplicitVideo = /video/i.test(cleanText) || /\[VIDEO:/i.test(String(line.mensaje || line.texto || ''));
+        var isLineExplicitImage = /imagen|foto/i.test(cleanText) || new RegExp('\\[(IMAGEN|FOTO):', 'i').test(String(line.mensaje || line.texto || ''));
+        var isLineExplicitVideo = /video/i.test(cleanText) || new RegExp('\\[VIDEO:', 'i').test(String(line.mensaje || line.texto || ''));
 
         if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
@@ -4630,7 +4630,7 @@ async function guardarStaffItem(btn) {
   }
 
   var items = parseStaffClient(namesStr, telsStr);
-  var cleanNombre = nombre.trim().replace(/\[|\]/g, '');
+  var cleanNombre = nombre.trim().replace(new RegExp('\\[|\\]', 'g'), '');
   var newItem = {
     nombre: cleanNombre || 'Personal',
     tel: tel.trim() || '—',
@@ -4645,7 +4645,7 @@ async function guardarStaffItem(btn) {
   }
 
   var formattedNames = items.map(function(x){
-    var cNom = (x.nombre || 'Personal').replace(/\[|\]/g, '').trim();
+    var cNom = (x.nombre || 'Personal').replace(new RegExp('\\[|\\]', 'g'), '').trim();
     return cNom + ' [' + (x.estado || 'activo') + ' | ' + (x.horario || 'Sin horario') + ']';
   }).join(', ');
 
