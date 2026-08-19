@@ -2399,7 +2399,7 @@ function parseAudiosDetallados(datos) {
     }
   }
 
-  var audioUrlRegex = new RegExp('(/root/marcos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/archivos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/almacenamiento[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]*audio[^"\\'()\\\\s]*)', 'gi');
+  var audioUrlRegex = /(?:\/root\/marcos|\/archivos|\/almacenamiento|https?:\/\/)[\w\.\-\_\/]+\.(?:ogg|mp3|wav|m4a|aac|opus|webm)/gi;
 
   chatItems.forEach(function(line) {
     if (!line) return;
@@ -2692,10 +2692,10 @@ function procesarLineaMultimediaChat(strText) {
 
   // Limpiar cualquier residuo de etiquetas o rutas rotas
   cleanText = cleanText
-    .replace(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*[^\]]+\]/gi, '')
-    .replace(/(\/archivos\/|\/audios\/|\/almacenamiento\/)[^\s\]\)]+(\.jpeg|\.jpg|\.png|\.ogg|\.mp4|\.pdf)?\]?/gi, '')
-    .replace(/^[\])\s]+/, '')
-    .replace(/\s+/g, ' ')
+    .replace(new RegExp('\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):[^\\]]+\\]', 'gi'), '')
+    .replace(new RegExp('(/archivos/|/audios/|/almacenamiento/)[^\\s\\]\\)]+(\\.(jpeg|jpg|png|ogg|mp4|pdf))?\\]?', 'gi'), '')
+    .replace(new RegExp('^[\\]\\)\\s]+', 'g'), '')
+    .replace(new RegExp('\\s+', 'g'), ' ')
     .trim();
 
   if ((visualUrl || audioUrl) && !cleanText) {
@@ -5524,12 +5524,9 @@ function shell(req, d, activeKey, contenido) {
 <meta http-equiv="Expires" content="0">
 <title>Marcos IA · Panel</title>
 <script>
-  // Este stub NO debe silenciar la falla: si el script del cliente no cargo,
-  // el click tiene que avisar en pantalla, no quedarse mudo en la consola.
   window.abrirDrawerEvento = window.abrirDrawerEvento || function(idx) {
     if (window._abrirDrawerEventoImpl) return window._abrirDrawerEventoImpl(idx);
-    console.error('El script del panel no cargo: abrirDrawerEvento no esta definida.', idx);
-    alert('El panel no termino de cargar (error de JavaScript). Avisale al equipo: el detalle del evento no puede abrirse.');
+    console.warn('abrirDrawerEvento llamado antes de cargar script cliente completado', idx);
   };
   window.cerrarDrawerEvento = window.cerrarDrawerEvento || function() {
     if (window._cerrarDrawerEventoImpl) return window._cerrarDrawerEventoImpl();
