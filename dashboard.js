@@ -2703,9 +2703,9 @@ function procesarLineaMultimediaChat(strText) {
   var _LBR = String.fromCharCode(91), _RBR = String.fromCharCode(93), _RPA = String.fromCharCode(41);
   cleanText = cleanText
     .replace(new RegExp(_LBR + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):[^' + _RBR + ']+' + _RBR, 'gi'), '')
-    .replace(new RegExp('(/archivos/|/audios/|/almacenamiento/)[^\\s' + _RBR + _RPA + ']+(\\.(jpeg|jpg|png|ogg|mp4|pdf))?' + _RBR + '?', 'gi'), '')
-    .replace(new RegExp('^[' + _RBR + _RPA + '\\s]+', 'g'), '')
-    .replace(new RegExp('\\s+', 'g'), ' ')
+    .replace(new RegExp('(/archivos/|/audios/|/almacenamiento/)[^ \\t\\r\\n' + _RBR + _RPA + ']+(\\.(jpeg|jpg|png|ogg|mp4|pdf))?' + _RBR + '?', 'gi'), '')
+    .replace(new RegExp('^[' + _RBR + _RPA + ' \\t\\r\\n]+', 'g'), '')
+    .replace(new RegExp('[ \\t\\r\\n]+', 'g'), ' ')
     .trim();
 
   if ((visualUrl || audioUrl) && !cleanText) {
