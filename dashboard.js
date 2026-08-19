@@ -2588,9 +2588,11 @@ function procesarLineaMultimediaChat(strText) {
   var visualUrl = '', visualType = '', visualFilename = '';
   var audioUrl = '', audioFilename = '';
 
-  var allTags = cleanText.match(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/gi) || [];
+  var tagRegexGlobal = new RegExp('\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^\\]]+)\\]', 'gi');
+  var tagRegexSingle = new RegExp('\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^\\]]+)\\]', 'i');
+  var allTags = cleanText.match(tagRegexGlobal) || [];
   allTags.forEach(function(tagStr) {
-    var m = tagStr.match(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/i);
+    var m = tagStr.match(tagRegexSingle);
     if (m) {
       var tagType = m[1].toUpperCase();
       var rawUrl = m[2].trim();
@@ -2675,7 +2677,15 @@ function procesarLineaMultimediaChat(strText) {
         var before = cleanText.substring(0, startCut).trim();
         var after = cleanText.substring(endCut).trim();
 
-        var tagRegexes = [/imagen:\s*$/i, /foto:\s*$/i, /video:\s*$/i, /audio:\s*$/i, /\(imagen adjunta\)\s*$/i, /\(video adjunto\)\s*$/i, /\(nota de voz\)\s*$/i];
+        var tagRegexes = [
+          new RegExp('imagen:\\s*$', 'i'),
+          new RegExp('foto:\\s*$', 'i'),
+          new RegExp('video:\\s*$', 'i'),
+          new RegExp('audio:\\s*$', 'i'),
+          new RegExp('\\(imagen adjunta\\)\\s*$', 'i'),
+          new RegExp('\\(video adjunto\\)\\s*$', 'i'),
+          new RegExp('\\(nota de voz\\)\\s*$', 'i')
+        ];
         for (var t = 0; t < tagRegexes.length; t++) {
           if (tagRegexes[t].test(before)) {
             before = before.replace(tagRegexes[t], '').trim();
