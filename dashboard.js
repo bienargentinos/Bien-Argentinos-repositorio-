@@ -2702,10 +2702,10 @@ function procesarLineaMultimediaChat(strText) {
 
   // Limpiar cualquier residuo de etiquetas o rutas rotas
   cleanText = cleanText
-    .replace(new RegExp('\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):[^\\]]+\\]', 'gi'), '')
-    .replace(new RegExp('(/archivos/|/audios/|/almacenamiento/)[^\\s\\]\\)]+(\\.(jpeg|jpg|png|ogg|mp4|pdf))?\\]?', 'gi'), '')
-    .replace(new RegExp('^[\\]\\)\\s]+', 'g'), '')
-    .replace(new RegExp('\\s+', 'g'), ' ')
+    .replace(new RegExp('\\x5B(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):[^\\x5D]+\\x5D', 'gi'), '')
+    .replace(new RegExp('(/archivos/|/audios/|/almacenamiento/)[^ \\t\\r\\n\\x5D\\x29]+(\\.(jpeg|jpg|png|ogg|mp4|pdf))?\\x5D?', 'gi'), '')
+    .replace(new RegExp('^[\\x5D\\x29 \\t\\r\\n]+', 'g'), '')
+    .replace(new RegExp('[ \\t\\r\\n]+', 'g'), ' ')
     .trim();
 
   if ((visualUrl || audioUrl) && !cleanText) {
