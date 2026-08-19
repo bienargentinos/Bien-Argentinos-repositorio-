@@ -3364,18 +3364,7 @@ async function marcarEventoResuelto(btn,row){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
-window.marcarEventoResuelto = marcarEventoResuelto;ew Error(j.error||'Error');
-    toast('Caso marcado como Resuelto con éxito.','ok');
-    if(_drawerActual) {
-      _drawerActual.estKey='resuelto';
-      _drawerActual.estLabel='Resuelto';
-      _drawerActual.estBg='#E7F4EC';
-      _drawerActual.estFg='#1B7A43';
-    }
-    setTimeout(function(){ location.reload(); }, 1200);
-  }catch(e){toast('Error: '+e.message,'err');}
-  finally{btn.disabled=false;btn.textContent=old;}
-}
+window.marcarEventoResuelto = marcarEventoResuelto;
 
 async function toggleFacturaEstado(btn, row, nuevoEstado){
   if(btn.disabled)return;
@@ -5523,9 +5512,12 @@ function shell(req, d, activeKey, contenido) {
 <meta http-equiv="Expires" content="0">
 <title>Marcos IA · Panel</title>
 <script>
+  // Este stub NO debe silenciar la falla: si el script del cliente no cargo,
+  // el click tiene que avisar en pantalla, no quedarse mudo en la consola.
   window.abrirDrawerEvento = window.abrirDrawerEvento || function(idx) {
     if (window._abrirDrawerEventoImpl) return window._abrirDrawerEventoImpl(idx);
-    console.warn('abrirDrawerEvento llamado antes de cargar script cliente completado', idx);
+    console.error('El script del panel no cargo: abrirDrawerEvento no esta definida.', idx);
+    alert('El panel no termino de cargar (error de JavaScript). Avisale al equipo: el detalle del evento no puede abrirse.');
   };
   window.cerrarDrawerEvento = window.cerrarDrawerEvento || function() {
     if (window._cerrarDrawerEventoImpl) return window._cerrarDrawerEventoImpl();
