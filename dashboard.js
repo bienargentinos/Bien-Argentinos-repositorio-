@@ -2307,7 +2307,7 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
   } else if (u.indexOf('/archivos/') !== -1) {
     u = '/archivos/' + u.substring(u.indexOf('/archivos/') + 10);
   } else {
-    var filename = u.replace(/^\/+/g, '').replace(/^\\+/g, '');
+    var filename = u.replace(new RegExp('^/+', 'g'), '').replace(new RegExp('^\\\\+', 'g'), '');
     if (filename.startsWith('temp/')) {
       u = '/' + targetFolder + '/' + filename.substring(5);
     } else if (filename.startsWith('almacenamiento/')) {
