@@ -2700,13 +2700,15 @@ function procesarLineaMultimediaChat(strText) {
     }
   }
 
-  var _LBR = String.fromCharCode(91), _RBR = String.fromCharCode(93), _RPA = String.fromCharCode(41);
-  cleanText = cleanText
-    .replace(new RegExp(_LBR + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):[^' + _RBR + ']+' + _RBR, 'gi'), '')
-    .replace(new RegExp('(/archivos/|/audios/|/almacenamiento/)[^ \\t\\r\\n' + _RBR + _RPA + ']+(\\.(jpeg|jpg|png|ogg|mp4|pdf))?' + _RBR + '?', 'gi'), '')
-    .replace(new RegExp('^[' + _RBR + _RPA + ' \\t\\r\\n]+', 'g'), '')
-    .replace(new RegExp('[ \\t\\r\\n]+', 'g'), ' ')
-    .trim();
+  ['/archivos/', '/audios/', '/almacenamiento/', '/root/marcos/'].forEach(function(pref) {
+    var p = cleanText.indexOf(pref);
+    if (p !== -1) {
+      var endP = cleanText.indexOf(' ', p);
+      if (endP === -1) endP = cleanText.length;
+      cleanText = (cleanText.substring(0, p) + ' ' + cleanText.substring(endP)).trim();
+    }
+  });
+  cleanText = cleanText.split(']').join('').split(')').join('').split('  ').join(' ').trim();
 
   if ((visualUrl || audioUrl) && !cleanText) {
     var label = visualType === 'image' ? '(imagen adjunta)' : (visualType === 'video' ? '(video adjunto)' : '(nota de voz)');
