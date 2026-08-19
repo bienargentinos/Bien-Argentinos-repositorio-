@@ -1721,15 +1721,18 @@ function toast(msg,kind){
   t.className='toast show '+(kind||'ok');
   setTimeout(function(){t.className='toast';},2600);
 }
+window.toast = toast;
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g,function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
   });
 }
+window.escapeHtml = escapeHtml;
 function cerrarModal(id){
   var m=document.getElementById(id);
   if(m) m.classList.remove('open');
 }
+window.cerrarModal = cerrarModal;
 
 // --- INSTALACIONES Y ACCESOS CLIENT JS ---
 window.abrirModalAccesoNuevo = function(ed) {
@@ -2317,7 +2320,9 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
   if (u.charAt(0) !== '/') u = '/' + u;
   return (window.location ? window.location.origin : '') + u;
 }
+window.normalizarUrlAudio = normalizarUrlAudio;
 function stopEv(e){e.stopPropagation();}
+window.stopEv = stopEv;
 
 // --- drawer de evento ---
 var _drawerActual=null;
@@ -2443,12 +2448,14 @@ function parseAudiosDetallados(datos) {
 
   return result;
 }
+window.parseAudiosDetallados = parseAudiosDetallados;
 
 function obtenerAudiosEvento(datos) {
   if (!datos) return [];
   var detailed = parseAudiosDetallados(datos);
   return detailed.map(function(item) { return item.url; });
 }
+window.obtenerAudiosEvento = obtenerAudiosEvento;
 
 function parseInvolucrados(datos) {
   if (!datos) return [];
@@ -2497,6 +2504,7 @@ function parseInvolucrados(datos) {
 
   return result;
 }
+window.parseInvolucrados = parseInvolucrados;
 
 function obtenerDireccionEdificio(datos) {
   if (!datos) return '—';
@@ -2749,6 +2757,7 @@ function cambiarTabChatEvento(tab) {
     if (panelP) panelP.style.display = 'block';
   }
 }
+window.cambiarTabChatEvento = cambiarTabChatEvento;
 
 function separarConversacionesEvento(datos) {
   if (!datos) return { chatVecino: [], chatProveedor: [] };
@@ -2848,6 +2857,7 @@ function separarConversacionesEvento(datos) {
     chatProveedor: chatProveedor
   };
 }
+window.separarConversacionesEvento = separarConversacionesEvento;
 
 function renderizarBloqueChat(rawChat, tipoBloque, datos) {
   var chatLines = [];
@@ -3063,6 +3073,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         '<div><strong style="color:#92400E;display:block;font-size:14px;margin-bottom:3px">' + (tecNombre ? 'Técnico Asignado: ' + tecNombre : 'Sin técnico asignado aún') + '</strong>' +
         '<span>' + (tecNombre ? 'Marcos IA gestionará los detalles por WhatsApp cuando el técnico confirme o consulte el reclamo.' : 'Marcos IA coordinará automáticamente con el proveedor cuando la Administración le asigne un especialista al caso.') + '</span></div>' +
       '</div>';
+    } else {
       return '<div style="display:flex;align-items:flex-start;gap:9px;background:#F1F5FB;border-radius:11px;padding:11px 14px;font-size:12.5px;color:#5A6B85;line-height:1.5;margin-top:10px">' +
         '<span style="font-size:15px">🔒</span>' +
         '<span>Registro textual completo de lo conversado con el vecino. Queda como <strong style="color:#334259">comprobante</strong> ante cualquier reclamo.</span>' +
@@ -3070,6 +3081,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
     }
   }
 }
+window.renderizarBloqueChat = renderizarBloqueChat;
 
 function abrirDrawerEvento(idx){
   var datos=(window.__EVENTOS__||[])[idx];
