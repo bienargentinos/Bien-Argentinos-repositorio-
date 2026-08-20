@@ -7580,7 +7580,7 @@ router.get('/api/facturas', async (req, res) => {
     let paramIdx = 1;
 
     if (edificiosFiltro && edificiosFiltro.length > 0) {
-      whereClauses.push(`marcos_norm(f.edificio) = ANY(SELECT marcos_norm(x) FROM unnest($${paramIdx}::text[]) AS x)`);
+      whereClauses.push(`EXISTS (SELECT 1 FROM unnest($${paramIdx}::text[]) AS x WHERE marcos_norm(f.edificio) LIKE '%' || marcos_norm(x) || '%' OR marcos_norm(x) LIKE '%' || marcos_norm(f.edificio) || '%')`);
       params.push(edificiosFiltro);
       paramIdx++;
     }
