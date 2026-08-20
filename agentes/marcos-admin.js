@@ -48,6 +48,91 @@ async function enviarEmail(to, subject, text) {
 }
 
 /**
+ * Le avisa al administrador de un edificio, por el canal que él eligió en el panel.
+ *
+ * Existe como función suelta porque el aviso a la Administración estaba enterrado adentro del
+ * flujo del vecino (`reportarAlAdmin`), atado a un `decisionCaso` y a una ficha de vecino. Así no
+ * había forma de avisarle por algo que no viniera de un reclamo -- por ejemplo que un técnico
+ * avisó, al mandar la factura, que el trabajo quedó por la mitad y hace falta otro gremio.
+ *
+ * No manda nada dos veces por el mismo caso y motivo: la marca vive en el evento, no en memoria,
+ * así que un reinicio de PM2 no vuelve a habilitar el mismo correo.
+ *
+ * @returns {boolean} si llegó por algún canal.
+ */
+async function avisarAlAdministrador({ edificio, idEvento = '', motivo, titulo, cuerpo, phoneNumberId, accessToken }) {
+    if (!edificio) {
+        console.warn('[Aviso] No se puede avisar a la Administración sin saber de qué edificio se trata.');
+        return false;
+    }
+
+    try {
+        if (idEvento) {
+            const { fueAdminNotificado } = require('../datos');
+            if (await fueAdminNotificado(idEvento)) {
+                console.log(`[Aviso] ${idEvento} ya se había avisado a la Administración. No se repite.`);
+                return false;
+            }
+        }
+
+        const perfil = await buscarPerfilEdificio(edificio);
+        if (!perfil?.adminNombre) {
+            console.warn(`[Aviso] ⚠️ El edificio "${edificio}" no tiene administrador cargado en la pestaña EDIFICIOS.`);
+            return false;
+        }
+
+        const cliente = await buscarCliente(perfil.adminNombre);
+        if (!cliente) {
+            console.warn(`[Aviso] ⚠️ No se encontró al administrador "${perfil.adminNombre}" en la pestaña CLIENTES.`);
+            return false;
+        }
+
+        // El canal lo elige el administrador desde el panel.
+        const quiereEmail = cliente.notifEmail !== false && Boolean(cliente.email);
+        const quiereWsp   = cliente.notifWsp === true && Boolean(cliente.wsp);
+        console.log(`[Aviso] "${cliente.nombre}" — email: ${quiereEmail ? cliente.email : 'no'} | WhatsApp: ${quiereWsp ? cliente.wsp : 'no'}`);
+
+        let llegoPorAlgunLado = false;
+
+        if (quiereEmail && await enviarEmail(cliente.email, titulo, cuerpo)) {
+            llegoPorAlgunLado = true;
+        }
+
+        if (quiereWsp) {
+            try {
+                const { enviarWhatsApp } = require('./marcos-ops');
+                // El administrador SÍ sabe que Marcos es una IA: acá no hace falta el tono de
+                // persona que se usa con el vecino.
+                await enviarWhatsApp(cliente.wsp, `*${titulo}*\n\n${cuerpo}`, phoneNumberId, accessToken);
+                llegoPorAlgunLado = true;
+            } catch (e) {
+                console.error(`[Aviso] ⚠️ No se pudo avisar por WhatsApp a "${cliente.nombre}" (${cliente.wsp}):`, e.message);
+            }
+        }
+
+        if (!quiereEmail && !quiereWsp) {
+            console.warn(`[Aviso] ⚠️ "${cliente.nombre}" no tiene ningún canal: sin email ni WhatsApp cargado, o con las dos notificaciones apagadas.`);
+        }
+
+        // Se marca recién si llegó por algún canal: si fallaron todos, el aviso sigue pendiente y
+        // el próximo mensaje puede reintentarlo.
+        if (llegoPorAlgunLado && idEvento) {
+            try {
+                const { marcarAdminNotificado } = require('../datos');
+                await marcarAdminNotificado(idEvento, motivo);
+            } catch (e) {
+                console.error('[Aviso] Error marcando el caso como avisado:', e.message);
+            }
+        }
+
+        return llegoPorAlgunLado;
+    } catch (err) {
+        console.error('[Aviso] Error avisando a la Administración:', err.message);
+        return false;
+    }
+}
+
+/**
  * MARCOS-ADMIN
  * Genera reportes para el administrador humano.
  * Guarda todo en Google Sheets.
@@ -302,8 +387,9 @@ async function notificarEscalacionAlAdmin({ vecino, decisionCaso, tecnicoAsignad
     }
 }
 
-module.exports = { 
-    reportarAlAdmin, 
-    notificarEscalacionAlAdmin, 
-    iniciarCronReportes 
+module.exports = {
+    reportarAlAdmin,
+    notificarEscalacionAlAdmin,
+    avisarAlAdministrador,
+    iniciarCronReportes
 };

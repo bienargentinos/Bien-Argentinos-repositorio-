@@ -380,6 +380,12 @@ async function _initPgSchema() {
             -- cuando el proveedor manda una foto sin importe legible: con NUMERIC ese INSERT
             -- fallaba y la factura se perdia entera.
             ALTER TABLE facturas ALTER COLUMN monto TYPE TEXT;
+            -- Lo que escribió textualmente quien mandó el comprobante ("hasta acá llegué, hay que
+            -- llamar al plomero"), y quién lo mandó. Es la constancia de que el aviso existió: sin
+            -- esto, cuando el problema se repite meses después no hay con qué demostrar que el
+            -- técnico ya lo había advertido.
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS nota_tecnico TEXT;
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS enviada_por VARCHAR(200);
 
             CREATE INDEX IF NOT EXISTS idx_pg_vecinos_tel ON vecinos(telefono);
             CREATE INDEX IF NOT EXISTS idx_pg_reportes_codigo ON reportes(codigo_caso);

@@ -307,6 +307,8 @@ async function guardarFactura(datos) {
             url_archivo:    datos.url_archivo || '',
             numero_factura: datos.numero_factura || '',
             estado:         datos.estado || 'Pendiente',
+            nota_tecnico:   datos.nota_tecnico || '',
+            enviada_por:    datos.enviada_por || '',
         }
     ));
     return res;

@@ -1529,298 +1529,449 @@ function validarYSanitizarNombre(nombre) {
     ]);
 
     // DESACTIVAR BUCLE DE PLANTILLAS Y MANEJAR MODO PROVEEDOR DIRECTO
+    // ── ¿ESTO ES UNA FACTURA? ────────────────────────────────────────────────────────────
+    //
+    // Se decide ANTES de separar por rol, porque una factura no la manda solo el técnico. El
+    // vecino o el encargado llaman a un electricista por su cuenta, el trabajo se hace, y el
+    // comprobante se lo mandan a Marcos para que la Administración lo tenga. Ese técnico puede
+    // no figurar en ninguna lista: es nuevo para el edificio, y no por eso el gasto deja de
+    // existir. Cuando esto vivía adentro de la rama de proveedor, esa factura no se registraba
+    // en ningún lado -- Marcos la leía como un reclamo más.
+    const txtLowFactura = (msgBody || '').toLowerCase();
+    const loMandaElTecnico = datosEmisor.rol === 'proveedor';
+    const parecePreguntaSinAdjunto = !media && /\?|qui[eé]n|c[oó]mo|cu[aá]ndo|d[oó]nde|puedo|debo|hay que/i.test(txtLowFactura);
+
+    // El listón es distinto según quién manda, y tiene que serlo: para un técnico casi cualquier
+    // adjunto es un comprobante, pero para un vecino la foto de una pérdida de agua es un
+    // RECLAMO. Tratarla como factura le robaría el reclamo. Por eso, cuando no lo manda el
+    // técnico, hace falta un adjunto Y que el lector de documentos diga que es una factura (o
+    // que la palabra esté escrita).
+    const esFacturaODoc = !parecePreguntaSinAdjunto && (loMandaElTecnico
+        ? (
+            Boolean(datosFactura?.es_factura) ||
+            /factura|comprobante|recibo|pago|cobro|remito|cbu|transferencia/i.test(txtLowFactura) ||
+            (media && (msgType === 'document' || msgType === 'image') && !/foto|video|cerradura|especifi|aclarar|ver/.test(txtLowFactura))
+          )
+        : (
+            Boolean(media) && (msgType === 'document' || msgType === 'image') &&
+            (Boolean(datosFactura?.es_factura) || /factura|comprobante|recibo|remito/i.test(txtLowFactura))
+          )
+    );
+
+    if (esFacturaODoc) {
+        // ── A QUÉ EDIFICIO PERTENECE ESTA FACTURA ────────────────────────────────────────
+        //
+        // REGLA DE ORO: el edificio NUNCA sale de la dirección impresa en el comprobante.
+        //
+        // El papel lleva la dirección de FACTURACIÓN -- el estudio del administrador, o el
+        // domicilio fiscal del propio técnico -- y no la del trabajo. Antes esa dirección era
+        // el último recurso, y como el técnico factura días después (cuando la conversación ya
+        // no existe y su caso ya está cerrado), en los hechos era la que ganaba SIEMPRE. Visto
+        // en producción: una factura por un trabajo en "SAN PATRICIO 159" abrió un evento
+        // fantasma en "san patricio 270", que es lo que decía el encabezado del PDF.
+        //
+        // El orden ahora va de lo más explícito a lo más deducido, y CUALQUIERA de los
+        // resultados se valida contra la cartera del técnico. Si no se llega a nada, se
+        // pregunta: adivinar mal le imputa el gasto al consorcio equivocado, que es peor que
+        // preguntar.
+        // Y NUNCA sale del administrador de la factura ANTERIOR. Un técnico no le pertenece a
+        // un administrador: el mismo electricista atiende 11 administradores desde un solo
+        // número, y en una tanda manda 3 facturas de uno, 2 de otro y 1 de un tercero. Por eso
+        // acá no se arrastra nada del mensaje previo -- cada comprobante se resuelve solo, y
+        // ante la menor duda se pregunta en lugar de deducir.
+        const { edificiosDelProveedor, buscarCasosRecientesPorTecnico, buscarCasoPorCodigo } = require('./datos');
+
+        // Quién hizo el trabajo. Si el comprobante lo manda el propio técnico, es él. Si lo manda
+        // el vecino o el encargado, el técnico es el que figura en el papel -- y puede no estar en
+        // ninguna lista, porque lo llamaron por su cuenta y es nuevo para el edificio. Que no
+        // figure NO es motivo para descartar la factura: el gasto existe igual y la Administración
+        // lo tiene que ver.
+        const nombreTecnicoFactura = loMandaElTecnico
+            ? (datosEmisor.nombre || 'Proveedor')
+            : String(datosFactura?.proveedor || '').trim();
+        const tecnicoEsConocido = loMandaElTecnico || Boolean(nombreTecnicoFactura);
+
+        // La cartera del técnico, con el administrador de cada edificio. OJO: vacía significa
+        // "no pude averiguarla" (la copia en PostgreSQL puede estar incompleta, o la planilla
+        // no respondió), NO "no atiende ningún edificio". Con la cartera vacía no se rechaza
+        // nada -- se sigue de largo y, como mucho, se termina preguntando.
+        //
+        // Solo tiene sentido cuando escribe el técnico. Si la manda un vecino, el edificio no hay
+        // que deducirlo de ninguna cartera: es el suyo, el que Marcos ya identificó para atenderlo.
+        let cartera = [];
+        if (loMandaElTecnico) {
+            try {
+                cartera = await edificiosDelProveedor({ nombre: datosEmisor.nombre, telefono: from }) || [];
+            } catch (e) {
+                console.error('No se pudo leer la cartera de edificios del proveedor:', e.message);
+            }
+        }
+        const puedeValidar = cartera.length > 0;
+        const enCartera = nombre => {
+            if (!puedeValidar) return true;
+            const n = normalizarTextoEdificio(nombre);
+            if (!n) return false;
+            return cartera.some(c => {
+                const cn = normalizarTextoEdificio(c.edificio);
+                return cn === n || cn.includes(n) || n.includes(cn);
+            });
+        };
+        const clienteDe = nombre => {
+            const n = normalizarTextoEdificio(nombre);
+            const fila = cartera.find(c => normalizarTextoEdificio(c.edificio) === n);
+            return fila?.cliente || '';
+        };
+
+        let edificioFactura = '';
+        let idCasoFactura = '';
+        let comoSeSupo = '';
+        let candidatos = [];
+
+        // 1. EXPLÍCITO: el técnico citó el caso ("mando la factura del CASO-1001"). Es lo más
+        //    confiable que puede pasar, y por eso vale la pena pedírselo aunque no siempre lo
+        //    vaya a hacer.
+        const codigoEnFactura = (textoFinal.match(/\bCASO[\s-]?0*(\d{2,})\b/i) || [])[1];
+        if (codigoEnFactura) {
+            try {
+                const caso = await buscarCasoPorCodigo(codigoEnFactura);
+                if (caso?.edificio && enCartera(caso.edificio)) {
+                    edificioFactura = caso.edificio;
+                    idCasoFactura = caso.id_evento || '';
+                    comoSeSupo = `el técnico citó el ${caso.id_evento}`;
+                } else if (caso?.edificio) {
+                    console.log(`🔒 El ${caso.id_evento} es de "${caso.edificio}", que no está en la cartera de ${datosEmisor.nombre}. No se usa.`);
+                }
+            } catch (e) {
+                console.error('Error buscando el caso citado en la factura:', e.message);
+            }
+        }
+
+        // 2. EXPLÍCITO: el edificio que quien escribe nombró EN SU MENSAJE (no en el papel).
+        const edifDetectadoTexto = buscarEdificioEnTexto(msgClean, edificiosConocidos);
+        if (!edificioFactura && edifDetectadoTexto?.nombre && enCartera(edifDetectadoTexto.nombre)) {
+            edificioFactura = edifDetectadoTexto.nombre;
+            comoSeSupo = 'lo nombró en el mensaje';
+        }
+
+        // 2-bis. NO LO MANDA EL TÉCNICO: el edificio es el de quien escribe, y punto.
+        //
+        // Acá no hay nada que deducir ni contra qué validar. Un vecino manda la factura del
+        // electricista que llamó por su cuenta: el trabajo fue en SU edificio, que es el que
+        // Marcos ya identificó para poder atenderlo. Lo mismo el encargado o la guardia.
+        if (!edificioFactura && !loMandaElTecnico) {
+            const suEdificio = session.nombreEdificio || datosEmisor.edificio || '';
+            if (suEdificio) {
+                edificioFactura = suEdificio;
+                comoSeSupo = `es el edificio de quien la manda (${datosEmisor.rol})`;
+            }
+        }
+
+        // 3. DEDUCIDO, y solo si no hay ambigüedad: sus casos de los últimos 30 días, abiertos
+        //    o ya cerrados. La ventana de 30 días es lo que resuelve el caso normal -- el
+        //    trabajo se hizo, el caso se cerró, y la factura llega una semana después.
+        //
+        //    Con UN solo candidato se usa. Con varios NO se elige el más reciente: para un
+        //    técnico de varios administradores, "el último caso" y "el de esta factura" son
+        //    cosas distintas, y acertar sería casualidad. Se le pregunta mostrándole la lista.
+        if (!edificioFactura && loMandaElTecnico) {
+            try {
+                const recientes = (await buscarCasosRecientesPorTecnico(datosEmisor.nombre, from, 30)) || [];
+                candidatos = recientes.filter(c => c.edificio && enCartera(c.edificio));
+
+                // El caso que Marcos le despachó y sigue vivo en esta conversación desguaza el
+                // empate: es un caso concreto, no "el edificio del que venimos hablando".
+                const telTechFactura = String(from).replace(/\D/g, '');
+                const casoEnCurso = global.colasProveedores?.get(telTechFactura)?.eventoActivoId || '';
+                const elEnCurso = casoEnCurso && candidatos.find(c => c.id_evento === casoEnCurso);
+
+                if (elEnCurso) {
+                    edificioFactura = elEnCurso.edificio;
+                    idCasoFactura = elEnCurso.id_evento;
+                    comoSeSupo = `el caso que está atendiendo en esta conversación (${elEnCurso.id_evento})`;
+                } else if (candidatos.length === 1) {
+                    edificioFactura = candidatos[0].edificio;
+                    idCasoFactura = candidatos[0].id_evento || '';
+                    comoSeSupo = `su único caso reciente (${candidatos[0].id_evento}${candidatos[0].cerrado ? ', ya cerrado' : ''})`;
+                } else if (candidatos.length > 1) {
+                    console.log(`🤔 ${datosEmisor.nombre} tiene ${candidatos.length} casos recientes en edificios distintos. No se adivina de cuál es la factura: se le pregunta.`);
+                }
+            } catch (e) {
+                console.error('Error buscando los casos recientes del técnico:', e.message);
+            }
+        }
+
+        // 4. Si la única pista que quedaba era la dirección del comprobante, se deja constancia
+        //    de por qué NO se usó. Es el dato que causaba los eventos fantasma.
+        const edificioDelPapel = datosFactura?.edificio || '';
+        if (!edificioFactura && edificioDelPapel) {
+            console.log(`🧾 La dirección del comprobante ("${edificioDelPapel}") no se usa como edificio del trabajo: es la de facturación. Se le pregunta al técnico.`);
+        }
+
+        if (edificioFactura) {
+            const cli = clienteDe(edificioFactura);
+            console.log(`🧾 Factura de ${nombreTecnicoFactura || 'técnico sin identificar'} imputada a "${edificioFactura}"${cli ? ` (administrador: ${cli})` : ''} — se supo por ${comoSeSupo}.`);
+        }
+
+        // Se declara afuera del if porque más abajo se usa para armar el link del comprobante
+        // en el chat del proveedor. Declarado adentro, ese uso posterior rompía la respuesta
+        // entera justo cuando el técnico mandaba la factura.
+        let resEstFactura = null;
+        if (media?.filePath) {
+            resEstFactura = guardarArchivoEstructurado({
+                filePath: media.filePath,
+                adminNombre: perfilEdificio?.adminNombre,
+                edificioNombre: edificioFactura || 'Sin imputar',
+                tipo: 'facturas'
+            });
+            if (resEstFactura && datosFactura) {
+                datosFactura.url_archivo = resEstFactura.relativeUrl;
+            }
+        }
+
+        // ── LO QUE ESCRIBIÓ QUIEN MANDA LA FACTURA ───────────────────────────────────────
+        //
+        // Se calcula ANTES de guardar nada, porque este texto es lo más valioso del mensaje y no
+        // se puede perder en ningún camino. Es donde viene la indicación que después hace falta:
+        // "hasta acá llegué, hay que llamar al plomero para que siga". Si eso no queda escrito en
+        // ningún lado, dentro de dos meses el problema se repite, el técnico dice que ya había
+        // avisado, y la Administración no tiene con qué saber si es cierto.
+        //
+        // Ojo con los rellenos: un documento sin epígrafe viaja como
+        // "(Documento adjunto: factura_1234.pdf)". Ese texto no lo escribió nadie, pero pasa
+        // los 20 caracteres de sobra -- sin sacarlo, cada PDF suelto contaría como
+        // "explicación" y abriría un evento titulado con el nombre del archivo.
+        // La versión LEGIBLE, que es la que se guarda y la que va a leer el administrador: se le
+        // sacan los rellenos automáticos pero se respeta lo que la persona escribió, con su
+        // puntuación. Es la prueba de lo que se avisó y cuándo.
+        const notaDeQuienEnvia = String(textoFinal || '')
+            .replace(/\((?:imagen|documento|comprobante|video|nota de voz)[^)]*\)/ig, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        // La versión NORMALIZADA, que solo se usa para medir si hay contenido real. Acá sí se
+        // arrasa con todo (puntuación, nombres de archivo, cortesías) porque no se guarda: lo
+        // único que interesa es si queda algo que valga la pena registrar.
+        const textoPropio = notaDeQuienEnvia
+            .replace(/\bCASO[\s-]?0*\d{2,}\b/ig, ' ')
+            .replace(/\b\S+\.(pdf|jpe?g|png|docx?|xlsx?|webp|heic)\b/ig, ' ')
+            .replace(/factura|comprobante|recibo|remito|adjunto|hola|buenas|gracias/ig, ' ')
+            .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const explicaElTrabajo = textoPropio.length >= 20;
+
+        // ── ¿EL TRABAJO QUEDÓ POR LA MITAD? ──────────────────────────────────────────────
+        //
+        // "Hasta acá llegué, hay que llamar al plomero para que siga con lo que falta." Eso NO es
+        // el cierre de un caso: es un pase a otro gremio, y el caso tiene que quedar ABIERTO y
+        // llegarle a la Administración. Si se archiva como resuelto, dentro de dos meses el
+        // problema vuelve, el técnico dice "yo ya había avisado" y nadie puede confirmarlo.
+        //
+        // Esto encaja con la regla de cuándo se avisa al administrador: no en cada evento, sino
+        // cuando el técnico NO terminó de resolver el problema por completo.
+        //
+        // Ojo con los `\b` al final de una palabra acentuada: en JavaScript el borde de palabra es
+        // ASCII, así que "llegué." no tiene borde entre la "é" y el punto y el patrón no engancha.
+        // Por eso acá los remates acentuados van SIN `\b` -- "hasta acá llegué" es exactamente la
+        // forma en que un técnico avisa que su parte terminó, y perderla era perder el aviso.
+        const quedoPorLaMitad = /\b(hay que|habr[ií]a que|tienen que|tendr[ií]an que|deber[ií]an)\s+(llamar|mandar|convocar|contratar|coordinar|buscar|conseguir)\b/i.test(notaDeQuienEnvia)
+            || /\b(falta|faltar[ií]a|queda pendiente|no termin|sin terminar|a medias|parcial|provisorio|provisional|de urgencia)\b/i.test(notaDeQuienEnvia)
+            || /\bhasta (ac[aá]|aqu[ií]) (llegu[eé]|puedo|pude|llego)/i.test(notaDeQuienEnvia)
+            || /\bno me corresponde|\bno es (lo )?m[ií]o|\bes trabajo de|\bcontin[uú]e otro|\bque siga (el|otro)/i.test(notaDeQuienEnvia)
+            || /\b(lo dem[aá]s|el resto)\b[^.]{0,20}\bes (de|del)\b/i.test(notaDeQuienEnvia)
+            || /\b(otro|un)\s+(gremio|rubro|especialista)\b/i.test(notaDeQuienEnvia);
+
+        // Qué oficio hay que llamar, si lo dijo. Sirve para que el aviso a la Administración sea
+        // accionable ("hace falta un plomero") en vez de un genérico "quedó algo pendiente".
+        const gremioQueFalta = (notaDeQuienEnvia.match(/\b(plomer[oa]|gasista|electricista|cerrajer[oa]|albañil|albanil|pintor|herrer[oa]|techista|vidrier[oa]|carpinter[oa]|refrigeraci[oó]n|ascensorista)\b/i) || [])[1] || '';
+
+        if (quedoPorLaMitad) {
+            console.log(`⚠️ El trabajo quedó incompleto según ${nombreTecnicoFactura || datosEmisor.rol}${gremioQueFalta ? ` — hace falta un ${gremioQueFalta}` : ''}: "${notaDeQuienEnvia.slice(0, 120)}"`);
+        }
+
+        // La factura se guarda SIEMPRE -- perderla sería peor -- pero cuando no sabemos de qué
+        // edificio es queda marcada como "Sin imputar" en vez de cargada a un consorcio
+        // adivinado. El administrador la ve pendiente en el panel y la corrige él.
+        //
+        // La nota viaja PEGADA A LA FACTURA, no solo al evento. Así la indicación sobrevive
+        // aunque todavía no sepamos el edificio y no haya ningún evento donde ponerla: cuando el
+        // técnico conteste de qué obra era, el evento se crea con este texto.
+        const { guardarFactura } = require('./datos');
+        await guardarFactura({
+            proveedor: nombreTecnicoFactura || 'Proveedor',
+            monto: datosFactura?.monto || 'Según comprobante',
+            concepto: datosFactura?.concepto || 'Servicio técnico realizado',
+            edificio: edificioFactura || '',
+            url_archivo: datosFactura?.url_archivo || '',
+            numero_factura: datosFactura?.numero_factura || '',
+            estado: edificioFactura ? 'Pendiente' : 'Sin imputar',
+            nota_tecnico: notaDeQuienEnvia,
+            enviada_por: `${datosEmisor.nombre || 'Desconocido'} (${datosEmisor.rol})`
+        });
+
+        // ── ¿CORRESPONDE ABRIR UN EVENTO? ────────────────────────────────────────────────
+        //
+        // Una factura sola NO es un evento: crear uno por cada comprobante llenaba el panel de
+        // eventos vacíos ("Evento", vecino "Desconocido", urgencia "Baja").
+        //
+        // Pero una factura CON una indicación adentro sí lo es. Es el trabajo que se coordinó por
+        // fuera del circuito -- lo llamó el encargado, o el propio vecino -- y de lo que la
+        // Administración no tiene ningún otro registro. Ahí el evento es la ayuda memoria: qué se
+        // hizo, quién lo hizo, qué quedó pendiente y quién lo avisó, con la conversación a la vista.
+        let respExtra = '';
+        if (!edificioFactura) {
+            // Sin edificio no podemos imputar el gasto a nadie: se lo pedimos al técnico, y de
+            // paso le enseñamos el atajo del número de caso.
+            //
+            // Si tiene casos recientes en varios edificios se los listamos. Es lo que más lo
+            // ayuda y lo que menos le cuesta: en vez de escribir la dirección, contesta "el
+            // segundo". Y del lado de Marcos, elegir de una lista es un dato duro -- sabe el
+            // caso, el edificio y qué administrador lo recibe.
+            if (candidatos.length > 1) {
+                const lista = candidatos.slice(0, 5)
+                    .map((c, i) => `${i + 1}️⃣ *${c.id_evento}* — ${c.edificio}${c.problema ? `: ${String(c.problema).slice(0, 60)}` : ''}`)
+                    .join('\n');
+                respExtra = `\n\nPara imputarla al consorcio correcto, ¿de cuál de estos trabajos es?\n\n${lista}\n\n` +
+                    `Contestame con el número, con el código del caso o con la dirección. ` +
+                    `Ojo que la dirección del comprobante no me sirve, porque es la de facturación y no la del trabajo.`;
+            } else {
+                respExtra = ` Ahora, para imputarla al consorcio correcto necesito que me digas *de qué edificio es* — la dirección del comprobante no me sirve porque es la de facturación. Si tenés a mano el número de caso (por ejemplo *CASO-1001*), con eso solo alcanza.`;
+            }
+        } else if (idCasoFactura && !quedoPorLaMitad) {
+            // Se engancha al caso que documenta. No se abre nada nuevo.
+            respExtra = ` La dejé asociada al *${idCasoFactura}* de ${edificioFactura}.`;
+        } else if (explicaElTrabajo || quedoPorLaMitad) {
+            // Trabajo coordinado por fuera, con explicación: acá sí vale registrar el evento.
+            //
+            // El estado depende de lo que dijo. Si avisó que quedó algo pendiente, el caso NO se
+            // cierra: se deja abierto y con la indicación adentro, que es exactamente lo que
+            // después hace falta poder demostrar.
+            try {
+                const { guardarReporte } = require('./datos');
+                const quienInforma = loMandaElTecnico
+                    ? `el técnico ${nombreTecnicoFactura}`
+                    : `${datosEmisor.nombre || 'quien escribió'} (${datosEmisor.rol})${nombreTecnicoFactura ? `, sobre un trabajo de ${nombreTecnicoFactura}` : ''}`;
+
+                const notas = quedoPorLaMitad
+                    ? `⚠️ TRABAJO INCOMPLETO. Informado por ${quienInforma} al enviar la factura, sin reclamo previo por este canal. ` +
+                      (gremioQueFalta ? `Hace falta un ${gremioQueFalta} para continuar. ` : 'Hace falta otro gremio para continuar. ') +
+                      `Textual: "${notaDeQuienEnvia}"`
+                    : `Trabajo informado por ${quienInforma} al enviar la factura, sin reclamo previo por este canal (lo coordinaron directamente). Textual: "${notaDeQuienEnvia}"`;
+
+                const res = await guardarReporte({
+                    // Si ya había un caso al que pertenece, se actualiza ESE en vez de abrir otro.
+                    id_evento: idCasoFactura || undefined,
+                    edificio: edificioFactura,
+                    vecino: loMandaElTecnico ? 'Trabajo coordinado fuera del sistema' : (vecino?.nombre || datosEmisor.nombre || ''),
+                    telefono: loMandaElTecnico ? '' : from,
+                    problema: notaDeQuienEnvia || datosFactura?.concepto || 'Trabajo técnico facturado',
+                    urgencia: quedoPorLaMitad ? 'media' : 'baja',
+                    estado: quedoPorLaMitad ? 'en_proceso' : 'resuelto',
+                    tecnico: nombreTecnicoFactura || '',
+                    tel_tecnico: loMandaElTecnico ? (from || '') : '',
+                    rubro_tecnico: loMandaElTecnico ? (datosEmisor.especialidad || '') : '',
+                    tipo: 'trabajo_externo',
+                    notas_ia: notas,
+                    // Las dos puntas de la conversación, para que en el panel se lea el
+                    // intercambio completo y no una sola línea suelta.
+                    historial_chat: JSON.stringify([
+                        `${loMandaElTecnico ? 'Proveedor' : datosEmisor.rol} (${datosEmisor.nombre || 'sin nombre'}): ${msgBodyParaRegistro}`
+                    ])
+                });
+                if (res?.id_evento) idCasoFactura = res.id_evento;
+                console.log(`🧾 Evento ${idCasoFactura || '(nuevo)'} registrado en "${edificioFactura}" desde la factura — estado ${quedoPorLaMitad ? 'ABIERTO (quedó pendiente)' : 'resuelto'}.`);
+
+                respExtra = quedoPorLaMitad
+                    ? ` Y te tomo la indicación: la dejé anotada en el *${idCasoFactura || 'caso'}* de ${edificioFactura}, que queda ABIERTO${gremioQueFalta ? ` a la espera del ${gremioQueFalta}` : ' porque falta terminar'}. Ya le avisé a la Administración con tus palabras, así queda constancia de que lo dijiste vos y cuándo.`
+                    : ` Y como me contaste qué se hizo, lo dejé anotado en ${edifDetectadoTexto?.direccion || edificioFactura} como trabajo ya resuelto, así la Administración tiene el antecedente.`;
+            } catch (e) {
+                console.error('Error registrando el evento desde la factura:', e.message);
+            }
+        } else {
+            // Sabemos el edificio pero no qué se hizo: se pide el detalle para poder dejar la
+            // ayuda memoria, sin abrir un evento vacío mientras tanto.
+            respExtra = ` Quedó cargada a ${edificioFactura}. Si me contás en una línea qué se hizo, se lo dejo anotado a la Administración como antecedente.`;
+        }
+
+        // ── AVISO A LA ADMINISTRACIÓN ────────────────────────────────────────────────────
+        //
+        // No se avisa por cada factura. Se avisa cuando el trabajo quedó por la mitad, que es uno
+        // de los motivos que corresponden: el técnico no terminó de resolver el problema. Es el
+        // aviso que después sostiene la palabra del técnico si el problema se repite.
+        if (quedoPorLaMitad && edificioFactura) {
+            try {
+                const { avisarAlAdministrador } = require('./agentes/marcos-admin');
+                await avisarAlAdministrador({
+                    edificio: edificioFactura,
+                    idEvento: idCasoFactura,
+                    motivo: gremioQueFalta
+                        ? `el trabajo quedó incompleto: hace falta un ${gremioQueFalta} para continuar`
+                        : 'el trabajo quedó incompleto y hace falta otro gremio para continuar',
+                    titulo: `⚠️ MARCOS: TRABAJO INCOMPLETO - ${edificioFactura}`,
+                    cuerpo:
+                        `Un trabajo quedó sin terminar y hace falta que usted lo coordine.\n\n` +
+                        `📍 Edificio: ${edificioFactura}\n` +
+                        `🔧 Lo hizo: ${nombreTecnicoFactura || 'técnico no identificado'}\n` +
+                        `📨 Lo informó: ${datosEmisor.nombre || 'sin nombre'} (${datosEmisor.rol})\n` +
+                        (gremioQueFalta ? `⛔ Falta: ${gremioQueFalta}\n` : `⛔ Falta: otro gremio para continuar\n`) +
+                        (datosFactura?.monto ? `💲 Factura: $${datosFactura.monto}${datosFactura?.numero_factura ? ` (N° ${datosFactura.numero_factura})` : ''}\n` : '') +
+                        `\n🗣️ Textual de quien lo informó:\n"${notaDeQuienEnvia}"\n` +
+                        (idCasoFactura ? `\n🤖 Quedó registrado como ${idCasoFactura} en la pestaña EVENTOS del panel, con la conversación completa.` : `\n🤖 Quedó registrado en la pestaña EVENTOS del panel.`),
+                    phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
+                    accessToken: WHATSAPP_ACCESS_TOKEN
+                });
+            } catch (e) {
+                console.error('Error avisando a la Administración del trabajo incompleto:', e.message);
+            }
+        }
+
+        const nombreQuienEscribe = datosEmisor.nombre && datosEmisor.nombre !== 'Desconocido' ? datosEmisor.nombre : '';
+        const confirmacionesFactura = [
+            `Muchas gracias${nombreQuienEscribe ? ' ' + nombreQuienEscribe : ''}, ya recibí y archivé la factura.`,
+            `Perfecto${nombreQuienEscribe ? ' ' + nombreQuienEscribe : ''}, recibida la factura.`,
+            `Listo${nombreQuienEscribe ? ' ' + nombreQuienEscribe : ''}, comprobante registrado.`
+        ];
+        const respFactura = confirmacionesFactura[Math.floor(Math.random() * confirmacionesFactura.length)] + respExtra;
+
+        await despacharRespuesta(recipient, respFactura, msgTypeRespuesta);
+        historial.push(`Marcos: ${respFactura}`);
+
+        // El intercambio se pega al caso que la factura documenta. Antes esta llamada iba sin
+        // id_evento y sin teléfono, así que cuando el nombre del edificio no coincidía letra
+        // por letra con ninguna fila abierta, guardarReporte no encontraba dónde pegarlo y
+        // ABRÍA UNA FILA NUEVA -- sin vecino, sin problema y con urgencia por defecto. Ese era
+        // el evento fantasma. Si no hay caso al que engancharse, no se guarda nada: la
+        // conversación ya quedó en el chat del proveedor y la factura en su propia pestaña.
+        if (idCasoFactura) {
+            try {
+                const { guardarReporte } = require('./datos');
+                const urlParaChat = resEstFactura?.relativeUrl || datosFactura?.url_archivo || docUrl || (media?.filePath ? `/archivos/${path.basename(media.filePath)}` : '');
+                const numFacturaStr = datosFactura?.numero_factura ? ` N° ${datosFactura.numero_factura}` : '';
+                const montoStr = datosFactura?.monto ? ` ($${datosFactura.monto})` : '';
+                const tagDoc = urlParaChat ? `[DOCUMENTO:${urlParaChat}]` : '';
+                const detalleDoc = `(Factura / Comprobante adjunto${numFacturaStr}${montoStr})`;
+                const msgProveedorParaChat = `Proveedor (${datosEmisor.nombre}): ${tagDoc} ${detalleDoc} ${msgBody}`.trim();
+
+                await guardarReporte({
+                    id_evento: idCasoFactura,
+                    edificio: edificioFactura,
+                    tecnico: datosEmisor.nombre || '',
+                    tel_tecnico: from || '',
+                    rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
+                    historial_chat: JSON.stringify([msgProveedorParaChat, `Marcos (a Proveedor): ${respFactura}`])
+                });
+            } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
+        }
+
+        return; // DETENER Y RESPONDER NATURALMENTE
+    }
+
     if (datosEmisor.rol === 'proveedor') {
         decisionCaso.contactar_tecnico = false;
         decisionCaso.contactar_encargado = false;
 
         const txtLow = (msgBody || '').toLowerCase();
 
-        // A. MANEJO DE FACTURAS Y COMPROBANTES DE COBRO DEL PROVEEDOR
-        // Ojo: "factura"/"pago" aparecen tanto en una factura REAL entregada como en una PREGUNTA
-        // sobre el proceso (ej. "¿A quién le mando la factura?"). Sin distinguirlas, una pregunta
-        // sin ningún archivo adjunto se confirmaba como "ya recibí la factura" -- falso positivo.
-        // Si no hay media adjunta y el mensaje tiene forma de pregunta, NO se trata como entrega
-        // real (cae al ramal libre de abajo, que sí puede responder la pregunta con contexto real).
-        const parecePreguntaSinAdjunto = !media && /\?|qui[eé]n|c[oó]mo|cu[aá]ndo|d[oó]nde|puedo|debo|hay que/i.test(txtLow);
-        const esFacturaODoc = !parecePreguntaSinAdjunto && (
-            (datosFactura?.es_factura) ||
-            /factura|comprobante|recibo|pago|cobro|remito|cbu|transferencia/i.test(txtLow) ||
-            (media && (msgType === 'document' || msgType === 'image') && !/foto|video|cerradura|especifi|aclarar|ver/.test(txtLow))
-        );
-
-        if (esFacturaODoc) {
-            // ── A QUÉ EDIFICIO PERTENECE ESTA FACTURA ────────────────────────────────────────
-            //
-            // REGLA DE ORO: el edificio NUNCA sale de la dirección impresa en el comprobante.
-            //
-            // El papel lleva la dirección de FACTURACIÓN -- el estudio del administrador, o el
-            // domicilio fiscal del propio técnico -- y no la del trabajo. Antes esa dirección era
-            // el último recurso, y como el técnico factura días después (cuando la conversación ya
-            // no existe y su caso ya está cerrado), en los hechos era la que ganaba SIEMPRE. Visto
-            // en producción: una factura por un trabajo en "SAN PATRICIO 159" abrió un evento
-            // fantasma en "san patricio 270", que es lo que decía el encabezado del PDF.
-            //
-            // El orden ahora va de lo más explícito a lo más deducido, y CUALQUIERA de los
-            // resultados se valida contra la cartera del técnico. Si no se llega a nada, se
-            // pregunta: adivinar mal le imputa el gasto al consorcio equivocado, que es peor que
-            // preguntar.
-            // Y NUNCA sale del administrador de la factura ANTERIOR. Un técnico no le pertenece a
-            // un administrador: el mismo electricista atiende 11 administradores desde un solo
-            // número, y en una tanda manda 3 facturas de uno, 2 de otro y 1 de un tercero. Por eso
-            // acá no se arrastra nada del mensaje previo -- cada comprobante se resuelve solo, y
-            // ante la menor duda se pregunta en lugar de deducir.
-            const { edificiosDelProveedor, buscarCasosRecientesPorTecnico, buscarCasoPorCodigo } = require('./datos');
-
-            // La cartera del técnico, con el administrador de cada edificio. OJO: vacía significa
-            // "no pude averiguarla" (la copia en PostgreSQL puede estar incompleta, o la planilla
-            // no respondió), NO "no atiende ningún edificio". Con la cartera vacía no se rechaza
-            // nada -- se sigue de largo y, como mucho, se termina preguntando.
-            let cartera = [];
-            try {
-                cartera = await edificiosDelProveedor({ nombre: datosEmisor.nombre, telefono: from }) || [];
-            } catch (e) {
-                console.error('No se pudo leer la cartera de edificios del proveedor:', e.message);
-            }
-            const puedeValidar = cartera.length > 0;
-            const enCartera = nombre => {
-                if (!puedeValidar) return true;
-                const n = normalizarTextoEdificio(nombre);
-                if (!n) return false;
-                return cartera.some(c => {
-                    const cn = normalizarTextoEdificio(c.edificio);
-                    return cn === n || cn.includes(n) || n.includes(cn);
-                });
-            };
-            const clienteDe = nombre => {
-                const n = normalizarTextoEdificio(nombre);
-                const fila = cartera.find(c => normalizarTextoEdificio(c.edificio) === n);
-                return fila?.cliente || '';
-            };
-
-            let edificioFactura = '';
-            let idCasoFactura = '';
-            let comoSeSupo = '';
-            let candidatos = [];
-
-            // 1. EXPLÍCITO: el técnico citó el caso ("mando la factura del CASO-1001"). Es lo más
-            //    confiable que puede pasar, y por eso vale la pena pedírselo aunque no siempre lo
-            //    vaya a hacer.
-            const codigoEnFactura = (textoFinal.match(/\bCASO[\s-]?0*(\d{2,})\b/i) || [])[1];
-            if (codigoEnFactura) {
-                try {
-                    const caso = await buscarCasoPorCodigo(codigoEnFactura);
-                    if (caso?.edificio && enCartera(caso.edificio)) {
-                        edificioFactura = caso.edificio;
-                        idCasoFactura = caso.id_evento || '';
-                        comoSeSupo = `el técnico citó el ${caso.id_evento}`;
-                    } else if (caso?.edificio) {
-                        console.log(`🔒 El ${caso.id_evento} es de "${caso.edificio}", que no está en la cartera de ${datosEmisor.nombre}. No se usa.`);
-                    }
-                } catch (e) {
-                    console.error('Error buscando el caso citado en la factura:', e.message);
-                }
-            }
-
-            // 2. EXPLÍCITO: el edificio que el técnico nombró EN SU MENSAJE (no en el papel).
-            const edifDetectadoTexto = buscarEdificioEnTexto(msgClean, edificiosConocidos);
-            if (!edificioFactura && edifDetectadoTexto?.nombre && enCartera(edifDetectadoTexto.nombre)) {
-                edificioFactura = edifDetectadoTexto.nombre;
-                comoSeSupo = 'el técnico lo nombró en el mensaje';
-            }
-
-            // 3. DEDUCIDO, y solo si no hay ambigüedad: sus casos de los últimos 30 días, abiertos
-            //    o ya cerrados. La ventana de 30 días es lo que resuelve el caso normal -- el
-            //    trabajo se hizo, el caso se cerró, y la factura llega una semana después.
-            //
-            //    Con UN solo candidato se usa. Con varios NO se elige el más reciente: para un
-            //    técnico de varios administradores, "el último caso" y "el de esta factura" son
-            //    cosas distintas, y acertar sería casualidad. Se le pregunta mostrándole la lista.
-            if (!edificioFactura) {
-                try {
-                    const recientes = (await buscarCasosRecientesPorTecnico(datosEmisor.nombre, from, 30)) || [];
-                    candidatos = recientes.filter(c => c.edificio && enCartera(c.edificio));
-
-                    // El caso que Marcos le despachó y sigue vivo en esta conversación desguaza el
-                    // empate: es un caso concreto, no "el edificio del que venimos hablando".
-                    const telTechFactura = String(from).replace(/\D/g, '');
-                    const casoEnCurso = global.colasProveedores?.get(telTechFactura)?.eventoActivoId || '';
-                    const elEnCurso = casoEnCurso && candidatos.find(c => c.id_evento === casoEnCurso);
-
-                    if (elEnCurso) {
-                        edificioFactura = elEnCurso.edificio;
-                        idCasoFactura = elEnCurso.id_evento;
-                        comoSeSupo = `el caso que está atendiendo en esta conversación (${elEnCurso.id_evento})`;
-                    } else if (candidatos.length === 1) {
-                        edificioFactura = candidatos[0].edificio;
-                        idCasoFactura = candidatos[0].id_evento || '';
-                        comoSeSupo = `su único caso reciente (${candidatos[0].id_evento}${candidatos[0].cerrado ? ', ya cerrado' : ''})`;
-                    } else if (candidatos.length > 1) {
-                        console.log(`🤔 ${datosEmisor.nombre} tiene ${candidatos.length} casos recientes en edificios distintos. No se adivina de cuál es la factura: se le pregunta.`);
-                    }
-                } catch (e) {
-                    console.error('Error buscando los casos recientes del técnico:', e.message);
-                }
-            }
-
-            // 4. Si la única pista que quedaba era la dirección del comprobante, se deja constancia
-            //    de por qué NO se usó. Es el dato que causaba los eventos fantasma.
-            const edificioDelPapel = datosFactura?.edificio || '';
-            if (!edificioFactura && edificioDelPapel) {
-                console.log(`🧾 La dirección del comprobante ("${edificioDelPapel}") no se usa como edificio del trabajo: es la de facturación. Se le pregunta al técnico.`);
-            }
-
-            if (edificioFactura) {
-                const cli = clienteDe(edificioFactura);
-                console.log(`🧾 Factura de ${datosEmisor.nombre} imputada a "${edificioFactura}"${cli ? ` (administrador: ${cli})` : ''} — se supo por ${comoSeSupo}.`);
-            }
-
-            // Se declara afuera del if porque más abajo se usa para armar el link del comprobante
-            // en el chat del proveedor. Declarado adentro, ese uso posterior rompía la respuesta
-            // entera justo cuando el técnico mandaba la factura.
-            let resEstFactura = null;
-            if (media?.filePath) {
-                resEstFactura = guardarArchivoEstructurado({
-                    filePath: media.filePath,
-                    adminNombre: perfilEdificio?.adminNombre,
-                    edificioNombre: edificioFactura || 'Sin imputar',
-                    tipo: 'facturas'
-                });
-                if (resEstFactura && datosFactura) {
-                    datosFactura.url_archivo = resEstFactura.relativeUrl;
-                }
-            }
-
-            // La factura se guarda SIEMPRE -- perderla sería peor -- pero cuando no sabemos de qué
-            // edificio es queda marcada como "Sin imputar" en vez de cargada a un consorcio
-            // adivinado. El administrador la ve pendiente en el panel y la corrige él.
-            const { guardarFactura } = require('./datos');
-            await guardarFactura({
-                proveedor: datosEmisor.nombre || datosFactura?.proveedor || 'Proveedor',
-                monto: datosFactura?.monto || 'Según comprobante',
-                concepto: datosFactura?.concepto || 'Servicio técnico realizado',
-                edificio: edificioFactura || '',
-                url_archivo: datosFactura?.url_archivo || '',
-                numero_factura: datosFactura?.numero_factura || '',
-                estado: edificioFactura ? 'Pendiente' : 'Sin imputar'
-            });
-
-            // ── ¿CORRESPONDE ABRIR UN EVENTO? ────────────────────────────────────────────────
-            //
-            // Una factura NO es un evento. Antes se creaba uno por cada comprobante, y eso llenaba
-            // el panel de eventos vacíos ("Evento", vecino "Desconocido", urgencia "Baja").
-            //
-            // Sí corresponde en un caso concreto, que es el que pidió Daniel: el técnico hizo un
-            // trabajo por fuera del circuito (lo llamó el encargado directo), ya fue, ya lo
-            // arregló, y manda la factura EXPLICANDO brevemente qué hizo. Ahí el evento vale como
-            // ayuda memoria para el administrador, que abre el caso y lee la conversación.
-            //
-            // Lo que distingue un caso del otro es justamente esa explicación: sin texto propio,
-            // un comprobante suelto no cuenta ninguna historia que valga la pena registrar.
-            //
-            // Ojo con los rellenos: un documento sin epígrafe viaja como
-            // "(Documento adjunto: factura_1234.pdf)". Ese texto no lo escribió nadie, pero pasa
-            // los 20 caracteres de sobra -- sin sacarlo, cada PDF suelto contaría como
-            // "explicación" y abriría un evento titulado con el nombre del archivo.
-            const textoPropio = String(textoFinal || '')
-                .replace(/\((?:imagen|documento|comprobante|video|nota de voz)[^)]*\)/ig, ' ')
-                .replace(/\bCASO[\s-]?0*\d{2,}\b/ig, ' ')
-                .replace(/\b\S+\.(pdf|jpe?g|png|docx?|xlsx?|webp|heic)\b/ig, ' ')
-                .replace(/factura|comprobante|recibo|remito|adjunto|hola|buenas|gracias/ig, ' ')
-                .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-            const explicaElTrabajo = textoPropio.length >= 20;
-
-            let respExtra = '';
-            if (!edificioFactura) {
-                // Sin edificio no podemos imputar el gasto a nadie: se lo pedimos al técnico, y de
-                // paso le enseñamos el atajo del número de caso.
-                //
-                // Si tiene casos recientes en varios edificios se los listamos. Es lo que más lo
-                // ayuda y lo que menos le cuesta: en vez de escribir la dirección, contesta "el
-                // segundo". Y del lado de Marcos, elegir de una lista es un dato duro -- sabe el
-                // caso, el edificio y qué administrador lo recibe.
-                if (candidatos.length > 1) {
-                    const lista = candidatos.slice(0, 5)
-                        .map((c, i) => `${i + 1}️⃣ *${c.id_evento}* — ${c.edificio}${c.problema ? `: ${String(c.problema).slice(0, 60)}` : ''}`)
-                        .join('\n');
-                    respExtra = `\n\nPara imputarla al consorcio correcto, ¿de cuál de estos trabajos es?\n\n${lista}\n\n` +
-                        `Contestame con el número, con el código del caso o con la dirección. ` +
-                        `Ojo que la dirección del comprobante no me sirve, porque es la de facturación y no la del trabajo.`;
-                } else {
-                    respExtra = ` Ahora, para imputarla al consorcio correcto necesito que me digas *de qué edificio es* — la dirección del comprobante no me sirve porque es la de facturación. Si tenés a mano el número de caso (por ejemplo *CASO-1001*), con eso solo alcanza.`;
-                }
-            } else if (idCasoFactura) {
-                // Se engancha al caso que documenta. No se abre nada nuevo.
-                respExtra = ` La dejé asociada al *${idCasoFactura}* de ${edificioFactura}.`;
-            } else if (explicaElTrabajo) {
-                // Trabajo por fuera del circuito, con explicación: acá sí vale abrir el evento.
-                try {
-                    const { guardarReporte } = require('./datos');
-                    const res = await guardarReporte({
-                        edificio: edificioFactura,
-                        vecino: 'Trabajo coordinado fuera del sistema',
-                        problema: textoPropio || datosFactura?.concepto || 'Trabajo técnico resuelto y facturado',
-                        urgencia: 'baja',
-                        estado: 'resuelto',
-                        tecnico: datosEmisor.nombre || '',
-                        tel_tecnico: from || '',
-                        rubro_tecnico: datosEmisor.especialidad || '',
-                        tipo: 'trabajo_externo',
-                        notas_ia: `Trabajo informado por el técnico ${datosEmisor.nombre} al enviar la factura, sin reclamo previo por este canal (lo coordinaron el encargado o la administración con el técnico de forma directa). Lo que contó el técnico: "${textoPropio}"`,
-                        historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`])
-                    });
-                    if (res?.id_evento) idCasoFactura = res.id_evento;
-                    console.log(`🧾 Evento retroactivo creado en "${edificioFactura}" desde la factura de ${datosEmisor.nombre} (el técnico explicó el trabajo).`);
-                    respExtra = ` Y como me contaste qué hiciste, lo dejé anotado en ${edifDetectadoTexto?.direccion || edificioFactura} como trabajo ya resuelto, así la Administración tiene el antecedente.`;
-                } catch (e) {
-                    console.error('Error creando el evento retroactivo desde la factura:', e.message);
-                }
-            } else {
-                // Sabemos el edificio pero no qué se hizo: se pide el detalle para poder dejar la
-                // ayuda memoria, sin abrir un evento vacío mientras tanto.
-                respExtra = ` Quedó cargada a ${edificioFactura}. Si me contás en una línea qué hiciste, se lo dejo anotado a la Administración como antecedente.`;
-            }
-
-            const confirmacionesFactura = [
-                `Muchas gracias ${datosEmisor.nombre}, ya recibí y archivé la factura.`,
-                `Perfecto ${datosEmisor.nombre}, recibida la factura.`,
-                `Excelente ${datosEmisor.nombre}, comprobante registrado.`
-            ];
-            const respFactura = confirmacionesFactura[Math.floor(Math.random() * confirmacionesFactura.length)] + respExtra;
-
-            await despacharRespuesta(recipient, respFactura, msgTypeRespuesta);
-            historial.push(`Marcos: ${respFactura}`);
-
-            // El intercambio se pega al caso que la factura documenta. Antes esta llamada iba sin
-            // id_evento y sin teléfono, así que cuando el nombre del edificio no coincidía letra
-            // por letra con ninguna fila abierta, guardarReporte no encontraba dónde pegarlo y
-            // ABRÍA UNA FILA NUEVA -- sin vecino, sin problema y con urgencia por defecto. Ese era
-            // el evento fantasma. Si no hay caso al que engancharse, no se guarda nada: la
-            // conversación ya quedó en el chat del proveedor y la factura en su propia pestaña.
-            if (idCasoFactura) {
-                try {
-                    const { guardarReporte } = require('./datos');
-                    const urlParaChat = resEstFactura?.relativeUrl || datosFactura?.url_archivo || docUrl || (media?.filePath ? `/archivos/${path.basename(media.filePath)}` : '');
-                    const numFacturaStr = datosFactura?.numero_factura ? ` N° ${datosFactura.numero_factura}` : '';
-                    const montoStr = datosFactura?.monto ? ` ($${datosFactura.monto})` : '';
-                    const tagDoc = urlParaChat ? `[DOCUMENTO:${urlParaChat}]` : '';
-                    const detalleDoc = `(Factura / Comprobante adjunto${numFacturaStr}${montoStr})`;
-                    const msgProveedorParaChat = `Proveedor (${datosEmisor.nombre}): ${tagDoc} ${detalleDoc} ${msgBody}`.trim();
-
-                    await guardarReporte({
-                        id_evento: idCasoFactura,
-                        edificio: edificioFactura,
-                        tecnico: datosEmisor.nombre || '',
-                        tel_tecnico: from || '',
-                        rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
-                        historial_chat: JSON.stringify([msgProveedorParaChat, `Marcos (a Proveedor): ${respFactura}`])
-                    });
-                } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
-            }
-
-            return; // DETENER Y RESPONDER NATURALMENTE
-        }
 
         // A2. CONSULTA DE ESTADO DE PAGO ("¿ya me pagaron la factura X?", "¿cuándo cobro?", etc.)
         // Es una pregunta sobre un comprobante YA ENVIADO antes -- no se confunde con "esFacturaODoc"
@@ -1982,13 +2133,84 @@ function validarYSanitizarNombre(nombre) {
                     }
 
                     if (edificioElegido) {
+                        // La factura que se está por imputar es la última sin edificio: la misma
+                        // que va a tocar `imputarFacturaSinEdificio`. De ahí sale la indicación
+                        // que el técnico había escrito cuando la mandó.
+                        const laQueSeImputa = sinImputar[0] || null;
+
                         const cuantas = await imputarFacturaSinEdificio({
                             proveedor: datosEmisor.nombre,
                             edificio: edificioElegido
                         });
                         const quedan = sinImputar.length - cuantas;
+
+                        // ── RECIÉN ACÁ SE PUEDE REGISTRAR LA INDICACIÓN ──────────────────────
+                        //
+                        // Cuando llegó la factura no sabíamos el edificio, así que no había dónde
+                        // anotar lo que el técnico avisó ("hasta acá llegué, hay que llamar al
+                        // plomero"). El texto quedó guardado con la factura justamente para este
+                        // momento: ahora que sabemos la obra, se abre el evento con sus palabras.
+                        let avisoEvento = '';
+                        const nota = String(laQueSeImputa?.nota_tecnico || '').trim();
+                        if (cuantas > 0 && nota.length >= 20) {
+                            // Mismo criterio que cuando llegó la factura (ver `quedoPorLaMitad`),
+                            // incluido el detalle del `\b` después de una vocal acentuada.
+                            const faltaOtroGremio = /\b(hay que|habr[ií]a que|tienen que|tendr[ií]an que|deber[ií]an)\s+(llamar|mandar|convocar|contratar|coordinar|buscar|conseguir)\b/i.test(nota)
+                                || /\b(falta|faltar[ií]a|queda pendiente|no termin|sin terminar|a medias|parcial|provisorio|provisional)\b/i.test(nota)
+                                || /\bhasta (ac[aá]|aqu[ií]) (llegu[eé]|puedo|pude|llego)/i.test(nota)
+                                || /\bno me corresponde|\bno es (lo )?m[ií]o|\bes trabajo de|\bque siga (el|otro)/i.test(nota)
+                                || /\b(lo dem[aá]s|el resto)\b[^.]{0,20}\bes (de|del)\b/i.test(nota)
+                                || /\b(otro|un)\s+(gremio|rubro|especialista)\b/i.test(nota);
+                            const gremio = (nota.match(/\b(plomer[oa]|gasista|electricista|cerrajer[oa]|alba[ñn]il|pintor|herrer[oa]|techista|vidrier[oa]|carpinter[oa]|refrigeraci[oó]n|ascensorista)\b/i) || [])[1] || '';
+                            try {
+                                const { guardarReporte } = require('./datos');
+                                const resEv = await guardarReporte({
+                                    edificio: edificioElegido,
+                                    vecino: 'Trabajo coordinado fuera del sistema',
+                                    problema: nota,
+                                    urgencia: faltaOtroGremio ? 'media' : 'baja',
+                                    estado: faltaOtroGremio ? 'en_proceso' : 'resuelto',
+                                    tecnico: datosEmisor.nombre || '',
+                                    tel_tecnico: from || '',
+                                    rubro_tecnico: datosEmisor.especialidad || '',
+                                    tipo: 'trabajo_externo',
+                                    notas_ia: (faltaOtroGremio ? '⚠️ TRABAJO INCOMPLETO. ' : '') +
+                                        `Informado por el técnico ${datosEmisor.nombre} al enviar la factura` +
+                                        (gremio ? `. Hace falta un ${gremio} para continuar` : '') +
+                                        `. Textual: "${nota}"`,
+                                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${nota}`])
+                                });
+                                const idEv = resEv?.id_evento || '';
+                                avisoEvento = faltaOtroGremio
+                                    ? ` Dejé anotada tu indicación en el *${idEv || 'caso'}*, que queda ABIERTO${gremio ? ` esperando al ${gremio}` : ''}, y ya le avisé a la Administración.`
+                                    : ` Y dejé anotado el trabajo en el *${idEv || 'caso'}* como antecedente para la Administración.`;
+
+                                if (faltaOtroGremio) {
+                                    const { avisarAlAdministrador } = require('./agentes/marcos-admin');
+                                    await avisarAlAdministrador({
+                                        edificio: edificioElegido,
+                                        idEvento: idEv,
+                                        motivo: gremio ? `el trabajo quedó incompleto: hace falta un ${gremio}` : 'el trabajo quedó incompleto',
+                                        titulo: `⚠️ MARCOS: TRABAJO INCOMPLETO - ${edificioElegido}`,
+                                        cuerpo:
+                                            `Un trabajo quedó sin terminar y hace falta que usted lo coordine.\n\n` +
+                                            `📍 Edificio: ${edificioElegido}\n` +
+                                            `🔧 Lo hizo: ${datosEmisor.nombre}\n` +
+                                            (gremio ? `⛔ Falta: ${gremio}\n` : `⛔ Falta: otro gremio para continuar\n`) +
+                                            (laQueSeImputa?.monto ? `💲 Factura: $${laQueSeImputa.monto}${laQueSeImputa.numero_factura ? ` (N° ${laQueSeImputa.numero_factura})` : ''}\n` : '') +
+                                            `\n🗣️ Textual del técnico:\n"${nota}"\n` +
+                                            (idEv ? `\n🤖 Quedó registrado como ${idEv} en la pestaña EVENTOS del panel.` : ''),
+                                        phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
+                                        accessToken: WHATSAPP_ACCESS_TOKEN
+                                    });
+                                }
+                            } catch (e) {
+                                console.error('Error registrando el evento con la indicación guardada:', e.message);
+                            }
+                        }
+
                         const respImput = cuantas > 0
-                            ? `Listo ${datosEmisor.nombre}, la cargué a *${edificioElegido}*.` +
+                            ? `Listo ${datosEmisor.nombre}, la cargué a *${edificioElegido}*.` + avisoEvento +
                               (quedan > 0 ? ` Todavía me queda${quedan > 1 ? 'n' : ''} ${quedan} comprobante${quedan > 1 ? 's' : ''} tuyo${quedan > 1 ? 's' : ''} sin edificio: ¿de cuál${quedan > 1 ? 'es' : ''} son?` : '')
                             : `Anotado ${datosEmisor.nombre}, pero no encontré la factura pendiente para actualizarla. Si me la reenviás la registro de nuevo.`;
 

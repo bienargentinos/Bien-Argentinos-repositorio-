@@ -1138,21 +1138,24 @@ async function marcarTecnicoNotificado(id_evento) {
 // FACTURAS / CONTABILIDAD
 // ─────────────────────────────────────────────
 
-async function guardarFactura({ proveedor, monto, concepto, edificio, url_archivo, numero_factura, estado }) {
+// `nota_tecnico` guarda TEXTUAL lo que escribió quien mandó el comprobante, y no es un adorno:
+// ahí viene la indicación que después hace falta poder probar ("hasta acá llegué, hay que llamar
+// al plomero"). Viaja pegada a la factura y no solo al evento, porque cuando todavía no sabemos
+// de qué edificio es no hay ningún evento donde ponerla -- y perderla sería justamente perder la
+// única constancia de que el aviso existió.
+async function guardarFactura({ proveedor, monto, concepto, edificio, url_archivo, numero_factura, estado, nota_tecnico, enviada_por }) {
     try {
         const doc = await getSheet();
         let sheet = doc.sheetsByTitle['facturas'];
 
+        const headersNecesarios = ['fecha', 'proveedor', 'monto', 'concepto', 'edificio', 'url_archivo', 'numero_factura', 'estado', 'nota_tecnico', 'enviada_por'];
+
         if (!sheet) {
-            sheet = await doc.addSheet({
-                title: 'facturas',
-                headerValues: ['fecha', 'proveedor', 'monto', 'concepto', 'edificio', 'url_archivo', 'numero_factura', 'estado'],
-            });
+            sheet = await doc.addSheet({ title: 'facturas', headerValues: headersNecesarios });
         }
 
         await sheet.loadHeaderRow().catch(() => {});
         const headers = sheet.headerValues || [];
-        const headersNecesarios = ['fecha', 'proveedor', 'monto', 'concepto', 'edificio', 'url_archivo', 'numero_factura', 'estado'];
         const nuevosHeaders = Array.from(new Set([...headers, ...headersNecesarios]));
         if (nuevosHeaders.length > headers.length) {
             await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
@@ -1166,7 +1169,9 @@ async function guardarFactura({ proveedor, monto, concepto, edificio, url_archiv
             edificio:       edificio   || 'No especificado',
             url_archivo:    url_archivo|| '',
             numero_factura: numero_factura || '',
-            estado:         estado     || 'Pendiente'
+            estado:         estado     || 'Pendiente',
+            nota_tecnico:   nota_tecnico || '',
+            enviada_por:    enviada_por  || ''
         });
 
         console.log(`💸 Factura de ${proveedor} por ${monto} guardada.`);
@@ -1249,6 +1254,10 @@ async function buscarFacturasSinImputar({ proveedor }) {
                 concepto: r.get('concepto'),
                 numero_factura: r.get('numero_factura'),
                 estado: r.get('estado') || '',
+                // La indicación que dejó quien la mandó, para poder armar el evento recién cuando
+                // se sepa el edificio.
+                nota_tecnico: r.get('nota_tecnico') || '',
+                enviada_por: r.get('enviada_por') || '',
             }))
             .reverse();
     } catch (err) {
