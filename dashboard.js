@@ -2786,6 +2786,48 @@ function separarConversacionesEvento(datos) {
     return [];
   }
 
+  function esMensajeDeProveedor(item) {
+    if (!item) return false;
+    var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
+    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+    var strLower = str.toLowerCase();
+
+    if (rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || rem === 'plomero' || rem === 'electricista' || rem === 'gasista') {
+      return true;
+    }
+    if (/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str)) {
+      return true;
+    }
+    if (strLower.indexOf('plantilla whatsapp') !== -1 || strLower.indexOf('plantilla meta') !== -1) {
+      return true;
+    }
+    if (
+      strLower.indexOf('tenés una nueva solicitud de servicio') !== -1 ||
+      strLower.indexOf('tenes una nueva solicitud de servicio') !== -1 ||
+      strLower.indexOf('nueva solicitud de servicio') !== -1 ||
+      strLower.indexOf('contacto para el ingreso') !== -1 ||
+      strLower.indexOf('para que le abran') !== -1 ||
+      strLower.indexOf('para la visita en') !== -1 ||
+      strLower.indexOf('marcos (a proveedor):') !== -1 ||
+      strLower.indexOf('marcos (al técnico):') !== -1 ||
+      strLower.indexOf('marcos (al proveedor):') !== -1 ||
+      strLower.indexOf('comunicate directamente con esa persona y avisame') !== -1 ||
+      strLower.indexOf('si al llegar no te abren') !== -1
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function esMensajeDeVecino(item) {
+    if (!item) return false;
+    var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
+    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+    if (rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || rem === 'titular' || rem === 'familiar') return true;
+    if (/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str)) return true;
+    return false;
+  }
+
   // 1. Obtener lista específica de Vecino
   var rawVecino = parseList(datos.chat_vecino_json);
   if (!rawVecino.length) rawVecino = parseList(datos.historial_chat_vecino);
@@ -2802,9 +2844,18 @@ function separarConversacionesEvento(datos) {
   if (rawVecino.length > 0) {
     rawVecino.forEach(function(item) {
       var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (k && !seenV.has(k)) {
-        seenV.add(k);
-        chatVecino.push(item);
+      if (!k) return;
+
+      if (esMensajeDeProveedor(item)) {
+        if (!seenP.has(k)) {
+          seenP.add(k);
+          chatProveedor.push(item);
+        }
+      } else {
+        if (!seenV.has(k)) {
+          seenV.add(k);
+          chatVecino.push(item);
+        }
       }
     });
   }
@@ -2812,49 +2863,61 @@ function separarConversacionesEvento(datos) {
   if (rawProveedor.length > 0) {
     rawProveedor.forEach(function(item) {
       var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (k && !seenP.has(k)) {
-        seenP.add(k);
-        chatProveedor.push(item);
+      if (!k) return;
+
+      if (esMensajeDeVecino(item) && !esMensajeDeProveedor(item)) {
+        if (!seenV.has(k)) {
+          seenV.add(k);
+          chatVecino.push(item);
+        }
+      } else {
+        if (!seenP.has(k)) {
+          seenP.add(k);
+          chatProveedor.push(item);
+        }
       }
     });
   }
 
-  // 3. Fallback solo si alguna de las dos listas está completamente vacía
-  if (chatVecino.length === 0 || chatProveedor.length === 0) {
-    var fallbackList = [].concat(parseList(datos.chat_pg), parseList(datos.historial_chat));
-    var currentTarget = 'vecino';
+  // 3. Fallback solo si alguna lista está vacía o incompleta
+  var fallbackList = [].concat(parseList(datos.chat_pg), parseList(datos.historial_chat));
+  if (fallbackList.length > 0) {
+    var lastWasProvMsg = false;
 
     fallbackList.forEach(function(item) {
       var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
       if (!k) return;
 
-      var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
       var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
       var strLower = str.toLowerCase();
 
-      var isProv = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
-      var isVec = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
+      var isProv = esMensajeDeProveedor(item);
+      var isVec = esMensajeDeVecino(item);
 
       if (isProv) {
-        currentTarget = 'proveedor';
-        if (chatProveedor.length === 0 || !seenP.has(k)) {
+        lastWasProvMsg = true;
+        if (!seenP.has(k)) {
           seenP.add(k);
           chatProveedor.push(item);
         }
       } else if (isVec) {
-        currentTarget = 'vecino';
-        if (chatVecino.length === 0 || !seenV.has(k)) {
+        lastWasProvMsg = false;
+        if (!seenV.has(k)) {
           seenV.add(k);
           chatVecino.push(item);
         }
       } else {
-        var isMarcosToTech = /al proveedor|al técnico|estimado técnico|hola técnico|notificación|julio|coordinar visita|visita técnica/i.test(strLower);
-        if (isMarcosToTech || currentTarget === 'proveedor') {
+        var isContactoCompartidoProv = strLower.indexOf('(contacto compartido') !== -1 && lastWasProvMsg;
+        var isMarcosToTech = isContactoCompartidoProv || /al proveedor|al técnico|estimado técnico|hola técnico|notificación|julio|coordinar visita|visita técnica|ingreso|solicitud de servicio/i.test(strLower);
+
+        if (isMarcosToTech) {
+          lastWasProvMsg = true;
           if (!seenP.has(k)) {
             seenP.add(k);
             chatProveedor.push(item);
           }
         } else {
+          lastWasProvMsg = false;
           if (!seenV.has(k)) {
             seenV.add(k);
             chatVecino.push(item);
@@ -2863,6 +2926,20 @@ function separarConversacionesEvento(datos) {
       }
     });
   }
+
+  // Limpieza final de seguridad: asegurar que NINGÚN mensaje de proveedor quede en chatVecino
+  chatVecino = chatVecino.filter(function(item) {
+    var isProv = esMensajeDeProveedor(item);
+    if (isProv) {
+      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+      if (k && !seenP.has(k)) {
+        seenP.add(k);
+        chatProveedor.push(item);
+      }
+      return false;
+    }
+    return true;
+  });
 
   return {
     chatVecino: chatVecino,
