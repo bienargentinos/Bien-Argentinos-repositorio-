@@ -31,6 +31,28 @@ async function getSheet() {
     return connectionPromise;
 }
 
+/**
+ * Busca una pestaña sin que importen las mayúsculas.
+ *
+ * `doc.sheetsByTitle['clientes']` distingue mayúsculas, y en esta planilla los nombres están
+ * mezclados: `CLIENTES`, `EDIFICIOS` y `EVENTOS` van en mayúscula, pero `proveedores`,
+ * `facturas` y `memoria` en minúscula. Pedir la pestaña con la caja equivocada no da error --
+ * devuelve `undefined` y la función se va por el camino de "no hay datos", en silencio. Pasó
+ * exactamente eso: la cartera de un proveedor buscaba `clientes` y nunca encontraba la pestaña,
+ * así que los edificios del administrador no se sumaban nunca y nadie se enteraba.
+ *
+ * Se prueba primero el nombre tal cual (que es lo más rápido y lo habitual) y recién después se
+ * compara sin distinguir la caja.
+ */
+function pestaña(doc, nombre) {
+    if (!doc || !nombre) return null;
+    const directa = doc.sheetsByTitle[nombre];
+    if (directa) return directa;
+    const buscado = String(nombre).toLowerCase().trim();
+    const titulo = Object.keys(doc.sheetsByTitle || {}).find(t => String(t).toLowerCase().trim() === buscado);
+    return titulo ? doc.sheetsByTitle[titulo] : null;
+}
+
 // ─────────────────────────────────────────────
 // VECINOS
 // ─────────────────────────────────────────────
@@ -507,7 +529,7 @@ async function edificiosDelProveedor({ nombre = '', telefono = '' } = {}) {
             }
         };
 
-        const sheetAsig = doc.sheetsByTitle['proveedor_asignaciones'];
+        const sheetAsig = pestaña(doc, 'proveedor_asignaciones');
         if (sheetAsig) {
             for (const a of await sheetAsig.getRows()) {
                 if (!activo(a) || !esEsteProveedor(a)) continue;
@@ -515,7 +537,7 @@ async function edificiosDelProveedor({ nombre = '', telefono = '' } = {}) {
             }
         }
 
-        const sheetProv = doc.sheetsByTitle['proveedores'];
+        const sheetProv = pestaña(doc, 'proveedores');
         const susClientes = new Set();
         if (sheetProv) {
             for (const r of await sheetProv.getRows()) {
@@ -526,7 +548,7 @@ async function edificiosDelProveedor({ nombre = '', telefono = '' } = {}) {
         }
 
         if (susClientes.size) {
-            const sheetEdif = doc.sheetsByTitle['EDIFICIOS'];
+            const sheetEdif = pestaña(doc, 'EDIFICIOS');
             if (sheetEdif) {
                 for (const e of await sheetEdif.getRows()) {
                     const suCliente = String(e.get('cliente') || '').toLowerCase().trim();
@@ -534,7 +556,7 @@ async function edificiosDelProveedor({ nombre = '', telefono = '' } = {}) {
                     sumar(e.get('nombre') || e.get('edificio') || e.get('direccion'), suCliente);
                 }
             }
-            const sheetCli = doc.sheetsByTitle['clientes'];
+            const sheetCli = pestaña(doc, 'CLIENTES');
             if (sheetCli) {
                 for (const c of await sheetCli.getRows()) {
                     const usuario = String(c.get('usuario') || '').toLowerCase().trim();
@@ -568,7 +590,7 @@ async function buscarCasosRecientesPorTecnico(nombreTecnico, telefonoTecnico = '
 
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return [];
 
         const desde = Date.now() - dias * 24 * 60 * 60 * 1000;
@@ -1232,7 +1254,7 @@ async function buscarFacturasProveedor({ proveedor, edificio = '', numeroFactura
 async function buscarFacturasSinImputar({ proveedor }) {
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['facturas'];
+        const sheet = pestaña(doc, 'facturas');
         if (!sheet) return [];
 
         const provBuscado = String(proveedor || '').toLowerCase().trim();
@@ -1278,7 +1300,7 @@ async function imputarFacturaSinEdificio({ proveedor, edificio, todas = false })
     try {
         if (!String(edificio || '').trim()) return 0;
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['facturas'];
+        const sheet = pestaña(doc, 'facturas');
         if (!sheet) return 0;
 
         const provBuscado = String(proveedor || '').toLowerCase().trim();

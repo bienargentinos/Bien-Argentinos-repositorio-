@@ -17,10 +17,12 @@ const tel8 = t => String(t || '').replace(/\D/g, '').slice(-8);
 (async () => {
     const doc = await sheets.getSheet();
 
+    // Sin distinguir mayúsculas: en esta planilla conviven "CLIENTES" y "proveedores".
     const leerTab = async nombre => {
-        const s = doc.sheetsByTitle[nombre];
-        if (!s) return null;
-        return await s.getRows();
+        const buscado = String(nombre).toLowerCase().trim();
+        const titulo = Object.keys(doc.sheetsByTitle || {})
+            .find(t => String(t).toLowerCase().trim() === buscado);
+        return titulo ? await doc.sheetsByTitle[titulo].getRows() : null;
     };
 
     const provs = await leerTab('proveedores');
