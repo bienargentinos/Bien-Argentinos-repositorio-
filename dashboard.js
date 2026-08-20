@@ -3718,8 +3718,12 @@ function togglePopoverMenu(btn, encodedKey) {
   }
   if (!item) return;
 
-  // Cerrar popovers abiertos
+  // Cerrar popovers abiertos y resetear z-index de filas
+  document.querySelectorAll('.row-item-hover').forEach(function(r) { r.style.zIndex = '1'; });
   document.querySelectorAll('.popover-facturas-menu').forEach(function(p) { p.remove(); });
+
+  var row = btn.closest('.row-item-hover');
+  if (row) row.style.zIndex = '1000';
 
   var parent = btn.parentElement;
   var pop = document.createElement('div');
@@ -3761,6 +3765,7 @@ function togglePopoverMenu(btn, encodedKey) {
     function cerrarPop(e) {
       if (!pop.contains(e.target) && e.target !== btn) {
         pop.remove();
+        if (row) row.style.zIndex = '1';
         document.removeEventListener('click', cerrarPop);
       }
     }
@@ -7596,6 +7601,15 @@ async function expandirEdificiosPermitidos(lista) {
   return Array.from(formas);
 }
 
+async function esEdificioPermitido(edificioFactura, scope) {
+  if (!edificioFactura) return false;
+  if (scope.es_dueno) return true;
+  if (!scope.edificios || scope.edificios.length === 0) return false;
+  const permitidos = await expandirEdificiosPermitidos(scope.edificios);
+  const normFact = normEdificio(edificioFactura);
+  return permitidos.some(p => normEdificio(p) === normFact);
+}
+
 async function resolverEdificioCanonico(edificioNombre) {
   if (!edificioNombre || edificioNombre.toLowerCase() === 'todos') return 'todos';
   const norm = edificioNombre.trim().toLowerCase();
@@ -7923,12 +7937,9 @@ router.patch('/api/facturas/:factura_key', async (req, res) => {
     const existente = sel.rows[0];
 
     const scope = await obtenerEdificiosPermitidosUsuario(req);
-    if (!scope.es_dueno && scope.edificios) {
-      const normEd = existente.edificio.toLowerCase();
-      const permitido = scope.edificios.some(e => e.toLowerCase() === normEd);
-      if (!permitido) {
-        return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Sin permiso para editar esta factura' });
-      }
+    const okPermiso = await esEdificioPermitido(existente.edificio, scope);
+    if (!okPermiso) {
+      return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Sin permiso para editar esta factura' });
     }
 
     const updates = [];
@@ -8011,12 +8022,9 @@ router.delete('/api/facturas/:factura_key', async (req, res) => {
     const existente = sel.rows[0];
 
     const scope = await obtenerEdificiosPermitidosUsuario(req);
-    if (!scope.es_dueno && scope.edificios) {
-      const normEd = existente.edificio.toLowerCase();
-      const permitido = scope.edificios.some(e => e.toLowerCase() === normEd);
-      if (!permitido) {
-        return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Sin permiso para eliminar esta factura' });
-      }
+    const okPermiso = await esEdificioPermitido(existente.edificio, scope);
+    if (!okPermiso) {
+      return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Sin permiso para eliminar esta factura' });
     }
 
     await queryPg('UPDATE facturas SET eliminada = \'si\' WHERE factura_key = $1', [factura_key]);
@@ -8183,7 +8191,7 @@ router.get('/archivos', async (req, res) => {
         .row-item-hover { background: #FFFFFF; border: 1px solid #E2E8F0; transition: all .15s ease; }
         .row-item-hover:hover { background: #F8FAFC !important; border-color: #CBD5E1 !important; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
         .popover-facturas-menu {
-          position: absolute; right: 0; top: calc(100% + 6px); z-index: 99; width: 232px;
+          position: absolute; right: 0; top: calc(100% + 6px); z-index: 9999; width: 232px;
           padding: 6px; background: #FFFFFF; border: 1px solid #E2E8F0;
           border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 1px; text-align: left;
         }
