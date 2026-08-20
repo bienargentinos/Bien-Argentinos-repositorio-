@@ -7514,6 +7514,88 @@ async function obtenerEdificiosPermitidosUsuario(req) {
   }
 }
 
+/**
+ * Misma normalización que la función `marcos_norm` de PostgreSQL, para poder decidir del lado de
+ * Node exactamente igual que decide la base.
+ */
+function normEdificio(txt) {
+  return String(txt || '')
+    .replace(/[ÁÉÍÓÚÜÑáéíóúüñ]/g, c => 'AEIOUUNaeiouun'['ÁÉÍÓÚÜÑáéíóúüñ'.indexOf(c)])
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Expande la lista de edificios de un cliente a TODAS las formas en que ese mismo edificio puede
+ * estar escrito: su nombre, su dirección y sus alias, tal como los tiene cargados `edificios`.
+ *
+ * POR QUÉ EXISTE: el filtro de permisos comparaba el nombre exacto, y fallaba cuando la factura
+ * decía "San Patricio 159" y la ficha del cliente decía "SAN PATRICIO". El parche a eso fue pasar
+ * a una coincidencia parcial en las dos direcciones (`LIKE '%...%'`), y eso abre un agujero que en
+ * este sistema no es aceptable: un cliente con "San Patricio" cargado pasaba a ver también las
+ * facturas -- con importes -- de "San Patricio 270", que puede ser de OTRO administrador.
+ *
+ * La forma correcta de tolerar las variantes no es aflojar la comparación, sino saber de antemano
+ * cuáles son las variantes legítimas de CADA edificio. Para eso están los alias. Así el filtro
+ * vuelve a ser una igualdad exacta contra un conjunto conocido.
+ *
+ * Ante la duda se estrecha, nunca se ensancha: si un nombre del cliente podría corresponder a más
+ * de un edificio, no se expande -- se deja tal cual y solo va a coincidir consigo mismo.
+ */
+async function expandirEdificiosPermitidos(lista) {
+  const originales = (lista || []).map(s => String(s || '').trim()).filter(Boolean);
+  if (originales.length === 0) return [];
+
+  const formas = new Set(originales);
+
+  let filas = [];
+  try {
+    const r = await queryPg('SELECT edificio, direccion, aliases FROM edificios');
+    filas = (r && r.rows) || [];
+  } catch (e) {
+    // Sin la tabla de edificios no hay cómo expandir. Se devuelven los nombres tal cual: el
+    // cliente verá de menos, nunca de más.
+    console.error('No se pudieron expandir los edificios permitidos:', e.message);
+    return Array.from(formas);
+  }
+
+  const formasDe = f => [
+    f.edificio,
+    f.direccion,
+    ...String(f.aliases || '').split(',').map(a => a.trim())
+  ].filter(Boolean);
+
+  for (const nombre of originales) {
+    const n = normEdificio(nombre);
+    if (!n) continue;
+
+    // Primero, coincidencia exacta contra el nombre, la dirección o algún alias.
+    let candidatas = filas.filter(f => formasDe(f).some(v => normEdificio(v) === n));
+
+    // Si no hubo exacta, se admite que el nombre del cliente sea una parte del edificio -- pero
+    // solo si apunta a UN edificio. Si apunta a varios es ambiguo, y ampliar sería justamente
+    // dejarle ver el de otro administrador.
+    if (candidatas.length === 0) {
+      candidatas = filas.filter(f => formasDe(f).some(v => {
+        const vn = normEdificio(v);
+        return vn && (vn.includes(n) || n.includes(vn));
+      }));
+      if (candidatas.length !== 1) {
+        if (candidatas.length > 1) {
+          console.warn(`[Permisos] "${nombre}" podría ser ${candidatas.length} edificios distintos. No se expande: se usa tal cual.`);
+        }
+        continue;
+      }
+    }
+
+    for (const f of candidatas) {
+      for (const v of formasDe(f)) formas.add(v);
+    }
+  }
+
+  return Array.from(formas);
+}
+
 async function resolverEdificioCanonico(edificioNombre) {
   if (!edificioNombre || edificioNombre.toLowerCase() === 'todos') return 'todos';
   const norm = edificioNombre.trim().toLowerCase();
@@ -7580,8 +7662,13 @@ router.get('/api/facturas', async (req, res) => {
     let paramIdx = 1;
 
     if (edificiosFiltro && edificiosFiltro.length > 0) {
-      whereClauses.push(`EXISTS (SELECT 1 FROM unnest($${paramIdx}::text[]) AS x WHERE marcos_norm(f.edificio) LIKE '%' || marcos_norm(x) || '%' OR marcos_norm(x) LIKE '%' || marcos_norm(f.edificio) || '%')`);
-      params.push(edificiosFiltro);
+      // Igualdad exacta contra TODAS las formas conocidas de los edificios de este cliente (su
+      // nombre, su dirección y sus alias). Ver `expandirEdificiosPermitidos`: la tolerancia a las
+      // variantes viene de conocer los alias, no de aflojar la comparación -- con una comparación
+      // parcial, un cliente podía ver las facturas de un edificio de otro administrador.
+      const formasPermitidas = await expandirEdificiosPermitidos(edificiosFiltro);
+      whereClauses.push(`marcos_norm(f.edificio) = ANY(SELECT marcos_norm(x) FROM unnest($${paramIdx}::text[]) AS x)`);
+      params.push(formasPermitidas);
       paramIdx++;
     }
 

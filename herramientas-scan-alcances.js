@@ -13,7 +13,10 @@ try {
 const fs = require('fs');
 
 const archivo = process.argv[2];
-const src = fs.readFileSync(archivo, 'utf8');
+// El `#!/usr/bin/env node` de un script ejecutable no es JavaScript válido para acorn (Node lo
+// trata aparte). Se reemplaza por una línea vacía en vez de borrarla, para que los números de
+// línea que se reporten sigan siendo los del archivo real.
+const src = fs.readFileSync(archivo, 'utf8').replace(/^#![^\n]*/, '');
 const ast = acorn.parse(src, { ecmaVersion: 2022, sourceType: 'script', locations: true });
 
 const GLOBALES = new Set(['require','module','exports','process','console','Buffer','setTimeout','setInterval','clearTimeout','clearInterval','JSON','Math','Date','Promise','Array','Object','String','Number','Boolean','Error','TypeError','RegExp','Map','Set','WeakMap','isNaN','parseInt','parseFloat','global','globalThis','__dirname','__filename','undefined','NaN','Infinity','encodeURIComponent','decodeURIComponent','Intl','URL','URLSearchParams','TextDecoder','TextEncoder','structuredClone','Symbol','arguments','fetch','AbortController']);

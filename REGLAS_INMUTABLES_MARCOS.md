@@ -12,6 +12,27 @@
   - Ejemplo con los edificios de prueba actuales: *San Patricio 159* y *San Patricio 270* son dos consorcios distintos y sin relación entre sí.
   - **Los valores concretos de la planilla son datos, no reglas.** Los nombres, alias y direcciones que hoy figuran en la pestaña `EDIFICIOS` son de prueba y van a cambiar cuando entren clientes reales. Ningún agente debe tratarlos como fijos, ni "corregirlos" porque parezcan mal escritos: los carga el administrador de consorcio y el sistema los usa tal cual para decidir a qué edificio pertenece un mensaje.
 
+### Dónde vive esta regla en el código (NO AFLOJAR)
+
+Esta regla no es solo para los mensajes: vale igual para **qué facturas ve cada cliente en el
+panel**, donde un cruce expone importes de otro consorcio.
+
+- `dashboard.js` → `expandirEdificiosPermitidos()` y el filtro de `GET /api/facturas`.
+- La prueba que lo verifica: `node pruebas-permisos-facturas.js` (15 casos, con dos
+  administradores de nombres parecidos a propósito).
+
+**Prohibido reemplazar esa comparación por una coincidencia parcial** (`LIKE '%...%'`,
+`includes()`, "que contenga") para resolver que un nombre esté escrito distinto. Eso ya se hizo y
+se tuvo que revertir: con esa comparación, un cliente con "San Patricio" cargado pasaba a ver las
+facturas de "San Patricio 270", que es de otro administrador — exactamente el cruce que esta
+regla prohíbe.
+
+La forma correcta de tolerar que un nombre esté escrito distinto es **cargar el alias** en la
+pestaña `EDIFICIOS`, no ablandar la comparación. Ante la duda se estrecha, nunca se ensancha: si
+un nombre podría corresponder a más de un edificio, no se expande. Se ve de menos, nunca de más.
+
+Antes de tocar cualquiera de esas dos funciones hay que correr la prueba y dejarla en verde.
+
 ---
 
 ## 2. 🎙️ LÍMITE DE AUDIOS (NOTAS DE VOZ) Y COSTOS
