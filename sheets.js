@@ -465,6 +465,153 @@ async function buscarCliente(nombreAdmin) {
     }
 }
 
+/**
+ * La cartera del proveedor: qué edificios atiende y de qué administrador es cada uno.
+ * Respaldo de la versión de PostgreSQL -- ver el comentario largo en datos-pg.js.
+ *
+ * Devuelve `[{ edificio, cliente }]`. Junta TODOS los clientes en los que figura el técnico, no
+ * el primero: el mismo electricista atiende varios administradores desde un solo número.
+ */
+async function edificiosDelProveedor({ nombre = '', telefono = '' } = {}) {
+    const nombreBuscado = String(nombre || '').toLowerCase().trim();
+    const telBuscado = String(telefono || '').replace(/\D/g, '');
+    if (!nombreBuscado && !telBuscado) return [];
+
+    const mismoTelefono = (a, b) => {
+        const x = String(a || '').replace(/\D/g, '');
+        const y = String(b || '').replace(/\D/g, '');
+        if (!x || !y) return false;
+        return x === y || x.endsWith(y.slice(-8)) || y.endsWith(x.slice(-8));
+    };
+    const activo = r => {
+        const est = String(r.get('estado') || '').toLowerCase().trim();
+        return est !== 'eliminado' && est !== 'inactivo';
+    };
+    const esEsteProveedor = r => {
+        if (telBuscado && mismoTelefono(r.get('telefono') || r.get('proveedor_telefono'), telBuscado)) return true;
+        if (!nombreBuscado) return false;
+        const n = String(r.get('proveedor') || r.get('proveedor_nombre') || r.get('nombre') || '').toLowerCase().trim();
+        return Boolean(n) && (n === nombreBuscado || n.includes(nombreBuscado) || nombreBuscado.includes(n));
+    };
+
+    try {
+        const doc = await getSheet();
+        const cartera = new Map();
+        const sumar = (edificio, cliente) => {
+            const ed = String(edificio || '').trim();
+            if (!ed) return;
+            const clave = ed.toLowerCase();
+            const yaEsta = cartera.get(clave);
+            if (!yaEsta || (!yaEsta.cliente && cliente)) {
+                cartera.set(clave, { edificio: ed, cliente: String(cliente || '').trim() });
+            }
+        };
+
+        const sheetAsig = doc.sheetsByTitle['proveedor_asignaciones'];
+        if (sheetAsig) {
+            for (const a of await sheetAsig.getRows()) {
+                if (!activo(a) || !esEsteProveedor(a)) continue;
+                sumar(a.get('edificio'), a.get('cliente'));
+            }
+        }
+
+        const sheetProv = doc.sheetsByTitle['proveedores'];
+        const susClientes = new Set();
+        if (sheetProv) {
+            for (const r of await sheetProv.getRows()) {
+                if (!activo(r) || !esEsteProveedor(r)) continue;
+                const c = String(r.get('cliente') || '').toLowerCase().trim();
+                if (c) susClientes.add(c);
+            }
+        }
+
+        if (susClientes.size) {
+            const sheetEdif = doc.sheetsByTitle['EDIFICIOS'];
+            if (sheetEdif) {
+                for (const e of await sheetEdif.getRows()) {
+                    const suCliente = String(e.get('cliente') || '').toLowerCase().trim();
+                    if (!suCliente || !susClientes.has(suCliente)) continue;
+                    sumar(e.get('nombre') || e.get('edificio') || e.get('direccion'), suCliente);
+                }
+            }
+            const sheetCli = doc.sheetsByTitle['clientes'];
+            if (sheetCli) {
+                for (const c of await sheetCli.getRows()) {
+                    const usuario = String(c.get('usuario') || '').toLowerCase().trim();
+                    const nombreCli = String(c.get('nombre') || '').toLowerCase().trim();
+                    if (!susClientes.has(usuario) && !susClientes.has(nombreCli)) continue;
+                    for (const ed of String(c.get('edificios') || '').split(',').map(s => s.trim()).filter(Boolean)) {
+                        sumar(ed, usuario || nombreCli);
+                    }
+                }
+            }
+        }
+
+        return Array.from(cartera.values());
+    } catch (err) {
+        console.error('Error listando los edificios del proveedor:', err.message);
+        return [];
+    }
+}
+
+/**
+ * Los casos de un técnico, ABIERTOS O YA CERRADOS, dentro de una ventana de días.
+ * Respaldo de la versión de PostgreSQL.
+ *
+ * Devuelve una LISTA porque un técnico que atiende varios administradores tiene varios casos
+ * recientes a la vez: quedarse con "el último" le imputaría la factura al edificio equivocado.
+ */
+async function buscarCasosRecientesPorTecnico(nombreTecnico, telefonoTecnico = '', dias = 30) {
+    const techBuscado = String(nombreTecnico || '').toLowerCase().trim();
+    const telTecnico = String(telefonoTecnico || '').replace(/\D/g, '');
+    if (!techBuscado && !telTecnico) return [];
+
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['EVENTOS'];
+        if (!sheet) return [];
+
+        const desde = Date.now() - dias * 24 * 60 * 60 * 1000;
+        const mismoTelefono = (a, b) => {
+            const x = String(a || '').replace(/\D/g, '');
+            const y = String(b || '').replace(/\D/g, '');
+            if (!x || !y) return false;
+            return x === y || x.endsWith(y.slice(-8)) || y.endsWith(x.slice(-8));
+        };
+
+        const rows = (await sheet.getRows())
+            .filter(r => {
+                const f = r.get('fecha');
+                if (!f) return true;
+                const t = new Date(f).getTime();
+                return Number.isNaN(t) ? true : t >= desde;
+            })
+            .filter(r => {
+                if (telTecnico && mismoTelefono(r.get('tel_tecnico'), telTecnico)) return true;
+                if (!techBuscado) return false;
+                const rTech = String(r.get('tecnico') || '').toLowerCase().trim();
+                return Boolean(rTech) && (rTech.includes(techBuscado) || techBuscado.includes(rTech));
+            });
+
+        return rows.reverse().map(row => {
+            const estado = String(row.get('estado') || '').toLowerCase().trim();
+            return {
+                id_evento: row.get('id_evento') || '',
+                edificio:  row.get('edificio') || '',
+                telefono:  row.get('telefono') || '',
+                vecino:    row.get('vecino') || '',
+                problema:  row.get('mensaje') || row.get('notas') || '',
+                estado:    row.get('estado') || '',
+                cerrado:   estado === 'resuelto' || estado === 'cerrado',
+                fecha:     row.get('fecha') || '',
+            };
+        });
+    } catch (err) {
+        console.error('Error buscando los casos recientes del técnico:', err.message);
+        return [];
+    }
+}
+
 // Devuelve todos los edificios conocidos con sus aliases
 // Retorna: [{ nombre: '...', aliases: ['...', '...'] }]
 async function listarEdificiosConocidos() {
@@ -794,6 +941,31 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             console.log(`📊 Evento [${codigoCasoExistente}] unificado/actualizado en Sheets con chats independientes para ${edificio || vecino}`);
             return { id_evento: codigoCasoExistente, unificado: true };
         } else {
+            // ── CANDADO CONTRA EVENTOS FANTASMA ──────────────────────────────────────────────
+            //
+            // Llegar acá significa "no encontré a qué caso pertenece esto, abro uno nuevo". Está
+            // bien para un reclamo, y muy mal para un mensaje que solo viene a PEGAR CONVERSACIÓN
+            // en un caso: esas llamadas traen historial_chat y nada más -- ni problema, ni vecino,
+            // ni teléfono, ni urgencia --, así que la fila que se creaba salía vacía. En el panel
+            // se veía como un evento titulado "Evento", vecino "Desconocido", urgencia "Baja".
+            //
+            // Pasó de verdad: el técnico mandó la factura de un trabajo en "SAN PATRICIO 159", el
+            // motor dedujo el edificio de la dirección impresa en el PDF ("san patricio 270"), no
+            // encontró ninguna fila con ese nombre y abrió un evento fantasma.
+            //
+            // Un mensaje sin nada que contar no puede fundar un caso. Si no encontramos dónde
+            // pegarlo, se pierde el pegado -- no se inventa un caso para alojarlo.
+            const soloEsPegarChat = !String(problema || '').trim()
+                && !String(telefono || '').trim()
+                && !String(vecino || '').trim()
+                && !String(id_evento || '').trim()
+                && chatNuevosArr.length > 0;
+
+            if (soloEsPegarChat) {
+                console.log(`🚫 Mensaje de seguimiento sin caso al que pertenecer (edificio: "${edificio || '—'}", técnico: "${tecnico || '—'}"). No se abre un evento nuevo para alojarlo.`);
+                return null;
+            }
+
             // Generar nuevo código correlativo CASO-XXXX
             let maxNum = 1000;
             rows.forEach(r => {
@@ -1041,6 +1213,91 @@ async function buscarFacturasProveedor({ proveedor, edificio = '', numeroFactura
     } catch (err) {
         console.error('Error buscando facturas del proveedor:', err.message);
         return [];
+    }
+}
+
+/**
+ * Las facturas de un proveedor que quedaron SIN IMPUTAR a ningún edificio.
+ *
+ * Cuando Marcos no puede saber de qué edificio es un comprobante, lo guarda igual pero marcado
+ * "Sin imputar" en vez de cargárselo a un consorcio adivinado, y le pregunta al técnico. Esta
+ * consulta es la que permite retomar esa pregunta cuando el técnico contesta -- incluso si PM2
+ * reinició en el medio, porque el pendiente vive en la planilla y no en memoria.
+ */
+async function buscarFacturasSinImputar({ proveedor }) {
+    try {
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['facturas'];
+        if (!sheet) return [];
+
+        const provBuscado = String(proveedor || '').toLowerCase().trim();
+        if (!provBuscado) return [];
+
+        const rows = await sheet.getRows();
+        return rows
+            .filter(r => {
+                const rProv = String(r.get('proveedor') || '').toLowerCase().trim();
+                if (!rProv || !(rProv.includes(provBuscado) || provBuscado.includes(rProv))) return false;
+                const rEdif = String(r.get('edificio') || '').trim().toLowerCase();
+                const rEst = String(r.get('estado') || '').trim().toLowerCase();
+                return rEst === 'sin imputar' || !rEdif || rEdif === 'no especificado';
+            })
+            .map(r => ({
+                _row: r._row ?? r.rowNumber,
+                fecha: r.get('fecha'),
+                monto: r.get('monto'),
+                concepto: r.get('concepto'),
+                numero_factura: r.get('numero_factura'),
+                estado: r.get('estado') || '',
+            }))
+            .reverse();
+    } catch (err) {
+        console.error('Error buscando facturas sin imputar:', err.message);
+        return [];
+    }
+}
+
+/**
+ * Le pone edificio a las facturas que habían quedado sin imputar, cuando el técnico contesta de
+ * cuál eran. Devuelve cuántas actualizó.
+ *
+ * Imputa SIEMPRE de a una (la más reciente sin edificio) salvo que se pida lo contrario: el
+ * técnico que manda seis comprobantes de tres administradores distintos contesta una pregunta por
+ * vez, y mandarlas todas al mismo edificio sería repetir el error que estamos arreglando.
+ */
+async function imputarFacturaSinEdificio({ proveedor, edificio, todas = false }) {
+    try {
+        if (!String(edificio || '').trim()) return 0;
+        const doc = await getSheet();
+        const sheet = doc.sheetsByTitle['facturas'];
+        if (!sheet) return 0;
+
+        const provBuscado = String(proveedor || '').toLowerCase().trim();
+        if (!provBuscado) return 0;
+
+        const rows = await sheet.getRows();
+        const pendientes = rows.filter(r => {
+            const rProv = String(r.get('proveedor') || '').toLowerCase().trim();
+            if (!rProv || !(rProv.includes(provBuscado) || provBuscado.includes(rProv))) return false;
+            const rEdif = String(r.get('edificio') || '').trim().toLowerCase();
+            const rEst = String(r.get('estado') || '').trim().toLowerCase();
+            return rEst === 'sin imputar' || !rEdif || rEdif === 'no especificado';
+        });
+
+        const aTocar = todas ? pendientes : pendientes.slice(-1);
+        for (const r of aTocar) {
+            r.set('edificio', edificio);
+            r.set('estado', 'Pendiente');
+            await r.save();
+        }
+
+        if (aTocar.length) {
+            console.log(`🧾 ${aTocar.length} factura(s) de ${proveedor} imputada(s) a "${edificio}".`);
+        }
+        return aTocar.length;
+    } catch (err) {
+        console.error('Error imputando la factura al edificio:', err.message);
+        return 0;
     }
 }
 
@@ -1570,6 +1827,10 @@ module.exports = {
     quitarAccesoEdificio,
     buscarCliente,
     listarEdificiosConocidos,
+    edificiosDelProveedor,
+    buscarCasosRecientesPorTecnico,
+    buscarFacturasSinImputar,
+    imputarFacturaSinEdificio,
     buscarMemoriaVecino,
     guardarMemoriaVecino,
     guardarReporte,

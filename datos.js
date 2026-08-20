@@ -128,6 +128,45 @@ async function buscarPerfilEdificio(nombreEdificio) {
 async function listarEdificiosConocidos() {
     return leer('listarEdificiosConocidos', [], 'listarEdificiosConocidos', 'listarEdificiosConocidos');
 }
+
+/**
+ * Los edificios que este proveedor atiende legítimamente.
+ *
+ * Ojo con el significado de una lista VACÍA: quiere decir "no pude averiguar la cartera", no
+ * "este técnico no atiende ningún edificio". Quien la use no debe rechazar nada cuando viene
+ * vacía -- si la copia en PostgreSQL está incompleta o la planilla no responde, rechazar sería
+ * dejar de aceptar facturas legítimas sin que nadie se entere.
+ */
+async function edificiosDelProveedor(args) {
+    return leer('edificiosDelProveedor', [args], 'edificiosDelProveedor', 'edificiosDelProveedor');
+}
+async function buscarCasosRecientesPorTecnico(nombre, telefono, dias) {
+    return leer('buscarCasosRecientesPorTecnico', [nombre, telefono, dias], 'buscarCasosRecientesPorTecnico', 'buscarCasosRecientesPorTecnico');
+}
+
+// Las facturas sin imputar y su corrección van directo a Sheets, que es la fuente de verdad de la
+// pestaña `facturas`: acá no se puede leer una copia posiblemente atrasada, porque lo que está en
+// juego es a qué consorcio se le carga un gasto.
+async function buscarFacturasSinImputar(args) {
+    return sheets.buscarFacturasSinImputar(args);
+}
+async function imputarFacturaSinEdificio(args) {
+    const tocadas = await sheets.imputarFacturaSinEdificio(args);
+    if (tocadas > 0) {
+        copiarAPg(`la imputación de facturas de ${args?.proveedor || 'proveedor'}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE facturas SET edificio = $1, estado = 'Pendiente'
+                 WHERE lower(trim(coalesce(proveedor, ''))) = lower(trim($2))
+                   AND (lower(trim(coalesce(estado, ''))) = 'sin imputar'
+                        OR coalesce(trim(edificio), '') = ''
+                        OR lower(trim(edificio)) = 'no especificado')`,
+                [args.edificio, args.proveedor || '']
+            );
+        });
+    }
+    return tocadas;
+}
 async function buscarPersonalDeTurno(args) {
     return leer('buscarPersonalDeTurno', [args], 'buscarPersonalDeTurno', 'buscarPersonalDeTurno');
 }
@@ -499,6 +538,10 @@ module.exports = {
     buscarVecinoPorTelefono,
     buscarPerfilEdificio,
     listarEdificiosConocidos,
+    edificiosDelProveedor,
+    buscarCasosRecientesPorTecnico,
+    buscarFacturasSinImputar,
+    imputarFacturaSinEdificio,
     buscarPersonalDeTurno,
     buscarMemoriaVecino,
     buscarRolPorTelefono,

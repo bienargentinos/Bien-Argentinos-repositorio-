@@ -608,6 +608,140 @@ async function buscarUltimoVecinoDeEdificio(edificio) {
  * habitual -- Marcos ya no sabía a qué caso pertenecía esa respuesta: no podía guardar la
  * confirmación (le faltaba el id del caso) ni avisarle al vecino (le faltaba el teléfono).
  */
+/**
+ * La CARTERA del proveedor: qué edificios atiende y de qué administrador es cada uno.
+ *
+ * Devuelve `[{ edificio, cliente }]`, con el cliente incluido a propósito. Un técnico no pertenece
+ * a un administrador: el mismo electricista atiende 11 administradores distintos desde un solo
+ * número de WhatsApp, y en una misma tanda puede mandar 3 facturas de uno, 2 de otro y 1 de un
+ * tercero. Nada acá puede "atarlo" al administrador de la factura anterior -- cada comprobante se
+ * resuelve por su cuenta y el cliente sale del edificio, nunca del chat.
+ *
+ * Es también contra lo que se valida cualquier edificio deducido para una factura, porque el dato
+ * menos confiable de todos -- la dirección impresa en el comprobante -- venía ganándole a los
+ * demás: el papel lleva la dirección de FACTURACIÓN (el estudio del administrador, o el domicilio
+ * fiscal del propio técnico), no la del trabajo. Visto en producción: una factura por un trabajo en
+ * "SAN PATRICIO 159" abrió un evento en "san patricio 270", que era lo que decía el encabezado.
+ *
+ * Se arma de dos fuentes:
+ *   1. TODAS las asignaciones del técnico (`proveedor_asignaciones`), que pueden ser de clientes
+ *      distintos -- es lo que cada administrador cargó explícitamente.
+ *   2. TODOS los clientes en cuya lista maestra figura, con sus edificios. Cubre al técnico que ya
+ *      trabaja para ese administrador pero todavía no fue asignado edificio por edificio.
+ */
+async function edificiosDelProveedor({ nombre = '', telefono = '' } = {}) {
+    const nombreBuscado = String(nombre || '').toLowerCase().trim();
+    const telBuscado = String(telefono || '').replace(/\D/g, '');
+    if (!nombreBuscado && !telBuscado) return [];
+
+    const activo = r => {
+        const est = String(r.get('estado') || '').toLowerCase().trim();
+        return est !== 'eliminado' && est !== 'inactivo';
+    };
+    // El teléfono manda sobre el nombre: es el mismo dato de los dos lados de la planilla, mientras
+    // que el nombre puede diferir entre la lista maestra y la asignación (dos técnicos de la misma
+    // empresa comparten la línea).
+    const esEsteProveedor = r => {
+        if (telBuscado && mismoTel(r.get('telefono') || r.get('proveedor_telefono'), telBuscado)) return true;
+        if (!nombreBuscado) return false;
+        const n = String(r.get('proveedor') || r.get('proveedor_nombre') || r.get('nombre') || '').toLowerCase().trim();
+        return Boolean(n) && (n === nombreBuscado || n.includes(nombreBuscado) || nombreBuscado.includes(n));
+    };
+
+    const cartera = new Map(); // edificio normalizado -> { edificio, cliente }
+    const sumar = (edificio, cliente) => {
+        const ed = String(edificio || '').trim();
+        if (!ed) return;
+        const clave = ed.toLowerCase();
+        const yaEsta = cartera.get(clave);
+        // Si ya estaba sin cliente y ahora sabemos de quién es, se completa.
+        if (!yaEsta || (!yaEsta.cliente && cliente)) {
+            cartera.set(clave, { edificio: ed, cliente: String(cliente || '').trim() });
+        }
+    };
+
+    for (const a of await filas('proveedor_asignaciones')) {
+        if (!activo(a) || !esEsteProveedor(a)) continue;
+        sumar(a.get('edificio'), a.get('cliente'));
+    }
+
+    // TODOS los clientes que tienen a este técnico en su lista maestra, no solo el primero.
+    const provs = await filas('proveedores');
+    const susClientes = new Set(
+        provs
+            .filter(r => activo(r) && esEsteProveedor(r))
+            .map(r => String(r.get('cliente') || '').toLowerCase().trim())
+            .filter(Boolean)
+    );
+
+    if (susClientes.size) {
+        for (const e of await filas('edificios')) {
+            const suCliente = String(e.get('cliente') || '').toLowerCase().trim();
+            if (suCliente && susClientes.has(suCliente)) {
+                sumar(e.get('nombre') || e.get('edificio') || e.get('direccion'), suCliente);
+            }
+        }
+        // La ficha del cliente también puede traer sus edificios en una lista separada por comas.
+        for (const c of await filas('clientes')) {
+            const usuario = String(c.get('usuario') || '').toLowerCase().trim();
+            const nombreCli = String(c.get('nombre') || '').toLowerCase().trim();
+            if (!susClientes.has(usuario) && !susClientes.has(nombreCli)) continue;
+            for (const ed of String(c.get('edificios') || '').split(',').map(s => s.trim()).filter(Boolean)) {
+                sumar(ed, usuario || nombreCli);
+            }
+        }
+    }
+
+    return Array.from(cartera.values());
+}
+
+/**
+ * Los casos de un técnico, ABIERTOS O YA CERRADOS, dentro de una ventana de días.
+ *
+ * Devuelve una LISTA, del más reciente al más viejo, y ese plural es el punto: un técnico que
+ * atiende varios administradores tiene varios casos recientes a la vez, y quedarse con "el último"
+ * le imputaría la factura al edificio equivocado con total seguridad. Con la lista en la mano,
+ * quien llama puede usarla solo cuando hay UN candidato, y cuando hay varios preguntarle al técnico
+ * de cuál se trata en vez de adivinar.
+ *
+ * `buscarCasoAbiertoPorTecnico` no sirve para las facturas: el técnico hace el trabajo, el caso se
+ * cierra, y la factura llega días después -- cuando ya no queda ningún caso abierto suyo.
+ */
+async function buscarCasosRecientesPorTecnico(nombreTecnico, telefonoTecnico = '', dias = 30) {
+    const techBuscado = String(nombreTecnico || '').toLowerCase().trim();
+    const telTecnico = String(telefonoTecnico || '').replace(/\D/g, '');
+    if (!techBuscado && !telTecnico) return [];
+
+    const desde = Date.now() - dias * 24 * 60 * 60 * 1000;
+    const esReciente = r => {
+        const f = r.get('fecha');
+        if (!f) return true; // sin fecha no lo descartamos: igual queda ordenado por la tabla
+        const t = new Date(f).getTime();
+        return Number.isNaN(t) ? true : t >= desde;
+    };
+
+    const rows = (await filas('reportes')).filter(esReciente).filter(r => {
+        if (telTecnico && mismoTel(r.get('tel_tecnico'), telTecnico)) return true;
+        if (!techBuscado) return false;
+        const rTech = String(r.get('tecnico') || '').toLowerCase().trim();
+        return Boolean(rTech) && (rTech.includes(techBuscado) || techBuscado.includes(rTech));
+    });
+
+    return rows.reverse().map(row => {
+        const estado = String(row.get('estado') || '').toLowerCase().trim();
+        return {
+            id_evento: row.get('codigo_caso') || row.get('id_evento') || '',
+            edificio:  row.get('edificio') || '',
+            telefono:  row.get('telefono') || '',
+            vecino:    row.get('vecino') || '',
+            problema:  row.get('problema') || row.get('notas_ia') || '',
+            estado:    row.get('estado') || '',
+            cerrado:   CERRADOS.has(estado),
+            fecha:     row.get('fecha') || '',
+        };
+    });
+}
+
 async function buscarCasoAbiertoPorTecnico(nombreTecnico, telefonoTecnico = '') {
     const techBuscado = String(nombreTecnico || '').toLowerCase().trim();
     const telTecnico = String(telefonoTecnico || '').replace(/\D/g, '');
@@ -796,6 +930,8 @@ module.exports = {
     buscarUltimoVecinoDeEdificio,
     buscarEdificioDeCasoAbiertoPorTecnico,
     buscarCasoAbiertoPorTecnico,
+    buscarCasosRecientesPorTecnico,
+    edificiosDelProveedor,
     buscarCasoPorCodigo,
     buscarConfirmacionTecnicoDeEdificio,
 };
