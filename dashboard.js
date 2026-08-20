@@ -3032,8 +3032,9 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var fnObj = lastSlashObj !== -1 ? rawObjMedia.substring(lastSlashObj + 1) : rawObjMedia;
         var extObj = fnObj.split('.').pop().toLowerCase();
 
-        var isLineExplicitImage = /imagen|foto/i.test(cleanText) || new RegExp('\\[(IMAGEN|FOTO):', 'i').test(String(line.mensaje || line.texto || ''));
-        var isLineExplicitVideo = /video/i.test(cleanText) || new RegExp('\\[VIDEO:', 'i').test(String(line.mensaje || line.texto || ''));
+        var _LBR_IMG = String.fromCharCode(91);
+        var isLineExplicitImage = /imagen|foto/i.test(cleanText) || (new RegExp(_LBR_IMG + '(IMAGEN|FOTO):', 'i')).test(String(line.mensaje || line.texto || ''));
+        var isLineExplicitVideo = /video/i.test(cleanText) || (new RegExp(_LBR_IMG + 'VIDEO:', 'i')).test(String(line.mensaje || line.texto || ''));
 
         if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
