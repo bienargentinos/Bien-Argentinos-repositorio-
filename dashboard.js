@@ -7483,6 +7483,12 @@ router.get('/proveedores', async (req, res) => {
  * FACTURAS Y FOTOS — CONTRATO DE API REST Y VISTA HI-FI
  * =================================================================== */
 
+const { pool: pgPool } = require('./db-pg');
+
+async function queryPg(sql, params) {
+  return await pgPool.query(sql, params);
+}
+
 async function obtenerEdificiosPermitidosUsuario(req) {
   if (esDueno(req)) {
     return { es_dueno: true, edificios: null };
