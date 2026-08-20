@@ -39,4 +39,10 @@
 - **Límites:** Empático pero **nunca confianzudo**.
 
 ---
+
+## 6. 🚀 DESPLIEGUE Y DEPENDENCIAS NPM (CONTRATO OBLIGATORIO)
+- **GitHub como Única Fuente de Verdad:** Todo cambio de código debe enviarse a GitHub vía Git. El VPS se actualiza únicamente con `git pull` y `pm2 restart marcos-ai`. Prohibido copiar o editar archivos de código manualmente en el servidor.
+- **Dependencias en package.json:** Si se añade una nueva librería (`npm install`), los archivos `package.json` y `package-lock.json` **DEBEN incluirse en el mismo commit de Git** que el código que la utiliza para evitar fallos de despliegue.
+
+---
 *Documento guardado y ratificado en el repositorio oficial de Marcos IA.*

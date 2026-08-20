@@ -38,14 +38,13 @@ ssh -p5436 root@200.58.102.182
     -o /root/marcos/Consorcio-AI-Assistant/design/assets/logo.png
   ```
 
-## REGLA DE ORO DE DESPLIEGUE (GITHUB = FUENTE DE VERDAD)
+## REGLA DE ORO DE DESPLIEGUE Y DEPENDENCIAS (GITHUB = FUENTE DE VERDAD)
 
 > [!CAUTION]
-> **PROHIBIDO PISAR ARCHIVOS DEL MOTOR EN EL VPS**:
-> - GitHub (`bienargentinos/Bien-Argentinos-repositorio-`) es la **única fuente de verdad**.
-> - **Navegadores o agentes NO deben subir `index.js`, `sheets.js` ni `agentes/*.js` manualmente por copia local al VPS.**
-> - El despliegue de estos archivos se realiza **únicamente mediante `git pull`** en el VPS.
-> - Si se requiere actualizar el panel sin tocar el motor, solo se actualizará `dashboard.js`.
+> **CONTRATO OBLIGATORIO PARA TODOS LOS AGENTES (Claude, Antigravity, Gemini, ChatGPT, etc.)**:
+> - **GitHub es la ÚNICA fuente de verdad**: Todo cambio de código debe commitearse y enviarse a GitHub (`bienargentinos/Bien-Argentinos-repositorio-`). El VPS se actualiza **únicamente mediante `git pull`** y `pm2 restart marcos-ai`.
+> - **Prohibido modificar archivos a mano en el VPS**: No se deben subir scripts ni parchar archivos de código directamente en el servidor sin pasar por Git.
+> - **Inclusión de Dependencias NPM en el Mismo Commit**: Si se utiliza una librería nueva (`npm install`), la adición en `package.json` y `package-lock.json` **DEBE ser commiteada en el mismo commit de Git** que el código que la invoca. Ningún archivo debe hacer `require()` de un paquete no declarado en `package.json`.
 
 ## Stack técnico
 
