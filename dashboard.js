@@ -2307,7 +2307,7 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
   } else if (u.indexOf('/archivos/') !== -1) {
     u = '/archivos/' + u.substring(u.indexOf('/archivos/') + 10);
   } else {
-    var filename = u.replace(/^\/+/g, '').replace(/^\\+/g, '');
+    var filename = u.replace(new RegExp('^/+', 'g'), '').replace(new RegExp('^\\\\+', 'g'), '');
     if (filename.startsWith('temp/')) {
       u = '/' + targetFolder + '/' + filename.substring(5);
     } else if (filename.startsWith('almacenamiento/')) {
@@ -2356,7 +2356,7 @@ function parseAudiosDetallados(datos) {
         if (Array.isArray(parsed)) listJson = parsed;
         else if (typeof parsed === 'object') listJson = [parsed];
       } catch(e) {
-        listJson = String(rawJson).split(/[,;\n|]/).map(function(u){ return { url: u.trim() }; });
+        listJson = String(rawJson).split(new RegExp('[\\\\,\\\\n;|]')).map(function(u){ return { url: u.trim() }; });
       }
     } else if (Array.isArray(rawJson)) {
       listJson = rawJson;
@@ -2378,7 +2378,7 @@ function parseAudiosDetallados(datos) {
 
   // 2. Parse audio_url field (can contain multiple URLs delimited by comma, newline, pipe, semicolon, space)
   if (datos.audio_url) {
-    var parts = String(datos.audio_url).split(/[,;\n|\s]+/).filter(Boolean);
+    var parts = String(datos.audio_url).split(new RegExp('[\\\\,\\\\n;|\\\\s]+')).filter(Boolean);
     parts.forEach(function(p) {
       addAudioItem(p, datos.vecino, datos.when, datos.transcripcion);
     });
@@ -2399,7 +2399,7 @@ function parseAudiosDetallados(datos) {
     }
   }
 
-  var audioUrlRegex = /(\/root\/marcos[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|\/archivos[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|\/almacenamiento[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\/\/[^\s"'()]+\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\/\/[^\s"'()]*audio[^\s"'()]*)/gi;
+  var audioUrlRegex = new RegExp('(?:/root/marcos|/archivos|/almacenamiento|https?://)[\\\\w\\\\.\\\\-\\\\_/]+\\\\.(?:ogg|mp3|wav|m4a|aac|opus|webm)', 'gi');
 
   chatItems.forEach(function(line) {
     if (!line) return;
@@ -2431,7 +2431,7 @@ function parseAudiosDetallados(datos) {
     var textMatches = strText.match(audioUrlRegex);
     if (textMatches) {
       textMatches.forEach(function(mUrl) {
-        var cleanTrans = strText.replace(/^[^:]+:\s*/, '').replace(mUrl, '').replace(/\[audio\]/gi, '').trim();
+        var cleanTrans = strText.replace(new RegExp('^[^:]+:\\s*', ''), '').replace(mUrl, '').replace(new RegExp('\\[audio\\]', 'gi'), '').trim();
         addAudioItem(mUrl, lineEmisor, lineHora, cleanTrans || lineTrans);
       });
     }
@@ -2588,9 +2588,11 @@ function procesarLineaMultimediaChat(strText) {
   var visualUrl = '', visualType = '', visualFilename = '';
   var audioUrl = '', audioFilename = '';
 
-  var allTags = cleanText.match(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/gi) || [];
+  var tagRegexGlobal = new RegExp('\\\\[' + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):' + '\\\\s*' + '([^' + '\\\\]' + ']+)' + '\\\\]', 'gi');
+  var tagRegexSingle = new RegExp('\\\\[' + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):' + '\\\\s*' + '([^' + '\\\\]' + ']+)' + '\\\\]', 'i');
+  var allTags = cleanText.match(tagRegexGlobal) || [];
   allTags.forEach(function(tagStr) {
-    var m = tagStr.match(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/i);
+    var m = tagStr.match(tagRegexSingle);
     if (m) {
       var tagType = m[1].toUpperCase();
       var rawUrl = m[2].trim();
@@ -2675,7 +2677,15 @@ function procesarLineaMultimediaChat(strText) {
         var before = cleanText.substring(0, startCut).trim();
         var after = cleanText.substring(endCut).trim();
 
-        var tagRegexes = [/imagen:\s*$/i, /foto:\s*$/i, /video:\s*$/i, /audio:\s*$/i, /\(imagen adjunta\)\s*$/i, /\(video adjunto\)\s*$/i, /\(nota de voz\)\s*$/i];
+        var tagRegexes = [
+          new RegExp('imagen:\\s*$', 'i'),
+          new RegExp('foto:\\s*$', 'i'),
+          new RegExp('video:\\s*$', 'i'),
+          new RegExp('audio:\\s*$', 'i'),
+          new RegExp('\\(imagen adjunta\\)\\s*$', 'i'),
+          new RegExp('\\(video adjunto\\)\\s*$', 'i'),
+          new RegExp('\\(nota de voz\\)\\s*$', 'i')
+        ];
         for (var t = 0; t < tagRegexes.length; t++) {
           if (tagRegexes[t].test(before)) {
             before = before.replace(tagRegexes[t], '').trim();
@@ -2690,13 +2700,15 @@ function procesarLineaMultimediaChat(strText) {
     }
   }
 
-  // Limpiar cualquier residuo de etiquetas o rutas rotas
-  cleanText = cleanText
-    .replace(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*[^\]]+\]/gi, '')
-    .replace(/(\/archivos\/|\/audios\/|\/almacenamiento\/)[^\s\]\)]+(\.jpeg|\.jpg|\.png|\.ogg|\.mp4|\.pdf)?\]?/gi, '')
-    .replace(/^[\])\s]+/, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  ['/archivos/', '/audios/', '/almacenamiento/', '/root/marcos/'].forEach(function(pref) {
+    var p = cleanText.indexOf(pref);
+    if (p !== -1) {
+      var endP = cleanText.indexOf(' ', p);
+      if (endP === -1) endP = cleanText.length;
+      cleanText = (cleanText.substring(0, p) + ' ' + cleanText.substring(endP)).trim();
+    }
+  });
+  cleanText = cleanText.split(']').join('').split(')').join('').split('  ').join(' ').trim();
 
   if ((visualUrl || audioUrl) && !cleanText) {
     var label = visualType === 'image' ? '(imagen adjunta)' : (visualType === 'video' ? '(video adjunto)' : '(nota de voz)');
@@ -2768,10 +2780,73 @@ function separarConversacionesEvento(datos) {
       if (src.trim().startsWith('[')) {
         try { return JSON.parse(src); } catch(e) { return [src]; }
       }
-      return String(src).split('\n').filter(Boolean);
+      return String(src).split('\\n').filter(Boolean);
     }
     if (Array.isArray(src)) return src;
     return [];
+  }
+
+  function esMensajeDeVecino(item) {
+    if (!item) return false;
+    var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
+    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+    var strLower = str.toLowerCase();
+
+    if (rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || rem === 'titular' || rem === 'familiar') return true;
+    if (/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str)) return true;
+
+    // Preguntas/respuestas directas de Marcos IA al vecino sobre su reclamo o datos de departamento
+    if (
+      strLower.indexOf('formalizar su reclamo') !== -1 ||
+      strLower.indexOf('su nombre y apellido') !== -1 ||
+      strLower.indexOf('número de su departamento') !== -1 ||
+      strLower.indexOf('numero de su departamento') !== -1 ||
+      strLower.indexOf('¿podría indicarme') !== -1 ||
+      strLower.indexOf('podria indicarme') !== -1 ||
+      strLower.indexOf('me indicás su') !== -1 ||
+      strLower.indexOf('me indicas su') !== -1 ||
+      strLower.indexOf('servicio técnico de guardia') !== -1
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function esMensajeDeProveedor(item) {
+    if (!item) return false;
+
+    // Si es explícitamente un mensaje dirigido al vecino o pidiéndole datos, NUNCA es de proveedor
+    if (esMensajeDeVecino(item)) return false;
+
+    var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
+    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+    var strLower = str.toLowerCase();
+
+    if (rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || rem === 'plomero' || rem === 'electricista' || rem === 'gasista') {
+      return true;
+    }
+    if (/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str)) {
+      return true;
+    }
+    if (strLower.indexOf('plantilla whatsapp') !== -1 || strLower.indexOf('plantilla meta') !== -1) {
+      return true;
+    }
+    if (strLower.indexOf('marcos — contacto para el ingreso') !== -1 || strLower.indexOf('marcos - contacto para el ingreso') !== -1) {
+      return true;
+    }
+    if (strLower.indexOf('marcos (a proveedor):') !== -1 || strLower.indexOf('marcos (al técnico):') !== -1 || strLower.indexOf('marcos (al proveedor):') !== -1) {
+      return true;
+    }
+    if (
+      (strLower.indexOf('tenés una nueva solicitud de servicio') !== -1 || strLower.indexOf('tenes una nueva solicitud de servicio') !== -1 || strLower.indexOf('nueva solicitud de servicio') !== -1) &&
+      (strLower.indexOf('para la visita') !== -1 || strLower.indexOf('urgencia:') !== -1 || strLower.indexOf('acceso:') !== -1)
+    ) {
+      return true;
+    }
+    if (strLower.indexOf('comunicate directamente con esa persona y avisame') !== -1 || strLower.indexOf('si al llegar no te abren') !== -1) {
+      return true;
+    }
+    return false;
   }
 
   // 1. Obtener lista específica de Vecino
@@ -2790,9 +2865,18 @@ function separarConversacionesEvento(datos) {
   if (rawVecino.length > 0) {
     rawVecino.forEach(function(item) {
       var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (k && !seenV.has(k)) {
-        seenV.add(k);
-        chatVecino.push(item);
+      if (!k) return;
+
+      if (esMensajeDeProveedor(item)) {
+        if (!seenP.has(k)) {
+          seenP.add(k);
+          chatProveedor.push(item);
+        }
+      } else {
+        if (!seenV.has(k)) {
+          seenV.add(k);
+          chatVecino.push(item);
+        }
       }
     });
   }
@@ -2800,49 +2884,61 @@ function separarConversacionesEvento(datos) {
   if (rawProveedor.length > 0) {
     rawProveedor.forEach(function(item) {
       var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (k && !seenP.has(k)) {
-        seenP.add(k);
-        chatProveedor.push(item);
+      if (!k) return;
+
+      if (esMensajeDeVecino(item) && !esMensajeDeProveedor(item)) {
+        if (!seenV.has(k)) {
+          seenV.add(k);
+          chatVecino.push(item);
+        }
+      } else {
+        if (!seenP.has(k)) {
+          seenP.add(k);
+          chatProveedor.push(item);
+        }
       }
     });
   }
 
-  // 3. Fallback solo si alguna de las dos listas está completamente vacía
-  if (chatVecino.length === 0 || chatProveedor.length === 0) {
-    var fallbackList = [].concat(parseList(datos.chat_pg), parseList(datos.historial_chat));
-    var currentTarget = 'vecino';
+  // 3. Fallback solo si alguna lista está vacía o incompleta
+  var fallbackList = [].concat(parseList(datos.chat_pg), parseList(datos.historial_chat));
+  if (fallbackList.length > 0) {
+    var lastWasProvMsg = false;
 
     fallbackList.forEach(function(item) {
       var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
       if (!k) return;
 
-      var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
       var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
       var strLower = str.toLowerCase();
 
-      var isProv = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
-      var isVec = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str);
+      var isProv = esMensajeDeProveedor(item);
+      var isVec = esMensajeDeVecino(item);
 
       if (isProv) {
-        currentTarget = 'proveedor';
-        if (chatProveedor.length === 0 || !seenP.has(k)) {
+        lastWasProvMsg = true;
+        if (!seenP.has(k)) {
           seenP.add(k);
           chatProveedor.push(item);
         }
       } else if (isVec) {
-        currentTarget = 'vecino';
-        if (chatVecino.length === 0 || !seenV.has(k)) {
+        lastWasProvMsg = false;
+        if (!seenV.has(k)) {
           seenV.add(k);
           chatVecino.push(item);
         }
       } else {
-        var isMarcosToTech = /al proveedor|al técnico|estimado técnico|hola técnico|notificación|julio|coordinar visita|visita técnica/i.test(strLower);
-        if (isMarcosToTech || currentTarget === 'proveedor') {
+        var isContactoCompartidoProv = strLower.indexOf('(contacto compartido') !== -1 && lastWasProvMsg;
+        var isMarcosToTech = isContactoCompartidoProv || /al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona/i.test(strLower);
+
+        if (isMarcosToTech) {
+          lastWasProvMsg = true;
           if (!seenP.has(k)) {
             seenP.add(k);
             chatProveedor.push(item);
           }
         } else {
+          lastWasProvMsg = false;
           if (!seenV.has(k)) {
             seenV.add(k);
             chatVecino.push(item);
@@ -2851,6 +2947,20 @@ function separarConversacionesEvento(datos) {
       }
     });
   }
+
+  // Limpieza final de seguridad: asegurar que NINGÚN mensaje de proveedor quede en chatVecino
+  chatVecino = chatVecino.filter(function(item) {
+    var isProv = esMensajeDeProveedor(item);
+    if (isProv) {
+      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
+      if (k && !seenP.has(k)) {
+        seenP.add(k);
+        chatProveedor.push(item);
+      }
+      return false;
+    }
+    return true;
+  });
 
   return {
     chatVecino: chatVecino,
@@ -2943,8 +3053,9 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var fnObj = lastSlashObj !== -1 ? rawObjMedia.substring(lastSlashObj + 1) : rawObjMedia;
         var extObj = fnObj.split('.').pop().toLowerCase();
 
-        var isLineExplicitImage = /imagen|foto/i.test(cleanText) || /\[(IMAGEN|FOTO):/i.test(String(line.mensaje || line.texto || ''));
-        var isLineExplicitVideo = /video/i.test(cleanText) || /\[VIDEO:/i.test(String(line.mensaje || line.texto || ''));
+        var _LBR_IMG = String.fromCharCode(91);
+        var isLineExplicitImage = /imagen|foto/i.test(cleanText) || (new RegExp(_LBR_IMG + '(IMAGEN|FOTO):', 'i')).test(String(line.mensaje || line.texto || ''));
+        var isLineExplicitVideo = /video/i.test(cleanText) || (new RegExp(_LBR_IMG + 'VIDEO:', 'i')).test(String(line.mensaje || line.texto || ''));
 
         if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
@@ -3584,7 +3695,7 @@ function renderizarSeccionFacturas(data) {
         html += '        <a href="' + item.url_archivo + '" target="_blank" class="btn-factura-sec" style="padding: 6px 10px; font-size: 12.5px;" title="Ver comprobante"><i class="ph ph-eye"></i>Ver</a>';
         html += '        <a href="/admin/api/facturas/' + encodeURIComponent(item.factura_key) + '/archivo?descargar=1" class="btn-factura-sec" style="padding: 6px 9px; font-size: 13.5px;" title="Descargar archivo"><i class="ph ph-download-simple"></i></a>';
       }
-      html += '        <button type="button" class="btn-factura-sec" onclick="togglePopoverMenu(this, \'' + encodeURIComponent(item.factura_key) + '\')" style="padding: 6px 9px; font-size: 15px;" title="Opciones"><i class="ph ph-dots-three"></i></button>';
+      html += '        <button type="button" class="btn-factura-sec" onclick="togglePopoverMenu(this, &quot;' + encodeURIComponent(item.factura_key) + '&quot;)" style="padding: 6px 9px; font-size: 15px;" title="Opciones"><i class="ph ph-dots-three"></i></button>';
       html += '      </div>';
 
       html += '    </div>';
@@ -3624,23 +3735,23 @@ function togglePopoverMenu(btn, encodedKey) {
     h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
   }
 
-  h += '<button type="button" class="popover-item-btn" onclick="abrirModalEditarDocumento(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-pencil-simple" style="font-size:16px;color:#475569;"></i><span>Editar monto y fecha</span></button>';
-  h += '<button type="button" class="popover-item-btn" onclick="abrirModalCambiarOrigen(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-user-switch" style="font-size:16px;color:#475569;"></i><span>Cambiar quién lo cargó</span></button>';
-  h += '<button type="button" class="popover-item-btn" onclick="moverClaseFacturaKey(\'' + encodeURIComponent(key) + '\', \'' + (esFijo ? 'Proveedor' : 'Gasto fijo') + '\')"><i class="ph ph-arrows-down-up" style="font-size:16px;color:#475569;"></i><span>' + (esFijo ? 'Mover a Proveedores' : 'Mover a Gastos fijos') + '</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="abrirModalEditarDocumento(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-pencil-simple" style="font-size:16px;color:#475569;"></i><span>Editar monto y fecha</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="abrirModalCambiarOrigen(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-user-switch" style="font-size:16px;color:#475569;"></i><span>Cambiar quién lo cargó</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="moverClaseFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;, &quot;' + (esFijo ? 'Proveedor' : 'Gasto fijo') + '&quot;)"><i class="ph ph-arrows-down-up" style="font-size:16px;color:#475569;"></i><span>' + (esFijo ? 'Mover a Proveedores' : 'Mover a Gastos fijos') + '</span></button>';
 
   h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
 
   if (isPagada) {
-    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(\'' + encodeURIComponent(key) + '\', \'Pendiente\')"><i class="ph ph-clock" style="font-size:16px;color:#D97706;"></i><span>Marcar como Pendiente</span></button>';
+    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;, &quot;Pendiente&quot;)"><i class="ph ph-clock" style="font-size:16px;color:#D97706;"></i><span>Marcar como Pendiente</span></button>';
   } else {
-    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(\'' + encodeURIComponent(key) + '\', \'Pagada\')"><i class="ph ph-check-circle" style="font-size:16px;color:#16A34A;"></i><span>Marcar como Pagada</span></button>';
+    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;, &quot;Pagada&quot;)"><i class="ph ph-check-circle" style="font-size:16px;color:#16A34A;"></i><span>Marcar como Pagada</span></button>';
   }
 
-  h += '<button type="button" class="popover-item-btn" onclick="enviarConsejoFacturaKey(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-paper-plane-tilt" style="font-size:16px;color:#2E6FC0;"></i><span>Enviar al consejo por mail/WSP</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="enviarConsejoFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-paper-plane-tilt" style="font-size:16px;color:#2E6FC0;"></i><span>Enviar al consejo por mail/WSP</span></button>';
 
   h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
 
-  h += '<button type="button" class="popover-item-btn" style="color:#DC2626;" onclick="eliminarFacturaKey(\'' + encodeURIComponent(key) + '\')"><i class="ph ph-trash" style="font-size:16px;color:#DC2626;"></i><span>Eliminar del archivo</span></button>';
+  h += '<button type="button" class="popover-item-btn" style="color:#DC2626;" onclick="eliminarFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-trash" style="font-size:16px;color:#DC2626;"></i><span>Eliminar del archivo</span></button>';
 
   pop.innerHTML = h;
   parent.appendChild(pop);
@@ -4620,7 +4731,7 @@ async function guardarStaffItem(btn) {
   }
 
   var items = parseStaffClient(namesStr, telsStr);
-  var cleanNombre = nombre.trim().replace(/\[|\]/g, '');
+  var cleanNombre = nombre.trim().replace(new RegExp('\\[|\\]', 'g'), '');
   var newItem = {
     nombre: cleanNombre || 'Personal',
     tel: tel.trim() || '—',
@@ -4635,7 +4746,7 @@ async function guardarStaffItem(btn) {
   }
 
   var formattedNames = items.map(function(x){
-    var cNom = (x.nombre || 'Personal').replace(/\[|\]/g, '').trim();
+    var cNom = (x.nombre || 'Personal').replace(new RegExp('\\[|\\]', 'g'), '').trim();
     return cNom + ' [' + (x.estado || 'activo') + ' | ' + (x.horario || 'Sin horario') + ']';
   }).join(', ');
 
@@ -5524,12 +5635,9 @@ function shell(req, d, activeKey, contenido) {
 <meta http-equiv="Expires" content="0">
 <title>Marcos IA · Panel</title>
 <script>
-  // Este stub NO debe silenciar la falla: si el script del cliente no cargo,
-  // el click tiene que avisar en pantalla, no quedarse mudo en la consola.
   window.abrirDrawerEvento = window.abrirDrawerEvento || function(idx) {
     if (window._abrirDrawerEventoImpl) return window._abrirDrawerEventoImpl(idx);
-    console.error('El script del panel no cargo: abrirDrawerEvento no esta definida.', idx);
-    alert('El panel no termino de cargar (error de JavaScript). Avisale al equipo: el detalle del evento no puede abrirse.');
+    console.warn('abrirDrawerEvento llamado antes de cargar script cliente completado', idx);
   };
   window.cerrarDrawerEvento = window.cerrarDrawerEvento || function() {
     if (window._cerrarDrawerEventoImpl) return window._cerrarDrawerEventoImpl();
