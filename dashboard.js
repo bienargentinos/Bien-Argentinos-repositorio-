@@ -7487,22 +7487,23 @@ async function obtenerEdificiosPermitidosUsuario(req) {
   if (esDueno(req)) {
     return { es_dueno: true, edificios: null };
   }
-  const usuario = req.session && req.session.usuario;
+  const usuario = (req.session && (req.session.user || req.session.usuario)) || (enPreview(req) ? req.session.previewOwner : null);
   if (!usuario) {
-    return { es_dueno: false, edificios: [] };
+    const sesEdificios = (req.session && req.session.edificios) ? (Array.isArray(req.session.edificios) ? req.session.edificios : String(req.session.edificios).split(',').map(s => s.trim())) : [];
+    return { es_dueno: false, edificios: sesEdificios };
   }
   try {
     const clientRes = await queryPg('SELECT edificios FROM clientes WHERE lower(usuario) = lower($1)', [usuario]);
     let edificiosRaw = '';
     if (clientRes && clientRes.rows && clientRes.rows[0]) {
       edificiosRaw = clientRes.rows[0].edificios || '';
-    } else if (req.session.cliente && req.session.cliente.edificios) {
-      edificiosRaw = req.session.cliente.edificios;
+    } else if (req.session && req.session.edificios) {
+      edificiosRaw = Array.isArray(req.session.edificios) ? req.session.edificios.join(',') : String(req.session.edificios);
     }
     const lista = String(edificiosRaw).split(',').map(s => s.trim()).filter(Boolean);
     return { es_dueno: false, edificios: lista };
   } catch (e) {
-    const lista = (req.session.cliente && req.session.cliente.edificios) ? String(req.session.cliente.edificios).split(',').map(s => s.trim()).filter(Boolean) : [];
+    const lista = (req.session && req.session.edificios) ? (Array.isArray(req.session.edificios) ? req.session.edificios : String(req.session.edificios).split(',').map(s => s.trim())) : [];
     return { es_dueno: false, edificios: lista };
   }
 }
@@ -7841,7 +7842,7 @@ router.patch('/api/facturas/:factura_key', async (req, res) => {
     const updateParams = [];
     let pIdx = 1;
     const auditoriaRows = [];
-    const usuarioLog = (req.session && req.session.usuario) ? req.session.usuario : 'admin';
+    const usuarioLog = (req.session && (req.session.user || req.session.usuario)) || 'admin';
 
     for (const field of camposPermitidos) {
       if (body[field] !== undefined && body[field] !== existente[field]) {
@@ -7927,7 +7928,7 @@ router.delete('/api/facturas/:factura_key', async (req, res) => {
 
     await queryPg('UPDATE facturas SET eliminada = \'si\' WHERE factura_key = $1', [factura_key]);
 
-    const usuarioLog = (req.session && req.session.usuario) ? req.session.usuario : 'admin';
+    const usuarioLog = (req.session && (req.session.user || req.session.usuario)) || 'admin';
     await queryPg(
       'INSERT INTO facturas_auditoria (factura_key, usuario, accion, campo, valor_anterior, valor_nuevo) VALUES ($1, $2, \'eliminar\', \'eliminada\', \'\', \'si\')',
       [factura_key, usuarioLog]
@@ -7972,7 +7973,7 @@ router.post('/api/facturas/:factura_key/enviar-consejo', async (req, res) => {
     if (!sel.rows || sel.rows.length === 0) {
       return res.status(404).json({ error: 'no_encontrado', mensaje: 'Factura no encontrada' });
     }
-    const usuarioLog = (req.session && req.session.usuario) ? req.session.usuario : 'admin';
+    const usuarioLog = (req.session && (req.session.user || req.session.usuario)) || 'admin';
     await queryPg(
       'INSERT INTO facturas_auditoria (factura_key, usuario, accion, campo, valor_anterior, valor_nuevo) VALUES ($1, $2, \'enviar_consejo\', \'envio\', \'\', \'enviado\')',
       [factura_key, usuarioLog]
@@ -8032,7 +8033,7 @@ router.post('/api/facturas', uploadMulter.single('archivo'), async (req, res) =>
     ]);
     const nuevaFactura = insRes.rows[0];
 
-    const usuarioLog = (req.session && req.session.usuario) ? req.session.usuario : 'admin';
+    const usuarioLog = (req.session && (req.session.user || req.session.usuario)) || 'admin';
     await queryPg(
       'INSERT INTO facturas_auditoria (factura_key, usuario, accion, campo, valor_anterior, valor_nuevo) VALUES ($1, $2, \'crear\', \'todas\', \'\', \'creado\')',
       [nuevaFactura.factura_key, usuarioLog]
