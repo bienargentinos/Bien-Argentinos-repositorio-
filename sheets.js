@@ -577,6 +577,64 @@ async function edificiosDelProveedor({ nombre = '', telefono = '' } = {}) {
 }
 
 /**
+ * Todos los proveedores que comparten un mismo teléfono, con su rubro.
+ * Respaldo de la versión de PostgreSQL -- ver el comentario largo en datos-pg.js.
+ *
+ * Un número no identifica a una persona: puede ser la línea de una empresa con varios oficios
+ * detrás. En esta planilla, el mismo teléfono figura como JULIO (plomero) y como DARIO
+ * (electricista), y por eso Marcos saludaba al plomero en un caso de electricidad.
+ */
+async function proveedoresPorTelefono(telefono) {
+    const tel = String(telefono || '').replace(/\D/g, '');
+    if (!tel) return [];
+
+    const mismoTelefono = (a, b) => {
+        const x = String(a || '').replace(/\D/g, '');
+        const y = String(b || '').replace(/\D/g, '');
+        if (!x || !y) return false;
+        return x === y || x.endsWith(y.slice(-8)) || y.endsWith(x.slice(-8));
+    };
+    const activo = r => {
+        const est = String(r.get('estado') || '').toLowerCase().trim();
+        return est !== 'eliminado' && est !== 'inactivo';
+    };
+
+    try {
+        const doc = await getSheet();
+        const encontrados = [];
+        const vistos = new Set();
+        const sumar = (nombre, rubro, origen) => {
+            const n = String(nombre || '').trim();
+            if (!n) return;
+            const clave = n.toLowerCase();
+            if (vistos.has(clave)) return;
+            vistos.add(clave);
+            encontrados.push({ nombre: n, rubro: String(rubro || '').trim(), origen });
+        };
+
+        const sheetProv = pestaña(doc, 'proveedores');
+        if (sheetProv) {
+            for (const r of await sheetProv.getRows()) {
+                if (!activo(r) || !mismoTelefono(r.get('telefono') || r.get('wsp'), tel)) continue;
+                sumar(r.get('nombre'), r.get('rubro') || r.get('especialidad'), 'lista maestra');
+            }
+        }
+        const sheetAsig = pestaña(doc, 'proveedor_asignaciones');
+        if (sheetAsig) {
+            for (const a of await sheetAsig.getRows()) {
+                if (!activo(a) || !mismoTelefono(a.get('telefono') || a.get('proveedor_telefono'), tel)) continue;
+                sumar(a.get('proveedor') || a.get('proveedor_nombre'), a.get('rubro'), 'asignación');
+            }
+        }
+
+        return encontrados;
+    } catch (err) {
+        console.error('Error listando los proveedores de ese teléfono:', err.message);
+        return [];
+    }
+}
+
+/**
  * Los casos de un técnico, ABIERTOS O YA CERRADOS, dentro de una ventana de días.
  * Respaldo de la versión de PostgreSQL.
  *
@@ -1860,6 +1918,7 @@ module.exports = {
     listarEdificiosConocidos,
     edificiosDelProveedor,
     buscarCasosRecientesPorTecnico,
+    proveedoresPorTelefono,
     buscarFacturasSinImputar,
     imputarFacturaSinEdificio,
     buscarMemoriaVecino,

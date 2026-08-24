@@ -246,21 +246,28 @@ Nunca por iniciativa propia ni como parte de un reset de test.
 
 **Los vecinos NO deben saber que Marcos es IA.** Marcos se comporta como humano, usa expresiones argentinas, rechaza preguntas sobre si es robot de forma natural.
 
-## Identidad del proveedor: teléfono + rubro, no solo teléfono (pendiente de decidir)
+## Identidad del proveedor: teléfono + rubro, no solo teléfono (IMPLEMENTADO)
 
-`buscarRolPorTelefono` identifica al proveedor **solo por el número**, y devuelve el primero que
-encuentra en la lista maestra `proveedores`. Eso asume un teléfono por persona, y en la realidad un
-mismo número puede ser el conmutador de una empresa con varios oficios detrás.
+Un teléfono **no** identifica a una persona: puede ser la línea de una empresa con varios oficios
+detrás. Caso real de esta planilla: el `541169241157` figura como **julio (plomero)** y como
+**dario juju (electricista)** — dos técnicos de la misma empresa compartiendo la línea.
 
-Caso real visto en pruebas: el número `541169241157` figura como **julio (plomero)** en
-`proveedores` y como **dario juju (electricista)** en `proveedor_asignaciones`. En un caso de
-electricidad la asignación eligió bien a Dario, pero cuando ese número contestó, Marcos lo saludó
-"Gracias, Julio" — el primero de la lista. No es un error de carga: son dos técnicos de la misma
-empresa compartiendo la línea.
+`buscarRolPorTelefono` devuelve el primero que encuentra, así que en un caso de electricidad
+Marcos saludaba "Gracias, Julio" cuando quien contestaba era Dario. Para el técnico eso es Marcos
+hablándole a otra persona, y le da lo mismo que el resto funcione.
 
-La forma correcta de identificarlo sería la terna **nombre + oficio/rubro + teléfono**, resolviendo
-el nombre por el rubro del caso abierto (que ya se conoce: `decisionCaso.tipo_problema`) y no por el
-orden de la planilla. **Decisión de Daniel pendiente** — no implementar hasta que lo confirme.
+Daniel lo confirmó y está implementado: se identifica por la terna **teléfono + rubro del caso**.
+
+- `proveedoresPorTelefono(telefono)` (en `datos.js`, con las dos implementaciones) lista todos los
+  técnicos de esa línea con su rubro.
+- `buscarCasoAbiertoPorTecnico` y `buscarCasosRecientesPorTecnico` devuelven el `rubro` del caso.
+- `index.js` guarda ese rubro en `stProv.rubroActivo` y, cuando hay más de un técnico en la línea,
+  elige por rubro en vez de por el orden de la planilla. Las equivalencias entre formas de nombrar
+  un oficio están en `coincideRubroTecnico` ("electricidad" = "electricista" = "luz").
+- **Sin caso no hay rubro con qué desempatar.** Ahí se marca `datosEmisor.nombreIncierto` y Marcos
+  **no lo llama por su nombre**: elegir uno al azar entre varios es peor que no nombrarlo.
+
+Prueba: `node pruebas-tecnico-por-rubro.js` (15 casos, con Julio y Dario en la misma línea).
 
 ## Modificaciones Recientes de Visualización, Multimedia y Chat
 

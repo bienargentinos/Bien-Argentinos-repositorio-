@@ -140,6 +140,9 @@ async function listarEdificiosConocidos() {
 async function edificiosDelProveedor(args) {
     return leer('edificiosDelProveedor', [args], 'edificiosDelProveedor', 'edificiosDelProveedor');
 }
+async function proveedoresPorTelefono(telefono) {
+    return leer('proveedoresPorTelefono', [telefono], 'proveedoresPorTelefono', 'proveedoresPorTelefono');
+}
 async function buscarCasosRecientesPorTecnico(nombre, telefono, dias) {
     return leer('buscarCasosRecientesPorTecnico', [nombre, telefono, dias], 'buscarCasosRecientesPorTecnico', 'buscarCasosRecientesPorTecnico');
 }
@@ -542,6 +545,7 @@ module.exports = {
     listarEdificiosConocidos,
     edificiosDelProveedor,
     buscarCasosRecientesPorTecnico,
+    proveedoresPorTelefono,
     buscarFacturasSinImputar,
     imputarFacturaSinEdificio,
     buscarPersonalDeTurno,

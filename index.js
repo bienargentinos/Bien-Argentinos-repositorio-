@@ -607,6 +607,32 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
+/**
+ * Si dos formas de nombrar un oficio son el mismo oficio.
+ *
+ * Los rubros se escriben de mil maneras -- "electricista", "electricidad", "luz" -- y hace falta
+ * poder compararlos para saber cuál de los técnicos que comparten una línea telefónica está
+ * atendiendo un caso. Las equivalencias son las mismas que ya usa la derivación de casos
+ * (`coincideRubro` en datos-pg.js), para que un técnico no se elija distinto según quién pregunte.
+ */
+function coincideRubroTecnico(a, b) {
+    const x = String(a || '').toLowerCase().trim();
+    const y = String(b || '').toLowerCase().trim();
+    if (!x || !y) return false;
+    if (x.includes(y) || y.includes(x)) return true;
+
+    const familias = [
+        ['electr', 'luz', 'tablero', 'iluminacion'],
+        ['plom', 'agua', 'cloaca', 'cania', 'caño'],
+        ['gas', 'calder', 'termotanque'],
+        ['cerraj', 'llav', 'port', 'puerta'],
+        ['alban', 'albañ', 'mamposter', 'pared'],
+        ['ascensor', 'montacarga'],
+        ['refriger', 'aire', 'split'],
+    ];
+    return familias.some(f => f.some(t => x.includes(t)) && f.some(t => y.includes(t)));
+}
+
 // ── DESPACHADOR DE RESPUESTAS (Modo Espejo / TTS) ─────────────────────────────
 async function despacharRespuesta(recipient, texto, msgType) {
     if (!texto) return;
@@ -1000,13 +1026,16 @@ function validarYSanitizarNombre(nombre) {
         // depende del caso queda sin hacerse en silencio -- la confirmación no se guardaba (se
         // pedía el id del caso y no había) y el vecino no se enteraba (se pedía su teléfono y
         // tampoco había). Se recupera del caso abierto antes de usarlo.
-        if (!stProv.eventoActivoId || !stProv.vecinoActivo?.telefono) {
+        if (!stProv.eventoActivoId || !stProv.vecinoActivo?.telefono || !stProv.rubroActivo) {
             try {
                 const { buscarCasoAbiertoPorTecnico } = require('./datos-pg');
                 const casoAbierto = await buscarCasoAbiertoPorTecnico(datosEmisor.nombre, from);
                 if (casoAbierto?.id_evento) {
                     if (!stProv.eventoActivoId) stProv.eventoActivoId = casoAbierto.id_evento;
                     if (!stProv.edificioActivo) stProv.edificioActivo = casoAbierto.edificio;
+                    // El rubro del caso es lo que después permite saber cuál de los técnicos que
+                    // comparten esta línea está escribiendo.
+                    if (!stProv.rubroActivo && casoAbierto.rubro) stProv.rubroActivo = casoAbierto.rubro;
                     if (!stProv.vecinoActivo?.telefono && casoAbierto.telefono) {
                         stProv.vecinoActivo = {
                             telefono:  casoAbierto.telefono,
@@ -1019,6 +1048,47 @@ function validarYSanitizarNombre(nombre) {
             } catch (e) {
                 console.error('Error recuperando el caso abierto del técnico:', e.message);
             }
+        }
+
+        // ── ¿CUÁL DE LOS TÉCNICOS DE ESTA LÍNEA ESTÁ ESCRIBIENDO? ────────────────────────────
+        //
+        // Un teléfono no identifica a una persona: puede ser la línea de una empresa con varios
+        // oficios detrás. En esta planilla el mismo número figura como JULIO (plomero) y como
+        // DARIO (electricista), que son dos técnicos de la misma empresa.
+        //
+        // `buscarRolPorTelefono` devuelve el primero que encuentra, así que Marcos saludaba
+        // "Gracias, Julio" a un caso de electricidad que estaba atendiendo Dario. Para el técnico
+        // eso es Marcos hablándole a otra persona, y le da lo mismo que el resto funcione.
+        //
+        // El dato que desempata ya lo tenemos: el RUBRO del caso que está atendiendo. Con eso se
+        // elige por la terna teléfono + rubro en vez de por el orden de la planilla.
+        try {
+            const { proveedoresPorTelefono } = require('./datos');
+            const enEsaLinea = (await proveedoresPorTelefono(from)) || [];
+
+            if (enEsaLinea.length > 1) {
+                const rubroDelCaso = String(stProv.rubroActivo || '').trim();
+                const nombres = enEsaLinea.map(p => `${p.nombre} (${p.rubro || 'sin rubro'})`).join(', ');
+
+                if (rubroDelCaso) {
+                    const elCorrecto = enEsaLinea.find(p => coincideRubroTecnico(p.rubro, rubroDelCaso));
+                    if (elCorrecto && elCorrecto.nombre !== datosEmisor.nombre) {
+                        console.log(`🎯 En ${from} hay ${enEsaLinea.length} técnicos [${nombres}]. El caso es de "${rubroDelCaso}", así que quien escribe es ${elCorrecto.nombre}, no ${datosEmisor.nombre}.`);
+                        datosEmisor.nombre = elCorrecto.nombre;
+                        datosEmisor.especialidad = elCorrecto.rubro || datosEmisor.especialidad;
+                    } else if (!elCorrecto) {
+                        console.log(`🤔 En ${from} hay ${enEsaLinea.length} técnicos [${nombres}] y ninguno es de "${rubroDelCaso}". Se deja "${datosEmisor.nombre}".`);
+                    }
+                } else {
+                    // Sin caso no hay rubro con qué desempatar. Llamarlo por un nombre elegido al
+                    // azar entre varios es peor que no nombrarlo: se marca para que el saludo no
+                    // use el nombre.
+                    datosEmisor.nombreIncierto = true;
+                    console.log(`⚠️ En ${from} hay ${enEsaLinea.length} técnicos [${nombres}] y todavía no hay caso que diga cuál es. No se lo va a llamar por su nombre.`);
+                }
+            }
+        } catch (e) {
+            console.error('Error resolviendo cuál de los técnicos de esa línea escribe:', e.message);
         }
 
         // ¿El técnico está confirmando la visita? Si confirma, hay que dejar constancia y frenar
@@ -1925,7 +1995,12 @@ function validarYSanitizarNombre(nombre) {
             }
         }
 
-        const nombreQuienEscribe = datosEmisor.nombre && datosEmisor.nombre !== 'Desconocido' ? datosEmisor.nombre : '';
+        // Si en esa línea hay varios técnicos y todavía no sabemos cuál escribe, no se lo llama
+        // por su nombre: decirle "Gracias, Julio" al electricista Dario es hablarle a otra
+        // persona, y eso invalida todo lo demás por más que el resto salga bien.
+        const nombreQuienEscribe = (datosEmisor.nombre && datosEmisor.nombre !== 'Desconocido' && !datosEmisor.nombreIncierto)
+            ? datosEmisor.nombre
+            : '';
         const confirmacionesFactura = [
             `Muchas gracias${nombreQuienEscribe ? ' ' + nombreQuienEscribe : ''}, ya recibí y archivé la factura.`,
             `Perfecto${nombreQuienEscribe ? ' ' + nombreQuienEscribe : ''}, recibida la factura.`,

@@ -738,6 +738,7 @@ async function buscarCasosRecientesPorTecnico(nombreTecnico, telefonoTecnico = '
             estado:    row.get('estado') || '',
             cerrado:   CERRADOS.has(estado),
             fecha:     row.get('fecha') || '',
+            rubro:     row.get('rubro_tecnico') || '',
         };
     });
 }
@@ -786,7 +787,53 @@ async function buscarCasoAbiertoPorTecnico(nombreTecnico, telefonoTecnico = '') 
         edificio:  row.get('edificio') || '',
         telefono:  row.get('telefono') || '',
         vecino:    row.get('vecino') || '',
+        // El rubro del caso es lo que permite saber CUÁL de los técnicos que comparten una línea
+        // está escribiendo. Ver `proveedoresPorTelefono`.
+        rubro:     row.get('rubro_tecnico') || '',
     };
+}
+
+/**
+ * Todos los proveedores que comparten un mismo teléfono, con su rubro.
+ *
+ * Un número no identifica a una persona: es el conmutador de una empresa con varios oficios
+ * detrás. Caso real de esta planilla: el 541169241157 figura como JULIO (plomero) y como DARIO
+ * (electricista) -- dos técnicos de la misma empresa compartiendo la línea.
+ *
+ * `buscarRolPorTelefono` devuelve el primero que encuentra, y por eso Marcos saludaba "Gracias,
+ * Julio" cuando el que contestaba un caso de electricidad era Dario. Con esta lista y el rubro
+ * del caso se puede elegir bien.
+ */
+async function proveedoresPorTelefono(telefono) {
+    const tel = String(telefono || '').replace(/\D/g, '');
+    if (!tel) return [];
+
+    const activo = r => {
+        const est = String(r.get('estado') || '').toLowerCase().trim();
+        return est !== 'eliminado' && est !== 'inactivo';
+    };
+
+    const encontrados = [];
+    const vistos = new Set();
+    const sumar = (nombre, rubro, origen) => {
+        const n = String(nombre || '').trim();
+        if (!n) return;
+        const clave = n.toLowerCase();
+        if (vistos.has(clave)) return;
+        vistos.add(clave);
+        encontrados.push({ nombre: n, rubro: String(rubro || '').trim(), origen });
+    };
+
+    for (const r of await filas('proveedores')) {
+        if (!activo(r) || !mismoTel(r.get('telefono') || r.get('wsp'), tel)) continue;
+        sumar(r.get('nombre'), r.get('rubro') || r.get('especialidad'), 'lista maestra');
+    }
+    for (const a of await filas('proveedor_asignaciones')) {
+        if (!activo(a) || !mismoTel(a.get('telefono') || a.get('proveedor_telefono'), tel)) continue;
+        sumar(a.get('proveedor') || a.get('proveedor_nombre'), a.get('rubro'), 'asignación');
+    }
+
+    return encontrados;
 }
 
 async function buscarEdificioDeCasoAbiertoPorTecnico(nombreTecnico) {
@@ -931,6 +978,7 @@ module.exports = {
     buscarEdificioDeCasoAbiertoPorTecnico,
     buscarCasoAbiertoPorTecnico,
     buscarCasosRecientesPorTecnico,
+    proveedoresPorTelefono,
     edificiosDelProveedor,
     buscarCasoPorCodigo,
     buscarConfirmacionTecnicoDeEdificio,
