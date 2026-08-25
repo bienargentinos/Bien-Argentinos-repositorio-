@@ -276,10 +276,20 @@ administrador tenga a quién pagarle sin salir a buscarlo. Columnas nuevas en `p
 (se crean solas): `cbu`, `alias_cbu`, `titular`, `cuit`, `cbu_actualizado`, `cbu_pendiente`,
 `alias_pendiente`, `cbu_pendiente_desde`.
 
+**Llegan por texto, por imagen o por PDF — nunca por audio.** Las tres vías están cubiertas:
+escrito en el chat, en una constancia de CBU (foto del homebanking o PDF), y **al pie de la propia
+factura**, que es la forma más común de todas. `marcos-docs.js` distingue una constancia bancaria
+de una factura: antes ese PDF se archivaba como si fuera un gasto del consorcio.
+
 **Se verifica antes de guardar.** El CBU trae dos dígitos verificadores; `cbu.js` los calcula.
-Dictado por audio o copiado a mano, un dígito cambiado no se nota mirando 22 números seguidos, y
-termina en un pago rechazado o en un pago a otra cuenta. La prueba cubre los 126 casos de un
-dígito cambiado y las 11 transposiciones de dígitos vecinos: `node pruebas-cbu.js`.
+Con OCR de por medio esto importa más que al tipear: un 8 leído como 6 en una foto sacada de
+costado no lo ve nadie, y son 22 números seguidos. Si no verifica NO se guarda — se pide el alias,
+que es corto y se lee bien. Las pruebas cubren los 126 casos de un dígito cambiado, las 11
+transposiciones de dígitos vecinos y las confusiones típicas del OCR (8/6, 1/7, 5/6):
+`node pruebas-cbu.js` y `node pruebas-cbu-por-imagen.js`.
+
+El CBU que viene al pie de una factura solo se toma **si la manda el propio técnico**. Reenviada
+por un vecino o el encargado no se usa: puede ser vieja, reenviada, o de otro proveedor.
 
 > [!CAUTION]
 > **UN CAMBIO DE CBU NO SE APLICA SOLO.**

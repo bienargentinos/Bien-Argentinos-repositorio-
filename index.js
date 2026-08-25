@@ -1602,6 +1602,98 @@ function validarYSanitizarNombre(nombre) {
     ]);
 
     // DESACTIVAR BUCLE DE PLANTILLAS Y MANEJAR MODO PROVEEDOR DIRECTO
+    // ── ¿ES UNA CONSTANCIA DE DATOS BANCARIOS? ───────────────────────────────────────────
+    //
+    // Los datos de cobro llegan por texto, por foto o por PDF -- la captura del homebanking o la
+    // constancia de CBU. Nunca por audio. Se atiende ANTES que las facturas porque para el
+    // detector de facturas un PDF mandado por un técnico es un comprobante, y una constancia de
+    // CBU terminaba archivada como si fuera un gasto del consorcio.
+    //
+    // Con OCR de por medio la verificación de los dígitos importa todavía más que al tipear: un 8
+    // leído como 6 en una foto sacada de costado no lo ve nadie, y son 22 números seguidos.
+    if (datosEmisor.rol === 'proveedor' && datosFactura?.es_datos_bancarios && !datosFactura?.es_factura) {
+        try {
+            const { validarCBU, validarAlias, ultimos4 } = require('./cbu');
+            const { guardarDatosBancariosProveedor } = require('./datos');
+
+            const cbuLeido = datosFactura.cbu ? validarCBU(datosFactura.cbu) : null;
+            const aliasLeido = datosFactura.alias ? validarAlias(datosFactura.alias) : null;
+
+            // Si el CBU no verifica, casi seguro es el OCR y no el papel. No se guarda a medias:
+            // se pide el alias, que es corto y se lee bien.
+            if (cbuLeido && !cbuLeido.valido && !aliasLeido?.valido) {
+                const resp = `Recibí la constancia pero el CBU no me quedó claro (${cbuLeido.motivo}). ` +
+                    `¿Me lo escribís acá en un mensaje, o me pasás el *alias*? Prefiero preguntarte antes que anotar un número mal.`;
+                await despacharRespuesta(recipient, resp, msgTypeRespuesta);
+                historial.push(`Marcos: ${resp}`);
+                return;
+            }
+
+            const guardado = await guardarDatosBancariosProveedor({
+                nombre: datosEmisor.nombreIncierto ? '' : datosEmisor.nombre,
+                telefono: from,
+                cbu: cbuLeido?.valido ? cbuLeido.cbu : '',
+                alias: aliasLeido?.valido ? aliasLeido.alias : '',
+                titular: datosFactura.titular || '',
+                cuit: datosFactura.cuit || '',
+            });
+
+            if (guardado.ambiguo) {
+                const cuales = (guardado.candidatos || []).map(c => `*${c.nombre}*${c.rubro ? ` (${c.rubro})` : ''}`).join(' o ');
+                const resp = `Con este número tengo cargado a ${cuales}. ¿A nombre de cuál de los dos anoto estos datos para el cobro?`;
+                await despacharRespuesta(recipient, resp, msgTypeRespuesta);
+                historial.push(`Marcos: ${resp}`);
+                return;
+            }
+
+            let resp;
+            if (!guardado.ok) {
+                resp = `Recibí la constancia pero no pude guardarla ahora. Se la paso igual a la Administración.`;
+            } else if (guardado.pendiente) {
+                resp = `Recibí la constancia. Como ya tenía otros datos de cobro tuyos, este cambio lo tiene que confirmar la Administración antes de quedar activo — es el resguardo para que a nadie le desvíen un pago haciéndose pasar por vos. Ya les avisé.`;
+                try {
+                    const { avisarAlAdministrador } = require('./agentes/marcos-admin');
+                    const colaTec = global.colasProveedores?.get(String(from).replace(/\D/g, ''));
+                    const edificioAviso = colaTec?.edificioActivo || session.nombreEdificio || '';
+                    if (edificioAviso) {
+                        await avisarAlAdministrador({
+                            edificio: edificioAviso,
+                            motivo: 'un proveedor mandó una constancia con datos de cobro distintos',
+                            titulo: `🔐 MARCOS: PEDIDO DE CAMBIO DE CBU - ${guardado.nombre}`,
+                            cuerpo:
+                                `El proveedor *${guardado.nombre}* mandó una constancia con datos de cobro distintos a los que tenía.\n\n` +
+                                `📱 Desde el teléfono: ${from}\n` +
+                                `🏦 Tenía: ${guardado.anterior.cbu ? 'CBU ...' + ultimos4(guardado.anterior.cbu) : ''}${guardado.anterior.alias ? ` / alias ${guardado.anterior.alias}` : ''}\n` +
+                                `🆕 Pide:  ${guardado.nuevo.cbu ? 'CBU ...' + ultimos4(guardado.nuevo.cbu) : ''}${guardado.nuevo.alias ? ` / alias ${guardado.nuevo.alias}` : ''}\n` +
+                                (datosFactura.titular ? `👤 Titular en la constancia: ${datosFactura.titular}\n` : '') +
+                                `\n⚠️ NO se aplicó. La cuenta anterior sigue vigente hasta que usted lo apruebe desde el panel.\n\n` +
+                                `Antes de aprobarlo, confírmelo con el proveedor por un canal que ya conocía — llamándolo al número de siempre, no respondiendo a este mensaje.`,
+                            phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
+                            accessToken: WHATSAPP_ACCESS_TOKEN,
+                        });
+                    }
+                } catch (e) {
+                    console.error('Error avisando el cambio de CBU a la Administración:', e.message);
+                }
+            } else {
+                // Se repite lo leído para que un error del OCR salte acá y no en el pago.
+                const partes = [];
+                if (cbuLeido?.valido) partes.push(`CBU terminado en *${ultimos4(cbuLeido.cbu)}*`);
+                if (aliasLeido?.valido) partes.push(`alias *${aliasLeido.alias}*`);
+                if (datosFactura.titular) partes.push(`a nombre de *${datosFactura.titular}*`);
+                resp = partes.length
+                    ? `Recibí la constancia y anoté: ${partes.join(', ')}. Si algo de eso no coincide, avisame y lo corrijo.`
+                    : `Recibí la constancia, pero no pude leer ni el CBU ni el alias. ¿Me los escribís acá en un mensaje?`;
+            }
+
+            await despacharRespuesta(recipient, resp, msgTypeRespuesta);
+            historial.push(`Marcos: ${resp}`);
+            return;
+        } catch (e) {
+            console.error('Error procesando la constancia de datos bancarios:', e.message);
+        }
+    }
+
     // ── ¿ESTO ES UNA FACTURA? ────────────────────────────────────────────────────────────
     //
     // Se decide ANTES de separar por rol, porque una factura no la manda solo el técnico. El
@@ -1798,6 +1890,45 @@ function validarYSanitizarNombre(nombre) {
             });
             if (resEstFactura && datosFactura) {
                 datosFactura.url_archivo = resEstFactura.relativeUrl;
+            }
+        }
+
+        // ── EL CBU AL PIE DE LA PROPIA FACTURA ───────────────────────────────────────────
+        //
+        // Es la forma más común de todas: la factura trae abajo "CBU / Alias para el pago". Se
+        // aprovecha, con la misma verificación y el mismo resguardo que cuando lo mandan aparte
+        // -- si ya había otro cargado, esto NO lo pisa, queda pendiente de aprobación.
+        //
+        // Solo cuando la manda el propio técnico. Si la reenvía el vecino o el encargado, el CBU
+        // del papel no se toma: por ahí es una factura vieja, reenviada, o de otro proveedor.
+        if (loMandaElTecnico && (datosFactura?.cbu || datosFactura?.alias)) {
+            try {
+                const { validarCBU, validarAlias } = require('./cbu');
+                const cbuPapel = datosFactura.cbu ? validarCBU(datosFactura.cbu) : null;
+                const aliasPapel = datosFactura.alias ? validarAlias(datosFactura.alias) : null;
+
+                if (cbuPapel?.valido || aliasPapel?.valido) {
+                    const { guardarDatosBancariosProveedor } = require('./datos');
+                    const guardadoBanco = await guardarDatosBancariosProveedor({
+                        nombre: datosEmisor.nombreIncierto ? '' : datosEmisor.nombre,
+                        telefono: from,
+                        cbu: cbuPapel?.valido ? cbuPapel.cbu : '',
+                        alias: aliasPapel?.valido ? aliasPapel.alias : '',
+                        titular: datosFactura.titular || '',
+                        cuit: datosFactura.cuit || '',
+                    });
+                    if (guardadoBanco.pendiente) {
+                        console.log(`🔐 La factura de ${datosEmisor.nombre} trae datos de cobro distintos a los cargados. Quedan PENDIENTES de aprobación.`);
+                    } else if (guardadoBanco.ok) {
+                        console.log(`🏦 Datos de cobro tomados del pie de la factura de ${datosEmisor.nombre}.`);
+                    }
+                } else if (cbuPapel && !cbuPapel.valido) {
+                    // No se guarda un CBU que no verifica, pero tampoco se frena la factura por
+                    // eso: el comprobante vale igual. Queda en el log para poder pedirlo bien.
+                    console.log(`⚠️ El CBU que trae la factura no verifica (${cbuPapel.motivo}). No se guarda.`);
+                }
+            } catch (e) {
+                console.error('Error tomando los datos de cobro del pie de la factura:', e.message);
             }
         }
 

@@ -101,9 +101,25 @@ function buscarCBUEnTexto(texto) {
  */
 function buscarAliasEnTexto(texto) {
     const t = String(texto || '');
-    const m = t.match(/\balias\b[\s:=]*([A-Za-z0-9.\-]{6,20})/i);
+    const m = t.match(/\balias\b/i);
     if (!m) return null;
-    return validarAlias(m[1]);
+
+    // No alcanza con mirar la palabra pegada a "alias": la gente escribe "mi alias es X",
+    // "alias para el pago: X", "el alias mío es X". Se recorren las palabras que siguen y se toma
+    // la primera que tenga forma de alias, salteando las de relleno.
+    const siguientes = t.slice(m.index + m[0].length).split(/[\s:=,;]+/).filter(Boolean).slice(0, 6);
+    const RELLENO = new Set(['es', 'el', 'la', 'mi', 'mio', 'mía', 'mia', 'de', 'del', 'para', 'pago', 'cobro', 'cuenta', 'seria', 'sería', 'y']);
+
+    for (const palabra of siguientes) {
+        const limpia = palabra.replace(/[.,;:!?)]+$/, '');
+        if (RELLENO.has(limpia.toLowerCase())) continue;
+        const r = validarAlias(limpia);
+        if (r.valido) return r;
+        // Una palabra que no es relleno y no tiene forma de alias corta la búsqueda: seguir de
+        // largo sería agarrar cualquier cosa de la frase siguiente.
+        return r;
+    }
+    return null;
 }
 
 /** Los últimos 4 dígitos, para confirmar sin repetir los 22 en pantalla. */
