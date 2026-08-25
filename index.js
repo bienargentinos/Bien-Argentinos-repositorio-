@@ -3903,7 +3903,12 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 iniciarCronReportes();
+
 const dashboard = require('./dashboard');
 app.use('/admin', dashboard);
+
+const portalVecino = require('./portal-vecino');
+app.use('/vecino', portalVecino);
+app.use('/portal', portalVecino);
 
 app.listen(PORT, () => console.log(`🚀 Servidor Marcos corriendo en puerto ${PORT}`));
