@@ -361,6 +361,51 @@ mensaje libre, o sea con la ventana abierta.
   `marcos-cara.js` ya no pide departamento cuando el edificio es casa/PH o tiene una sola unidad
   (`tipo` y `unidades` de la tab `edificios`, ahora expuestos en `buscarPerfilEdificio`).
 
+## El nombre del edificio está copiado en todos lados (por qué el apóstrofe "volvía solo")
+
+> [!CAUTION]
+> **No hay un id de edificio: el nombre ES la clave.** Está escrito como texto en `EDIFICIOS`, en
+> cada fila de `EVENTOS`, `facturas`, `vecinos`, `solicitudes`, `sugerencias`, `expensas`,
+> `proveedor_asignaciones`, y dentro de la lista separada por comas de `CLIENTES.edificios`.
+
+Dos cosas hacían que una corrección de nombre se deshiciera sola:
+
+1. **`EDIFICIOS` tiene el nombre en dos columnas** (`edificio` y `nombre`), que son alias del
+   mismo dato. El panel las lee en un orden (`edificio` primero, `mapEdificio`) y el motor de
+   Marcos en el otro (`nombre` primero, `listarEdificiosConocidos`). Mientras se escribía solo en
+   la primera que apareciera, cada edición dejaba la otra con el valor viejo y lo que se veía
+   dependía de quién miraba. Resuelto con `columnasDelCampo()` en `dashboard.js`: **se escribe en
+   TODAS las columnas que son ese campo**, en `/api/edificio`, en `guardarCamposEdificio()`
+   (Mi Edificio) y en `/api/aprobar-solicitud`.
+2. **Renombrar en `EDIFICIOS` y en ningún otro lado parte el edificio en dos.** Las filas viejas
+   seguían diciendo `san patricio 27'0 casa` y el panel las mostraba tal cual. Ahora al aprobar una
+   solicitud de cambio de nombre se renombran también todas las referencias en las otras pestañas.
+   La comparación es **exacta y normalizada**, no `compararEdificios` (que acepta coincidencias
+   parciales y se llevaría por delante al 159 al renombrar el 270).
+
+**Diagnóstico**: `node buscar-texto.js "27'0"` recorre todas las pestañas de Sheets y todas las
+tablas de PostgreSQL y dice en qué celda exacta está el texto. Mientras quede una copia sin
+corregir, el dato vuelve. Solo lee.
+
+Prueba: `node pruebas-renombrar-edificio.js`.
+
+> Ojo: un apóstrofe **al principio** de una celda de Google Sheets no es parte del texto, es la
+> marca de "esto es texto y no un número" y no se ve en la planilla. Uno en el **medio** (`27'0`)
+> sí es un carácter real.
+
+## Cuándo Marcos pide el número de unidad
+
+Lo decide el **conteo de unidades** de la tab `edificios`, no el nombre. `san patricio casa` se
+llama así --es un alias interno-- y **tiene 3 unidades**: ahí hay que preguntar. Adivinar por la
+palabra "casa" en el nombre daba exactamente al revés.
+
+- `unidades >= 2` → se pregunta. `unidades <= 1` → no se pregunta (no existe el dato).
+- Sin conteo cargado, decide `tipo` (casa/PH/dúplex/chalet → no se pregunta).
+- En una casa o PH con varias viviendas la unidad existe pero **no se llama "departamento"**
+  (suele ser "casa 2", "fondo", "PB"): Marcos pregunta por el "número de unidad".
+
+Prueba: `node pruebas-unidad-vecino.js`.
+
 ## Modificaciones Recientes de Visualización, Multimedia y Chat
 
 ### 1. Separación de Chats y Eliminación de Duplicados en Dashboard

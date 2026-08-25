@@ -9678,6 +9678,27 @@ router.post('/api/factura-estado', async (req, res) => {
 });
 
 // Edicion directa de la ficha de un edificio (dueño, modal).
+/**
+ * TODAS las columnas de la planilla que son ese mismo campo, no solo la primera.
+ *
+ * POR QUÉ. La tab `EDIFICIOS` tiene el nombre del consorcio escrito en dos columnas, `edificio` y
+ * `nombre`, que son alias del mismo dato. Pero el panel las lee en un orden (`edificio` primero) y
+ * el motor de Marcos en el otro (`nombre` primero, ver `listarEdificiosConocidos` en sheets.js).
+ *
+ * Mientras se escribía solo en la primera que apareciera, cada corrección dejaba la otra columna
+ * con el valor viejo, y el valor que se veía dependía de quién estaba mirando. Así fue como el
+ * apóstrofe de "san patricio 27'0 casa" se corrigió desde el panel y volvió a aparecer solo: nunca
+ * se había ido, estaba en la otra columna.
+ *
+ * Si no existe ninguna, se planifica crearla con el nombre canónico.
+ */
+function columnasDelCampo(headers, candidates) {
+  const columnas = headers
+    .map((h, i) => (candidates.includes(h) ? columnLetter(i + 1) : null))
+    .filter(Boolean);
+  return { columnas, crear: columnas.length === 0 };
+}
+
 const EDIFICIO_FIELDS = {
   nombre: ['edificio', 'nombre', 'consorcio'],
   direccion: ['direccion', 'domicilio'],
@@ -9713,15 +9734,16 @@ router.post('/api/edificio', async (req, res) => {
     for (const field of Object.keys(EDIFICIO_FIELDS)) {
       if (body[field] === undefined) continue;
       const candidates = EDIFICIO_FIELDS[field];
-      let idx = workingHeaders.findIndex((h) => candidates.includes(h));
-      let col;
-      if (idx >= 0) col = columnLetter(idx + 1);
-      else {
-        col = columnLetter(workingHeaders.length + 1);
+      // Se escribe en TODAS las columnas que son este campo, no en la primera que aparezca:
+      // ver la nota de `columnasDelCampo`.
+      let { columnas, crear } = columnasDelCampo(workingHeaders, candidates);
+      if (crear) {
+        const col = columnLetter(workingHeaders.length + 1);
         await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
         workingHeaders.push(candidates[0]);
+        columnas = [col];
       }
-      await writeCell(TAB_EDIFICIOS, col, row, body[field]);
+      for (const col of columnas) await writeCell(TAB_EDIFICIOS, col, row, body[field]);
     }
     res.json({ ok: true });
   } catch (e) {
@@ -10184,11 +10206,8 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
       // sistema lee `edificio`. El valor quedaba guardado, la solicitud figuraba "aplicada", y en
       // pantalla no cambiaba nada. Escribir en las dos las mantiene sincronizadas, que es lo que
       // se esperaba desde el principio: son alias de un mismo campo, no campos distintos.
-      const columnas = edHeaders
-        .map((h, i) => (candidates.includes(h) ? columnLetter(i + 1) : null))
-        .filter(Boolean);
-
-      if (columnas.length === 0) {
+      const { columnas, crear } = columnasDelCampo(edHeaders, candidates);
+      if (crear) {
         const col = columnLetter(edHeaders.length + 1);
         await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
         columnas.push(col);
@@ -10205,6 +10224,81 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
             celdasEscritas++;
           }
         }
+      }
+    }
+
+    // ── RENOMBRAR UN EDIFICIO ES RENOMBRARLO EN TODOS LADOS ─────────────────────────────────
+    //
+    // El nombre del consorcio no vive solo en `EDIFICIOS`: está copiado como texto en cada
+    // vecino, cada evento, cada factura, cada asignación de proveedor y en la lista de edificios
+    // del cliente. Ese texto es la única forma que tiene el sistema de relacionar las filas: no
+    // hay un id.
+    //
+    // Cambiarlo en `EDIFICIOS` y en ningún otro lado parte el edificio en dos. Las filas viejas
+    // siguen diciendo "san patricio 27'0 casa", el panel las muestra tal cual, y el apóstrofe
+    // "vuelve solo" -- nunca se había ido, estaba en las otras pestañas.
+    let filasRenombradas = 0;
+    if (campo === 'nombre' && valor_nuevo) {
+      // Dónde figura el nombre de un edificio en cada pestaña. `edificios` (en plural, en
+      // CLIENTES) es una lista separada por comas y se trata aparte.
+      const DONDE_FIGURA = [
+        [TAB_EVENTOS,      ['edificio', 'consorcio']],
+        [TAB_ARCHIVOS,     ['edificio']],
+        [TAB_SUGERENCIAS,  ['edificio']],
+        [TAB_SOLICITUDES,  ['edificio']],
+        [TAB_EXPENSAS,     ['edificio']],
+        [TAB_ASIGNACIONES, ['edificio']],
+        ['vecinos',        ['edificio']],
+      ];
+
+      for (const viejo of targetEdificios) {
+        // Comparación exacta, no `compararEdificios`: ese acepta coincidencias parciales, así que
+        // un cambio de "san patricio 270" a "san patricio 270 casa" se leería como "ya se llamaba
+        // así" y no se renombraría nada.
+        if (normEdificio(viejo) === normEdificio(valor_nuevo)) continue;
+
+        for (const [tab, columnas] of DONDE_FIGURA) {
+          let datos;
+          try { datos = await readTab(tab); } catch { continue; }
+          if (!datos.headers.length) continue;
+
+          for (const nombreCol of columnas) {
+            const i = datos.headers.indexOf(nombreCol);
+            if (i < 0) continue;
+            const letra = columnLetter(i + 1);
+            for (const fila of datos.rows) {
+              // Comparación exacta y normalizada: `compararEdificios` acepta coincidencias
+              // parciales, y con eso un "san patricio 159" se llevaría por delante al 270.
+              if (normEdificio(fila[nombreCol]) !== normEdificio(viejo)) continue;
+              await writeCell(tab, letra, fila._row, valor_nuevo);
+              filasRenombradas++;
+            }
+          }
+        }
+
+        // La lista de edificios del cliente es una sola celda con comas: se reemplaza el ítem
+        // que corresponde y se deja el resto intacto.
+        try {
+          const { rows: cliRows, headers: cliHeaders } = await readTab(TAB_CLIENTES);
+          const iCol = cliHeaders.findIndex(h => h === 'edificios' || h === 'edificio');
+          if (iCol >= 0) {
+            const letra = columnLetter(iCol + 1);
+            const nombreCol = cliHeaders[iCol];
+            for (const fila of cliRows) {
+              const partes = String(fila[nombreCol] || '').split(',').map(s => s.trim()).filter(Boolean);
+              if (!partes.some(p => normEdificio(p) === normEdificio(viejo))) continue;
+              const nuevas = partes.map(p => (normEdificio(p) === normEdificio(viejo) ? valor_nuevo : p));
+              await writeCell(TAB_CLIENTES, letra, fila._row, nuevas.join(', '));
+              filasRenombradas++;
+            }
+          }
+        } catch (e) {
+          console.error(`[Solicitud ${row}] No se pudo actualizar la lista de edificios del cliente: ${e.message}`);
+        }
+      }
+
+      if (filasRenombradas) {
+        console.log(`[Solicitud ${row}] "${targetEdificios.join(', ')}" → "${valor_nuevo}": ${filasRenombradas} referencia(s) actualizadas fuera de EDIFICIOS.`);
       }
     }
 
@@ -10344,15 +10438,15 @@ async function guardarCamposEdificio(edRow, headers, body, fieldsMap) {
   for (const field of Object.keys(fieldsMap)) {
     if (body[field] === undefined) continue;
     const candidates = fieldsMap[field];
-    let idx = workingHeaders.findIndex((h) => candidates.includes(h));
-    let col;
-    if (idx >= 0) col = columnLetter(idx + 1);
-    else {
-      col = columnLetter(workingHeaders.length + 1);
+    // Igual que en /api/edificio: todas las columnas que son este campo, no solo la primera.
+    let { columnas, crear } = columnasDelCampo(workingHeaders, candidates);
+    if (crear) {
+      const col = columnLetter(workingHeaders.length + 1);
       await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
       workingHeaders.push(candidates[0]);
+      columnas = [col];
     }
-    await writeCell(TAB_EDIFICIOS, col, edRow._row, body[field]);
+    for (const col of columnas) await writeCell(TAB_EDIFICIOS, col, edRow._row, body[field]);
   }
 }
 

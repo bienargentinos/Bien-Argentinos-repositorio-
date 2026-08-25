@@ -195,14 +195,24 @@ REGLA ESTRICTA DE CARTERA:
 
     const esNombreGenerico = !vecino?.nombre || vecino.nombre === 'Vecino' || vecino.nombre === 'Desconocido' || (datosEmisor?.rol === 'vecino' && vecino.nombre === session?.pushName);
     const faltaNombre = esNombreGenerico;
-    // En una casa o un PH de una sola unidad no hay número de departamento. Pedírselo es pedirle
-    // un dato que no existe: el vecino no lo puede contestar, la ficha nunca se completa y Marcos
-    // vuelve a preguntar lo mismo en cada vuelta. Visto en producción con "san patricio casa".
+    // ¿Este vecino TIENE número de unidad? Donde hay una sola vivienda no existe: pedírselo es
+    // pedirle un dato que no puede dar, la ficha no se completa nunca y Marcos vuelve a preguntar
+    // lo mismo en cada vuelta.
+    //
+    // El que decide es el CONTEO DE UNIDADES de la tab `edificios`, no el nombre. El nombre es un
+    // alias interno nuestro: "san patricio casa" se llama así y tiene 3 unidades, así que ahí sí
+    // hay que preguntar. Adivinar por la palabra "casa" en el alias daba exactamente al revés.
     const tipoEdif = String(perfilEdificio?.tipo || '').toLowerCase();
     const unidadesEdif = parseInt(String(perfilEdificio?.unidades || '').replace(/\D/g, ''), 10);
-    const esUnidadUnica = /casa|ph|d[uú]plex|chalet|vivienda/.test(tipoEdif) ||
-        /\bcasa\b/.test(String(vecino?.edificio || '').toLowerCase()) ||
-        (Number.isFinite(unidadesEdif) && unidadesEdif <= 1);
+    const esTipoVivienda = /casa|ph|d[uú]plex|chalet|vivienda/.test(tipoEdif);
+
+    const esUnidadUnica = Number.isFinite(unidadesEdif)
+        ? unidadesEdif <= 1               // el dato real manda, sea cual sea el tipo
+        : esTipoVivienda;                 // sin conteo cargado, el tipo es lo único que hay
+
+    // Con varias viviendas en una casa o PH la unidad existe pero no se llama "departamento"
+    // (suele ser "casa 2", "fondo", "PB"). Preguntar por "el departamento" en ese caso confunde.
+    const comoSeLlamaLaUnidad = esTipoVivienda ? 'número de unidad' : 'número de departamento';
 
     const faltaDepto = !esUnidadUnica &&
         (!vecino?.departamento || vecino.departamento === '' || vecino.departamento === '—');
@@ -210,9 +220,9 @@ REGLA ESTRICTA DE CARTERA:
     const instruccionDatosFaltantes = (faltaNombre || faltaDepto)
         ? `
 🚨 INSTRUCCIÓN OBLIGATORIA DE REGISTRO DE VECINO:
-- El vecino aún NO tiene registrado su ${faltaNombre ? 'Nombre Completo y Apellido' : ''}${faltaNombre && faltaDepto ? ' ni su ' : ''}${faltaDepto ? 'Número de Departamento' : ''} en la ficha del consorcio.
-- DEBES PEDIRLE EXPRESAMENTE que te indique su ${faltaNombre ? 'nombre completo (nombre y apellido)' : ''}${faltaNombre && faltaDepto ? ' y su ' : ''}${faltaDepto ? 'número de departamento' : ''} para formalizar la atención en la ficha del edificio.
-- Ejemplo de respuesta: "Por favor, para registrar adecuadamente su reclamo en la ficha del consorcio, ¿me indicaría su nombre y apellido completo y número de departamento?"
+- El vecino aún NO tiene registrado su ${faltaNombre ? 'Nombre Completo y Apellido' : ''}${faltaNombre && faltaDepto ? ' ni su ' : ''}${faltaDepto ? comoSeLlamaLaUnidad : ''} en la ficha del consorcio.
+- DEBES PEDIRLE EXPRESAMENTE que te indique su ${faltaNombre ? 'nombre completo (nombre y apellido)' : ''}${faltaNombre && faltaDepto ? ' y su ' : ''}${faltaDepto ? comoSeLlamaLaUnidad : ''} para formalizar la atención en la ficha del edificio.
+- Ejemplo de respuesta: "Por favor, para registrar adecuadamente su reclamo en la ficha del consorcio, ¿me indicaría su nombre y apellido completo${faltaDepto ? ` y ${comoSeLlamaLaUnidad}` : ''}?"
 - NUNCA des por sentado el nombre como "Vecino".
 `.trim()
         : '';
