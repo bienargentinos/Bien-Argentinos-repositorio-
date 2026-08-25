@@ -4613,8 +4613,10 @@ function parseHorario3Lineas(str) {
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
 
-  var rawNames = String(namesStr || '').split(/[,;\x0A\x0D]/).map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(/[,;\x0A\x0D]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var nlChars = String.fromCharCode(10) + String.fromCharCode(13);
+  var staffSplitRegex = new RegExp('[,;' + nlChars + ']+');
+  var rawNames = String(namesStr || '').split(staffSplitRegex).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawTels = String(telsStr || '').split(staffSplitRegex).map(function(s){ return s.trim(); }).filter(Boolean);
   var res = [];
 
   for (var i = 0; i < rawNames.length; i++) {
