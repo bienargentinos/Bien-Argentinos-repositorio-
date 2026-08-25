@@ -2615,8 +2615,10 @@ function procesarLineaMultimediaChat(strText) {
   var visualUrl = '', visualType = '', visualFilename = '';
   var audioUrl = '', audioFilename = '';
 
-  var tagRegexGlobal = /\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/gi;
-  var tagRegexSingle = /\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\s*([^\]]+)\]/i;
+  var escOB = String.fromCharCode(92) + String.fromCharCode(91);
+  var escCB = String.fromCharCode(92) + String.fromCharCode(93);
+  var tagRegexGlobal = new RegExp(escOB + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^' + escCB + ']+)' + escCB, 'gi');
+  var tagRegexSingle = new RegExp(escOB + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^' + escCB + ']+)' + escCB, 'i');
   var allTags = cleanText.match(tagRegexGlobal) || [];
   allTags.forEach(function(tagStr) {
     var m = tagStr.match(tagRegexSingle);
