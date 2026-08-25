@@ -10376,6 +10376,56 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
         }
       }
 
+      // ── Y EN POSTGRESQL, QUE ES DE DONDE LEE MARCOS ──────────────────────────────────────
+      //
+      // Son dos bases: este panel lee Sheets, pero el motor de Marcos y los permisos del cliente
+      // (`obtenerEdificiosPermitidosUsuario`, `expandirEdificiosPermitidos`) leen PostgreSQL.
+      // Renombrar solo en Sheets deja a Marcos llamando al edificio por el nombre viejo y al
+      // cliente con el permiso apuntando a un edificio que ya no se llama así.
+      //
+      // Y no alcanza con reimportar después: `importar-sheets-a-pg.js` usa la columna `edificio`
+      // como clave, así que con el nombre ya cambiado en Sheets no actualiza la fila -- crea una
+      // segunda. Hay que renombrar la que existe.
+      for (const viejo of targetEdificios) {
+        if (normEdificio(viejo) === normEdificio(valor_nuevo)) continue;
+        try {
+          const cols = await queryPg(`
+            SELECT table_name, column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND data_type IN ('text','character varying','character')
+              AND (column_name IN ('edificio', 'consorcio', 'edificios')
+                   OR (table_name = 'edificios' AND column_name = 'nombre'))
+          `);
+
+          for (const { table_name: tabla, column_name: col } of (cols.rows || [])) {
+            if (col === 'edificios') {
+              // Lista separada por comas: se cambia el ítem y se deja el resto.
+              const filas = await queryPg(`SELECT DISTINCT "${col}" AS v FROM "${tabla}" WHERE "${col}" <> ''`);
+              for (const { v } of (filas.rows || [])) {
+                const partes = String(v || '').split(',').map(s => s.trim()).filter(Boolean);
+                if (!partes.some(p => normEdificio(p) === normEdificio(viejo))) continue;
+                const nueva = partes.map(p => (normEdificio(p) === normEdificio(viejo) ? valor_nuevo : p)).join(', ');
+                await queryPg(`UPDATE "${tabla}" SET "${col}" = $2 WHERE "${col}" = $1`, [v, nueva]);
+                filasRenombradas++;
+              }
+              continue;
+            }
+            // Igualdad exacta salvo mayúsculas y espacios, igual que del lado de Node.
+            const r = await queryPg(
+              `UPDATE "${tabla}" SET "${col}" = $2 WHERE lower(btrim("${col}")) = lower(btrim($1))`,
+              [viejo, valor_nuevo]
+            );
+            filasRenombradas += (r && r.rowCount) || 0;
+          }
+        } catch (e) {
+          // Que falle PostgreSQL no puede tirar abajo la aprobación: Sheets ya quedó bien. Pero
+          // tiene que verse, porque mientras no se corrija, Marcos y el panel ven cosas distintas.
+          console.error(`[Solicitud ${row}] ⚠️ Sheets quedó renombrado pero PostgreSQL NO: ${e.message}. ` +
+                        `Corregilo con: node renombrar-edificio.js "${viejo}" "${valor_nuevo}" --aplicar`);
+        }
+      }
+
       if (filasRenombradas) {
         console.log(`[Solicitud ${row}] "${targetEdificios.join(', ')}" → "${valor_nuevo}": ${filasRenombradas} referencia(s) actualizadas fuera de EDIFICIOS.`);
       }

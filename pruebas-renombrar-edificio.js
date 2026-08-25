@@ -55,8 +55,53 @@ function compararEdificios(a, b) {
  * Monta una planilla falsa y corre el bloque de renombrado contra ella. Devuelve la planilla
  * después del cambio, más la lista de escrituras.
  */
-async function renombrar({ planilla, campo, valor_nuevo, targetEdificios }) {
+async function renombrar({ planilla, campo, valor_nuevo, targetEdificios, pg }) {
     const escrituras = [];
+    const sqlEjecutado = [];
+
+    // PostgreSQL de mentira. `pg` es {tabla: {columna: [valores]}}; los UPDATE se aplican encima
+    // para poder mirar cómo quedó.
+    const base = pg || {};
+    const queryPg = async (sql, params) => {
+        sqlEjecutado.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
+
+        if (/information_schema/.test(sql)) {
+            const rows = [];
+            for (const tabla of Object.keys(base)) {
+                for (const col of Object.keys(base[tabla])) {
+                    if (['edificio', 'consorcio', 'edificios'].includes(col) || (tabla === 'edificios' && col === 'nombre')) {
+                        rows.push({ table_name: tabla, column_name: col });
+                    }
+                }
+            }
+            return { rows };
+        }
+
+        const sel = sql.match(/SELECT DISTINCT "(\w+)" AS v FROM "(\w+)"/);
+        if (sel) {
+            const [, col, tabla] = sel;
+            const vals = Array.from(new Set((base[tabla]?.[col] || []).filter(Boolean)));
+            return { rows: vals.map(v => ({ v })) };
+        }
+
+        const upd = sql.match(/UPDATE "(\w+)" SET "(\w+)" = \$2 WHERE/);
+        if (upd) {
+            const [, tabla, col] = upd;
+            const [buscado, destino] = params;
+            const exacto = /lower\(btrim/.test(sql);
+            const lista = base[tabla]?.[col] || [];
+            let rowCount = 0;
+            for (let i = 0; i < lista.length; i++) {
+                const coincide = exacto
+                    ? String(lista[i] || '').trim().toLowerCase() === String(buscado || '').trim().toLowerCase()
+                    : lista[i] === buscado;
+                if (coincide) { lista[i] = destino; rowCount++; }
+            }
+            return { rowCount };
+        }
+
+        throw new Error(`consulta no prevista en la prueba: ${sql}`);
+    };
 
     const readTab = async (tab) => {
         const t = planilla[tab];
@@ -80,7 +125,7 @@ async function renombrar({ planilla, campo, valor_nuevo, targetEdificios }) {
 
     const fn = new Function(
         'campo', 'valor_nuevo', 'targetEdificios', 'row',
-        'readTab', 'writeCell', 'columnLetter', 'normEdificio', 'compararEdificios',
+        'readTab', 'writeCell', 'columnLetter', 'normEdificio', 'compararEdificios', 'queryPg',
         'TAB_EVENTOS', 'TAB_ARCHIVOS', 'TAB_SUGERENCIAS', 'TAB_SOLICITUDES', 'TAB_EXPENSAS',
         'TAB_ASIGNACIONES', 'TAB_CLIENTES', 'console',
         `return (async () => { ${cuerpo} return filasRenombradas; })();`
@@ -88,13 +133,13 @@ async function renombrar({ planilla, campo, valor_nuevo, targetEdificios }) {
 
     const filasRenombradas = await fn(
         campo, valor_nuevo, targetEdificios, 7,
-        readTab, writeCell, columnLetter, normEdificio, compararEdificios,
+        readTab, writeCell, columnLetter, normEdificio, compararEdificios, queryPg,
         'EVENTOS', 'facturas', 'sugerencias', 'solicitudes', 'expensas',
         'proveedor_asignaciones', 'CLIENTES',
         { log() {}, warn() {}, error() {} }
     );
 
-    return { filasRenombradas, escrituras, planilla };
+    return { filasRenombradas, escrituras, planilla, sqlEjecutado, pg: base };
 }
 
 function planillaDePrueba() {
@@ -179,6 +224,53 @@ console.log('\n── RENOMBRAR AL MISMO NOMBRE NO HACE NADA ──');
         targetEdificios: ["san patricio 27'0 casa"],
     });
     verificar('no escribe una sola celda', escrituras, []);
+}
+
+console.log('\n── TAMBIÉN SE RENOMBRA EN POSTGRESQL ──');
+{
+    // Son dos bases: el panel lee Sheets, pero Marcos y los permisos del cliente leen PostgreSQL.
+    // Renombrar solo en Sheets deja a Marcos llamando al edificio por el nombre viejo, y al
+    // cliente con el permiso apuntando a un edificio que ya no se llama así.
+    const pg = {
+        edificios: { edificio: ["san patricio 27'0 casa"], nombre: ["san patricio 27'0 casa"] },
+        reportes:  { edificio: ["San Patricio 27'0 Casa", 'san patricio 159'] },
+        vecinos:   { edificio: ["san patricio 27'0 casa"] },
+        clientes:  { edificios: ["san patricio 159, san patricio 27'0 casa"] },
+    };
+    const planilla = planillaDePrueba();
+    await renombrar({
+        planilla, campo: 'nombre',
+        valor_nuevo: 'san patricio 270 casa',
+        targetEdificios: ["san patricio 27'0 casa"],
+        pg,
+    });
+
+    verificar('la tabla edificios', pg.edificios.edificio[0], 'san patricio 270 casa');
+    verificar('su columna nombre también', pg.edificios.nombre[0], 'san patricio 270 casa');
+    verificar('los reportes, aunque estén con otras mayúsculas', pg.reportes.edificio[0], 'san patricio 270 casa');
+    verificar('el 159 de PG queda intacto', pg.reportes.edificio[1], 'san patricio 159');
+    verificar('los vecinos', pg.vecinos.edificio[0], 'san patricio 270 casa');
+    verificar('la lista del cliente, sin perder el otro edificio',
+        pg.clientes.edificios[0], 'san patricio 159, san patricio 270 casa');
+}
+
+console.log('\n── SI POSTGRESQL FALLA, LA APROBACIÓN NO SE CAE ──');
+{
+    // Sheets ya quedó bien: tirar abajo la aprobación entera dejaría el cambio a medias y sin
+    // registro. Se avisa fuerte en el log y se sigue.
+    const planilla = planillaDePrueba();
+    let error = null;
+    try {
+        await renombrar({
+            planilla, campo: 'nombre',
+            valor_nuevo: 'san patricio 270 casa',
+            targetEdificios: ["san patricio 27'0 casa"],
+            pg: null,   // sin base: la consulta de information_schema revienta
+        });
+    } catch (e) { error = e.message; }
+
+    verificar('no explota', error, null);
+    verificar('Sheets igual quedó renombrado', planilla.EVENTOS.filas[0][2], 'san patricio 270 casa');
 }
 
 console.log('\n── UN NOMBRE QUE SE ALARGA TAMBIÉN SE RENOMBRA ──');

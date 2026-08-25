@@ -411,10 +411,31 @@ cliente le contaba 2 edificios en vez de 3).
 
 Prueba: `node pruebas-cliente-edificio.js`.
 
-> El panel lee **Sheets** (`readTab`) y el motor de Marcos lee **PostgreSQL primero** (`datos.js`,
-> con Sheets de respaldo). Son dos fuentes: un cambio que entra por un lado y no se copia al otro
-> hace que el panel y Marcos vean cosas distintas. `expandirEdificiosPermitidos` lee de PG aun
-> estando en el panel, así que un renombre solo en Sheets le deja el permiso viejo.
+### Las dos bases: qué lee cada uno
+
+| Quién | De dónde lee |
+|---|---|
+| Panel (`dashboard.js`, `readTab`) | Google Sheets |
+| Motor de Marcos (`datos.js`) | PostgreSQL primero, Sheets de respaldo |
+| Permisos del cliente (`obtenerEdificiosPermitidosUsuario`, `expandirEdificiosPermitidos`) | **PostgreSQL**, aunque corran dentro del panel |
+
+Por eso **renombrar solo en Sheets no alcanza**: Marcos sigue llamando al edificio por el nombre
+viejo y al cliente le queda el permiso apuntando a un edificio que ya no se llama así. La
+aprobación de una solicitud de nombre ahora renombra en **los dos lados**.
+
+> [!CAUTION]
+> **No arreglar esto reimportando.** `importar-sheets-a-pg.js` sincroniza `edificios` usando la
+> columna `edificio` como **clave**. Si en Sheets ya está el nombre nuevo y en PostgreSQL el
+> viejo, no actualiza la fila: **crea una segunda**. Para corregir datos ya desfasados está
+> `renombrar-edificio.js`, que cambia la fila que existe.
+
+**Herramientas**:
+
+```bash
+node buscar-texto.js "27'0"                                    # solo lee: dice en qué celda está
+node renombrar-edificio.js "nombre viejo" "nombre nuevo"        # muestra qué cambiaría
+node renombrar-edificio.js "nombre viejo" "nombre nuevo" --aplicar
+```
 
 ## Cuándo Marcos pide el número de unidad
 
