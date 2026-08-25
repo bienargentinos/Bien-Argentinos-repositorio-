@@ -454,17 +454,6 @@ function mapProveedor(r) {
     telefono: pick(r, ['telefono', 'tel', 'celular', 'contacto']),
     notas: pick(r, ['notas', 'observaciones']),
     estado: pick(r, ['estado'], 'activo'),
-    // Datos de cobro. `cbu_pendiente` es un cambio que el proveedor pidió por WhatsApp y que
-    // NO se aplicó: el anterior sigue vigente hasta que se apruebe desde acá. Ver el comentario
-    // en `guardarDatosBancariosProveedor` (sheets.js) sobre por qué no se pisa solo.
-    cbu: pick(r, ['cbu']),
-    alias_cbu: pick(r, ['alias_cbu', 'alias']),
-    titular: pick(r, ['titular']),
-    cuit: pick(r, ['cuit']),
-    cbu_actualizado: pick(r, ['cbu_actualizado']),
-    cbu_pendiente: pick(r, ['cbu_pendiente']),
-    alias_pendiente: pick(r, ['alias_pendiente']),
-    cbu_pendiente_desde: pick(r, ['cbu_pendiente_desde']),
   };
 }
 
@@ -937,8 +926,18 @@ function modalPlanesAcHtml(planesList, propiosEdificios) {
     const servList = (p.servicios || '').split(/,|\n/).map((s) => s.trim()).filter(Boolean);
     const servHtml = servList.map((s) => `<div style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#334259;margin-bottom:5px"><span style="color:#22C55E">✓</span> ${esc(s)}</div>`).join('');
 
+    const yaTienePlan = (propiosEdificios || []).some((x) => {
+      const pName = String(x.plan || '').toLowerCase();
+      return pName.includes('corporativo') || (p.nombre && pName.includes(p.nombre.toLowerCase()));
+    });
+
+    let btnTextCorp = `🏢 Solicitar Paquete Corporativo (${p.edificios} Edificios)`;
+    if (esCorporativo && yaTienePlan) {
+      btnTextCorp = `⚙️ Gestionar / Adherir Edificios (${p.edificios} Cupos)`;
+    }
+
     const botonSolicitudHtml = esCorporativo
-      ? `<button onclick="abrirSolicitudCorporativa('${escJs(p.nombre)}', ${Number(p.edificios) || 5}, '${edificiosJsonStr}')" style="width:100%;height:40px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">🏢 Solicitar Paquete Corporativo (${p.edificios} Edificios)</button>`
+      ? `<button onclick="abrirSolicitudCorporativa('${escJs(p.nombre)}', ${Number(p.edificios) || 5}, '${edificiosJsonStr}')" style="width:100%;height:40px;border:none;border-radius:10px;background:${yaTienePlan ? 'linear-gradient(180deg,#1E5FB4,#17408B)' : 'linear-gradient(180deg,#2E6FC0,#1E5FB4)'};color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">${esc(btnTextCorp)}</button>`
       : `<button onclick="solicitarPlanCat('${escJs(p.nombre)}', 'este')" style="width:100%;height:40px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">Solicitar para este edificio</button>`;
 
     return `
@@ -1956,11 +1955,14 @@ window.toggleAsistenteWidget = function toggleAsistenteWidget(){
 var toggleAsistenteWidget = window.toggleAsistenteWidget;
 
 // --- Arrastrar el globo flotante del Asistente ---
-(function initDragAsistenteWidget(){
+// --- Arrastrar el globo flotante del Asistente ---
+window.initDragAsistenteWidget = function initDragAsistenteWidget(){
   var widget = document.getElementById('ac-ai-widget-container');
   if (!widget) return;
-  var handle = widget.querySelector('button.hv-navy');
+  var handle = widget.querySelector('button.hv-navy') || widget.querySelector('#ac-ai-trigger-btn') || widget.querySelector('button');
   if (!handle) return;
+  if (handle.__dragInitialized) return;
+  handle.__dragInitialized = true;
 
   var dragging = false;
   var moved = false;
@@ -1971,7 +1973,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
   }
 
   function applyPosition(left, top){
-    var w = widget.offsetWidth || 60;
+    var w = widget.offsetWidth || 140;
     var h = widget.offsetHeight || 48;
     left = clamp(left, 8, window.innerWidth - w - 8);
     top = clamp(top, 8, window.innerHeight - h - 8);
@@ -2001,6 +2003,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
   function onPointerUp(){
     if (!dragging) return;
     dragging = false;
+    handle.style.cursor = 'grab';
     document.removeEventListener('mousemove', onPointerMove);
     document.removeEventListener('mouseup', onPointerUp);
     document.removeEventListener('touchmove', onPointerMove);
@@ -2008,6 +2011,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     if (moved) {
       guardarPosicion();
       window.__aiWidgetJustDragged = true;
+      setTimeout(function(){ window.__aiWidgetJustDragged = false; }, 300);
     }
   }
 
@@ -2015,6 +2019,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     var p = e.touches ? e.touches[0] : e;
     dragging = true;
     moved = false;
+    handle.style.cursor = 'grabbing';
     var rect = widget.getBoundingClientRect();
     startLeft = rect.left;
     startTop = rect.top;
@@ -2037,17 +2042,30 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
   });
 
   function posicionPorDefecto(){
-    // Arranca pegado abajo del header (64px, sticky) en vez de abajo de todo
-    // la pantalla, donde se pierde entre el resto de los botones del panel.
-    // En desktop el sidebar (236px, con la tarjeta "Enviar sugerencia" en modo
-    // cliente) queda tapado por el globo si arranca pegado a la izquierda.
-    // En mobile ese sidebar se oculta (@media max-width:900px), asi que ahi
-    // no hay conflicto. Se calcula en vivo en lugar de un valor fijo.
-    var sidebar = document.querySelector('nav.sidebar-nav');
-    var sidebarVisible = !!(sidebar && sidebar.offsetWidth > 0 && getComputedStyle(sidebar).display !== 'none');
-    var left = sidebarVisible ? (sidebar.getBoundingClientRect().right + 16) : 16;
-    var top = 76;
-    applyPosition(left, top);
+    var edBtn = document.querySelector('button[onclick*="menu-edificio"]') || document.querySelector('#menu-edificio-btn');
+    var header = document.querySelector('header');
+    
+    if (edBtn) {
+      var r = edBtn.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        var targetLeft = r.right + 12;
+        var targetTop = r.top + Math.max(0, (r.height - 38) / 2);
+        if (targetLeft + 150 < window.innerWidth) {
+          applyPosition(targetLeft, targetTop);
+          return;
+        }
+      }
+    }
+    
+    if (header) {
+      var rH = header.getBoundingClientRect();
+      var targetLeft = Math.min(260, window.innerWidth - 180);
+      var targetTop = rH.top + Math.max(0, (rH.height - 38) / 2);
+      applyPosition(targetLeft, targetTop);
+      return;
+    }
+    
+    applyPosition(240, 12);
   }
 
   try {
@@ -2055,10 +2073,19 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
       applyPosition(saved.left, saved.top);
     } else {
-      posicionPorDefecto();
+      setTimeout(posicionPorDefecto, 50);
     }
-  } catch(e){}
-})();
+  } catch(e){
+    setTimeout(posicionPorDefecto, 50);
+  }
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function(){ window.initDragAsistenteWidget(); });
+} else {
+  setTimeout(function(){ window.initDragAsistenteWidget(); }, 50);
+}
+window.addEventListener('load', function(){ window.initDragAsistenteWidget(); });
 
 window.checkAndRunFirstTimeTour = function checkAndRunFirstTimeTour(force){
   var TOUR_STEPS = [
@@ -2599,8 +2626,10 @@ function procesarLineaMultimediaChat(strText) {
   var visualUrl = '', visualType = '', visualFilename = '';
   var audioUrl = '', audioFilename = '';
 
-  var tagRegexGlobal = new RegExp('\\\\[' + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):' + '\\\\s*' + '([^' + '\\\\]' + ']+)' + '\\\\]', 'gi');
-  var tagRegexSingle = new RegExp('\\\\[' + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):' + '\\\\s*' + '([^' + '\\\\]' + ']+)' + '\\\\]', 'i');
+  var escOB = String.fromCharCode(92) + String.fromCharCode(91);
+  var escCB = String.fromCharCode(92) + String.fromCharCode(93);
+  var tagRegexGlobal = new RegExp(escOB + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^' + escCB + ']+)' + escCB, 'gi');
+  var tagRegexSingle = new RegExp(escOB + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^' + escCB + ']+)' + escCB, 'i');
   var allTags = cleanText.match(tagRegexGlobal) || [];
   allTags.forEach(function(tagStr) {
     var m = tagStr.match(tagRegexSingle);
@@ -3987,20 +4016,30 @@ function abrirSolicitudCorporativa(planNombre, limiteCupos, edificiosJsonStr) {
   var lblPlan = document.getElementById('corp-plan-nombre');
   if (lblPlan) lblPlan.textContent = planNombre + ' (' + _corpLimiteCupos + ' Edificios)';
 
+  var yaEnPaquete = _corpEdificiosLista.filter(function(e) {
+    var pName = String(e.plan || '').toLowerCase();
+    return pName.includes('corporativo') || pName.includes(planNombre.toLowerCase());
+  });
+
   var container = document.getElementById('corp-edificios-checklist');
   if (container) {
     if (_corpEdificiosLista.length === 0) {
       container.innerHTML = '<div style="padding:16px;text-align:center;color:#8595AD">No tenés edificios registrados aún.</div>';
     } else {
       container.innerHTML = _corpEdificiosLista.map(function(e, idx) {
-        var autoChecked = idx < _corpLimiteCupos ? 'checked' : '';
-        var statusBadge = autoChecked ? '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#E7F4EC;color:#1B7A43">Incluido en Paquete</span>' : '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F1F5FB;color:#64748B">Plan Individual</span>';
+        var pName = String(e.plan || '').toLowerCase();
+        var perteneceYa = pName.includes('corporativo') || (planNombre && pName.includes(planNombre.toLowerCase()));
+        var autoChecked = yaEnPaquete.length > 0 ? perteneceYa : idx < _corpLimiteCupos;
+
+        var statusBadge = autoChecked
+          ? '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ En el Paquete</span>'
+          : '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F1F5FB;color:#64748B">Plan Individual</span>';
         var safeNombre = escStr(e.nombre);
         var safeDir = escStr(e.direccion || e.nombre);
         var safePlan = escStr(e.plan || 'Base');
         return '<label style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#fff;border:1.5px solid #E4E9F1;border-radius:12px;cursor:pointer;gap:12px" class="hv-card">' +
           '<div style="display:flex;align-items:center;gap:12px">' +
-            '<input type="checkbox" class="chk-corp-item" value="' + safeNombre + '" ' + autoChecked + ' onchange="recalcularCuposCorp()" style="width:18px;height:18px;accent-color:#2E6FC0">' +
+            '<input type="checkbox" class="chk-corp-item" value="' + safeNombre + '" ' + (autoChecked ? 'checked' : '') + ' data-pertenece="' + (perteneceYa ? '1' : '0') + '" onchange="recalcularCuposCorp()" style="width:18px;height:18px;accent-color:#2E6FC0">' +
             '<div>' +
               '<div style="font-size:14.5px;font-weight:700;color:#16233B">' + safeNombre + '</div>' +
               '<div style="font-size:12px;color:#8595AD">' + safeDir + ' · Plan actual: ' + safePlan + '</div>' +
@@ -4023,18 +4062,32 @@ function recalcularCuposCorp() {
   chks.forEach(function(chk) {
     var label = chk.closest('label');
     var tag = label ? label.querySelector('.corp-status-tag') : null;
+    var perteneceYa = chk.getAttribute('data-pertenece') === '1';
+
     if (chk.checked) {
       count++;
       if (tag) {
-        tag.textContent = 'Incluido en Paquete';
-        tag.style.background = '#E7F4EC';
-        tag.style.color = '#1B7A43';
+        if (perteneceYa) {
+          tag.textContent = '✓ Mantiene en Paquete';
+          tag.style.background = '#E7F4EC';
+          tag.style.color = '#1B7A43';
+        } else {
+          tag.textContent = '➕ Adherir al Paquete';
+          tag.style.background = '#EAF1FB';
+          tag.style.color = '#2E6FC0';
+        }
       }
     } else {
       if (tag) {
-        tag.textContent = 'Plan Individual';
-        tag.style.background = '#F1F5FB';
-        tag.style.color = '#64748B';
+        if (perteneceYa) {
+          tag.textContent = '❌ Quitar del Paquete';
+          tag.style.background = '#FDF2F2';
+          tag.style.color = '#C0392B';
+        } else {
+          tag.textContent = 'Plan Individual';
+          tag.style.background = '#F1F5FB';
+          tag.style.color = '#64748B';
+        }
       }
     }
   });
@@ -4570,13 +4623,11 @@ function parseHorario3Lineas(str) {
 
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
-  var escOpenP = String.fromCharCode(92) + String.fromCharCode(40);
-  var escCloseP = String.fromCharCode(92) + String.fromCharCode(41);
-  var escOpenB = String.fromCharCode(92) + String.fromCharCode(91);
-  var escCloseB = String.fromCharCode(92) + String.fromCharCode(93);
 
-  var rawNames = String(namesStr || '').split(new RegExp('[,\\n;]', 'g')).map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(new RegExp('[,\\n;]', 'g')).map(function(s){ return s.trim(); }).filter(Boolean);
+  var nlChars = String.fromCharCode(10) + String.fromCharCode(13);
+  var staffSplitRegex = new RegExp('[,;' + nlChars + ']+');
+  var rawNames = String(namesStr || '').split(staffSplitRegex).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawTels = String(telsStr || '').split(staffSplitRegex).map(function(s){ return s.trim(); }).filter(Boolean);
   var res = [];
 
   for (var i = 0; i < rawNames.length; i++) {
@@ -4585,31 +4636,47 @@ function parseStaffClient(namesStr, telsStr) {
     var estado = 'activo';
     var horario = '';
 
-    var isScheduleFragment = new RegExp('^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|[0-9]{1,2}:)', 'i').test(str.replace(new RegExp('^[^a-z0-9]+', 'i'), ''));
-    if (isScheduleFragment && res.length > 0) {
-      var cleanHor = str.replace(new RegExp(escOpenB + '[^' + escCloseB + ']*' + escCloseB, 'g'), '').replace(new RegExp(escCloseB, 'g'), '').replace(new RegExp('^[^a-z0-9]+', 'i'), '').trim();
-      if (cleanHor) {
-        res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
-          ? cleanHor
-          : res[res.length - 1].horario + ' · ' + cleanHor;
+    // Extract bracket metadata: e.g. "Juan Perez [activo | L-V 8-16]"
+    var openB = str.indexOf('[');
+    var closeB = str.indexOf(']', openB);
+    if (openB !== -1 && closeB > openB) {
+      var metaContent = str.substring(openB + 1, closeB).trim();
+      str = (str.substring(0, openB) + ' ' + str.substring(closeB + 1)).trim();
+
+      if (metaContent) {
+        var parts = metaContent.split('|').map(function(s){ return s.trim(); }).filter(Boolean);
+        parts.forEach(function(part) {
+          var pLow = part.toLowerCase();
+          if (pLow === 'activo' || pLow === 'licencia' || pLow === 'vacaciones') {
+            estado = pLow;
+          } else {
+            horario = part;
+          }
+        });
       }
-      continue;
     }
 
-    var matchMeta = str.match(new RegExp(escOpenB + '(activo|licencia|vacaciones)?\\s*\\|?\\s*([^' + escCloseB + ']*)' + escCloseB, 'i'));
-    if (matchMeta) {
-      if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
-      if (matchMeta[2]) horario = matchMeta[2].trim();
-      str = str.replace(new RegExp(escOpenB + '[^' + escCloseB + ']*' + escCloseB, 'g'), '').trim();
+    // Extract phone in parentheses: e.g. "Juan Perez (1167350436)"
+    var openP = str.indexOf('(');
+    var closeP = str.indexOf(')', openP);
+    if (openP !== -1 && closeP > openP) {
+      var telInParens = str.substring(openP + 1, closeP).trim();
+      if (telInParens && (!tel || tel === '—')) {
+        tel = telInParens;
+      }
+      str = (str.substring(0, openP) + ' ' + str.substring(closeP + 1)).trim();
     }
 
-    var matchTel = str.match(new RegExp(escOpenP + '([^' + escCloseP + ']+)' + escCloseP));
-    if (matchTel && (!tel || tel === '—')) {
-      tel = matchTel[1].trim();
-      str = str.replace(new RegExp(escOpenP + '[^' + escCloseP + ']+' + escCloseP, 'g'), '').trim();
+    // If str is a pure phone number e.g. "1167350436" or "+5411...", assign to tel
+    if (/^[\-+0-9\s()]+$/.test(str) && str.replace(/[^0-9]/g, '').length >= 7) {
+      if (!tel || tel === '—') {
+        tel = str;
+        str = '';
+      }
     }
 
-    str = str.replace(new RegExp(escOpenB + '|' + escCloseB, 'g'), '').trim();
+    // Clean leftover brackets or parentheses if any
+    str = str.replace(/[\[\]\(\)]/g, '').trim();
 
     if (str || tel !== '—') {
       res.push({
@@ -4752,7 +4819,7 @@ async function guardarStaffItem(btn) {
   }
 
   var items = parseStaffClient(namesStr, telsStr);
-  var cleanNombre = nombre.trim().replace(new RegExp('\\[|\\]', 'g'), '');
+  var cleanNombre = nombre.trim().replace(/[\[\]]/g, '');
   var newItem = {
     nombre: cleanNombre || 'Personal',
     tel: tel.trim() || '—',
@@ -4767,7 +4834,7 @@ async function guardarStaffItem(btn) {
   }
 
   var formattedNames = items.map(function(x){
-    var cNom = (x.nombre || 'Personal').replace(new RegExp('\\[|\\]', 'g'), '').trim();
+    var cNom = (x.nombre || 'Personal').replace(/[\[\]]/g, '').trim();
     return cNom + ' [' + (x.estado || 'activo') + ' | ' + (x.horario || 'Sin horario') + ']';
   }).join(', ');
 
@@ -5851,7 +5918,7 @@ ${(() => {
 })()}
 
 <!-- Widget Asistente Virtual AC -->
-<div id="ac-ai-widget-container" data-tour="ai-widget" style="position:fixed;bottom:24px;left:24px;z-index:9999;font-family:'Hanken Grotesk',sans-serif">
+<div id="ac-ai-widget-container" data-tour="ai-widget" style="position:fixed;top:12px;left:370px;z-index:9999;font-family:'Hanken Grotesk',sans-serif">
   <!-- Ventana Chat Desplegable -->
   <div id="ac-ai-chat-box" style="display:none;flex-direction:column;width:340px;height:460px;background:#ffffff;border:1px solid #DCE4F0;border-radius:18px;box-shadow:0 12px 32px rgba(16,35,59,.22);overflow:hidden;margin-bottom:12px">
     <div style="background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
@@ -5884,8 +5951,8 @@ ${(() => {
   </div>
 
   <!-- Botón Flotante Principal -->
-  <button onclick="toggleAsistenteWidget()" style="height:48px;padding:0 18px;border:none;border-radius:999px;background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;font-weight:800;font-size:14px;box-shadow:0 8px 24px rgba(23,64,139,.35);cursor:pointer;display:flex;align-items:center;gap:8px;transition:all .2s ease" class="hv-navy">
-    <span style="font-size:18px">✨</span> Asistente IA
+  <button id="ac-ai-trigger-btn" onclick="toggleAsistenteWidget()" onmouseenter="if(window.initDragAsistenteWidget)window.initDragAsistenteWidget()" onmousedown="if(window.initDragAsistenteWidget)window.initDragAsistenteWidget()" style="height:40px;padding:0 16px;border:none;border-radius:999px;background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;font-weight:800;font-size:14px;box-shadow:0 4px 12px rgba(23,64,139,.25);cursor:grab;display:flex;align-items:center;gap:7px;user-select:none;touch-action:none" class="hv-navy">
+    <span style="font-size:17px">✨</span> Asistente IA
   </button>
 </div>
 
@@ -9103,12 +9170,78 @@ function columnLetter(n) {
   return s;
 }
 
+function letterToColumnNumber(letter) {
+  let col = 0;
+  const str = String(letter || '').toUpperCase().replace(/[^A-Z]/g, '');
+  for (let i = 0; i < str.length; i++) {
+    col = col * 26 + (str.charCodeAt(i) - 64);
+  }
+  return col || 1;
+}
+
+async function ensureGridDimensions(tabName, colIndex, rowIndex) {
+  try {
+    const sheets = await getSheetsClient();
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    const normTab = String(tabName || '').toLowerCase().trim();
+    const sheetObj = (meta.data.sheets || []).find((s) => s.properties && String(s.properties.title || '').toLowerCase().trim() === normTab);
+    if (!sheetObj) return;
+
+    const props = sheetObj.properties.gridProperties || {};
+    const currentCols = props.columnCount || 26;
+    const currentRows = props.rowCount || 1000;
+    const sheetId = sheetObj.properties.sheetId;
+
+    const reqs = [];
+    if (colIndex > currentCols) {
+      reqs.push({
+        updateSheetProperties: {
+          properties: {
+            sheetId: sheetId,
+            gridProperties: {
+              columnCount: Math.max(colIndex + 5, currentCols + 5)
+            }
+          },
+          fields: 'gridProperties.columnCount'
+        }
+      });
+    }
+
+    if (rowIndex > currentRows) {
+      reqs.push({
+        updateSheetProperties: {
+          properties: {
+            sheetId: sheetId,
+            gridProperties: {
+              rowCount: Math.max(rowIndex + 100, currentRows + 500)
+            }
+          },
+          fields: 'gridProperties.rowCount'
+        }
+      });
+    }
+
+    if (reqs.length > 0) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: { requests: reqs }
+      });
+    }
+  } catch (err) {
+    console.warn(`[ensureGridDimensions] Aviso al expandir rejilla para ${tabName}:`, err.message);
+  }
+}
+
 async function writeCell(tabName, col, row, value) {
   await ensureSheetExists(tabName).catch(() => {});
+  const colNum = typeof col === 'number' ? col : letterToColumnNumber(col);
+  const colStr = typeof col === 'number' ? columnLetter(col) : col;
+  const rowNum = Number(row) || 1;
+  await ensureGridDimensions(tabName, colNum, rowNum).catch(() => {});
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `${tabName}!${col}${row}`,
+    range: `${tabName}!${colStr}${rowNum}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [[value]] },
   });
@@ -10075,98 +10208,6 @@ router.post('/api/proveedor', async (req, res) => {
       estado: 'activo',
     });
     res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});
-
-// Cargar o corregir a mano los datos de cobro de un proveedor.
-// Desde el panel se escriben directo: quien está acá ya entró con su usuario, a diferencia de un
-// WhatsApp donde la identidad es apenas un número de teléfono.
-router.post('/api/proveedor-datos-cobro', async (req, res) => {
-  if (bloquearSiPreview(req, res)) return;
-  try {
-    const { row, cbu, alias, titular, cuit } = req.body || {};
-    if (!row) return res.status(400).json({ error: 'Fila inválida' });
-
-    const { rows } = await readTab(TAB_PROVEEDORES);
-    const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
-    if (!prov) return res.status(404).json({ error: 'Proveedor no encontrado' });
-    if (!esDueno(req) && prov.cliente !== clienteDeSesion(req)) {
-      return res.status(403).json({ error: 'Ese proveedor no es de tu lista' });
-    }
-
-    // El CBU se verifica también acá: un dígito de más al tipear termina en un pago rechazado.
-    const limpio = String(cbu || '').replace(/\D/g, '');
-    if (limpio) {
-      const { validarCBU } = require('./cbu');
-      const chequeo = validarCBU(limpio);
-      if (!chequeo.valido) return res.status(400).json({ error: `Ese CBU no es válido: ${chequeo.motivo}` });
-    }
-    const aliasLimpio = String(alias || '').trim();
-    if (aliasLimpio) {
-      const { validarAlias } = require('./cbu');
-      const chequeo = validarAlias(aliasLimpio);
-      if (!chequeo.valido) return res.status(400).json({ error: `Ese alias no es válido: ${chequeo.motivo}` });
-    }
-
-    const escribir = async (campo, valor) => {
-      const plan = await findOrPlanColumn(TAB_PROVEEDORES, [campo]);
-      if (plan.create) await ensureHeader(TAB_PROVEEDORES, plan.col, campo, false);
-      await writeCell(TAB_PROVEEDORES, plan.col, Number(row), valor);
-    };
-
-    if (limpio) await escribir('cbu', limpio);
-    if (aliasLimpio) await escribir('alias_cbu', aliasLimpio.toLowerCase());
-    if (titular !== undefined) await escribir('titular', String(titular || '').trim());
-    if (cuit !== undefined) await escribir('cuit', String(cuit || '').replace(/\D/g, ''));
-    if (limpio || aliasLimpio) await escribir('cbu_actualizado', new Date().toLocaleString('es-AR'));
-
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});
-
-// Aprobar o rechazar el cambio de datos de cobro que pidió un proveedor por WhatsApp.
-//
-// Un cambio de CBU nunca se aplica solo: es el fraude más común que hay -- alguien se mete en la
-// conversación, dice "cambié de banco", y el pago del mes se va a otra cuenta. Hasta que alguien
-// aprueba acá, la cuenta anterior sigue siendo la vigente. Un pago demorado se arregla; uno
-// mandado a la cuenta equivocada no.
-router.post('/api/proveedor-cambio-cobro', async (req, res) => {
-  if (bloquearSiPreview(req, res)) return;
-  try {
-    const { row, aprobar } = req.body || {};
-    if (!row) return res.status(400).json({ error: 'Fila inválida' });
-
-    const { rows } = await readTab(TAB_PROVEEDORES);
-    const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
-    if (!prov) return res.status(404).json({ error: 'Proveedor no encontrado' });
-    if (!esDueno(req) && prov.cliente !== clienteDeSesion(req)) {
-      return res.status(403).json({ error: 'Ese proveedor no es de tu lista' });
-    }
-    if (!prov.cbu_pendiente && !prov.alias_pendiente) {
-      return res.status(400).json({ error: 'Ese proveedor no tiene ningún cambio pendiente' });
-    }
-
-    const escribir = async (campo, valor) => {
-      const plan = await findOrPlanColumn(TAB_PROVEEDORES, [campo]);
-      if (plan.create) await ensureHeader(TAB_PROVEEDORES, plan.col, campo, false);
-      await writeCell(TAB_PROVEEDORES, plan.col, Number(row), valor);
-    };
-
-    if (aprobar) {
-      if (prov.cbu_pendiente) await escribir('cbu', prov.cbu_pendiente);
-      if (prov.alias_pendiente) await escribir('alias_cbu', prov.alias_pendiente);
-      await escribir('cbu_actualizado', new Date().toLocaleString('es-AR'));
-    }
-    await escribir('cbu_pendiente', '');
-    await escribir('alias_pendiente', '');
-    await escribir('cbu_pendiente_desde', '');
-
-    console.log(`🔐 Cambio de datos de cobro de "${prov.nombre}" ${aprobar ? 'APROBADO' : 'RECHAZADO'} por ${req.session.user}.`);
-    res.json({ ok: true, aprobado: Boolean(aprobar) });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
