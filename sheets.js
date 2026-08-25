@@ -1179,17 +1179,28 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
                 if (rawInv) involucradosLista = JSON.parse(rawInv);
             } catch(e) {}
         }
-        if (telefono && telBuscado.length >= 6) {
-            const yaEsta = involucradosLista.some(i => String(i.telefono).replace(/\D/g, '') === telBuscado);
-            if (!yaEsta) {
-                involucradosLista.push({
-                    nombre: vecino || 'Participante',
-                    telefono: telefono,
-                    depto: depto || '',
-                    fecha: fechaHoraAR()
-                });
-            }
-        }
+        // REGLA: todo número que participa de un caso queda registrado en el caso.
+        //
+        // Sea por WhatsApp o por llamada, el administrador tiene que poder ver a quién hablarle
+        // sin salir a buscar el número por otro lado. Antes solo se anotaba el teléfono del
+        // vecino: el del técnico viajaba en `tel_tecnico` y no entraba a esta lista, así que en
+        // un caso donde intervinieron tres personas figuraba una sola.
+        const sumarInvolucrado = (tel, nombre, rol, deptoDe = '') => {
+            const limpio = String(tel || '').replace(/\D/g, '');
+            if (!limpio || limpio.length < 6) return;
+            const yaEsta = involucradosLista.some(i => String(i.telefono).replace(/\D/g, '') === limpio);
+            if (yaEsta) return;
+            involucradosLista.push({
+                nombre: nombre || 'Participante',
+                telefono: tel,
+                rol,
+                depto: deptoDe || '',
+                fecha: fechaHoraAR(),
+            });
+        };
+
+        sumarInvolucrado(telefono, vecino, 'vecino', depto);
+        sumarInvolucrado(tel_tecnico, tecnico, rubro_tecnico ? `técnico (${rubro_tecnico})` : 'técnico');
 
         // Manejar chats independientes: chat_vecino_json y chat_proveedor_json
         let chatVecinoLista = [];
