@@ -272,6 +272,33 @@ app.post('/webhook', async (req, res) => {
 
     try {
         const entry = req.body?.entry?.[0]?.changes?.[0]?.value;
+
+        // ── AVISOS DE ENTREGA DE META ────────────────────────────────────────────────────
+        //
+        // Cuando Marcos manda un mensaje, Meta contesta 200 al instante: eso significa "lo
+        // recibí", NO "lo entregué". El resultado real llega después, en un webhook aparte con
+        // `statuses` -- sent, delivered, read o failed.
+        //
+        // Esos avisos se descartaban con el `return` de abajo, así que un `failed` era
+        // completamente invisible: el log decía "foto reenviada al técnico", Meta la rechazaba
+        // media hora más tarde, y nadie se enteraba nunca. Es exactamente lo que hacía que un
+        // sistema roto pareciera un sistema funcionando.
+        if (Array.isArray(entry?.statuses) && entry.statuses.length) {
+            const { motivoMeta } = require('./agentes/marcos-ops');
+            for (const st of entry.statuses) {
+                if (st.status !== 'failed') continue;
+                for (const err of (st.errors || [{}])) {
+                    const codigo = err.code;
+                    const detalle = err.title || err.message || err.error_data?.details || 'sin detalle';
+                    const porQue = motivoMeta(codigo, `${detalle} ${err.error_data?.details || ''}`);
+                    console.error(
+                        `📵 META RECHAZÓ LA ENTREGA a ${st.recipient_id}${codigo ? ` [código ${codigo}]` : ''}: ` +
+                        `${detalle}${porQue ? ' → ' + porQue : ''}`
+                    );
+                }
+            }
+        }
+
         if (!entry?.messages?.[0]) return;
 
         const message  = entry.messages[0];

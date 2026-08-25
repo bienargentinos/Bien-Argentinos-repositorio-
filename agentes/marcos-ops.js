@@ -601,26 +601,31 @@ function normalizarTelefonoWhatsApp(telefono) {
  * plantillas aprobadas, y rechaza cualquier mensaje libre -- texto, foto, contacto, audio. Le
  * pasa siempre al técnico que hace días que no escribe.
  */
+function motivoMeta(codigo, detalle = '') {
+    if (codigo === 131047 || /24 hours|re-?engagement/i.test(detalle)) {
+        return 'Pasaron más de 24hs desde el último mensaje de esa persona. ' +
+               'Meta solo permite PLANTILLAS fuera de esa ventana: este mensaje NO llegó.';
+    }
+    if (codigo === 131026) return 'Ese número no tiene WhatsApp o no puede recibir mensajes.';
+    if (codigo === 131051) return 'Tipo de mensaje no soportado para ese destinatario.';
+    if (codigo === 131049) return 'Meta decidió no entregarlo para cuidar la experiencia del usuario (límite de marketing).';
+    if (codigo === 130472) return 'El usuario está en un experimento de Meta que bloquea este envío.';
+    if (codigo === 190 || codigo === 102) return 'El token de acceso venció o es inválido. Hay que renovarlo en Meta.';
+    if (codigo === 100) return 'Parámetro inválido (número mal formado, o media_id vencido).';
+    if (codigo === 132000 || codigo === 132001) return 'La plantilla no existe o no está aprobada con ese nombre/idioma.';
+    if (codigo === 132015) return 'La plantilla está pausada por mala calidad.';
+    if (codigo === 133010) return 'El número de la empresa no está registrado en la Cloud API.';
+    if (codigo === 80007 || codigo === 4) return 'Se superó el límite de envíos por hora. Hay que esperar.';
+    return '';
+}
+
 function explicarErrorMeta(que, para, error) {
     const datos = error?.response?.data?.error || null;
     const codigo = datos?.code;
     const detalle = datos?.message || error?.message || 'sin detalle';
+    const porQue = motivoMeta(codigo, detalle);
 
-    let porQue = '';
-    if (codigo === 131047 || /24 hours|re-?engagement/i.test(detalle)) {
-        porQue = ' → Pasaron más de 24hs desde el último mensaje de esa persona. ' +
-                 'Meta solo permite PLANTILLAS fuera de esa ventana: este mensaje NO llegó.';
-    } else if (codigo === 131026) {
-        porQue = ' → Ese número no tiene WhatsApp o no puede recibir mensajes.';
-    } else if (codigo === 131051) {
-        porQue = ' → Tipo de mensaje no soportado para ese destinatario.';
-    } else if (codigo === 190 || codigo === 102) {
-        porQue = ' → El token de acceso venció o es inválido. Hay que renovarlo en Meta.';
-    } else if (codigo === 100) {
-        porQue = ' → Parámetro inválido (número mal formado, o media_id vencido).';
-    }
-
-    console.error(`❌ NO SE PUDO ENVIAR ${que} a ${para}${codigo ? ` [código ${codigo}]` : ''}: ${detalle}${porQue}`);
+    console.error(`❌ NO SE PUDO ENVIAR ${que} a ${para}${codigo ? ` [código ${codigo}]` : ''}: ${detalle}${porQue ? ' → ' + porQue : ''}`);
 }
 
 async function enviarWhatsApp(to, text, phoneNumberId, accessToken) {
@@ -900,6 +905,7 @@ function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, p
 module.exports = {
     gestionarOperaciones,
     enviarWhatsApp,
+    motivoMeta,
     enviarPlantillaWhatsApp,
     subirMediaWhatsApp,
     enviarAudioWhatsApp,
