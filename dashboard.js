@@ -1955,11 +1955,14 @@ window.toggleAsistenteWidget = function toggleAsistenteWidget(){
 var toggleAsistenteWidget = window.toggleAsistenteWidget;
 
 // --- Arrastrar el globo flotante del Asistente ---
-(function initDragAsistenteWidget(){
+// --- Arrastrar el globo flotante del Asistente ---
+window.initDragAsistenteWidget = function initDragAsistenteWidget(){
   var widget = document.getElementById('ac-ai-widget-container');
   if (!widget) return;
-  var handle = widget.querySelector('button.hv-navy');
+  var handle = widget.querySelector('button.hv-navy') || widget.querySelector('#ac-ai-trigger-btn') || widget.querySelector('button');
   if (!handle) return;
+  if (handle.__dragInitialized) return;
+  handle.__dragInitialized = true;
 
   var dragging = false;
   var moved = false;
@@ -1970,7 +1973,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
   }
 
   function applyPosition(left, top){
-    var w = widget.offsetWidth || 60;
+    var w = widget.offsetWidth || 140;
     var h = widget.offsetHeight || 48;
     left = clamp(left, 8, window.innerWidth - w - 8);
     top = clamp(top, 8, window.innerHeight - h - 8);
@@ -2000,6 +2003,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
   function onPointerUp(){
     if (!dragging) return;
     dragging = false;
+    handle.style.cursor = 'grab';
     document.removeEventListener('mousemove', onPointerMove);
     document.removeEventListener('mouseup', onPointerUp);
     document.removeEventListener('touchmove', onPointerMove);
@@ -2007,6 +2011,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     if (moved) {
       guardarPosicion();
       window.__aiWidgetJustDragged = true;
+      setTimeout(function(){ window.__aiWidgetJustDragged = false; }, 300);
     }
   }
 
@@ -2014,6 +2019,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     var p = e.touches ? e.touches[0] : e;
     dragging = true;
     moved = false;
+    handle.style.cursor = 'grabbing';
     var rect = widget.getBoundingClientRect();
     startLeft = rect.left;
     startTop = rect.top;
@@ -2036,7 +2042,6 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
   });
 
   function posicionPorDefecto(){
-    // Ubicar por defecto en el ENCABEZADO al lado de la lista desplegable de edificios
     var edBtn = document.querySelector('button[onclick*="menu-edificio"]') || document.querySelector('#menu-edificio-btn');
     var header = document.querySelector('header');
     
@@ -2068,13 +2073,19 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
       applyPosition(saved.left, saved.top);
     } else {
-      setTimeout(posicionPorDefecto, 100);
-      window.addEventListener('load', posicionPorDefecto);
+      setTimeout(posicionPorDefecto, 50);
     }
   } catch(e){
-    setTimeout(posicionPorDefecto, 100);
+    setTimeout(posicionPorDefecto, 50);
   }
-})();
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function(){ window.initDragAsistenteWidget(); });
+} else {
+  setTimeout(function(){ window.initDragAsistenteWidget(); }, 50);
+}
+window.addEventListener('load', function(){ window.initDragAsistenteWidget(); });
 
 window.checkAndRunFirstTimeTour = function checkAndRunFirstTimeTour(force){
   var TOUR_STEPS = [
@@ -5940,8 +5951,8 @@ ${(() => {
   </div>
 
   <!-- Botón Flotante Principal -->
-  <button onclick="toggleAsistenteWidget()" style="height:48px;padding:0 18px;border:none;border-radius:999px;background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;font-weight:800;font-size:14px;box-shadow:0 8px 24px rgba(23,64,139,.35);cursor:pointer;display:flex;align-items:center;gap:8px;transition:all .2s ease" class="hv-navy">
-    <span style="font-size:18px">✨</span> Asistente IA
+  <button id="ac-ai-trigger-btn" onclick="toggleAsistenteWidget()" onmouseenter="if(window.initDragAsistenteWidget)window.initDragAsistenteWidget()" onmousedown="if(window.initDragAsistenteWidget)window.initDragAsistenteWidget()" style="height:38px;padding:0 14px;border:none;border-radius:999px;background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;font-weight:800;font-size:13px;box-shadow:0 4px 12px rgba(23,64,139,.25);cursor:grab;display:flex;align-items:center;gap:6px;user-select:none;touch-action:none" class="hv-navy">
+    <span style="font-size:16px">✨</span> Asistente IA
   </button>
 </div>
 
