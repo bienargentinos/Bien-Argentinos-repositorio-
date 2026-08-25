@@ -4787,7 +4787,7 @@ async function guardarStaffItem(btn) {
   }
 
   var items = parseStaffClient(namesStr, telsStr);
-  var cleanNombre = nombre.trim().replace(new RegExp('\\[|\\]', 'g'), '');
+  var cleanNombre = nombre.trim().replace(/[\[\]]/g, '');
   var newItem = {
     nombre: cleanNombre || 'Personal',
     tel: tel.trim() || '—',
@@ -4802,7 +4802,7 @@ async function guardarStaffItem(btn) {
   }
 
   var formattedNames = items.map(function(x){
-    var cNom = (x.nombre || 'Personal').replace(new RegExp('\\[|\\]', 'g'), '').trim();
+    var cNom = (x.nombre || 'Personal').replace(/[\[\]]/g, '').trim();
     return cNom + ' [' + (x.estado || 'activo') + ' | ' + (x.horario || 'Sin horario') + ']';
   }).join(', ');
 
