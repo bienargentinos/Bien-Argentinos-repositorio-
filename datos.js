@@ -148,6 +148,9 @@ async function buscarDatosBancariosProveedor(args) {
 async function guardarDatosBancariosProveedor(args) {
     return sheets.guardarDatosBancariosProveedor(args);
 }
+async function registrarProveedorNoVerificado(args) {
+    return sheets.registrarProveedorNoVerificado(args);
+}
 async function resolverCambioBancario(args) {
     return sheets.resolverCambioBancario(args);
 }
@@ -560,6 +563,7 @@ module.exports = {
     buscarDatosBancariosProveedor,
     guardarDatosBancariosProveedor,
     resolverCambioBancario,
+    registrarProveedorNoVerificado,
     buscarFacturasSinImputar,
     imputarFacturaSinEdificio,
     buscarPersonalDeTurno,

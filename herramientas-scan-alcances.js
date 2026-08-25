@@ -92,11 +92,68 @@ walk.ancestor(ast, {
     }
 });
 
-if (sospechosos.size === 0) {
+// 4) Usos ANTES de la declaracion, dentro del mismo bloque.
+//
+// Un `let`/`const` no existe hasta la linea donde se declara: usarlo mas arriba es un
+// ReferenceError en ejecucion, aunque este en el mismo bloque y `node --check` lo acepte. La
+// revision de arriba solo mira DONDE, no CUANDO, asi que este caso se le escapaba -- y paso:
+// una funcion nueva leia `notaDeQuienEnvia` sesenta lineas antes de que se declarara.
+const antesDeTiempo = new Map();
+
+// La funcion que envuelve a un nodo, o null si esta en el cuerpo del modulo. Es lo que decide
+// si el orden importa: dos cosas en la MISMA funcion se ejecutan uno detras del otro, asi que
+// usar algo declarado mas abajo revienta. Si el uso esta adentro de OTRA funcion, esa funcion
+// puede llamarse mucho despues y el orden en el archivo no dice nada.
+const envolvente = (ancestors) => {
+    for (let i = ancestors.length - 1; i >= 0; i--) {
+        if (/Function/.test(ancestors[i].type)) return ancestors[i].start;
+    }
+    return null;
+};
+
+const declaracionEn = new Map(); // nombre -> {start, linea, fn}
+walk.ancestor(ast, {
+    VariableDeclaration(n, _st, ancestors) {
+        if (n.kind === 'var') return;
+        for (const d of n.declarations) {
+            if (d.id.type !== 'Identifier') continue;
+            if (!declaracionEn.has(d.id.name)) {
+                declaracionEn.set(d.id.name, { start: n.start, linea: n.loc.start.line, fn: envolvente(ancestors) });
+            }
+        }
+    },
+});
+
+walk.ancestor(ast, {
+    Identifier(node, _st, ancestors) {
+        const padre = ancestors[ancestors.length - 2];
+        if (!padre) return;
+        if (padre.type === 'MemberExpression' && padre.property === node && !padre.computed) return;
+        if (padre.type === 'Property' && padre.key === node && !padre.computed) return;
+        if (padre.type === 'VariableDeclarator' && padre.id === node) return;
+        if (/Function/.test(padre.type) && padre.params && padre.params.includes(node)) return;
+
+        const decl = declaracionEn.get(node.name);
+        if (!decl || node.start >= decl.start) return;
+        if (otros.has(node.name)) return; // tambien existe como funcion o var: no se puede afirmar
+
+        // Solo importa si los dos estan en la misma funcion (o los dos en el cuerpo del modulo).
+        if (envolvente(ancestors) !== decl.fn) return;
+
+        if (!antesDeTiempo.has(node.name)) antesDeTiempo.set(node.name, { usos: [], declarada: decl.linea });
+        antesDeTiempo.get(node.name).usos.push(node.loc.start.line);
+    }
+});
+
+if (sospechosos.size === 0 && antesDeTiempo.size === 0) {
     console.log(`✅ ${archivo}: sin usos fuera de alcance.`);
 } else {
     console.log(`⚠️ ${archivo}:`);
     for (const [n, lineas] of sospechosos) {
         console.log(`   ${n} — usado en linea(s) ${lineas.join(', ')} fuera del bloque donde se declara`);
     }
+    for (const [n, info] of antesDeTiempo) {
+        console.log(`   ${n} — usado en linea(s) ${info.usos.join(', ')} ANTES de declararse (linea ${info.declarada}): ReferenceError al ejecutar`);
+    }
+    process.exit(1);
 }

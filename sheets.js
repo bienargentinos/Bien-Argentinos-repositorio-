@@ -726,6 +726,83 @@ async function guardarDatosBancariosProveedor({ nombre = '', telefono = '', cbu 
     }
 }
 
+/**
+ * Da de alta a un técnico que NO estaba en la lista, con sus datos de cobro SIN ACTIVAR.
+ *
+ * Pasa seguido: el encargado llama a un plomero por su cuenta, el trabajo se hace, y el plomero
+ * le escribe a Marcos para pasar la factura. Ese número no está cargado en ningún lado.
+ *
+ * El trabajo y la factura se registran -- son un antecedente y no mueven plata. Los datos de
+ * cobro NO: entran como `cbu_pendiente`, con el proveedor en estado `sin_verificar`, y no se
+ * pueden usar hasta que la Administración los apruebe.
+ *
+ * El motivo es directo: acá la identidad es un número de teléfono desconocido. Aceptar un CBU
+ * así es exactamente cómo funciona el fraude -- alguien escribe "soy el plomero que arregló lo
+ * del 3°B, pagame acá" y cobra un trabajo que no hizo. Registrar el pedido y hacer que alguien
+ * lo confirme cuesta unos días; pagarle a un desconocido no se deshace.
+ *
+ * @returns {{ok, creado, nombre, yaExistia}}
+ */
+async function registrarProveedorNoVerificado({ nombre = '', telefono = '', rubro = '', cliente = '', cbu = '', alias = '', titular = '', cuit = '' }) {
+    try {
+        const doc = await getSheet();
+        const hoja = pestaña(doc, 'proveedores');
+        if (!hoja) return { ok: false, motivo: 'no existe la pestaña proveedores' };
+
+        const tel = String(telefono || '').replace(/\D/g, '');
+        if (!tel) return { ok: false, motivo: 'sin teléfono no se puede registrar' };
+
+        await hoja.loadHeaderRow().catch(() => {});
+        const headers = hoja.headerValues || [];
+        const necesarias = ['cliente', 'rubro', 'nombre', 'telefono', 'notas', 'estado', ...COLUMNAS_BANCARIAS];
+        const nuevas = Array.from(new Set([...headers, ...necesarias]));
+        if (nuevas.length > headers.length) await hoja.setHeaderRow(nuevas).catch(() => {});
+
+        const mismoTelefono = (a) => {
+            const x = String(a || '').replace(/\D/g, '');
+            if (!x) return false;
+            return x === tel || x.endsWith(tel.slice(-8)) || tel.endsWith(x.slice(-8));
+        };
+
+        // Si ya existe una fila con ese teléfono no se duplica: se le anota lo pendiente.
+        const filas = await hoja.getRows();
+        const existente = filas.find(r => mismoTelefono(r.get('telefono') || r.get('wsp')));
+        if (existente) {
+            if (cbu) existente.set('cbu_pendiente', String(cbu).replace(/\D/g, ''));
+            if (alias) existente.set('alias_pendiente', String(alias).toLowerCase().trim());
+            if (titular && !existente.get('titular')) existente.set('titular', titular);
+            if (cuit && !existente.get('cuit')) existente.set('cuit', String(cuit).replace(/\D/g, ''));
+            existente.set('cbu_pendiente_desde', fechaHoraAR());
+            await existente.save();
+            return { ok: true, creado: false, yaExistia: true, nombre: existente.get('nombre') || nombre };
+        }
+
+        await hoja.addRow({
+            cliente,
+            rubro: rubro || 'Otro',
+            nombre: nombre || 'Técnico sin identificar',
+            telefono,
+            notas: 'Se presentó por WhatsApp con un trabajo ya hecho. Sin verificar por la Administración.',
+            // El estado lo deja fuera de las búsquedas normales de Marcos, que solo toman
+            // "activo": no se le va a derivar un caso a alguien que nadie confirmó.
+            estado: 'sin_verificar',
+            cbu: '',
+            alias_cbu: '',
+            cbu_pendiente: String(cbu || '').replace(/\D/g, ''),
+            alias_pendiente: String(alias || '').toLowerCase().trim(),
+            titular: titular || '',
+            cuit: String(cuit || '').replace(/\D/g, ''),
+            cbu_pendiente_desde: fechaHoraAR(),
+        });
+
+        console.log(`🆕 Técnico desconocido registrado SIN VERIFICAR: "${nombre || 'sin nombre'}" (${telefono}). Sus datos de cobro quedan pendientes de aprobación.`);
+        return { ok: true, creado: true, yaExistia: false, nombre: nombre || 'Técnico sin identificar' };
+    } catch (err) {
+        console.error('Error registrando al técnico no verificado:', err.message);
+        return { ok: false, motivo: err.message };
+    }
+}
+
 /** Aplica o descarta un cambio de datos de cobro que había quedado pendiente. */
 async function resolverCambioBancario({ nombre = '', telefono = '', aprobar = false }) {
     try {
@@ -2100,6 +2177,7 @@ module.exports = {
     buscarDatosBancariosProveedor,
     guardarDatosBancariosProveedor,
     resolverCambioBancario,
+    registrarProveedorNoVerificado,
     buscarFacturasSinImputar,
     imputarFacturaSinEdificio,
     buscarMemoriaVecino,

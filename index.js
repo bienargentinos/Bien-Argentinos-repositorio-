@@ -1932,6 +1932,7 @@ function validarYSanitizarNombre(nombre) {
             }
         }
 
+
         // ── LO QUE ESCRIBIÓ QUIEN MANDA LA FACTURA ───────────────────────────────────────
         //
         // Se calcula ANTES de guardar nada, porque este texto es lo más valioso del mensaje y no
@@ -1991,6 +1992,74 @@ function validarYSanitizarNombre(nombre) {
 
         if (quedoPorLaMitad) {
             console.log(`⚠️ El trabajo quedó incompleto según ${nombreTecnicoFactura || datosEmisor.rol}${gremioQueFalta ? ` — hace falta un ${gremioQueFalta}` : ''}: "${notaDeQuienEnvia.slice(0, 120)}"`);
+        }
+
+        // ── UN TÉCNICO QUE NO ESTÁ EN NINGUNA LISTA ──────────────────────────────────────
+        //
+        // Pasa seguido: el encargado llama a un plomero por su cuenta, el trabajo se hace, y el
+        // plomero le escribe a Marcos para pasar la factura. Ese número no está cargado, así que
+        // llega como "vecino" y ninguno de los caminos de cobro lo atiende.
+        //
+        // El trabajo y la factura se registran igual -- son un antecedente y no mueven plata.
+        // Los datos de cobro NO se activan: acá la identidad es un teléfono desconocido, y
+        // aceptar un CBU así es exactamente cómo funciona el fraude ("soy el plomero que arregló
+        // lo del 3°B, pagame acá"). Quedan pendientes y la Administración decide.
+        //
+        // Se distingue del vecino que reenvía la factura de su plomero: ese SÍ está en `vecinos`.
+        const esNumeroDesconocido = !loMandaElTecnico
+            && datosEmisor.rol === 'vecino'
+            && (vecinosEnSheets || []).length === 0
+            && !session.datosVecino;
+
+        if (esNumeroDesconocido && (datosFactura?.cbu || datosFactura?.alias)) {
+            try {
+                const { validarCBU, validarAlias, ultimos4 } = require('./cbu');
+                const cbuNuevo = datosFactura.cbu ? validarCBU(datosFactura.cbu) : null;
+                const aliasNuevo = datosFactura.alias ? validarAlias(datosFactura.alias) : null;
+
+                if (cbuNuevo?.valido || aliasNuevo?.valido) {
+                    const { registrarProveedorNoVerificado } = require('./datos');
+                    const alta = await registrarProveedorNoVerificado({
+                        nombre: nombreTecnicoFactura || '',
+                        telefono: from,
+                        rubro: datosFactura?.concepto || '',
+                        cliente: clienteDe(edificioFactura) || '',
+                        cbu: cbuNuevo?.valido ? cbuNuevo.cbu : '',
+                        alias: aliasNuevo?.valido ? aliasNuevo.alias : '',
+                        titular: datosFactura.titular || '',
+                        cuit: datosFactura.cuit || '',
+                    });
+
+                    if (alta.ok && edificioFactura) {
+                        const { avisarAlAdministrador } = require('./agentes/marcos-admin');
+                        await avisarAlAdministrador({
+                            edificio: edificioFactura,
+                            motivo: 'un técnico que no está en la lista mandó una factura con datos de cobro',
+                            titulo: `🆕 MARCOS: TÉCNICO DESCONOCIDO CON FACTURA - ${edificioFactura}`,
+                            cuerpo:
+                                `Un número que no figura en su lista de proveedores mandó una factura por un trabajo ` +
+                                `en ${edificioFactura}, con datos para cobrar.\n\n` +
+                                `📱 Teléfono: ${from}\n` +
+                                `🔧 Dice ser: ${nombreTecnicoFactura || 'no lo aclaró'}\n` +
+                                (datosFactura?.monto ? `💲 Monto: $${datosFactura.monto}${datosFactura?.numero_factura ? ` (N° ${datosFactura.numero_factura})` : ''}\n` : '') +
+                                (cbuNuevo?.valido ? `🏦 CBU terminado en ...${ultimos4(cbuNuevo.cbu)}\n` : '') +
+                                (aliasNuevo?.valido ? `🏦 Alias: ${aliasNuevo.alias}\n` : '') +
+                                (datosFactura?.titular ? `👤 Titular: ${datosFactura.titular}\n` : '') +
+                                (notaDeQuienEnvia ? `\n🗣️ Lo que contó:\n"${notaDeQuienEnvia}"\n` : '') +
+                                `\n⚠️ Los datos de cobro quedaron GUARDADOS PERO SIN ACTIVAR, y el técnico figura como ` +
+                                `"sin verificar". No se le puede pagar hasta que usted lo apruebe desde el panel.\n\n` +
+                                `Antes de aprobarlo, confirme con el encargado o con quien lo llamó que el trabajo ` +
+                                `existió y que esta persona lo hizo. Un desconocido pidiendo cobrar un arreglo que ` +
+                                `nadie puede confirmar es el fraude más simple que hay.`,
+                            phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
+                            accessToken: WHATSAPP_ACCESS_TOKEN,
+                        });
+                    }
+                    console.log(`🆕 Técnico desconocido (${from}) mandó factura con datos de cobro. Registrado sin verificar.`);
+                }
+            } catch (e) {
+                console.error('Error registrando al técnico desconocido:', e.message);
+            }
         }
 
         // La factura se guarda SIEMPRE -- perderla sería peor -- pero cuando no sabemos de qué
@@ -2066,14 +2135,20 @@ function validarYSanitizarNombre(nombre) {
                     // Si ya había un caso al que pertenece, se actualiza ESE en vez de abrir otro.
                     id_evento: idCasoFactura || undefined,
                     edificio: edificioFactura,
-                    vecino: loMandaElTecnico ? 'Trabajo coordinado fuera del sistema' : (vecino?.nombre || datosEmisor.nombre || ''),
-                    telefono: loMandaElTecnico ? '' : from,
+                    vecino: (loMandaElTecnico || esNumeroDesconocido)
+                        ? 'Trabajo coordinado fuera del sistema'
+                        : (vecino?.nombre || datosEmisor.nombre || ''),
+                    // El teléfono del vecino solo cuando quien escribe ES el vecino. Si es el
+                    // técnico -- conocido o no -- su número va en `tel_tecnico`, que es donde el
+                    // administrador lo va a buscar para llamarlo si tiene una duda del trabajo o
+                    // del monto. Poner el número del técnico en el campo del vecino lo escondía.
+                    telefono: (loMandaElTecnico || esNumeroDesconocido) ? '' : from,
                     problema: notaDeQuienEnvia || datosFactura?.concepto || 'Trabajo técnico facturado',
                     urgencia: quedoPorLaMitad ? 'media' : 'baja',
                     estado: quedoPorLaMitad ? 'en_proceso' : 'resuelto',
                     tecnico: nombreTecnicoFactura || '',
-                    tel_tecnico: loMandaElTecnico ? (from || '') : '',
-                    rubro_tecnico: loMandaElTecnico ? (datosEmisor.especialidad || '') : '',
+                    tel_tecnico: (loMandaElTecnico || esNumeroDesconocido) ? (from || '') : '',
+                    rubro_tecnico: loMandaElTecnico ? (datosEmisor.especialidad || '') : (datosFactura?.concepto || ''),
                     tipo: 'trabajo_externo',
                     notas_ia: notas,
                     // Las dos puntas de la conversación, para que en el panel se lea el
