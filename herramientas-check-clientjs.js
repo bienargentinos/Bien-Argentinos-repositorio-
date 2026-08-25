@@ -49,9 +49,27 @@ if (/\$\{/.test(cuerpo)) {
     process.exit(2);
 }
 
+// LO QUE RECIBE EL NAVEGADOR NO ES ESTE TEXTO. CLIENT_JS es un template literal, así que Node
+// procesa los escapes antes de mandarlo: un `\n` escrito adentro se convierte en un SALTO DE
+// LINEA REAL. Si ese `\n` estaba dentro de una cadena entre comillas, el navegador recibe una
+// cadena partida en dos lineas -- error de sintaxis -- y NADA del panel se define.
+//
+// Paso de verdad y este chequeo lo dejo pasar, porque parseaba el texto crudo. Hay que parsear
+// el texto YA PROCESADO, que es exactamente lo que se sirve. Como arriba ya se verifico que no
+// haya interpolaciones, evaluarlo como template literal reproduce lo que hace Node al cargar el
+// archivo, sin ejecutar nada del contenido.
+let servido;
 try {
-    acorn.parse(cuerpo, { ecmaVersion: 2022, sourceType: 'script', locations: true });
-    console.log(`✅ CLIENT_JS OK — ${cuerpo.length} caracteres, lineas ${offset + 1} a ${fin} de ${path.basename(archivo)}.`);
+    servido = new Function('return `' + cuerpo + '`;')();
+} catch (e) {
+    console.error('❌ El bloque CLIENT_JS ni siquiera arma un template literal valido:');
+    console.error(`   ${e.message}`);
+    process.exit(1);
+}
+
+try {
+    acorn.parse(servido, { ecmaVersion: 2022, sourceType: 'script', locations: true });
+    console.log(`✅ CLIENT_JS OK — ${servido.length} caracteres servidos, lineas ${offset + 1} a ${fin} de ${path.basename(archivo)}.`);
 } catch (e) {
     const linea = e.loc ? e.loc.line : null;
     console.error('❌ ERROR DE SINTAXIS EN CLIENT_JS — el panel va a quedar SIN JavaScript en el navegador.');

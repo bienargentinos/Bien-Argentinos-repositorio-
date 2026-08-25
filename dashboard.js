@@ -4315,10 +4315,10 @@ window.abrirDatosCobro = abrirDatosCobro;
 
 async function guardarDatosCobro(btn){
   var row=valEl('cobro-row');
-  var cbu=valEl('cobro-cbu').replace(/\D/g,'');
+  var cbu=valEl('cobro-cbu').replace(/\\D/g,'');
   var alias=valEl('cobro-alias').trim();
   var titular=valEl('cobro-titular').trim();
-  var cuit=valEl('cobro-cuit').replace(/\D/g,'');
+  var cuit=valEl('cobro-cuit').replace(/\\D/g,'');
   if(!cbu&&!alias){toast('Cargá el CBU o el alias','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
   try{
@@ -4339,7 +4339,7 @@ window.guardarDatosCobro = guardarDatosCobro;
 // aparte porque aprobarlo por error manda el pago del mes a otra cuenta.
 async function resolverCambioCobro(btn,row,aprobar){
   var pregunta = aprobar
-    ? '¿Confirmás el cambio de cuenta?\n\nAntes de aceptar, verificá con el proveedor llamándolo al número de siempre — no respondiendo al mensaje que te mandó.'
+    ? '¿Confirmás el cambio de cuenta?\\n\\nAntes de aceptar, verificá con el proveedor llamándolo al número de siempre — no respondiendo al mensaje que te mandó.'
     : '¿Rechazás el cambio? Se va a seguir usando la cuenta anterior.';
   if(!confirm(pregunta))return;
   btn.disabled=true;var old=btn.textContent;btn.textContent='...';
