@@ -926,8 +926,18 @@ function modalPlanesAcHtml(planesList, propiosEdificios) {
     const servList = (p.servicios || '').split(/,|\n/).map((s) => s.trim()).filter(Boolean);
     const servHtml = servList.map((s) => `<div style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#334259;margin-bottom:5px"><span style="color:#22C55E">✓</span> ${esc(s)}</div>`).join('');
 
+    const yaTienePlan = (propiosEdificios || []).some((x) => {
+      const pName = String(x.plan || '').toLowerCase();
+      return pName.includes('corporativo') || (p.nombre && pName.includes(p.nombre.toLowerCase()));
+    });
+
+    let btnTextCorp = `🏢 Solicitar Paquete Corporativo (${p.edificios} Edificios)`;
+    if (esCorporativo && yaTienePlan) {
+      btnTextCorp = `⚙️ Gestionar / Adherir Edificios (${p.edificios} Cupos)`;
+    }
+
     const botonSolicitudHtml = esCorporativo
-      ? `<button onclick="abrirSolicitudCorporativa('${escJs(p.nombre)}', ${Number(p.edificios) || 5}, '${edificiosJsonStr}')" style="width:100%;height:40px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">🏢 Solicitar Paquete Corporativo (${p.edificios} Edificios)</button>`
+      ? `<button onclick="abrirSolicitudCorporativa('${escJs(p.nombre)}', ${Number(p.edificios) || 5}, '${edificiosJsonStr}')" style="width:100%;height:40px;border:none;border-radius:10px;background:${yaTienePlan ? 'linear-gradient(180deg,#1E5FB4,#17408B)' : 'linear-gradient(180deg,#2E6FC0,#1E5FB4)'};color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">${esc(btnTextCorp)}</button>`
       : `<button onclick="solicitarPlanCat('${escJs(p.nombre)}', 'este')" style="width:100%;height:40px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">Solicitar para este edificio</button>`;
 
     return `
@@ -3976,20 +3986,30 @@ function abrirSolicitudCorporativa(planNombre, limiteCupos, edificiosJsonStr) {
   var lblPlan = document.getElementById('corp-plan-nombre');
   if (lblPlan) lblPlan.textContent = planNombre + ' (' + _corpLimiteCupos + ' Edificios)';
 
+  var yaEnPaquete = _corpEdificiosLista.filter(function(e) {
+    var pName = String(e.plan || '').toLowerCase();
+    return pName.includes('corporativo') || pName.includes(planNombre.toLowerCase());
+  });
+
   var container = document.getElementById('corp-edificios-checklist');
   if (container) {
     if (_corpEdificiosLista.length === 0) {
       container.innerHTML = '<div style="padding:16px;text-align:center;color:#8595AD">No tenés edificios registrados aún.</div>';
     } else {
       container.innerHTML = _corpEdificiosLista.map(function(e, idx) {
-        var autoChecked = idx < _corpLimiteCupos ? 'checked' : '';
-        var statusBadge = autoChecked ? '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#E7F4EC;color:#1B7A43">Incluido en Paquete</span>' : '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F1F5FB;color:#64748B">Plan Individual</span>';
+        var pName = String(e.plan || '').toLowerCase();
+        var perteneceYa = pName.includes('corporativo') || (planNombre && pName.includes(planNombre.toLowerCase()));
+        var autoChecked = yaEnPaquete.length > 0 ? perteneceYa : idx < _corpLimiteCupos;
+
+        var statusBadge = autoChecked
+          ? '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ En el Paquete</span>'
+          : '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F1F5FB;color:#64748B">Plan Individual</span>';
         var safeNombre = escStr(e.nombre);
         var safeDir = escStr(e.direccion || e.nombre);
         var safePlan = escStr(e.plan || 'Base');
         return '<label style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#fff;border:1.5px solid #E4E9F1;border-radius:12px;cursor:pointer;gap:12px" class="hv-card">' +
           '<div style="display:flex;align-items:center;gap:12px">' +
-            '<input type="checkbox" class="chk-corp-item" value="' + safeNombre + '" ' + autoChecked + ' onchange="recalcularCuposCorp()" style="width:18px;height:18px;accent-color:#2E6FC0">' +
+            '<input type="checkbox" class="chk-corp-item" value="' + safeNombre + '" ' + (autoChecked ? 'checked' : '') + ' data-pertenece="' + (perteneceYa ? '1' : '0') + '" onchange="recalcularCuposCorp()" style="width:18px;height:18px;accent-color:#2E6FC0">' +
             '<div>' +
               '<div style="font-size:14.5px;font-weight:700;color:#16233B">' + safeNombre + '</div>' +
               '<div style="font-size:12px;color:#8595AD">' + safeDir + ' · Plan actual: ' + safePlan + '</div>' +
@@ -4012,18 +4032,32 @@ function recalcularCuposCorp() {
   chks.forEach(function(chk) {
     var label = chk.closest('label');
     var tag = label ? label.querySelector('.corp-status-tag') : null;
+    var perteneceYa = chk.getAttribute('data-pertenece') === '1';
+
     if (chk.checked) {
       count++;
       if (tag) {
-        tag.textContent = 'Incluido en Paquete';
-        tag.style.background = '#E7F4EC';
-        tag.style.color = '#1B7A43';
+        if (perteneceYa) {
+          tag.textContent = '✓ Mantiene en Paquete';
+          tag.style.background = '#E7F4EC';
+          tag.style.color = '#1B7A43';
+        } else {
+          tag.textContent = '➕ Adherir al Paquete';
+          tag.style.background = '#EAF1FB';
+          tag.style.color = '#2E6FC0';
+        }
       }
     } else {
       if (tag) {
-        tag.textContent = 'Plan Individual';
-        tag.style.background = '#F1F5FB';
-        tag.style.color = '#64748B';
+        if (perteneceYa) {
+          tag.textContent = '❌ Quitar del Paquete';
+          tag.style.background = '#FDF2F2';
+          tag.style.color = '#C0392B';
+        } else {
+          tag.textContent = 'Plan Individual';
+          tag.style.background = '#F1F5FB';
+          tag.style.color = '#64748B';
+        }
       }
     }
   });
