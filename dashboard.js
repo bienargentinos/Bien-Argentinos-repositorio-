@@ -10172,14 +10172,26 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
       targetEdificios = [edificio];
     }
 
+    let celdasEscritas = 0;
+
     if (campo) {
       const candidates = EDIFICIO_FIELDS[campo] || [campo];
-      let colIdx = edHeaders.findIndex((h) => candidates.includes(h));
-      let col;
-      if (colIdx >= 0) col = columnLetter(colIdx + 1);
-      else {
-        col = columnLetter(edHeaders.length + 1);
+
+      // Se escribe en TODAS las columnas equivalentes que existan, no en la primera.
+      //
+      // Bug real: la planilla tiene `nombre` y `edificio`, que son el mismo dato. Al aprobar un
+      // cambio de nombre se escribía en `nombre` -- la primera de la lista -- pero el resto del
+      // sistema lee `edificio`. El valor quedaba guardado, la solicitud figuraba "aplicada", y en
+      // pantalla no cambiaba nada. Escribir en las dos las mantiene sincronizadas, que es lo que
+      // se esperaba desde el principio: son alias de un mismo campo, no campos distintos.
+      const columnas = edHeaders
+        .map((h, i) => (candidates.includes(h) ? columnLetter(i + 1) : null))
+        .filter(Boolean);
+
+      if (columnas.length === 0) {
+        const col = columnLetter(edHeaders.length + 1);
         await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
+        columnas.push(col);
       }
 
       for (const edNom of targetEdificios) {
@@ -10187,17 +10199,33 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
           compararEdificios(r.edificio || r.nombre || '', edNom)
         );
         for (const edRow of matchingEdRows) {
-          if (edRow) {
+          if (!edRow) continue;
+          for (const col of columnas) {
             await writeCell(TAB_EDIFICIOS, col, edRow._row, valor_nuevo);
+            celdasEscritas++;
           }
         }
       }
     }
 
+    // Si no se escribió nada, la solicitud NO se marca como aplicada.
+    //
+    // Pasó de verdad con un "Paquete Corporativo (3 edificios)": ese texto no es el nombre de
+    // ningún edificio, así que no coincidió con ninguna fila, no se escribió una sola celda, y
+    // la solicitud igual quedó "aplicada". El dueño la vio resuelta y nunca se enteró de que el
+    // cambio no existía. Un fracaso silencioso es peor que un error.
+    if (campo && celdasEscritas === 0) {
+      console.warn(`[Solicitud ${row}] No se aplicó nada: "${edificio}" no coincide con ningún edificio cargado.`);
+      return res.status(409).json({
+        error: `No encontré ningún edificio que coincida con "${edificio}", así que no cambié nada. ` +
+               `Revisá que el nombre del edificio en la solicitud sea el mismo que figura en la planilla.`,
+      });
+    }
+
     const planEstado = await findOrPlanColumn(TAB_SOLICITUDES, ['estado']);
     if (planEstado.create) await ensureHeader(TAB_SOLICITUDES, planEstado.col, 'estado', false);
     await writeCell(TAB_SOLICITUDES, planEstado.col, Number(row), 'aplicada');
-    res.json({ ok: true, edificiosActualizados: targetEdificios });
+    res.json({ ok: true, edificiosActualizados: targetEdificios, celdasEscritas });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
