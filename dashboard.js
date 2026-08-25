@@ -2036,17 +2036,31 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
   });
 
   function posicionPorDefecto(){
-    // Arranca pegado abajo del header (64px, sticky) en vez de abajo de todo
-    // la pantalla, donde se pierde entre el resto de los botones del panel.
-    // En desktop el sidebar (236px, con la tarjeta "Enviar sugerencia" en modo
-    // cliente) queda tapado por el globo si arranca pegado a la izquierda.
-    // En mobile ese sidebar se oculta (@media max-width:900px), asi que ahi
-    // no hay conflicto. Se calcula en vivo en lugar de un valor fijo.
-    var sidebar = document.querySelector('nav.sidebar-nav');
-    var sidebarVisible = !!(sidebar && sidebar.offsetWidth > 0 && getComputedStyle(sidebar).display !== 'none');
-    var left = sidebarVisible ? (sidebar.getBoundingClientRect().right + 16) : 16;
-    var top = 76;
-    applyPosition(left, top);
+    // Ubicar por defecto en el ENCABEZADO al lado de la lista desplegable de edificios
+    var edBtn = document.querySelector('button[onclick*="menu-edificio"]') || document.querySelector('#menu-edificio-btn');
+    var header = document.querySelector('header');
+    
+    if (edBtn) {
+      var r = edBtn.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        var targetLeft = r.right + 12;
+        var targetTop = r.top + Math.max(0, (r.height - 38) / 2);
+        if (targetLeft + 150 < window.innerWidth) {
+          applyPosition(targetLeft, targetTop);
+          return;
+        }
+      }
+    }
+    
+    if (header) {
+      var rH = header.getBoundingClientRect();
+      var targetLeft = Math.min(260, window.innerWidth - 180);
+      var targetTop = rH.top + Math.max(0, (rH.height - 38) / 2);
+      applyPosition(targetLeft, targetTop);
+      return;
+    }
+    
+    applyPosition(240, 12);
   }
 
   try {
@@ -2056,7 +2070,9 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     } else {
       posicionPorDefecto();
     }
-  } catch(e){}
+  } catch(e){
+    posicionPorDefecto();
+  }
 })();
 
 window.checkAndRunFirstTimeTour = function checkAndRunFirstTimeTour(force){
