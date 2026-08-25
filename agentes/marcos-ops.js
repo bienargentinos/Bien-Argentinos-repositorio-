@@ -589,6 +589,40 @@ function normalizarTelefonoWhatsApp(telefono) {
     return num;
 }
 
+/**
+ * Explica en castellano por qué Meta rechazó un envío, y a quién.
+ *
+ * POR QUÉ HACE FALTA: los envíos se hacían con `await` y sin mirar el resultado, y justo
+ * después se escribía en el log "foto reenviada al técnico". Con Meta rechazando todo, el log
+ * decía que salió bien y el técnico no recibía nada. Un mensaje que no llega tiene que verse
+ * como lo que es.
+ *
+ * El caso más común de lejos es la VENTANA DE 24 HORAS: fuera de ella, Meta solo deja mandar
+ * plantillas aprobadas, y rechaza cualquier mensaje libre -- texto, foto, contacto, audio. Le
+ * pasa siempre al técnico que hace días que no escribe.
+ */
+function explicarErrorMeta(que, para, error) {
+    const datos = error?.response?.data?.error || null;
+    const codigo = datos?.code;
+    const detalle = datos?.message || error?.message || 'sin detalle';
+
+    let porQue = '';
+    if (codigo === 131047 || /24 hours|re-?engagement/i.test(detalle)) {
+        porQue = ' → Pasaron más de 24hs desde el último mensaje de esa persona. ' +
+                 'Meta solo permite PLANTILLAS fuera de esa ventana: este mensaje NO llegó.';
+    } else if (codigo === 131026) {
+        porQue = ' → Ese número no tiene WhatsApp o no puede recibir mensajes.';
+    } else if (codigo === 131051) {
+        porQue = ' → Tipo de mensaje no soportado para ese destinatario.';
+    } else if (codigo === 190 || codigo === 102) {
+        porQue = ' → El token de acceso venció o es inválido. Hay que renovarlo en Meta.';
+    } else if (codigo === 100) {
+        porQue = ' → Parámetro inválido (número mal formado, o media_id vencido).';
+    }
+
+    console.error(`❌ NO SE PUDO ENVIAR ${que} a ${para}${codigo ? ` [código ${codigo}]` : ''}: ${detalle}${porQue}`);
+}
+
 async function enviarWhatsApp(to, text, phoneNumberId, accessToken) {
     try {
         const telefonoDestino = normalizarTelefonoWhatsApp(to);
@@ -620,7 +654,7 @@ async function enviarWhatsApp(to, text, phoneNumberId, accessToken) {
         }
         return true;
     } catch (error) {
-        console.error('Error enviando WhatsApp:', error.response?.data || error.message);
+        explicarErrorMeta('un mensaje de texto', to, error);
         return false;
     }
 }
@@ -697,7 +731,7 @@ async function enviarAudioWhatsApp(to, mediaId, phoneNumberId, accessToken) {
         });
         return true;
     } catch (error) {
-        console.error('Error enviando Nota de Voz WhatsApp:', error.response?.data || error.message);
+        explicarErrorMeta('una nota de voz', to, error);
         return false;
     }
 }
@@ -725,7 +759,7 @@ async function enviarDocumentoWhatsApp(to, mediaId, filename, caption, phoneNumb
         });
         return true;
     } catch (error) {
-        console.error('Error enviando Documento:', error.response?.data || error.message);
+        explicarErrorMeta('un documento', to, error);
         return false;
     }
 }
@@ -752,7 +786,7 @@ async function enviarImagenWhatsApp(to, mediaId, caption, phoneNumberId, accessT
         });
         return true;
     } catch (error) {
-        console.error('Error enviando Imagen:', error.response?.data || error.message);
+        explicarErrorMeta('una imagen', to, error);
         return false;
     }
 }
@@ -779,7 +813,7 @@ async function enviarVideoWhatsApp(to, mediaId, caption, phoneNumberId, accessTo
         });
         return true;
     } catch (error) {
-        console.error('Error enviando Video:', error.response?.data || error.message);
+        explicarErrorMeta('un video', to, error);
         return false;
     }
 }

@@ -3299,16 +3299,25 @@ function validarYSanitizarNombre(nombre) {
                     // técnico y justo después reventaba con "captionAuto is not defined", con lo cual
                     // el envío no quedaba anotado en el historial del caso.
                     let captionAuto;
+                    // Se mira el resultado del envío. Antes se descartaba y el log escribía
+                    // "foto reenviada al técnico" pasara lo que pasara: con Meta rechazando todo,
+                    // el log decía que salió bien y al técnico no le llegaba nada. Un mensaje que
+                    // no llega tiene que verse como lo que es.
+                    let seEnvio = false;
                     if (msgTypeMedia === 'image') {
                         const { enviarImagenWhatsApp } = require('./agentes/marcos-ops');
                         captionAuto = `📱 *MARCOS — FOTO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó esta foto del inconveniente.${comentarioAuto}`;
-                        await enviarImagenWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                        seEnvio = await enviarImagenWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                     } else {
                         const { enviarVideoWhatsApp } = require('./agentes/marcos-ops');
                         captionAuto = `📱 *MARCOS — VIDEO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó este video del inconveniente.${comentarioAuto}`;
-                        await enviarVideoWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                        seEnvio = await enviarVideoWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                     }
-                    console.log(`📷 Foto/video del vecino reenviado automáticamente al técnico ${tecnicoParaFoto.nombre} (sin que lo pidiera explícitamente).`);
+                    if (seEnvio) {
+                        console.log(`📷 Foto/video del vecino reenviado al técnico ${tecnicoParaFoto.nombre} (${tecnicoParaFoto.telefono}).`);
+                    } else {
+                        console.error(`📷❌ La foto/video NO le llegó al técnico ${tecnicoParaFoto.nombre} (${tecnicoParaFoto.telefono}). El motivo está en la línea de arriba.`);
+                    }
                     const tagMediaForward = (msgTypeMedia === 'image' ? '[IMAGEN:' : '[VIDEO:') + (imgUrl || videoUrl || `/archivos/${require('path').basename(media.filePath)}`) + ']';
                     const msgFotoParaChat = `Marcos (a Proveedor): ${tagMediaForward} ${captionAuto}`.trim();
                     try {
@@ -3371,7 +3380,10 @@ function validarYSanitizarNombre(nombre) {
                         ? `Tiene más de un número registrado: te paso la ficha completa acá abajo, probá con cualquiera.\n`
                         : '') +
                     `Si al llegar no te abren, comunicate directamente con esa persona y avisame cualquier inconveniente.`;
-                await enviarWhatsApp(tecnicoParaContacto.telefono, msgContactoAcceso, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                // Se guarda si llegó: más abajo se marca el caso como "contacto avisado", y
+                // marcarlo cuando el mensaje NO salió deja al técnico sin el dato para siempre,
+                // porque esa marca justamente impide reintentarlo.
+                const llegoContactoAcceso = await enviarWhatsApp(tecnicoParaContacto.telefono, msgContactoAcceso, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
 
                 // Y además la ficha tal como la mandó el vecino. Es lo que haría cualquier persona:
                 // reenviar el contacto en vez de dictarlo. Con una ficha de dos números, cualquier
@@ -3405,12 +3417,19 @@ function validarYSanitizarNombre(nombre) {
                     });
                 } catch(e) { console.error('Error registrando contacto enviado a proveedor:', e.message); }
 
-                session.contactoAccesoAvisadoATecnico = true;
-                if (idEventoAsignado) {
-                    const { marcarContactoAccesoAvisado } = require('./datos');
-                    await marcarContactoAccesoAvisado(idEventoAsignado);
+                // La marca de "ya avisado" solo se pone si el mensaje LLEGÓ. Ponerla igual haría
+                // que no se reintente nunca más, y el técnico se queda sin saber a quién llamar
+                // para que le abran -- que es justo el dato que lo deja parado en la puerta.
+                if (llegoContactoAcceso) {
+                    session.contactoAccesoAvisadoATecnico = true;
+                    if (idEventoAsignado) {
+                        const { marcarContactoAccesoAvisado } = require('./datos');
+                        await marcarContactoAccesoAvisado(idEventoAsignado);
+                    }
+                    console.log(`📞 Contacto de acceso (${session.contactoAccesoExtra}) enviado al técnico ${tecnicoParaContacto.nombre} (${tecnicoParaContacto.telefono}).`);
+                } else {
+                    console.error(`📞❌ El contacto de acceso NO le llegó al técnico ${tecnicoParaContacto.nombre} (${tecnicoParaContacto.telefono}). No se marca como avisado, para poder reintentarlo.`);
                 }
-                console.log(`📞 Contacto de acceso (${session.contactoAccesoExtra}) enviado proactivamente al técnico ${tecnicoParaContacto.nombre}.`);
             }
         } catch (errCtoAcceso) {
             console.error('⚠️ Error enviando el contacto de acceso al técnico:', errCtoAcceso.message);
