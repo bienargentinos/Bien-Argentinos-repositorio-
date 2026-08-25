@@ -454,6 +454,17 @@ function mapProveedor(r) {
     telefono: pick(r, ['telefono', 'tel', 'celular', 'contacto']),
     notas: pick(r, ['notas', 'observaciones']),
     estado: pick(r, ['estado'], 'activo'),
+    // Datos de cobro. `cbu_pendiente` es un cambio que el proveedor pidió por WhatsApp y que
+    // NO se aplicó: el anterior sigue vigente hasta que se apruebe desde acá. Ver el comentario
+    // en `guardarDatosBancariosProveedor` (sheets.js) sobre por qué no se pisa solo.
+    cbu: pick(r, ['cbu']),
+    alias_cbu: pick(r, ['alias_cbu', 'alias']),
+    titular: pick(r, ['titular']),
+    cuit: pick(r, ['cuit']),
+    cbu_actualizado: pick(r, ['cbu_actualizado']),
+    cbu_pendiente: pick(r, ['cbu_pendiente']),
+    alias_pendiente: pick(r, ['alias_pendiente']),
+    cbu_pendiente_desde: pick(r, ['cbu_pendiente_desde']),
   };
 }
 
@@ -10059,6 +10070,98 @@ router.post('/api/proveedor', async (req, res) => {
       estado: 'activo',
     });
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Cargar o corregir a mano los datos de cobro de un proveedor.
+// Desde el panel se escriben directo: quien está acá ya entró con su usuario, a diferencia de un
+// WhatsApp donde la identidad es apenas un número de teléfono.
+router.post('/api/proveedor-datos-cobro', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row, cbu, alias, titular, cuit } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+
+    const { rows } = await readTab(TAB_PROVEEDORES);
+    const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
+    if (!prov) return res.status(404).json({ error: 'Proveedor no encontrado' });
+    if (!esDueno(req) && prov.cliente !== clienteDeSesion(req)) {
+      return res.status(403).json({ error: 'Ese proveedor no es de tu lista' });
+    }
+
+    // El CBU se verifica también acá: un dígito de más al tipear termina en un pago rechazado.
+    const limpio = String(cbu || '').replace(/\D/g, '');
+    if (limpio) {
+      const { validarCBU } = require('./cbu');
+      const chequeo = validarCBU(limpio);
+      if (!chequeo.valido) return res.status(400).json({ error: `Ese CBU no es válido: ${chequeo.motivo}` });
+    }
+    const aliasLimpio = String(alias || '').trim();
+    if (aliasLimpio) {
+      const { validarAlias } = require('./cbu');
+      const chequeo = validarAlias(aliasLimpio);
+      if (!chequeo.valido) return res.status(400).json({ error: `Ese alias no es válido: ${chequeo.motivo}` });
+    }
+
+    const escribir = async (campo, valor) => {
+      const plan = await findOrPlanColumn(TAB_PROVEEDORES, [campo]);
+      if (plan.create) await ensureHeader(TAB_PROVEEDORES, plan.col, campo, false);
+      await writeCell(TAB_PROVEEDORES, plan.col, Number(row), valor);
+    };
+
+    if (limpio) await escribir('cbu', limpio);
+    if (aliasLimpio) await escribir('alias_cbu', aliasLimpio.toLowerCase());
+    if (titular !== undefined) await escribir('titular', String(titular || '').trim());
+    if (cuit !== undefined) await escribir('cuit', String(cuit || '').replace(/\D/g, ''));
+    if (limpio || aliasLimpio) await escribir('cbu_actualizado', new Date().toLocaleString('es-AR'));
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Aprobar o rechazar el cambio de datos de cobro que pidió un proveedor por WhatsApp.
+//
+// Un cambio de CBU nunca se aplica solo: es el fraude más común que hay -- alguien se mete en la
+// conversación, dice "cambié de banco", y el pago del mes se va a otra cuenta. Hasta que alguien
+// aprueba acá, la cuenta anterior sigue siendo la vigente. Un pago demorado se arregla; uno
+// mandado a la cuenta equivocada no.
+router.post('/api/proveedor-cambio-cobro', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row, aprobar } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+
+    const { rows } = await readTab(TAB_PROVEEDORES);
+    const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
+    if (!prov) return res.status(404).json({ error: 'Proveedor no encontrado' });
+    if (!esDueno(req) && prov.cliente !== clienteDeSesion(req)) {
+      return res.status(403).json({ error: 'Ese proveedor no es de tu lista' });
+    }
+    if (!prov.cbu_pendiente && !prov.alias_pendiente) {
+      return res.status(400).json({ error: 'Ese proveedor no tiene ningún cambio pendiente' });
+    }
+
+    const escribir = async (campo, valor) => {
+      const plan = await findOrPlanColumn(TAB_PROVEEDORES, [campo]);
+      if (plan.create) await ensureHeader(TAB_PROVEEDORES, plan.col, campo, false);
+      await writeCell(TAB_PROVEEDORES, plan.col, Number(row), valor);
+    };
+
+    if (aprobar) {
+      if (prov.cbu_pendiente) await escribir('cbu', prov.cbu_pendiente);
+      if (prov.alias_pendiente) await escribir('alias_cbu', prov.alias_pendiente);
+      await escribir('cbu_actualizado', new Date().toLocaleString('es-AR'));
+    }
+    await escribir('cbu_pendiente', '');
+    await escribir('alias_pendiente', '');
+    await escribir('cbu_pendiente_desde', '');
+
+    console.log(`🔐 Cambio de datos de cobro de "${prov.nombre}" ${aprobar ? 'APROBADO' : 'RECHAZADO'} por ${req.session.user}.`);
+    res.json({ ok: true, aprobado: Boolean(aprobar) });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }

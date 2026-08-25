@@ -586,6 +586,174 @@ async function edificiosDelProveedor({ nombre = '', telefono = '' } = {}) {
     }
 }
 
+// Las columnas donde viven los datos de cobro del proveedor. Se crean solas al guardar.
+const COLUMNAS_BANCARIAS = [
+    'cbu', 'alias_cbu', 'titular', 'cuit',
+    'cbu_actualizado', 'cbu_pendiente', 'alias_pendiente', 'cbu_pendiente_desde',
+];
+
+/** Ubica la fila de un proveedor. Devuelve también si el teléfono es ambiguo. */
+async function filaDelProveedor({ nombre = '', telefono = '' }) {
+    const doc = await getSheet();
+    const hoja = pestaña(doc, 'proveedores');
+    if (!hoja) return { hoja: null, fila: null, ambiguo: false, candidatos: [] };
+
+    const tel = String(telefono || '').replace(/\D/g, '');
+    const nom = String(nombre || '').toLowerCase().trim();
+    const activo = r => {
+        const est = String(r.get('estado') || '').toLowerCase().trim();
+        return est !== 'eliminado' && est !== 'inactivo';
+    };
+    const mismoTelefono = (a, b) => {
+        const x = String(a || '').replace(/\D/g, '');
+        if (!x || !b) return false;
+        return x === b || x.endsWith(b.slice(-8)) || b.endsWith(x.slice(-8));
+    };
+
+    const filas = (await hoja.getRows()).filter(activo);
+
+    // El nombre manda cuando lo tenemos: en una línea compartida es lo único que distingue a
+    // Julio de Dario, y los datos de cobro de uno no son los del otro.
+    if (nom) {
+        const porNombre = filas.filter(r => String(r.get('nombre') || '').toLowerCase().trim() === nom);
+        if (porNombre.length === 1) return { hoja, fila: porNombre[0], ambiguo: false, candidatos: porNombre };
+    }
+
+    const porTelefono = tel ? filas.filter(r => mismoTelefono(r.get('telefono') || r.get('wsp'), tel)) : [];
+    if (porTelefono.length === 1) return { hoja, fila: porTelefono[0], ambiguo: false, candidatos: porTelefono };
+
+    // Varios técnicos en la misma línea y sin nombre que los separe: no se elige uno al azar,
+    // porque escribirle el CBU al proveedor equivocado manda el pago a otra persona.
+    return {
+        hoja,
+        fila: null,
+        ambiguo: porTelefono.length > 1,
+        candidatos: porTelefono.map(r => ({ nombre: r.get('nombre') || '', rubro: r.get('rubro') || '' })),
+    };
+}
+
+/** Los datos de cobro que ya tiene cargados un proveedor. */
+async function buscarDatosBancariosProveedor({ nombre = '', telefono = '' }) {
+    try {
+        const { fila, ambiguo, candidatos } = await filaDelProveedor({ nombre, telefono });
+        if (!fila) return { encontrado: false, ambiguo, candidatos };
+        return {
+            encontrado: true,
+            ambiguo: false,
+            nombre:   fila.get('nombre') || '',
+            cbu:      fila.get('cbu') || '',
+            alias:    fila.get('alias_cbu') || '',
+            titular:  fila.get('titular') || '',
+            cuit:     fila.get('cuit') || '',
+            actualizado:      fila.get('cbu_actualizado') || '',
+            cbuPendiente:     fila.get('cbu_pendiente') || '',
+            aliasPendiente:   fila.get('alias_pendiente') || '',
+            pendienteDesde:   fila.get('cbu_pendiente_desde') || '',
+        };
+    } catch (err) {
+        console.error('Error buscando los datos bancarios del proveedor:', err.message);
+        return { encontrado: false, ambiguo: false, candidatos: [] };
+    }
+}
+
+/**
+ * Guarda los datos de cobro de un proveedor.
+ *
+ * LA PRIMERA CARGA SE APLICA; UN CAMBIO NO.
+ *
+ * Cambiar el CBU de un proveedor es el fraude más común que hay: alguien se mete en la
+ * conversación, dice "cambié de banco, anotá este otro", y el pago del mes siguiente se va a otra
+ * cuenta. Acá la identidad es el número de teléfono, que no prueba gran cosa.
+ *
+ * Por eso un cambio NO pisa el dato que ya estaba: queda guardado aparte como pendiente, el
+ * anterior sigue siendo el vigente, y se le avisa a la Administración para que lo apruebe. Si el
+ * cambio es legítimo, el proveedor cobra unos días más tarde; si no lo es, no se pierde la plata.
+ * De los dos errores posibles, ese es el que se puede deshacer.
+ *
+ * @returns {{ok, pendiente, ambiguo, candidatos, anterior}}
+ */
+async function guardarDatosBancariosProveedor({ nombre = '', telefono = '', cbu = '', alias = '', titular = '', cuit = '' }) {
+    try {
+        const { hoja, fila, ambiguo, candidatos } = await filaDelProveedor({ nombre, telefono });
+        if (!hoja) return { ok: false, motivo: 'no existe la pestaña proveedores' };
+        if (ambiguo) return { ok: false, ambiguo: true, candidatos };
+        if (!fila) return { ok: false, motivo: 'no se encontró ese proveedor' };
+
+        await hoja.loadHeaderRow().catch(() => {});
+        const headers = hoja.headerValues || [];
+        const nuevos = Array.from(new Set([...headers, ...COLUMNAS_BANCARIAS]));
+        if (nuevos.length > headers.length) await hoja.setHeaderRow(nuevos).catch(() => {});
+
+        const cbuActual   = String(fila.get('cbu') || '').replace(/\D/g, '');
+        const aliasActual = String(fila.get('alias_cbu') || '').toLowerCase().trim();
+        const cbuNuevo    = String(cbu || '').replace(/\D/g, '');
+        const aliasNuevo  = String(alias || '').toLowerCase().trim();
+
+        const yaTeniaAlgo = Boolean(cbuActual || aliasActual);
+        const cambiaCBU   = Boolean(cbuNuevo)   && cbuNuevo   !== cbuActual;
+        const cambiaAlias = Boolean(aliasNuevo) && aliasNuevo !== aliasActual;
+
+        // Los datos que no son de cobro (titular, CUIT) se completan siempre: no redirigen plata.
+        if (titular) fila.set('titular', titular);
+        if (cuit)    fila.set('cuit', String(cuit).replace(/\D/g, ''));
+
+        if (yaTeniaAlgo && (cambiaCBU || cambiaAlias)) {
+            if (cbuNuevo)   fila.set('cbu_pendiente', cbuNuevo);
+            if (aliasNuevo) fila.set('alias_pendiente', aliasNuevo);
+            fila.set('cbu_pendiente_desde', fechaHoraAR());
+            await fila.save();
+
+            console.log(`🔐 ${fila.get('nombre')} pidió cambiar sus datos de cobro. Queda PENDIENTE: el anterior sigue vigente hasta que la Administración lo apruebe.`);
+            return {
+                ok: true,
+                pendiente: true,
+                nombre: fila.get('nombre') || '',
+                anterior: { cbu: cbuActual, alias: aliasActual },
+                nuevo: { cbu: cbuNuevo, alias: aliasNuevo },
+            };
+        }
+
+        if (cbuNuevo)   fila.set('cbu', cbuNuevo);
+        if (aliasNuevo) fila.set('alias_cbu', aliasNuevo);
+        if (cbuNuevo || aliasNuevo) fila.set('cbu_actualizado', fechaHoraAR());
+        await fila.save();
+
+        console.log(`🏦 Datos de cobro guardados para ${fila.get('nombre')}${cbuNuevo ? ` (CBU ...${cbuNuevo.slice(-4)})` : ''}.`);
+        return { ok: true, pendiente: false, nombre: fila.get('nombre') || '' };
+    } catch (err) {
+        console.error('Error guardando los datos bancarios del proveedor:', err.message);
+        return { ok: false, motivo: err.message };
+    }
+}
+
+/** Aplica o descarta un cambio de datos de cobro que había quedado pendiente. */
+async function resolverCambioBancario({ nombre = '', telefono = '', aprobar = false }) {
+    try {
+        const { fila } = await filaDelProveedor({ nombre, telefono });
+        if (!fila) return { ok: false, motivo: 'no se encontró ese proveedor' };
+
+        const cbuPend   = String(fila.get('cbu_pendiente') || '').replace(/\D/g, '');
+        const aliasPend = String(fila.get('alias_pendiente') || '').trim();
+        if (!cbuPend && !aliasPend) return { ok: false, motivo: 'no hay ningún cambio pendiente' };
+
+        if (aprobar) {
+            if (cbuPend)   fila.set('cbu', cbuPend);
+            if (aliasPend) fila.set('alias_cbu', aliasPend);
+            fila.set('cbu_actualizado', fechaHoraAR());
+        }
+        fila.set('cbu_pendiente', '');
+        fila.set('alias_pendiente', '');
+        fila.set('cbu_pendiente_desde', '');
+        await fila.save();
+
+        console.log(`🔐 Cambio de datos de cobro de ${fila.get('nombre')} ${aprobar ? 'APROBADO' : 'RECHAZADO'}.`);
+        return { ok: true, aprobado: aprobar, nombre: fila.get('nombre') || '' };
+    } catch (err) {
+        console.error('Error resolviendo el cambio de datos bancarios:', err.message);
+        return { ok: false, motivo: err.message };
+    }
+}
+
 /**
  * Todos los proveedores que comparten un mismo teléfono, con su rubro.
  * Respaldo de la versión de PostgreSQL -- ver el comentario largo en datos-pg.js.
@@ -1929,6 +2097,9 @@ module.exports = {
     edificiosDelProveedor,
     buscarCasosRecientesPorTecnico,
     proveedoresPorTelefono,
+    buscarDatosBancariosProveedor,
+    guardarDatosBancariosProveedor,
+    resolverCambioBancario,
     buscarFacturasSinImputar,
     imputarFacturaSinEdificio,
     buscarMemoriaVecino,

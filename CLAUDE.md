@@ -269,6 +269,38 @@ Daniel lo confirmó y está implementado: se identifica por la terna **teléfono
 
 Prueba: `node pruebas-tecnico-por-rubro.js` (15 casos, con Julio y Dario en la misma línea).
 
+## Datos de cobro del proveedor (CBU / alias)
+
+Marcos toma el CBU o el alias cuando el técnico se lo manda por WhatsApp, para que el
+administrador tenga a quién pagarle sin salir a buscarlo. Columnas nuevas en `proveedores`
+(se crean solas): `cbu`, `alias_cbu`, `titular`, `cuit`, `cbu_actualizado`, `cbu_pendiente`,
+`alias_pendiente`, `cbu_pendiente_desde`.
+
+**Se verifica antes de guardar.** El CBU trae dos dígitos verificadores; `cbu.js` los calcula.
+Dictado por audio o copiado a mano, un dígito cambiado no se nota mirando 22 números seguidos, y
+termina en un pago rechazado o en un pago a otra cuenta. La prueba cubre los 126 casos de un
+dígito cambiado y las 11 transposiciones de dígitos vecinos: `node pruebas-cbu.js`.
+
+> [!CAUTION]
+> **UN CAMBIO DE CBU NO SE APLICA SOLO.**
+>
+> Cambiar el CBU de un proveedor es el fraude más común que existe: alguien se mete en la
+> conversación, dice "cambié de banco, anotá este otro", y el pago del mes siguiente se va a otra
+> cuenta. Acá la identidad es apenas un número de teléfono.
+>
+> La primera carga se aplica. Un cambio posterior NO pisa lo que había: queda en `cbu_pendiente`,
+> **el anterior sigue siendo el vigente**, y se le avisa a la Administración para que lo apruebe
+> desde el panel (`/api/proveedor-cambio-cobro`). Si el cambio es legítimo, el proveedor cobra unos
+> días más tarde; si no lo es, no se pierde la plata. De los dos errores posibles, ese es el que se
+> puede deshacer.
+>
+> Prueba: `node pruebas-cambio-cbu.js`.
+
+**En una línea compartida no se elige al azar.** Si dos técnicos comparten el teléfono (Julio y
+Dario) y no se sabe cuál escribe, Marcos **pregunta a nombre de cuál anota los datos** en vez de
+escribirlos en una fila cualquiera: los datos de cobro de uno no son los del otro, y equivocarse
+manda el pago a otra persona.
+
 ## Modificaciones Recientes de Visualización, Multimedia y Chat
 
 ### 1. Separación de Chats y Eliminación de Duplicados en Dashboard
@@ -297,6 +329,7 @@ Prueba: `node pruebas-tecnico-por-rubro.js` (15 casos, con Julio y Dario en la m
 - [x] Rediseño visual completo (sidebar + paleta de marca + logo real)
 - [x] Sección Clientes (alta desde el dashboard, tab `clientes` en Sheets)
 - [x] Visor interactivo de chats (Separación Vecino/Proveedor, imágenes HD, PDFs con descarga)
+- [x] Datos de cobro del proveedor (CBU/alias) con verificación y aprobación de cambios
 - [ ] Expensas: nueva sección para que el cliente suba PDF/imagen/link mensual
 - [ ] Auth real: contraseñas hasheadas (bcrypt), activación por token, recuperación por email
 - [ ] Consumos / facturación por excedente: derivar uso de los logs de Marcos, definir precios

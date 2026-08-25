@@ -2147,6 +2147,117 @@ function validarYSanitizarNombre(nombre) {
             return;
         }
 
+        // A2-bis. EL TÉCNICO MANDA SU CBU O SU ALIAS PARA COBRAR
+        //
+        // Se guarda para que el administrador tenga a quién pagarle sin salir a buscarlo, y se
+        // verifica antes de guardarlo: 22 dígitos dictados por audio o copiados a mano no se
+        // revisan de un vistazo, y un dígito cambiado es un pago rechazado o, peor, un pago a
+        // otra cuenta. El CBU trae verificadores justamente para eso.
+        try {
+            const { buscarCBUEnTexto, buscarAliasEnTexto, ultimos4 } = require('./cbu');
+            const cbuEnMensaje = buscarCBUEnTexto(textoFinal);
+            const aliasEnMensaje = buscarAliasEnTexto(textoFinal);
+            const nombraCobro = /\bcbu\b|\balias\b|\bcuenta\b|\btransferi|\bdepositar|\bpara (el )?(pago|cobro)\b/i.test(textoFinal);
+
+            if ((cbuEnMensaje || aliasEnMensaje) && nombraCobro) {
+                // Un CBU escrito mal no se guarda: se le dice qué pasó para que lo repita.
+                if (cbuEnMensaje && !cbuEnMensaje.valido) {
+                    const resp = `Che ${datosEmisor.nombreIncierto ? '' : (datosEmisor.nombre + ', ')}` +
+                        `revisá ese CBU que me pasaste: ${cbuEnMensaje.motivo}. ` +
+                        `¿Me lo reenviás? Si preferís, mandame el *alias* que es más corto y se equivoca menos.`;
+                    await despacharRespuesta(recipient, resp, msgTypeRespuesta);
+                    historial.push(`Marcos: ${resp}`);
+                    return;
+                }
+                if (aliasEnMensaje && !aliasEnMensaje.valido && !cbuEnMensaje?.valido) {
+                    const resp = `Ese alias no me cierra: ${aliasEnMensaje.motivo}. ¿Me lo repetís?`;
+                    await despacharRespuesta(recipient, resp, msgTypeRespuesta);
+                    historial.push(`Marcos: ${resp}`);
+                    return;
+                }
+
+                const { guardarDatosBancariosProveedor } = require('./datos');
+                // El titular puede no ser el técnico: factura la empresa y cobra otro. Se toma si
+                // lo dice, porque el administrador lo necesita ver antes de transferir.
+                const titularDicho = (textoFinal.match(/\b(?:a nombre de|titular(?:\s*:)?)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ' ]{3,40})/i) || [])[1];
+
+                const guardado = await guardarDatosBancariosProveedor({
+                    nombre: datosEmisor.nombreIncierto ? '' : datosEmisor.nombre,
+                    telefono: from,
+                    cbu: cbuEnMensaje?.valido ? cbuEnMensaje.cbu : '',
+                    alias: aliasEnMensaje?.valido ? aliasEnMensaje.alias : '',
+                    titular: (titularDicho || '').trim(),
+                });
+
+                // En una línea compartida por varios técnicos no se puede elegir uno al azar: los
+                // datos de cobro de Julio no son los de Dario, y escribirlos en la fila equivocada
+                // manda el pago a otra persona.
+                if (guardado.ambiguo) {
+                    const cuales = (guardado.candidatos || []).map(c => `*${c.nombre}*${c.rubro ? ` (${c.rubro})` : ''}`).join(' o ');
+                    const resp = `Con este número tengo cargado a ${cuales}. ¿A nombre de cuál de los dos anoto estos datos para el cobro?`;
+                    await despacharRespuesta(recipient, resp, msgTypeRespuesta);
+                    historial.push(`Marcos: ${resp}`);
+                    return;
+                }
+
+                if (!guardado.ok) {
+                    const resp = `No pude guardar esos datos ahora. Se los paso igual a la Administración y lo revisan.`;
+                    await despacharRespuesta(recipient, resp, msgTypeRespuesta);
+                    historial.push(`Marcos: ${resp}`);
+                    return;
+                }
+
+                let resp;
+                if (guardado.pendiente) {
+                    // Un cambio no se aplica solo. Ver el comentario en guardarDatosBancariosProveedor.
+                    resp = `Anotado. Como ya tenía otros datos de cobro tuyos, este cambio lo tiene que confirmar la Administración antes de que quede activo — es el resguardo para que a nadie le desvíen un pago haciéndose pasar por vos. Ya les avisé.`;
+
+                    try {
+                        const { avisarAlAdministrador } = require('./agentes/marcos-admin');
+                        // Se relee de la cola en vez de usar el `stProv` de más arriba: aquel vive
+                        // en otro bloque y acá no está en alcance. Es el mismo error que ya rompió
+                        // producción tres veces (itemsRafaga, messageText, captionAuto) y que
+                        // `node --check` no ve, porque es válido hasta que se ejecuta.
+                        const colaTecnico = global.colasProveedores?.get(String(from).replace(/\D/g, ''));
+                        const edificioAviso = colaTecnico?.edificioActivo || session.nombreEdificio || '';
+                        if (edificioAviso) {
+                            await avisarAlAdministrador({
+                                edificio: edificioAviso,
+                                motivo: 'un proveedor pidió cambiar sus datos de cobro',
+                                titulo: `🔐 MARCOS: PEDIDO DE CAMBIO DE CBU - ${guardado.nombre}`,
+                                cuerpo:
+                                    `El proveedor *${guardado.nombre}* pidió cambiar la cuenta donde cobra.\n\n` +
+                                    `📱 Desde el teléfono: ${from}\n` +
+                                    `🏦 Tenía: ${guardado.anterior.cbu ? 'CBU ...' + ultimos4(guardado.anterior.cbu) : ''}${guardado.anterior.alias ? ` / alias ${guardado.anterior.alias}` : ''}\n` +
+                                    `🆕 Pide:  ${guardado.nuevo.cbu ? 'CBU ...' + ultimos4(guardado.nuevo.cbu) : ''}${guardado.nuevo.alias ? ` / alias ${guardado.nuevo.alias}` : ''}\n\n` +
+                                    `⚠️ NO se aplicó. La cuenta anterior sigue siendo la vigente hasta que usted lo apruebe desde el panel.\n\n` +
+                                    `Cambiar el CBU de un proveedor es el fraude más común que existe: alguien se mete en la conversación y desvía el pago del mes. Antes de aprobarlo, confírmelo con el proveedor por un canal que ya conocía — llamándolo al número de siempre, no respondiendo a este mensaje.`,
+                                phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
+                                accessToken: WHATSAPP_ACCESS_TOKEN,
+                            });
+                        } else {
+                            console.warn('[CBU] Cambio pendiente sin edificio de referencia: no se pudo avisar a la Administración.');
+                        }
+                    } catch (e) {
+                        console.error('Error avisando el cambio de CBU a la Administración:', e.message);
+                    }
+                } else {
+                    // Se repite lo guardado para que un error de dictado salte acá y no en el pago.
+                    const partes = [];
+                    if (cbuEnMensaje?.valido) partes.push(`CBU terminado en *${ultimos4(cbuEnMensaje.cbu)}*`);
+                    if (aliasEnMensaje?.valido) partes.push(`alias *${aliasEnMensaje.alias}*`);
+                    if (titularDicho) partes.push(`a nombre de *${titularDicho.trim()}*`);
+                    resp = `Listo, lo anoté para que la Administración te pague: ${partes.join(', ')}. Si algo de eso no es así, avisame y lo corrijo.`;
+                }
+
+                await despacharRespuesta(recipient, resp, msgTypeRespuesta);
+                historial.push(`Marcos: ${resp}`);
+                return;
+            }
+        } catch (e) {
+            console.error('Error procesando los datos de cobro del proveedor:', e.message);
+        }
+
         // A3. LA RESPUESTA A "¿DE QUÉ EDIFICIO ES ESA FACTURA?"
         //
         // Sin esto, preguntar no servía de nada: el técnico contestaba "el 2" o "San Patricio", el

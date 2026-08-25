@@ -140,6 +140,17 @@ async function listarEdificiosConocidos() {
 async function edificiosDelProveedor(args) {
     return leer('edificiosDelProveedor', [args], 'edificiosDelProveedor', 'edificiosDelProveedor');
 }
+// Los datos de cobro van SIEMPRE contra Sheets, que es la fuente de verdad: acá se decide a qué
+// cuenta se le paga a alguien, y leer una copia posiblemente atrasada no es una opción.
+async function buscarDatosBancariosProveedor(args) {
+    return sheets.buscarDatosBancariosProveedor(args);
+}
+async function guardarDatosBancariosProveedor(args) {
+    return sheets.guardarDatosBancariosProveedor(args);
+}
+async function resolverCambioBancario(args) {
+    return sheets.resolverCambioBancario(args);
+}
 async function proveedoresPorTelefono(telefono) {
     return leer('proveedoresPorTelefono', [telefono], 'proveedoresPorTelefono', 'proveedoresPorTelefono');
 }
@@ -546,6 +557,9 @@ module.exports = {
     edificiosDelProveedor,
     buscarCasosRecientesPorTecnico,
     proveedoresPorTelefono,
+    buscarDatosBancariosProveedor,
+    guardarDatosBancariosProveedor,
+    resolverCambioBancario,
     buscarFacturasSinImputar,
     imputarFacturaSinEdificio,
     buscarPersonalDeTurno,
