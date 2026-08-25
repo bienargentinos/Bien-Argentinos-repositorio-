@@ -439,6 +439,22 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
     if (!plantillaEnviada) {
         const mensajeTecnico = await generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id_evento });
         llegoAlgo = await enviarWhatsApp(tecnicoAsignado.telefono, mensajeTecnico, phoneNumberId, accessToken);
+
+        if (llegoAlgo) {
+            // ESTO NO ES UN ÉXITO: es una bomba de tiempo.
+            //
+            // La plantilla falló y salió el mensaje libre. Con la ventana de 24hs abierta --una
+            // prueba, o un técnico que escribió hace un rato-- el mensaje libre llega y parece que
+            // todo anduvo. Con la ventana cerrada, que es el caso real, también rebota y el técnico
+            // no se entera de nada.
+            //
+            // El motivo del rechazo de Meta está en el log unas líneas más arriba.
+            console.warn(
+                `⚠️ LA PLANTILLA DEL [${id_evento}] NO SALIÓ, y el aviso a ${tecnicoAsignado.nombre} viajó como mensaje libre. ` +
+                `Llegó SOLO porque la ventana de 24hs está abierta. Con la ventana cerrada no habría llegado nada. ` +
+                `El motivo del rechazo de Meta está más arriba en el log -- hay que arreglarlo, no dejarlo así.`
+            );
+        }
     }
 
     if (!llegoAlgo) {
@@ -746,7 +762,37 @@ async function enviarWhatsApp(to, text, phoneNumberId, accessToken) {
     }
 }
 
+/**
+ * Deja un texto en condiciones de viajar como parámetro de una plantilla de Meta.
+ *
+ * Meta RECHAZA LA PLANTILLA ENTERA si un parámetro trae un salto de línea, un tabulador o más de
+ * cuatro espacios seguidos. No manda una parte: no manda nada.
+ *
+ * Y varios de estos parámetros los escribe el modelo a partir de lo que contó el vecino
+ * (`resumen_problema`), así que un salto de línea ahí adentro es cuestión de tiempo. Cuando pasa,
+ * la plantilla falla, sale el mensaje libre de respaldo, y como en las pruebas la ventana de 24hs
+ * está abierta el mensaje libre SÍ llega: parece que todo anduvo. Pero con la ventana cerrada --el
+ * caso real, un técnico que hace días que no escribe-- el mensaje libre también rebota y el
+ * técnico no se entera de nada.
+ */
+function limpiarParametroPlantilla(txt) {
+    return String(txt ?? '')
+        .replace(/[\r\n\t]+/g, ' ')
+        .replace(/\s{4,}/g, '   ')
+        .trim()
+        .slice(0, 900) || '-';   // un parámetro vacío también invalida la plantilla
+}
+
 async function enviarPlantillaWhatsApp(to, templateName, languageCode, components, phoneNumberId, accessToken) {
+    // Se limpia acá y no en cada llamador: cualquier plantilla que se agregue mañana queda cubierta
+    // sin que nadie tenga que acordarse.
+    components = (components || []).map(c => ({
+        ...c,
+        parameters: (c.parameters || []).map(p =>
+            p && p.type === 'text' ? { ...p, text: limpiarParametroPlantilla(p.text) } : p
+        ),
+    }));
+
     try {
         const telefonoDestino = normalizarTelefonoWhatsApp(to);
         console.log(`📤 Enviando Plantilla Meta '${templateName}' (${languageCode}) a ${telefonoDestino}...`);
@@ -989,6 +1035,7 @@ module.exports = {
     enviarWhatsApp,
     motivoMeta,
     enviarPlantillaWhatsApp,
+    limpiarParametroPlantilla,
     subirMediaWhatsApp,
     enviarAudioWhatsApp,
     enviarDocumentoWhatsApp,

@@ -349,6 +349,30 @@ estaba siempre abierta.
 reclamo: la imagen de una plantilla se sube al aprobarla y es fija. La foto de hoy solo sale como
 mensaje libre, o sea con la ventana abierta.
 
+### Cuándo se manda la plantilla, y por qué a veces "no se mandó"
+
+La plantilla se manda **una vez por caso**, no una vez por técnico: un caso nuevo en el mismo
+edificio y con el mismo técnico **sí** dispara plantilla nueva. La marca es `notificado` +
+`eventoActivoId` en RAM, y `fueTecnicoNotificado(id_evento)` en la planilla para sobrevivir a los
+reinicios de PM2.
+
+> [!CAUTION]
+> **Si la plantilla falla, sale un mensaje libre y parece que todo anduvo.** Meta rechaza la
+> plantilla **entera** si un parámetro trae un salto de línea, un tabulador, más de cuatro espacios
+> seguidos, o viene vacío. Y varios de esos parámetros los escribe el modelo a partir de lo que
+> contó el vecino (`resumen_problema`): un salto de línea ahí adentro es cuestión de tiempo.
+>
+> Cuando pasa, sale el mensaje libre de respaldo — que **con la ventana de 24hs abierta llega**, o
+> sea que en una prueba no se nota. Con la ventana cerrada, que es el caso real, también rebota y
+> el técnico no se entera de nada.
+
+- `limpiarParametroPlantilla()` normaliza **todos** los parámetros dentro de
+  `enviarPlantillaWhatsApp`, no en cada llamador: cualquier plantilla nueva queda cubierta sola.
+- Cuando la plantilla falla y el mensaje libre sí sale, el log lo grita: *"LA PLANTILLA DEL
+  [CASO-x] NO SALIÓ … llegó SOLO porque la ventana está abierta"*. No es un éxito, es una bomba
+  de tiempo.
+- Prueba: `node pruebas-plantilla-meta.js`.
+
 ### Cómo se le habla al técnico: dirección y número de caso, siempre
 
 - **Dirección, nunca el nombre interno del edificio.** En la planilla los edificios tienen un alias
