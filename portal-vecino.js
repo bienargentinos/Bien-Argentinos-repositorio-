@@ -12,6 +12,22 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 
+// Intentar cargar adaptadores de datos
+let datosPg = null;
+try {
+  datosPg = require('./datos-pg');
+} catch (_) {}
+
+let datosModule = null;
+try {
+  datosModule = require('./datos');
+} catch (_) {}
+
+let marcosCara = null;
+try {
+  marcosCara = require('./agentes/marcos-cara');
+} catch (_) {}
+
 // Estilos visuales oficiales de Marcos IA (Tokens exactos)
 const CSS_VECINO = `
 *{box-sizing:border-box;margin:0;padding:0}
@@ -24,7 +40,7 @@ button,input,textarea{font-family:inherit}
 
 /* Animaciones */
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-@keyframes pulseRing{0%{transform:scale(.95);opacity:.8}50%{transform:scale(1.05);opacity:1}100%{transform:scale(.95);opacity:.8}}
+@keyframes typingDot{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
 
 .anim-fade{animation:fadeIn .25s ease both}
 .card{background:#fff;border:1px solid #E4E9F1;border-radius:16px;box-shadow:0 1px 3px rgba(16,35,59,.04)}
@@ -54,6 +70,15 @@ button,input,textarea{font-family:inherit}
   margin-left:auto;font-size:14.5px;line-height:1.45;box-shadow:0 2px 8px rgba(23,64,139,.25);
 }
 
+.typing-indicator{
+  display:inline-flex;gap:4px;padding:8px 12px;background:#fff;border:1px solid #E2E8F0;border-radius:12px;
+}
+.typing-dot{
+  width:6px;height:6px;background:#1E5FB4;border-radius:50%;animation:typingDot 1.4s infinite ease-in-out both;
+}
+.typing-dot:nth-child(1){animation-delay:-0.32s}
+.typing-dot:nth-child(2){animation-delay:-0.16s}
+
 /* Modo Oscuro */
 .dark-theme{background:#0B132B!important;color:#F1F5F9!important}
 .dark-theme .card{background:#151F38!important;border-color:#2A3A5E!important}
@@ -63,13 +88,26 @@ button,input,textarea{font-family:inherit}
 .dark-theme .chat-bubble-marcos{background:#1E2B4B!important;border-color:#2A3A5E!important;color:#F1F5F9!important}
 `;
 
+function getVecinoSession(req) {
+  if (req.session && req.session.vecino) {
+    return req.session.vecino;
+  }
+  // Default de prueba
+  return {
+    nombre: 'Daniel Morales',
+    telefono: '+54 9 11 5555-4321',
+    edificio: 'Torre Norte Edifica',
+    departamento: '4° B',
+    saldoExpensa: '$120.000,00',
+    estadoExpensa: 'Al día',
+  };
+}
+
 function shellVecino(title, activeTab, content, vecinoData) {
   const v = vecinoData || {
     nombre: 'Daniel Morales',
     edificio: 'Torre Norte Edifica',
-    unidad: '4° B',
-    saldoExpensa: '$0,00',
-    estadoExpensa: 'Al día',
+    departamento: '4° B',
   };
 
   return `<!DOCTYPE html>
@@ -112,14 +150,14 @@ function shellVecino(title, activeTab, content, vecinoData) {
       <img src="/admin/assets/logo.png" alt="Marcos IA" style="width:32px;height:32px;border-radius:8px;object-fit:cover" onerror="this.style.display='none'">
       <div>
         <div style="font-size:15px;font-weight:800;color:#0F326A;line-height:1.1">Marcos IA</div>
-        <div style="font-size:11px;font-weight:700;color:#64748B">${v.edificio} · ${v.unidad}</div>
+        <div style="font-size:11px;font-weight:700;color:#64748B">${v.edificio} · ${v.departamento}</div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
       <button onclick="toggleTheme()" style="width:36px;height:36px;border-radius:10px;border:1px solid #E2E8F0;background:#F8FAFD;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#64748B">
         <i class="ph ph-moon" style="font-size:18px"></i>
       </button>
-      <a href="/vecino/perfil" style="width:36px;height:36px;border-radius:10px;border:1px solid #E2E8F0;background:#F1F5FB;display:flex;align-items:center;justify-content:center;color:#1E5FB4;font-weight:800;font-size:13px">
+      <a href="/vecino/login" title="Cerrar sesión" style="width:36px;height:36px;border-radius:10px;border:1px solid #E2E8F0;background:#F1F5FB;display:flex;align-items:center;justify-content:center;color:#1E5FB4;font-weight:800;font-size:13px">
         ${v.nombre.split(' ').map(n=>n[0]).slice(0,2).join('')}
       </a>
     </div>
@@ -156,7 +194,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
 }
 
 // -------------------------------------------------------------------
-// 1. LOGIN / ACCESO CON CREDENCIALES
+// 1. LOGIN CON CREDENCIALES
 // -------------------------------------------------------------------
 router.get('/login', (req, res) => {
   res.send(`<!DOCTYPE html>
@@ -187,12 +225,12 @@ body{background:#0F326A;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 45%
     <p style="font-size:13.5px;color:#64748B">Ingresá con tus credenciales de consorcio</p>
   </div>
 
-  <form action="/vecino" method="GET">
-    <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:6px">Email o Teléfono</div>
-    <input class="inp" type="text" placeholder="ejemplo@correo.com o WhatsApp" value="daniel@consorcio.com" required>
+  <form action="/vecino/auth" method="POST">
+    <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:6px">Email o Teléfono WhatsApp</div>
+    <input name="identificador" class="inp" type="text" placeholder="ejemplo@correo.com o +54 9 11..." required>
 
-    <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:6px">Contraseña</div>
-    <input class="inp" type="password" placeholder="Tu contraseña" value="••••••••" required>
+    <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:6px">Contraseña o Código de Unidad</div>
+    <input name="password" class="inp" type="password" placeholder="Tu contraseña" required>
 
     <button type="submit" class="btn-login">
       <span>Ingresar a mi Edificio</span>
@@ -208,19 +246,34 @@ body{background:#0F326A;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 45%
 </html>`);
 });
 
+router.post('/auth', (req, res) => {
+  const { identificador } = req.body || {};
+  if (req.session) {
+    req.session.vecino = {
+      nombre: identificador ? identificador.split('@')[0] : 'Daniel Morales',
+      telefono: '+54 9 11 5555-4321',
+      edificio: 'Torre Norte Edifica',
+      departamento: '4° B',
+      saldoExpensa: '$120.000,00',
+      estadoExpensa: 'Al día',
+    };
+  }
+  res.redirect('/vecino');
+});
+
 // -------------------------------------------------------------------
 // 2. INICIO / DASHBOARD DEL VECINO
 // -------------------------------------------------------------------
 router.get('/', (req, res) => {
+  const v = getVecinoSession(req);
+
   const content = `
     <!-- Tarjeta de Bienvenida -->
     <div class="card" style="padding:18px 20px;margin-bottom:16px;background:linear-gradient(145deg,#0F326A,#1E5FB4);color:#fff;border:none">
-      <div style="display:flex;justify-content:between;align-items:flex-start">
-        <div>
-          <span style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.7)">CONSORCIO DIGITAL</span>
-          <h2 style="font-size:20px;font-weight:800;margin:2px 0 4px">Hola, Daniel 👋</h2>
-          <p style="font-size:13px;color:rgba(255,255,255,.85)">Torre Norte Edifica · Depto 4° B</p>
-        </div>
+      <div>
+        <span style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.7)">CONSORCIO DIGITAL</span>
+        <h2 style="font-size:20px;font-weight:800;margin:2px 0 4px">Hola, ${v.nombre.split(' ')[0]} 👋</h2>
+        <p style="font-size:13px;color:rgba(255,255,255,.85)">${v.edificio} · Depto ${v.departamento}</p>
       </div>
     </div>
 
@@ -229,12 +282,12 @@ router.get('/', (req, res) => {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <span style="font-size:12px;font-weight:800;color:#64748B;text-transform:uppercase">Expensa del Mes (Agosto)</span>
         <span style="font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:999px;background:#DCFCE7;color:#15803D;border:1px solid #86EFAC">
-          ✓ Al día
+          ✓ ${v.estadoExpensa}
         </span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">
         <div>
-          <div style="font-size:26px;font-weight:800;color:#0F172A;letter-spacing:-.02em">$120.000,00</div>
+          <div style="font-size:26px;font-weight:800;color:#0F172A;letter-spacing:-.02em">${v.saldoExpensa}</div>
           <div style="font-size:12px;color:#64748B">Vencimiento: 10 de Agosto · Acreditado</div>
         </div>
       </div>
@@ -274,24 +327,17 @@ router.get('/', (req, res) => {
       <div style="font-size:14.5px;font-weight:700;color:#0F172A;margin-bottom:4px">Limpieza de tanques de agua</div>
       <div style="font-size:13px;color:#64748B;line-height:1.4">Se realizará el jueves de 08:00 a 14:00 hs. Habrá baja presión de agua.</div>
     </div>
-
-    <div class="card" style="padding:15px 18px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:#DCFCE7;color:#15803D">Resuelto</span>
-        <span style="font-size:11.5px;color:#94A3B8">Ayer</span>
-      </div>
-      <div style="font-size:14.5px;font-weight:700;color:#0F172A;margin-bottom:4px">Ascensor principal en servicio</div>
-      <div style="font-size:13px;color:#64748B;line-height:1.4">El service de ServiElev reparó el interruptor de seguridad de puerta.</div>
-    </div>
   `;
 
-  res.send(shellVecino('Inicio', 'inicio', content));
+  res.send(shellVecino('Inicio', 'inicio', content, v));
 });
 
 // -------------------------------------------------------------------
-// 3. CHAT DIRECTO CON MARCOS IA (WEB)
+// 3. CHAT DIRECTO CON MARCOS IA (WEB EN TIEMPO REAL)
 // -------------------------------------------------------------------
 router.get('/chat', (req, res) => {
+  const v = getVecinoSession(req);
+
   const content = `
     <!-- Header Chat -->
     <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between">
@@ -307,20 +353,14 @@ router.get('/chat', (req, res) => {
       </div>
       <a href="https://wa.me/5491100000000" target="_blank" style="padding:6px 12px;border-radius:8px;background:#DCFCE7;color:#15803D;font-size:12px;font-weight:700;display:flex;align-items:center;gap:5px">
         <i class="ph ph-whatsapp-logo" style="font-size:15px"></i>
-        <span>Ir a WhatsApp</span>
+        <span>WhatsApp</span>
       </a>
     </div>
 
     <!-- Muro de Mensajes -->
-    <div id="chat-stream" style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px;min-height:300px">
+    <div id="chat-stream" style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px;min-height:320px">
       <div class="chat-bubble-marcos">
-        ¡Hola Daniel! Soy <strong>Marcos IA</strong>, el asistente de <strong>Torre Norte Edifica</strong>. ¿En qué te puedo ayudar hoy? Podés consultarme sobre expensas, reportar una rotura o reservar el SUM.
-      </div>
-      <div class="chat-bubble-user">
-        Hola Marcos, ¿hasta qué hora se puede usar el SUM los fines de semana?
-      </div>
-      <div class="chat-bubble-marcos">
-        El SUM está habilitado los viernes y sábados hasta las <strong>02:00 hs</strong>. Para solicitar la reserva, avisame la fecha y cantidad estimada de invitados.
+        ¡Hola ${v.nombre.split(' ')[0]}! Soy <strong>Marcos IA</strong>, el asistente de <strong>${v.edificio}</strong>. ¿En qué te puedo ayudar hoy? Podés consultarme sobre expensas, reportar una rotura o pedir datos del edificio.
       </div>
     </div>
 
@@ -329,17 +369,17 @@ router.get('/chat', (req, res) => {
       <button onclick="enviarSugerencia('¿Cuándo vencen las expensas?')" style="white-space:nowrap;padding:7px 12px;border-radius:999px;border:1px solid #CBD5E1;background:#fff;font-size:12px;font-weight:700;color:#475569;cursor:pointer">
         💳 ¿Cuándo vencen expensas?
       </button>
-      <button onclick="enviarSugerencia('Reportar fuga de agua')" style="white-space:nowrap;padding:7px 12px;border-radius:999px;border:1px solid #CBD5E1;background:#fff;font-size:12px;font-weight:700;color:#475569;cursor:pointer">
+      <button onclick="enviarSugerencia('Reportar fuga de agua en el baño')" style="white-space:nowrap;padding:7px 12px;border-radius:999px;border:1px solid #CBD5E1;background:#fff;font-size:12px;font-weight:700;color:#475569;cursor:pointer">
         🔧 Reportar fuga de agua
       </button>
-      <button onclick="enviarSugerencia('Teléfono de guardia')" style="white-space:nowrap;padding:7px 12px;border-radius:999px;border:1px solid #CBD5E1;background:#fff;font-size:12px;font-weight:700;color:#475569;cursor:pointer">
-        📞 Teléfono guardia
+      <button onclick="enviarSugerencia('Horario y reglamento del SUM')" style="white-space:nowrap;padding:7px 12px;border-radius:999px;border:1px solid #CBD5E1;background:#fff;font-size:12px;font-weight:700;color:#475569;cursor:pointer">
+        🎉 Horario del SUM
       </button>
     </div>
 
     <!-- Input Bar Fijo -->
     <div class="card" style="padding:8px 10px;display:flex;align-items:center;gap:8px">
-      <button style="width:38px;height:38px;border-radius:10px;border:none;background:#F1F5F9;color:#64748B;cursor:pointer;display:flex;align-items:center;justify-content:center">
+      <button onclick="alert('Podés adjuntar fotos de desperfectos o comprobantes')" style="width:38px;height:38px;border-radius:10px;border:none;background:#F1F5F9;color:#64748B;cursor:pointer;display:flex;align-items:center;justify-content:center">
         <i class="ph ph-camera" style="font-size:20px"></i>
       </button>
       <input id="chat-input" type="text" placeholder="Escribile a Marcos IA..." style="flex:1;height:40px;border:none;outline:none;font-size:14.5px;color:#0F172A" onkeypress="if(event.key==='Enter')enviarMensaje()">
@@ -353,41 +393,98 @@ router.get('/chat', (req, res) => {
         document.getElementById('chat-input').value = txt;
         enviarMensaje();
       }
-      function enviarMensaje(){
+
+      async function enviarMensaje(){
         const inp = document.getElementById('chat-input');
         const txt = inp.value.trim();
         if(!txt) return;
         
         const stream = document.getElementById('chat-stream');
+        
+        // Burbuja usuario
         const userB = document.createElement('div');
         userB.className = 'chat-bubble-user';
         userB.textContent = txt;
         stream.appendChild(userB);
         inp.value = '';
 
-        // Respuesta simulada de Marcos IA
-        setTimeout(()=>{
+        // Indicador de tipeo
+        const typingEl = document.createElement('div');
+        typingEl.className = 'typing-indicator';
+        typingEl.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+        stream.appendChild(typingEl);
+        window.scrollTo(0, document.body.scrollHeight);
+
+        try {
+          const res = await fetch('/vecino/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mensaje: txt })
+          });
+          const data = await res.json();
+          typingEl.remove();
+
           const mB = document.createElement('div');
           mB.className = 'chat-bubble-marcos';
-          mB.innerHTML = 'Tomado Daniel. Estoy verificando los datos de tu edificio para responderte enseguida.';
+          mB.innerHTML = data.respuesta || 'Tomado Daniel. Cualquier novedad te aviso de inmediato.';
           stream.appendChild(mB);
-          window.scrollTo(0, document.body.scrollHeight);
-        }, 600);
+        } catch(err){
+          typingEl.remove();
+          const mB = document.createElement('div');
+          mB.className = 'chat-bubble-marcos';
+          mB.innerHTML = 'Tomado. Recibí tu mensaje correctamente.';
+          stream.appendChild(mB);
+        }
+        window.scrollTo(0, document.body.scrollHeight);
       }
     </script>
   `;
 
-  res.send(shellVecino('Chat con Marcos', 'chat', content));
+  res.send(shellVecino('Chat con Marcos', 'chat', content, v));
+});
+
+// Endpoint interactivo del Chat con Marcos IA
+router.post('/api/chat', async (req, res) => {
+  try {
+    const { mensaje } = req.body || {};
+    const v = getVecinoSession(req);
+
+    let respuestaTexto = `Entendido ${v.nombre.split(' ')[0]}. Estoy procesando tu consulta para ${v.edificio} (${v.departamento}).`;
+
+    // Si el módulo de Marcos IA está disponible, responder contextualmente
+    if (marcosCara && typeof marcosCara.responderVecino === 'function') {
+      try {
+        const resp = await marcosCara.responderVecino({
+          historial: [{ rol: 'vecino', texto: mensaje }],
+          vecino: { nombre: v.nombre, telefono: v.telefono, edificio: v.edificio, departamento: v.departamento },
+          memoriaVecino: null,
+          personalDeTurno: null,
+          decisionCaso: { esProblema: false, tipoProblema: 'consulta' },
+        });
+        if (resp && resp.textoParaVecino) {
+          respuestaTexto = resp.textoParaVecino;
+        }
+      } catch (errAi) {
+        console.warn('Fallback chat web Marcos:', errAi.message);
+      }
+    }
+
+    res.json({ ok: true, respuesta: respuestaTexto });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 // -------------------------------------------------------------------
 // 4. MIS EXPENSAS (HISTORIAL & DETALLE)
 // -------------------------------------------------------------------
 router.get('/expensas', (req, res) => {
+  const v = getVecinoSession(req);
+
   const content = `
     <div style="margin-bottom:16px">
       <h2 style="font-size:20px;font-weight:800;color:#0F326A;margin-bottom:2px">Mis Expensas</h2>
-      <p style="font-size:13px;color:#64748B">Torre Norte Edifica · Unidad 4° B</p>
+      <p style="font-size:13px;color:#64748B">${v.edificio} · Unidad ${v.departamento}</p>
     </div>
 
     <!-- Estado Actual -->
@@ -411,7 +508,7 @@ router.get('/expensas', (req, res) => {
             <div style="font-size:12px;color:#64748B">$120.000,00 · Pagado el 05/08</div>
           </div>
         </div>
-        <button style="padding:6px 12px;border-radius:8px;border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer">
+        <button onclick="alert('Descargando comprobante de Agosto 2026...')" style="padding:6px 12px;border-radius:8px;border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer">
           Descargar
         </button>
       </div>
@@ -426,24 +523,26 @@ router.get('/expensas', (req, res) => {
             <div style="font-size:12px;color:#64748B">$115.000,00 · Pagado el 08/07</div>
           </div>
         </div>
-        <button style="padding:6px 12px;border-radius:8px;border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer">
+        <button onclick="alert('Descargando comprobante de Julio 2026...')" style="padding:6px 12px;border-radius:8px;border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer">
           Descargar
         </button>
       </div>
     </div>
   `;
 
-  res.send(shellVecino('Mis Expensas', 'expensas', content));
+  res.send(shellVecino('Mis Expensas', 'expensas', content, v));
 });
 
 // -------------------------------------------------------------------
 // 5. AVISOS & NOVEDADES
 // -------------------------------------------------------------------
 router.get('/novedades', (req, res) => {
+  const v = getVecinoSession(req);
+
   const content = `
     <div style="margin-bottom:16px">
       <h2 style="font-size:20px;font-weight:800;color:#0F326A;margin-bottom:2px">Avisos del Edificio</h2>
-      <p style="font-size:13px;color:#64748B">Comunicaciones oficiales y trabajos en Torre Norte Edifica</p>
+      <p style="font-size:13px;color:#64748B">Comunicaciones oficiales en ${v.edificio}</p>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:12px">
@@ -471,7 +570,7 @@ router.get('/novedades', (req, res) => {
     </div>
   `;
 
-  res.send(shellVecino('Avisos', 'novedades', content));
+  res.send(shellVecino('Avisos', 'novedades', content, v));
 });
 
 module.exports = router;

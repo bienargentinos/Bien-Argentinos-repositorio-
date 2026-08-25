@@ -4613,8 +4613,8 @@ function parseHorario3Lineas(str) {
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
 
-  var rawNames = String(namesStr || '').split(/[,;\n]/).map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(/[,;\n]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawNames = String(namesStr || '').split(/[,;\x0A\x0D]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawTels = String(telsStr || '').split(/[,;\x0A\x0D]/).map(function(s){ return s.trim(); }).filter(Boolean);
   var res = [];
 
   for (var i = 0; i < rawNames.length; i++) {
@@ -4655,7 +4655,7 @@ function parseStaffClient(namesStr, telsStr) {
     }
 
     // If str is a pure phone number e.g. "1167350436" or "+5411...", assign to tel
-    if (/^[0-9\s\+\-\(\)]+$/.test(str) && str.replace(/[^0-9]/g, '').length >= 7) {
+    if (/^[\-+0-9\s()]+$/.test(str) && str.replace(/[^0-9]/g, '').length >= 7) {
       if (!tel || tel === '—') {
         tel = str;
         str = '';
