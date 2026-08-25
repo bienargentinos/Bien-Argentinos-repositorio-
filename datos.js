@@ -425,6 +425,24 @@ async function marcarContactoAccesoAvisado(id_evento) {
     return res;
 }
 
+async function fueMaterialEnviadoATecnico(id_evento) {
+    return sheets.fueMaterialEnviadoATecnico(id_evento);
+}
+
+async function marcarMaterialEnviadoATecnico(id_evento) {
+    const res = await sheets.marcarMaterialEnviadoATecnico(id_evento);
+    if (id_evento) {
+        copiarAPg(`la marca de material enviado al técnico de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET material_enviado_tecnico = $2 WHERE codigo_caso = $1`,
+                [id_evento, fechaHoraAR()]
+            );
+        });
+    }
+    return res;
+}
+
 async function marcarCasoResueltoPorId(idEvento) {
     const res = await sheets.marcarCasoResueltoPorId(idEvento);
     if (res?.id_evento) {
@@ -546,6 +564,8 @@ module.exports = {
     fueAdminNotificado,
     marcarContactoAccesoAvisado,
     fueContactoAccesoAvisado,
+    marcarMaterialEnviadoATecnico,
+    fueMaterialEnviadoATecnico,
     marcarCasoResueltoPorId,
     guardarLlamada,
     guardarAccesoEdificio,

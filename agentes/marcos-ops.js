@@ -345,6 +345,38 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
         ? `Encargado ${personalDeTurno.nombre} (${personalDeTurno.horario})`
         : `Ya coordinado por Marcos con ${vecinoConDepto} — lo va a estar esperando`;
 
+    // ── POR QUÉ ESTA PLANTILLA LLEGA SOLA ────────────────────────────────────────────────────
+    //
+    // Con la ventana de 24hs de Meta cerrada, la plantilla es lo ÚNICO que pasa. La foto del
+    // reclamo y el teléfono de quien le abre la puerta son mensajes libres y se rechazan con el
+    // código 131047. Y la ventana no la abre esta plantilla: la abre el técnico cuando contesta.
+    //
+    // Así que si hay material esperando, se lo decimos acá adentro, que es el único canal que
+    // tenemos abierto. Con que conteste cualquier cosa --un "ok", un punto, el botón de la
+    // plantilla-- alcanza: `entregarPendientesAlTecnico` (en index.js) le manda todo apenas entra
+    // ese mensaje. Sin este aviso, el técnico no tiene forma de saber que falta algo.
+    let hayPendientesParaEl = '';
+    try {
+        const { materialDelVecinoEnCaso } = require('../material-caso');
+        const material = await materialDelVecinoEnCaso(id_evento, vecino?.telefono);
+        // El objeto `vecino` que llega acá no siempre trae el contacto de acceso (depende de por
+        // dónde entró el caso), así que si no viene se lee del legajo, que es donde queda guardado.
+        let contacto = String(vecino?.contactoAcceso || '').trim();
+        if (!contacto && vecino?.telefono) {
+            const { buscarVecinoPorTelefono } = require('../datos');
+            const ficha = await buscarVecinoPorTelefono(vecino.telefono);
+            contacto = String(ficha?.contactoAcceso || '').trim();
+        }
+        if (material?.filePath && contacto) hayPendientesParaEl = 'Contestame por acá (un OK alcanza) y te paso la foto del problema y el contacto para entrar.';
+        else if (material?.filePath)        hayPendientesParaEl = 'Contestame por acá (un OK alcanza) y te paso la foto del problema.';
+        else if (contacto)                  hayPendientesParaEl = 'Contestame por acá (un OK alcanza) y te paso el contacto para entrar.';
+    } catch (e) {
+        console.error('No se pudo mirar si había material esperando para el técnico:', e.message);
+    }
+
+    // Meta rechaza los parámetros con saltos de línea: va todo en un renglón.
+    const accesoParaPlantilla = `${tecnicoAsignado.acceso || accesoFinal}${hayPendientesParaEl ? ` · ${hayPendientesParaEl}` : ''}`;
+
     const componentesPlantilla = [
         {
             type: 'body',
@@ -353,7 +385,7 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
                 { type: 'text', text: direccionExacta },
                 { type: 'text', text: `${vecinoConDepto} — ${textoProblemaConCaso}` },
                 { type: 'text', text: (decisionCaso.urgencia || 'media').toUpperCase() },
-                { type: 'text', text: tecnicoAsignado.acceso || accesoFinal }
+                { type: 'text', text: accesoParaPlantilla }
             ]
         }
     ];
@@ -395,7 +427,7 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
         );
     }
 
-    const resumenNotifProveedor = `Marcos (a Proveedor): [Plantilla WhatsApp] Hola ${tecnicoAsignado.nombre || 'Técnico'}, tenés una nueva solicitud de servicio en ${direccionExacta} para ${vecinoConDepto} — ${textoProblemaConCaso}. Urgencia: ${(decisionCaso.urgencia || 'media').toUpperCase()}. Acceso: ${tecnicoAsignado.acceso || accesoFinal}.`;
+    const resumenNotifProveedor = `Marcos (a Proveedor): [Plantilla WhatsApp] Hola ${tecnicoAsignado.nombre || 'Técnico'}, tenés una nueva solicitud de servicio en ${direccionExacta} para ${vecinoConDepto} — ${textoProblemaConCaso}. Urgencia: ${(decisionCaso.urgencia || 'media').toUpperCase()}. Acceso: ${accesoParaPlantilla}.`;
 
     try {
         const { guardarReporte } = require('../sheets');

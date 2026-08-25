@@ -458,6 +458,11 @@ async function buscarPerfilEdificio(nombreEdificio) {
             telSeguridad:      row.get('tel_seguridad')   || '',
             adminNombre:       row.get('administrador')   || '',
             plan:              row.get('plan')            || '',
+            // Casa/PH vs. edificio. Hace falta para no pedirle el número de departamento a alguien
+            // que vive en una casa: no lo tiene, así que la pregunta no se puede contestar y Marcos
+            // la repetía en cada vuelta.
+            tipo:              row.get('tipo')            || '',
+            unidades:          row.get('unidades')        || '',
         };
     } catch (err) {
         console.error('Error buscando perfil de edificio:', err.message);
@@ -1443,6 +1448,48 @@ async function marcarContactoAccesoAvisado(id_evento) {
     }
 }
 
+// Si la foto o el video que mandó el vecino ya le llegó al técnico. Igual que la marca de
+// contacto de acceso, vive en el caso y no en la sesión: el envío puede fallar (Meta rechaza todo
+// lo que no sea plantilla mientras la ventana de 24hs está cerrada) y hay que poder reintentarlo
+// cuando el técnico escribe, que es el momento en que la ventana se abre. Sin esta marca no hay
+// forma de saber si el reintento hace falta o si sería el mismo adjunto por segunda vez.
+async function fueMaterialEnviadoATecnico(id_evento) {
+    if (!id_evento) return false;
+    try {
+        const doc = await getSheet();
+        const sheet = pestaña(doc, 'EVENTOS');
+        if (!sheet) return false;
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        return !!(row && row.get('material_enviado_tecnico'));
+    } catch (err) {
+        console.error('Error chequeando material_enviado_tecnico:', err.message);
+        return false;
+    }
+}
+
+async function marcarMaterialEnviadoATecnico(id_evento) {
+    if (!id_evento) return;
+    try {
+        const doc = await getSheet();
+        const sheet = pestaña(doc, 'EVENTOS');
+        if (!sheet) return;
+        await sheet.loadHeaderRow().catch(() => {});
+        if (!(sheet.headerValues || []).includes('material_enviado_tecnico')) {
+            const nuevosHeaders = Array.from(new Set([...(sheet.headerValues || []), 'material_enviado_tecnico']));
+            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
+        }
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        if (row) {
+            row.set('material_enviado_tecnico', fechaHoraAR());
+            await row.save();
+        }
+    } catch (err) {
+        console.error('Error marcando material_enviado_tecnico:', err.message);
+    }
+}
+
 async function fueTecnicoNotificado(id_evento) {
     if (!id_evento) return false;
     try {
@@ -2200,6 +2247,8 @@ module.exports = {
     marcarAdminNotificado,
     fueContactoAccesoAvisado,
     marcarContactoAccesoAvisado,
+    fueMaterialEnviadoATecnico,
+    marcarMaterialEnviadoATecnico,
     guardarFactura,
     buscarFacturasProveedor,
     guardarLlamada,

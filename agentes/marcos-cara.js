@@ -195,7 +195,17 @@ REGLA ESTRICTA DE CARTERA:
 
     const esNombreGenerico = !vecino?.nombre || vecino.nombre === 'Vecino' || vecino.nombre === 'Desconocido' || (datosEmisor?.rol === 'vecino' && vecino.nombre === session?.pushName);
     const faltaNombre = esNombreGenerico;
-    const faltaDepto = !vecino?.departamento || vecino.departamento === '' || vecino.departamento === '—';
+    // En una casa o un PH de una sola unidad no hay número de departamento. Pedírselo es pedirle
+    // un dato que no existe: el vecino no lo puede contestar, la ficha nunca se completa y Marcos
+    // vuelve a preguntar lo mismo en cada vuelta. Visto en producción con "san patricio casa".
+    const tipoEdif = String(perfilEdificio?.tipo || '').toLowerCase();
+    const unidadesEdif = parseInt(String(perfilEdificio?.unidades || '').replace(/\D/g, ''), 10);
+    const esUnidadUnica = /casa|ph|d[uú]plex|chalet|vivienda/.test(tipoEdif) ||
+        /\bcasa\b/.test(String(vecino?.edificio || '').toLowerCase()) ||
+        (Number.isFinite(unidadesEdif) && unidadesEdif <= 1);
+
+    const faltaDepto = !esUnidadUnica &&
+        (!vecino?.departamento || vecino.departamento === '' || vecino.departamento === '—');
 
     const instruccionDatosFaltantes = (faltaNombre || faltaDepto)
         ? `

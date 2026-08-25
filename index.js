@@ -663,6 +663,119 @@ function coincideRubroTecnico(a, b) {
     return familias.some(f => f.some(t => x.includes(t)) && f.some(t => y.includes(t)));
 }
 
+// La foto/video que el vecino adjuntó al caso. Vive en `material-caso.js` porque también la
+// necesita marcos-ops para decidir si le pide al técnico que conteste.
+const { materialDelVecinoEnCaso } = require('./material-caso');
+
+/**
+ * Le entrega al técnico lo que Meta rechazó cuando le mandamos el caso.
+ *
+ * POR QUÉ EXISTE ESTO. La plantilla de Meta es lo único que sale con la ventana de 24hs cerrada.
+ * Todo lo demás -- la foto del reclamo, la ficha de contacto, el teléfono de quien le abre -- es
+ * mensaje libre, y Meta lo rechaza con el código 131047 mientras la ventana no esté abierta. Y la
+ * ventana NO la abre la plantilla que mandamos nosotros: la abre el técnico cuando responde.
+ *
+ * Como Marcos manda las cuatro cosas seguidas, en la práctica llegaba solo la plantilla y el resto
+ * rebotaba un segundo antes de tiempo. En el chat del técnico se veía la plantilla sola, y encima
+ * Marcos después le decía "el vecino no adjuntó material" -- que era falso: el material existía y
+ * se había perdido en el camino.
+ *
+ * Esta función se llama cuando el técnico ESCRIBE, que es exactamente el instante en que la
+ * ventana se abre, y entrega lo que quedó pendiente. Las marcas de entregado viven en el caso
+ * (no en RAM) porque PM2 reinicia seguido y un reintento perdido acá deja al técnico yendo a un
+ * domicilio sin saber qué va a encontrar ni a quién tocarle el timbre.
+ */
+async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento, edificio, telVecino, nombreVecino }) {
+    if (!telTecnico || !idEvento) return false;
+
+    // Se pone en true solo si algo QUEDÓ sin entregar. El llamador usa esto para dejar de releer
+    // la planilla en cada mensaje del técnico una vez que ya no hay nada pendiente.
+    let quedaPendiente = false;
+
+    const {
+        fueMaterialEnviadoATecnico, marcarMaterialEnviadoATecnico,
+        fueContactoAccesoAvisado, marcarContactoAccesoAvisado,
+        guardarReporte,
+    } = require('./datos');
+
+    // 1) La foto o el video del reclamo.
+    try {
+        if (!(await fueMaterialEnviadoATecnico(idEvento))) {
+            const material = await materialDelVecinoEnCaso(idEvento, telVecino);
+            if (material?.filePath) {
+                const mediaId = await subirMediaWhatsApp(material.filePath, material.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                if (mediaId) {
+                    const quien = (nombreVecino && nombreVecino !== 'Vecino' && nombreVecino !== 'Desconocido') ? nombreVecino : 'El vecino';
+                    const esVideo = material.tipo === 'video';
+                    const pie = `📱 *MARCOS — ${esVideo ? 'VIDEO' : 'FOTO'} DEL RECLAMO [${idEvento}]*\n\n` +
+                        `${nombreTecnico || 'Hola'}, ${quien} en ${edificio || 'el edificio'} adjuntó esto del inconveniente.`;
+
+                    const { enviarImagenWhatsApp, enviarVideoWhatsApp } = require('./agentes/marcos-ops');
+                    const salio = esVideo
+                        ? await enviarVideoWhatsApp(telTecnico, mediaId, pie, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN)
+                        : await enviarImagenWhatsApp(telTecnico, mediaId, pie, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+
+                    if (salio) {
+                        await marcarMaterialEnviadoATecnico(idEvento);
+                        const tag = (esVideo ? '[VIDEO:' : '[IMAGEN:') + `/archivos/${path.basename(material.filePath)}]`;
+                        await guardarReporte({
+                            id_evento: idEvento,
+                            edificio: edificio || '',
+                            tecnico: nombreTecnico || '',
+                            tel_tecnico: telTecnico,
+                            historial_chat: JSON.stringify([`Marcos (a Proveedor): ${tag} ${pie}`]),
+                        }).catch(e => console.error('Error registrando el material entregado al técnico:', e.message));
+                        console.log(`📎✅ El material del [${idEvento}] que había rebotado le llegó ahora a ${nombreTecnico || telTecnico}.`);
+                    } else {
+                        quedaPendiente = true;
+                        console.error(`📎❌ El material del [${idEvento}] volvió a rebotar hacia ${nombreTecnico || telTecnico}. No se marca como entregado.`);
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        quedaPendiente = true;
+        console.error('Error entregando el material pendiente al técnico:', e.message);
+    }
+
+    // 2) El contacto de quien le abre la puerta. Se lee del legajo del vecino y no de la sesión:
+    //    la sesión se borra en cada reinicio y este dato es justamente el que evita que el técnico
+    //    llegue y se quede parado en la vereda.
+    try {
+        if (!(await fueContactoAccesoAvisado(idEvento))) {
+            const vecinoFicha = telVecino ? await buscarVecinoPorTelefono(telVecino) : null;
+            const contacto = String(vecinoFicha?.contactoAcceso || '').trim();
+            if (contacto) {
+                const msg = `📞 *MARCOS — CONTACTO PARA EL INGRESO [${idEvento}]*\n\n` +
+                    `${nombreTecnico || 'Hola'}, para la visita en ${edificio || 'el edificio'} el vecino dejó este contacto para que le abran: *${contacto}*.\n` +
+                    (/\s\/\s/.test(contacto) ? `Tiene más de un número registrado, probá con cualquiera.\n` : '') +
+                    `Si al llegar no te abren, comunicate directamente con esa persona y avisame cualquier inconveniente.`;
+
+                const salio = await enviarWhatsApp(telTecnico, msg, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
+                if (salio) {
+                    await marcarContactoAccesoAvisado(idEvento);
+                    await guardarReporte({
+                        id_evento: idEvento,
+                        edificio: edificio || '',
+                        tecnico: nombreTecnico || '',
+                        tel_tecnico: telTecnico,
+                        historial_chat: JSON.stringify([`Marcos (a Proveedor): ${msg}`]),
+                    }).catch(e => console.error('Error registrando el contacto de acceso entregado:', e.message));
+                    console.log(`📞✅ El contacto de acceso del [${idEvento}] que había rebotado le llegó ahora a ${nombreTecnico || telTecnico}.`);
+                } else {
+                    quedaPendiente = true;
+                    console.error(`📞❌ El contacto de acceso del [${idEvento}] volvió a rebotar. No se marca como avisado.`);
+                }
+            }
+        }
+    } catch (e) {
+        quedaPendiente = true;
+        console.error('Error entregando el contacto de acceso pendiente al técnico:', e.message);
+    }
+
+    return quedaPendiente;
+}
+
 // ── DESPACHADOR DE RESPUESTAS (Modo Espejo / TTS) ─────────────────────────────
 async function despacharRespuesta(recipient, texto, msgType) {
     if (!texto) return;
@@ -1078,6 +1191,28 @@ function validarYSanitizarNombre(nombre) {
             } catch (e) {
                 console.error('Error recuperando el caso abierto del técnico:', e.message);
             }
+        }
+
+        // ── LO QUE META NOS RECHAZÓ, AHORA SÍ ────────────────────────────────────────────────
+        //
+        // Este mensaje que acaba de entrar es lo que abre la ventana de 24hs de Meta. Todo lo que
+        // le mandamos al técnico junto con la plantilla y que rebotó con el código 131047 --la
+        // foto del reclamo, el contacto de quien le abre-- recién ahora puede salir.
+        //
+        // Va antes de contestarle: si el técnico escribió "¿qué pasó?", tiene que ver la foto y no
+        // una explicación de por qué no la tiene.
+        if (stProv.eventoActivoId && stProv.pendientesResueltosDe !== stProv.eventoActivoId) {
+            const quedaPendiente = await entregarPendientesAlTecnico({
+                telTecnico:    telTech,
+                nombreTecnico: datosEmisor.nombre,
+                idEvento:      stProv.eventoActivoId,
+                edificio:      stProv.edificioActivo || stProv.vecinoActivo?.edificio || '',
+                telVecino:     stProv.vecinoActivo?.telefono || '',
+                nombreVecino:  stProv.vecinoActivo?.nombre || '',
+            });
+            // Si no quedó nada colgado, no se vuelve a consultar la planilla en cada mensaje de
+            // este técnico para este mismo caso. Si algo falló, en el próximo mensaje se reintenta.
+            if (!quedaPendiente) stProv.pendientesResueltosDe = stProv.eventoActivoId;
         }
 
         // ── ¿CUÁL DE LOS TÉCNICOS DE ESTA LÍNEA ESTÁ ESCRIBIENDO? ────────────────────────────
@@ -2679,7 +2814,16 @@ function validarYSanitizarNombre(nombre) {
             const sesionVecino = telVecino
                 ? (global.marcosSesiones?.get(telVecino) || global.marcosSesiones?.get(String(telVecino).replace(/\D/g, '')))
                 : null;
-            const guardada = sesionVecino?.mediaPendiente;
+            let guardada = sesionVecino?.mediaPendiente;
+
+            // El caso es el que está atendiendo ESTE técnico. Antes acá decía `idEventoAsignado`,
+            // que es la variable del camino del vecino y se declara cientos de líneas más abajo:
+            // en esta rama todavía no existe, así que la línea reventaba con ReferenceError y el
+            // técnico se quedaba sin respuesta justo cuando pedía datos.
+            const idCasoDelTecnico = global.colasProveedores?.get(String(from).replace(/\D/g, ''))?.eventoActivoId || '';
+            if (!guardada?.filePath && idCasoDelTecnico) {
+                guardada = await materialDelVecinoEnCaso(idCasoDelTecnico, telVecino);
+            }
 
             if (guardada?.filePath && (guardada.tipo === 'image' || guardada.tipo === 'video')) {
                 const antiguedad = Date.now() - (guardada.recibidoEn || 0);
@@ -2805,6 +2949,21 @@ function validarYSanitizarNombre(nombre) {
             accesosDelEdificio = await buscarAccesosEdificio(edifNomCatchAll);
         } catch (e) { console.error('Error cargando accesos del edificio:', e.message); }
 
+        // Qué mandó el vecino y si dejó foto o video. Sin estos dos datos el modelo no tenía nada
+        // que decir sobre el reclamo y lo llenaba solo: en la prueba le escribió al técnico "el
+        // vecino no ha provisto detalles adicionales ni material gráfico" cuando el vecino había
+        // mandado una foto, dos audios y una ficha de contacto. Una afirmación así hace que el
+        // técnico salga sin mirar nada y llegue sin saber a qué va.
+        const colaCatchAll = global.colasProveedores?.get(String(from).replace(/\D/g, ''));
+        const idCasoCatchAll = colaCatchAll?.eventoActivoId || '';
+        let hayMaterialDelVecino = false;
+        try {
+            if (idCasoCatchAll) {
+                const mat = await materialDelVecinoEnCaso(idCasoCatchAll, vecinoActivoCatchAll?.telefono);
+                hayMaterialDelVecino = Boolean(mat?.filePath);
+            }
+        } catch (e) { console.error('Error mirando si el vecino dejó material en el caso:', e.message); }
+
         const respGenericaProveedor = await generarRespuestaTecnicoLibre({
             mensajeTecnico: msgBody,
             nombreTecnico: datosEmisor.nombre,
@@ -2812,7 +2971,10 @@ function validarYSanitizarNombre(nombre) {
             edificio: edifNomCatchAll,
             perfilEdificio: perfilEdifCatchAll,
             contactoAccesoExtra,
-            accesosEdificio: accesosDelEdificio
+            accesosEdificio: accesosDelEdificio,
+            idEvento: idCasoCatchAll,
+            rubroDelCaso: colaCatchAll?.rubroActivo || '',
+            hayMaterialDelVecino
         });
         await despacharRespuesta(recipient, respGenericaProveedor, msgTypeRespuesta);
         historial.push(`Marcos: ${respGenericaProveedor}`);
@@ -3485,7 +3647,7 @@ function validarYSanitizarNombre(nombre) {
 // Se usa para cualquier mensaje del técnico que no sea "pide foto/datos" ni "manda factura"
 // (confirmaciones, preguntas puntuales como "¿quién me recibe?", quejas, etc.), para que Marcos
 // conteste lo que realmente le preguntaron en vez de una frase enlatada fija.
-async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vecino, edificio, perfilEdificio, contactoAccesoExtra = '', accesosEdificio = [] }) {
+async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vecino, edificio, perfilEdificio, contactoAccesoExtra = '', accesosEdificio = [], idEvento = '', rubroDelCaso = '', hayMaterialDelVecino = false }) {
     try {
         const nomVecino = (vecino?.nombre && vecino.nombre !== 'Vecino' && vecino.nombre !== 'Desconocido') ? vecino.nombre : '';
         const identVecino = nomVecino
@@ -3537,8 +3699,9 @@ async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vec
 El técnico ${nombreTecnico} te escribió: "${mensajeTecnico}"
 
 Datos reales del caso que tenés disponibles:
-- Vecino/solicitante: ${identVecino}
+${idEvento ? `- Caso: ${idEvento}\n` : ''}${rubroDelCaso ? `- Rubro del trabajo: ${rubroDelCaso}\n` : ''}- Vecino/solicitante: ${identVecino}
 - Dirección: ${direccion}
+- Material que dejó el vecino: ${hayMaterialDelVecino ? 'SÍ, hay foto o video del inconveniente guardado en el caso.' : 'no consta ninguno guardado (puede haberlo mandado igual: no lo afirmes).'}
 - Acceso: ${accesoInfo}
 - Teléfonos de contacto para el ingreso: ${telefonosAcceso}
 - Instalaciones del edificio y quién tiene la llave de cada una:
@@ -3556,6 +3719,7 @@ Instrucciones:
 - NUNCA repitas la misma respuesta que ya diste antes. Si el técnico insiste con un pedido, es porque tu respuesta anterior no le sirvió: cambiá de enfoque y resolvé el problema concreto que tiene.
 - Si te pregunta CÓMO o A QUIÉN entregar una factura/comprobante de pago (sin adjuntarla todavía, solo preguntando el procedimiento): decile que te la puede mandar directo por acá (foto o PDF) y vos la registrás para que la Administración la procese. NO le digas "ya recibí la factura" -- todavía no mandó nada, solo está preguntando.
 - NUNCA le pidas nombre/departamento al técnico -- eso es del vecino, no de él.
+- 🚨 TENÉS PROHIBIDO DECIRLE QUE EL VECINO NO MANDÓ NADA. Nunca escribas "el vecino no ha provisto detalles adicionales", "no adjuntó material gráfico", "no hay más información" ni ninguna variante. Vos NO ves el chat del vecino: lo único que sabés sobre eso es la línea "Material que dejó el vecino" de arriba, y ni siquiera esa cubre los audios ni lo que contó por escrito. Afirmar que no mandó nada cuando sí lo hizo hace que el técnico salga sin mirar nada y llegue sin saber a qué va, y al vecino le llega después que Marcos dijo que él no había informado. Si el técnico pide más datos y arriba dice que SÍ hay foto o video, decile que se lo estás mandando; si dice que no consta, decile simplemente que se lo pedís al vecino y se lo pasás.
 - No saludes ni te vuelvas a presentar (ya es una conversación en curso).
 - Devolvé ÚNICAMENTE el texto de la respuesta, sin comillas ni formato adicional.`;
 

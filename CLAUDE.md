@@ -311,6 +311,56 @@ Dario) y no se sabe cuál escribe, Marcos **pregunta a nombre de cuál anota los
 escribirlos en una fila cualquiera: los datos de cobro de uno no son los del otro, y equivocarse
 manda el pago a otra persona.
 
+## La ventana de 24hs de Meta (por qué al técnico le llegaba SOLO la plantilla)
+
+> [!CAUTION]
+> **Con la ventana cerrada, Meta deja pasar ÚNICAMENTE plantillas aprobadas.** Texto libre, foto,
+> video, ficha de contacto y audio se rechazan con el código **131047**. Y la ventana **no la abre
+> la plantilla que mandamos nosotros**: la abre **el técnico cuando responde**.
+
+Marcos mandaba las cuatro cosas seguidas (plantilla → foto del reclamo → ficha de contacto →
+contacto de acceso), así que llegaba la plantilla sola y el resto rebotaba un segundo antes de que
+la ventana se abriera. En el log:
+
+```
+📷 Foto/video del vecino reenviado al técnico a dario juju (541169241157).
+📵 META RECHAZÓ LA ENTREGA a 5491169241157 [código 131047]: Re-engagement message
+```
+
+En las pruebas nunca se vio porque se hacían todas seguidas desde el mismo número: la ventana
+estaba siempre abierta.
+
+**Cómo quedó resuelto**:
+
+- `material-caso.js` — `materialDelVecinoEnCaso(idEvento, telVecino)`: recupera la foto/video del
+  historial del caso y del disco, no de RAM. Lo usan `index.js` y `agentes/marcos-ops.js`.
+- `index.js` — `entregarPendientesAlTecnico(...)`: se llama en **cada mensaje entrante del
+  proveedor**, que es el instante exacto en que Meta abre la ventana, y entrega lo que había
+  rebotado. Da igual si el técnico escribe "ok", un punto o aprieta el botón de la plantilla.
+- Las marcas de entregado viven en el **caso** (columnas `material_enviado_tecnico` y
+  `contacto_acceso_avisado` de `EVENTOS`), no en RAM, porque PM2 reinicia seguido. **Solo se marcan
+  si el envío salió de verdad**: marcar un envío fallido impide el reintento para siempre.
+- La plantilla avisa que hay material esperando (`Contestame por acá (un OK alcanza) y te paso la
+  foto del problema y el contacto para entrar.`), porque es el único canal abierto para decírselo.
+  La frase se arma según lo que realmente haya; si no hay nada, no se promete nada.
+- Prueba: `node pruebas-ventana-24hs.js`.
+
+**Meta permite tener varias plantillas**, pero una plantilla NO sirve para mandar la foto del
+reclamo: la imagen de una plantilla se sube al aprobarla y es fija. La foto de hoy solo sale como
+mensaje libre, o sea con la ventana abierta.
+
+### Otros dos arreglos del mismo episodio
+
+- **Marcos le decía al técnico "el vecino no ha provisto detalles adicionales ni material
+  gráfico"** cuando el vecino había mandado foto, dos audios y una ficha de contacto.
+  `generarRespuestaTecnicoLibre` no recibía ningún dato sobre el reclamo y el modelo llenaba el
+  hueco. Ahora recibe el caso, el rubro y si hay material guardado, y tiene prohibido afirmar que
+  el vecino no mandó nada.
+- **Marcos le pedía el número de departamento a alguien que vive en una casa** (`san patricio
+  casa`), así que la ficha no se completaba nunca y volvía a preguntar en cada vuelta.
+  `marcos-cara.js` ya no pide departamento cuando el edificio es casa/PH o tiene una sola unidad
+  (`tipo` y `unidades` de la tab `edificios`, ahora expuestos en `buscarPerfilEdificio`).
+
 ## Modificaciones Recientes de Visualización, Multimedia y Chat
 
 ### 1. Separación de Chats y Eliminación de Duplicados en Dashboard

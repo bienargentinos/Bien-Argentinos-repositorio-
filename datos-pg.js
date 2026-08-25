@@ -128,6 +128,9 @@ async function buscarPerfilEdificio(nombreEdificio) {
         telSeguridad:      row.get('tel_seguridad')   || '',
         adminNombre:       row.get('administrador')   || '',
         plan:              row.get('plan')            || '',
+        // Ver la nota en sheets.js: sirve para no pedirle el departamento a quien vive en una casa.
+        tipo:              row.get('tipo')            || '',
+        unidades:          row.get('unidades')        || '',
     };
 }
 
