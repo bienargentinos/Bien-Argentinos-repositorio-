@@ -4593,13 +4593,9 @@ function parseHorario3Lineas(str) {
 
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
-  var escOpenP = String.fromCharCode(92) + String.fromCharCode(40);
-  var escCloseP = String.fromCharCode(92) + String.fromCharCode(41);
-  var escOpenB = String.fromCharCode(92) + String.fromCharCode(91);
-  var escCloseB = String.fromCharCode(92) + String.fromCharCode(93);
 
-  var rawNames = String(namesStr || '').split(new RegExp('[,\\n;]', 'g')).map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(new RegExp('[,\\n;]', 'g')).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawNames = String(namesStr || '').split(/[,;\n]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawTels = String(telsStr || '').split(/[,;\n]/).map(function(s){ return s.trim(); }).filter(Boolean);
   var res = [];
 
   for (var i = 0; i < rawNames.length; i++) {
@@ -4608,31 +4604,47 @@ function parseStaffClient(namesStr, telsStr) {
     var estado = 'activo';
     var horario = '';
 
-    var isScheduleFragment = new RegExp('^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|[0-9]{1,2}:)', 'i').test(str.replace(new RegExp('^[^a-z0-9]+', 'i'), ''));
-    if (isScheduleFragment && res.length > 0) {
-      var cleanHor = str.replace(new RegExp(escOpenB + '[^' + escCloseB + ']*' + escCloseB, 'g'), '').replace(new RegExp(escCloseB, 'g'), '').replace(new RegExp('^[^a-z0-9]+', 'i'), '').trim();
-      if (cleanHor) {
-        res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
-          ? cleanHor
-          : res[res.length - 1].horario + ' · ' + cleanHor;
+    // Extract bracket metadata: e.g. "Juan Perez [activo | L-V 8-16]"
+    var openB = str.indexOf('[');
+    var closeB = str.indexOf(']', openB);
+    if (openB !== -1 && closeB > openB) {
+      var metaContent = str.substring(openB + 1, closeB).trim();
+      str = (str.substring(0, openB) + ' ' + str.substring(closeB + 1)).trim();
+
+      if (metaContent) {
+        var parts = metaContent.split('|').map(function(s){ return s.trim(); }).filter(Boolean);
+        parts.forEach(function(part) {
+          var pLow = part.toLowerCase();
+          if (pLow === 'activo' || pLow === 'licencia' || pLow === 'vacaciones') {
+            estado = pLow;
+          } else {
+            horario = part;
+          }
+        });
       }
-      continue;
     }
 
-    var matchMeta = str.match(new RegExp(escOpenB + '(activo|licencia|vacaciones)?\\s*\\|?\\s*([^' + escCloseB + ']*)' + escCloseB, 'i'));
-    if (matchMeta) {
-      if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
-      if (matchMeta[2]) horario = matchMeta[2].trim();
-      str = str.replace(new RegExp(escOpenB + '[^' + escCloseB + ']*' + escCloseB, 'g'), '').trim();
+    // Extract phone in parentheses: e.g. "Juan Perez (1167350436)"
+    var openP = str.indexOf('(');
+    var closeP = str.indexOf(')', openP);
+    if (openP !== -1 && closeP > openP) {
+      var telInParens = str.substring(openP + 1, closeP).trim();
+      if (telInParens && (!tel || tel === '—')) {
+        tel = telInParens;
+      }
+      str = (str.substring(0, openP) + ' ' + str.substring(closeP + 1)).trim();
     }
 
-    var matchTel = str.match(new RegExp(escOpenP + '([^' + escCloseP + ']+)' + escCloseP));
-    if (matchTel && (!tel || tel === '—')) {
-      tel = matchTel[1].trim();
-      str = str.replace(new RegExp(escOpenP + '[^' + escCloseP + ']+' + escCloseP, 'g'), '').trim();
+    // If str is a pure phone number e.g. "1167350436" or "+5411...", assign to tel
+    if (/^[0-9\s\+\-\(\)]+$/.test(str) && str.replace(/[^0-9]/g, '').length >= 7) {
+      if (!tel || tel === '—') {
+        tel = str;
+        str = '';
+      }
     }
 
-    str = str.replace(new RegExp(escOpenB + '|' + escCloseB, 'g'), '').trim();
+    // Clean leftover brackets or parentheses if any
+    str = str.replace(/[\[\]\(\)]/g, '').trim();
 
     if (str || tel !== '—') {
       res.push({
