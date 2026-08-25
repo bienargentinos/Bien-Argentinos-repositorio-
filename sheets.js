@@ -4,6 +4,16 @@ const { JWT } = require('google-auth-library');
 const path = require('path');
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
+
+// Si falta la variable, `path.join` revienta con "path must be a string, received undefined",
+// que no dice qué falta ni dónde buscarlo. Pasó de verdad al correr un script desde otra carpeta:
+// el .env no se cargaba, y el error mandaba a leer el código de Node en vez del .env.
+if (!process.env.GOOGLE_CREDENTIALS_FILE) {
+    throw new Error(
+        'Falta GOOGLE_CREDENTIALS_FILE en el entorno. Si estás corriendo un script suelto, ' +
+        'revisá que el archivo .env esté en ' + __dirname + ' y que el script lo cargue desde ahí.'
+    );
+}
 const CREDENTIALS_FILE = path.join(__dirname, process.env.GOOGLE_CREDENTIALS_FILE);
 
 let doc = null;

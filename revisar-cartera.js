@@ -8,7 +8,10 @@
 // técnico, ¿contra qué edificios la va a poder validar? Si la cartera sale vacía, Marcos no
 // rechaza nada -- pero pregunta de qué edificio es cada comprobante en vez de deducirlo.
 
-require('dotenv').config();
+// El .env se busca al lado de este archivo y no en el directorio desde donde se ejecuta:
+// `node /ruta/larga/script.js` desde otra carpeta no encontraba ninguna variable y el script
+// reventaba con un error que no decía nada ('path must be a string, received undefined').
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const sheets = require('./sheets');
 
 const norm = t => String(t || '').trim().toLowerCase();

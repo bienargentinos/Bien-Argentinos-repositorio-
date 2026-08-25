@@ -1,4 +1,7 @@
-require('dotenv').config();
+// El .env se busca al lado de este archivo y no en el directorio desde donde se ejecuta:
+// `node /ruta/larga/script.js` desde otra carpeta no encontraba ninguna variable y el script
+// reventaba con un error que no decía nada ('path must be a string, received undefined').
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const fs = require('fs');
 const path = require('path');
 
