@@ -5951,8 +5951,8 @@ ${(() => {
   </div>
 
   <!-- Botón Flotante Principal -->
-  <button id="ac-ai-trigger-btn" onclick="toggleAsistenteWidget()" onmouseenter="if(window.initDragAsistenteWidget)window.initDragAsistenteWidget()" onmousedown="if(window.initDragAsistenteWidget)window.initDragAsistenteWidget()" style="height:38px;padding:0 14px;border:none;border-radius:999px;background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;font-weight:800;font-size:13px;box-shadow:0 4px 12px rgba(23,64,139,.25);cursor:grab;display:flex;align-items:center;gap:6px;user-select:none;touch-action:none" class="hv-navy">
-    <span style="font-size:16px">✨</span> Asistente IA
+  <button id="ac-ai-trigger-btn" onclick="toggleAsistenteWidget()" onmouseenter="if(window.initDragAsistenteWidget)window.initDragAsistenteWidget()" onmousedown="if(window.initDragAsistenteWidget)window.initDragAsistenteWidget()" style="height:40px;padding:0 16px;border:none;border-radius:999px;background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;font-weight:800;font-size:14px;box-shadow:0 4px 12px rgba(23,64,139,.25);cursor:grab;display:flex;align-items:center;gap:7px;user-select:none;touch-action:none" class="hv-navy">
+    <span style="font-size:17px">✨</span> Asistente IA
   </button>
 </div>
 
