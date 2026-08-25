@@ -66,8 +66,11 @@ function armar({ yaEnviadoMaterial = false, yaAvisadoContacto = false, hayMateri
     };
 
     const opsFalsas = {
-        enviarImagenWhatsApp: async (to) => { hecho.envios.push({ que: 'imagen', to }); return metaAcepta; },
-        enviarVideoWhatsApp:  async (to) => { hecho.envios.push({ que: 'video', to });  return metaAcepta; },
+        enviarImagenWhatsApp: async (to, _id, pie) => { hecho.envios.push({ que: 'imagen', to, pie }); return metaAcepta; },
+        enviarVideoWhatsApp:  async (to, _id, pie) => { hecho.envios.push({ que: 'video', to, pie });  return metaAcepta; },
+        // Al técnico se le habla con la dirección de la calle, nunca con el nombre interno del
+        // edificio. Acá se devuelve algo distinguible para poder verificar cuál de los dos usó.
+        direccionParaTecnico: async (nombre) => (nombre ? `Calle Falsa 123 (${nombre})` : 'el edificio'),
     };
 
     const requireFalso = (m) => {
@@ -85,7 +88,7 @@ function armar({ yaEnviadoMaterial = false, yaAvisadoContacto = false, hayMateri
         requireFalso,
         async () => (hayMaterial ? { filePath: '/tmp/foto.jpg', tipo: 'image', mimeType: 'image/jpeg' } : null),
         async () => 'MEDIA-ID-123',
-        async (to) => { hecho.envios.push({ que: 'texto', to }); return metaAcepta; },
+        async (to, texto) => { hecho.envios.push({ que: 'texto', to, texto }); return metaAcepta; },
         async () => ({ contactoAcceso }),
         'PHONE', 'TOKEN', path,
         { log() {}, warn() {}, error() {} }
@@ -111,11 +114,29 @@ console.log('\n── LA VENTANA SE ABRIÓ: SALE TODO LO QUE HABÍA REBOTADO ─
     const quedaPendiente = await fn(caso);
 
     verificar('salieron los dos: la foto y el contacto de acceso', hecho.envios.length, 2);
-    verificar('la foto le llegó al técnico', hecho.envios[0], { que: 'imagen', to: '541169241157' });
-    verificar('el contacto de acceso también', hecho.envios[1], { que: 'texto', to: '541169241157' });
+    verificar('la foto le llegó al técnico', hecho.envios[0].que, 'imagen');
+    verificar('el contacto de acceso también', hecho.envios[1].que, 'texto');
     verificar('quedan las dos marcas en el caso', hecho.marcas, ['material', 'contacto']);
     verificar('los dos envíos quedan en el chat del proveedor', hecho.chat.length, 2);
     verificar('no quedó nada pendiente', quedaPendiente, false);
+}
+
+console.log('\n── LO QUE EL TÉCNICO NECESITA LEER EN EL MENSAJE ──');
+{
+    const { fn, hecho } = armar({});
+    await fn(caso);
+    const [foto, acceso] = hecho.envios;
+
+    // El número de caso va en los dos. Es lo único con que el técnico puede decir después "esta
+    // factura es del CASO-1001": junta los trabajos de varios días y los manda todos juntos, a
+    // veces de administradores distintos.
+    verificar('la foto lleva el número de caso', foto.pie.includes('[CASO-1001]'), true);
+    verificar('el contacto de acceso también', acceso.texto.includes('[CASO-1001]'), true);
+
+    // Y va la DIRECCIÓN, no el nombre interno del edificio. Mandarle los dos, uno atrás del otro,
+    // lo deja sin saber si son dos direcciones o una.
+    verificar('la foto dice la dirección', foto.pie.includes('Calle Falsa 123'), true);
+    verificar('el contacto de acceso también', acceso.texto.includes('Calle Falsa 123'), true);
 }
 
 console.log('\n── META VUELVE A RECHAZAR: NO SE MARCA COMO ENTREGADO ──');
@@ -145,7 +166,7 @@ console.log('\n── SOLO FALTABA UNA DE LAS DOS COSAS ──');
 {
     const { fn, hecho } = armar({ yaEnviadoMaterial: true, yaAvisadoContacto: false });
     await fn(caso);
-    verificar('sale solo el contacto de acceso', hecho.envios, [{ que: 'texto', to: '541169241157' }]);
+    verificar('sale solo el contacto de acceso', hecho.envios.map(e => e.que), ['texto']);
     verificar('y solo se marca ese', hecho.marcas, ['contacto']);
 }
 

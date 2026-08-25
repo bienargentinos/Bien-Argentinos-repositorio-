@@ -698,6 +698,11 @@ async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento
         guardarReporte,
     } = require('./datos');
 
+    // Al técnico se le habla con la dirección de la calle, nunca con el nombre interno del
+    // edificio: son dos textos distintos y mandarle los dos lo deja sin saber a cuál ir.
+    const { direccionParaTecnico } = require('./agentes/marcos-ops');
+    const direccion = await direccionParaTecnico(edificio);
+
     // 1) La foto o el video del reclamo.
     try {
         if (!(await fueMaterialEnviadoATecnico(idEvento))) {
@@ -708,7 +713,7 @@ async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento
                     const quien = (nombreVecino && nombreVecino !== 'Vecino' && nombreVecino !== 'Desconocido') ? nombreVecino : 'El vecino';
                     const esVideo = material.tipo === 'video';
                     const pie = `📱 *MARCOS — ${esVideo ? 'VIDEO' : 'FOTO'} DEL RECLAMO [${idEvento}]*\n\n` +
-                        `${nombreTecnico || 'Hola'}, ${quien} en ${edificio || 'el edificio'} adjuntó esto del inconveniente.`;
+                        `${nombreTecnico || 'Hola'}, ${quien} en ${direccion} adjuntó esto del inconveniente.`;
 
                     const { enviarImagenWhatsApp, enviarVideoWhatsApp } = require('./agentes/marcos-ops');
                     const salio = esVideo
@@ -747,7 +752,7 @@ async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento
             const contacto = String(vecinoFicha?.contactoAcceso || '').trim();
             if (contacto) {
                 const msg = `📞 *MARCOS — CONTACTO PARA EL INGRESO [${idEvento}]*\n\n` +
-                    `${nombreTecnico || 'Hola'}, para la visita en ${edificio || 'el edificio'} el vecino dejó este contacto para que le abran: *${contacto}*.\n` +
+                    `${nombreTecnico || 'Hola'}, para la visita en ${direccion} el vecino dejó este contacto para que le abran: *${contacto}*.\n` +
                     (/\s\/\s/.test(contacto) ? `Tiene más de un número registrado, probá con cualquiera.\n` : '') +
                     `Si al llegar no te abren, comunicate directamente con esa persona y avisame cualquier inconveniente.`;
 
@@ -2263,8 +2268,13 @@ function validarYSanitizarNombre(nombre) {
             // segundo". Y del lado de Marcos, elegir de una lista es un dato duro -- sabe el
             // caso, el edificio y qué administrador lo recibe.
             if (candidatos.length > 1) {
-                const lista = candidatos.slice(0, 5)
-                    .map((c, i) => `${i + 1}️⃣ *${c.id_evento}* — ${c.edificio}${c.problema ? `: ${String(c.problema).slice(0, 60)}` : ''}`)
+                // Se listan por DIRECCIÓN: el nombre interno del edificio ("san patricio casa")
+                // no le dice nada al técnico, que estuvo en una calle y una altura.
+                const { direccionParaTecnico } = require('./agentes/marcos-ops');
+                const aMostrar = candidatos.slice(0, 5);
+                const direcciones = await Promise.all(aMostrar.map(c => direccionParaTecnico(c.edificio)));
+                const lista = aMostrar
+                    .map((c, i) => `${i + 1}️⃣ *${c.id_evento}* — ${direcciones[i]}${c.problema ? `: ${String(c.problema).slice(0, 60)}` : ''}`)
                     .join('\n');
                 respExtra = `\n\nPara imputarla al consorcio correcto, ¿de cuál de estos trabajos es?\n\n${lista}\n\n` +
                     `Contestame con el número, con el código del caso o con la dirección. ` +
@@ -3493,13 +3503,24 @@ function validarYSanitizarNombre(nombre) {
                     // el log decía que salió bien y al técnico no le llegaba nada. Un mensaje que
                     // no llega tiene que verse como lo que es.
                     let seEnvio = false;
+                    // Al técnico se le habla con la DIRECCIÓN, no con el nombre interno del
+                    // edificio: mandarle los dos ("san patricio casa" y después la calle y la
+                    // altura) lo deja sin saber si son dos direcciones o una.
+                    const { direccionParaTecnico } = require('./agentes/marcos-ops');
+                    const dirFoto = await direccionParaTecnico(edifParaFoto);
+                    // Y el número de caso va SIEMPRE. Es lo único con que el técnico puede decir
+                    // después "esta factura es del CASO-1001": junta seis trabajos de la semana y
+                    // los manda todos juntos.
+                    const casoFoto = session.eventoActivoId || decisionCaso.id_evento || '';
+                    const marcaCasoFoto = casoFoto ? ` [${casoFoto}]` : '';
+
                     if (msgTypeMedia === 'image') {
                         const { enviarImagenWhatsApp } = require('./agentes/marcos-ops');
-                        captionAuto = `📱 *MARCOS — FOTO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó esta foto del inconveniente.${comentarioAuto}`;
+                        captionAuto = `📱 *MARCOS — FOTO DEL RECLAMO${marcaCasoFoto}*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${dirFoto} adjuntó esta foto del inconveniente.${comentarioAuto}`;
                         seEnvio = await enviarImagenWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                     } else {
                         const { enviarVideoWhatsApp } = require('./agentes/marcos-ops');
-                        captionAuto = `📱 *MARCOS — VIDEO DEL RECLAMO*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${edifAuto} adjuntó este video del inconveniente.${comentarioAuto}`;
+                        captionAuto = `📱 *MARCOS — VIDEO DEL RECLAMO${marcaCasoFoto}*\n\nHola ${tecnicoParaFoto.nombre}, ${nomVecinoAuto}${deptoAuto} en ${dirFoto} adjuntó este video del inconveniente.${comentarioAuto}`;
                         seEnvio = await enviarVideoWhatsApp(tecnicoParaFoto.telefono, uploadMediaIdAuto, captionAuto, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                     }
                     if (seEnvio) {
@@ -3563,7 +3584,8 @@ function validarYSanitizarNombre(nombre) {
 
             if (tecnicoParaContacto?.telefono) {
                 const dirContacto = perfilEdificio?.direccion || edifParaContacto || 'el edificio';
-                const msgContactoAcceso = `📞 *MARCOS — CONTACTO PARA EL INGRESO*\n\n` +
+                const marcaCasoAcceso = idEventoAsignado ? ` [${idEventoAsignado}]` : '';
+                const msgContactoAcceso = `📞 *MARCOS — CONTACTO PARA EL INGRESO${marcaCasoAcceso}*\n\n` +
                     `Hola ${tecnicoParaContacto.nombre}, para la visita en ${dirContacto} el vecino dejó este contacto para que le abran: *${session.contactoAccesoExtra}*.\n` +
                     (/\s\/\s/.test(session.contactoAccesoExtra)
                         ? `Tiene más de un número registrado: te paso la ficha completa acá abajo, probá con cualquiera.\n`

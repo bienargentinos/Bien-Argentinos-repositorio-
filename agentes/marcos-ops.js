@@ -200,6 +200,28 @@ Devolvé SOLO un objeto JSON (sin markdown ni backticks):
  * timbre equivocado, y al vecino le llega una orden de trabajo que no reconoce como suya ("no sé
  * para qué ponés departamento uno"). En áreas comunes se nombra el sector, no la unidad.
  */
+/**
+ * La dirección con la que se le habla a un técnico. NUNCA el nombre interno del edificio.
+ *
+ * En la planilla los edificios tienen un nombre que es un alias nuestro para reconocerlos
+ * ("san patricio casa"), y aparte la dirección real. Al técnico le llegaban los dos, uno atrás
+ * del otro, y no tiene forma de saber si son dos direcciones o una: sale a la calle sin saber a
+ * cuál de las dos ir. El alias no le sirve para nada -- él necesita saber dónde tocar el timbre.
+ */
+async function direccionParaTecnico(nombreEdificio) {
+    if (!nombreEdificio) return 'el edificio';
+    try {
+        const { buscarPerfilEdificio } = require('../datos');
+        const perfil = await buscarPerfilEdificio(nombreEdificio);
+        const dir = String(perfil?.direccion || '').trim();
+        if (dir) return dir;
+    } catch (e) {
+        console.error('No se pudo resolver la dirección del edificio:', e.message);
+    }
+    // Sin dirección cargada, el alias es lo único que hay. Es peor no decir nada.
+    return nombreEdificio;
+}
+
 function ubicacionParaTecnico({ vecino, decisionCaso }) {
     const depto = vecino?.departamento || vecino?.depto || '';
     if (decisionCaso?.area === 'comun') return 'Área común del edificio';
@@ -499,7 +521,8 @@ async function retransmitirMediaAlProveedor({ tecnicoTelefono, filePath, mimeTyp
         const mediaId = await subirMediaWhatsApp(filePath, mimeType, phoneNumberId, accessToken);
         if (!mediaId) return false;
 
-        const LeyendaMedia = `📷 *ADJUNTO DE VECINO [${id_evento}]*\nEdificio: ${edificio || 'Consorcio'}\n${caption || ''}`;
+        // La dirección de la calle, no el nombre interno del edificio: ver `direccionParaTecnico`.
+        const LeyendaMedia = `📷 *ADJUNTO DE VECINO [${id_evento}]*\nDirección: ${await direccionParaTecnico(edificio)}\n${caption || ''}`;
 
         if (mimeType.startsWith('image/')) {
             return await enviarImagenWhatsApp(tecnicoTelefono, mediaId, LeyendaMedia, phoneNumberId, accessToken);
@@ -974,6 +997,7 @@ module.exports = {
     normalizarTelefonoWhatsApp,
     enviarContactoWhatsApp,
     ubicacionParaTecnico,
+    direccionParaTecnico,
     interpretarRespuestaTecnico,
     redactarNovedadParaTecnico,
     requerimientoParaTerceros,

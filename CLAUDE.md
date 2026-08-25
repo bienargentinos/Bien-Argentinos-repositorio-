@@ -349,6 +349,20 @@ estaba siempre abierta.
 reclamo: la imagen de una plantilla se sube al aprobarla y es fija. La foto de hoy solo sale como
 mensaje libre, o sea con la ventana abierta.
 
+### Cómo se le habla al técnico: dirección y número de caso, siempre
+
+- **Dirección, nunca el nombre interno del edificio.** En la planilla los edificios tienen un alias
+  nuestro (`san patricio casa`) y aparte la dirección real. Al técnico le llegaban los dos, uno
+  atrás del otro, y no tiene forma de saber si son dos direcciones o una. `direccionParaTecnico()`
+  en `marcos-ops.js` resuelve la calle y la altura; el alias solo se usa si no hay dirección
+  cargada.
+- **El número de caso va en TODO mensaje al proveedor** (plantilla, foto/video del reclamo,
+  contacto de ingreso, lista de trabajos). Es lo único con que el técnico puede decir después
+  "esta factura es del CASO-1001": junta los trabajos de varios días —a veces de administradores
+  distintos— y los manda todos juntos.
+- Cuando llega una factura y no se sabe de qué trabajo es, la lista de casos recientes se muestra
+  **por dirección**, no por alias.
+
 ### Otros dos arreglos del mismo episodio
 
 - **Marcos le decía al técnico "el vecino no ha provisto detalles adicionales ni material
