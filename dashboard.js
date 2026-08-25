@@ -4250,11 +4250,18 @@ async function agregarProveedor(btn){
   var nombre=(document.getElementById('prov-nombre')||{}).value||'';
   var tel=(document.getElementById('prov-tel')||{}).value||'';
   var notas=(document.getElementById('prov-notas')||{}).value||'';
+  // Datos de cobro, opcionales. Van en el alta para no tener que volver a entrar si ya se
+  // tienen a mano. El servidor verifica el CBU y rechaza el alta si está mal escrito.
+  var cbu=((document.getElementById('prov-cbu')||{}).value||'').replace(/\\D/g,'');
+  var alias=((document.getElementById('prov-alias')||{}).value||'').trim();
+  var titular=((document.getElementById('prov-titular')||{}).value||'').trim();
+  var cuit=((document.getElementById('prov-cuit')||{}).value||'').replace(/\\D/g,'');
   if(!nombre.trim()&&!tel.trim()){toast('Cargá al menos nombre o teléfono','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Agregando...';
   try{
     var r=await fetch('/admin/api/proveedor',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({rubro:rubro,nombre:nombre.trim(),telefono:tel.trim(),notas:notas.trim()})});
+      body:JSON.stringify({rubro:rubro,nombre:nombre.trim(),telefono:tel.trim(),notas:notas.trim(),
+        cbu:cbu,alias:alias,titular:titular,cuit:cuit})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Proveedor agregado a tu lista','ok');
@@ -7685,6 +7692,33 @@ router.get('/proveedores', async (req, res) => {
             </div>
             <div>${label('Notas (opcional)')}<input id="prov-notas" class="inp" style="height:44px" placeholder="Ej: tiene llave del edificio"></div>
           </div>
+
+          <!-- Datos de cobro en el alta: si ya los tenés a mano, se cargan de una. Al ser la
+               primera carga no hay cambio que aprobar, se aplican directo. Después Marcos los
+               toma solo si el proveedor se los manda, y ahí sí un cambio queda pendiente. -->
+          <details style="margin-bottom:16px;border:1px solid #E7ECF3;border-radius:12px;background:#F8FAFD">
+            <summary style="padding:12px 14px;cursor:pointer;font-size:13.5px;font-weight:700;color:#334259;list-style:none">
+              🏦 Datos de cobro <span style="font-weight:500;color:#8595AD">— opcional, si ya los tenés</span>
+            </summary>
+            <div style="padding:0 14px 14px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                <div>
+                  ${label('CBU')}
+                  <input id="prov-cbu" class="inp" style="height:44px" inputmode="numeric" placeholder="22 dígitos">
+                  <div style="font-size:11.5px;color:#64748B;margin-top:3px">Se verifica antes de guardar.</div>
+                </div>
+                <div>${label('Alias')}<input id="prov-alias" class="inp" style="height:44px" placeholder="Ej: gaston.plomeria"></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div>
+                  ${label('Titular de la cuenta')}
+                  <input id="prov-titular" class="inp" style="height:44px" placeholder="Puede no ser el proveedor">
+                </div>
+                <div>${label('CUIT / CUIL')}<input id="prov-cuit" class="inp" style="height:44px" inputmode="numeric" placeholder="20304050607"></div>
+              </div>
+            </div>
+          </details>
+
           <button onclick="agregarProveedor(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">+ Agregar a mi lista</button>
         </div>
       </div>
@@ -10328,11 +10362,28 @@ function clienteDeSesion(req) {
 router.post('/api/proveedor', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { rubro, nombre, telefono, notas } = req.body || {};
+    const { rubro, nombre, telefono, notas, cbu, alias, titular, cuit } = req.body || {};
     let cliente = clienteDeSesion(req);
     if (!cliente && esDueno(req)) cliente = req.session.user;
     if (!cliente) return res.status(400).json({ error: 'Solo clientes cargan su lista' });
     if (!nombre && !telefono) return res.status(400).json({ error: 'Cargá nombre o teléfono' });
+
+    // Los datos de cobro son opcionales en el alta, pero si vienen se verifican igual que
+    // cuando los manda el proveedor por WhatsApp: un CBU mal tipeado acá termina en un pago
+    // rechazado, y es más barato frenarlo ahora que descubrirlo el día que hay que pagar.
+    const cbuLimpio = String(cbu || '').replace(/\D/g, '');
+    if (cbuLimpio) {
+      const { validarCBU } = require('./cbu');
+      const chequeo = validarCBU(cbuLimpio);
+      if (!chequeo.valido) return res.status(400).json({ error: `Ese CBU no es válido: ${chequeo.motivo}` });
+    }
+    const aliasLimpio = String(alias || '').trim();
+    if (aliasLimpio) {
+      const { validarAlias } = require('./cbu');
+      const chequeo = validarAlias(aliasLimpio);
+      if (!chequeo.valido) return res.status(400).json({ error: `Ese alias no es válido: ${chequeo.motivo}` });
+    }
+
     await appendRow(TAB_PROVEEDORES, {
       cliente,
       rubro: rubro || 'Otro',
@@ -10340,6 +10391,11 @@ router.post('/api/proveedor', async (req, res) => {
       telefono: telefono || '',
       notas: notas || '',
       estado: 'activo',
+      cbu: cbuLimpio,
+      alias_cbu: aliasLimpio.toLowerCase(),
+      titular: String(titular || '').trim(),
+      cuit: String(cuit || '').replace(/\D/g, ''),
+      cbu_actualizado: (cbuLimpio || aliasLimpio) ? new Date().toLocaleString('es-AR') : '',
     });
     res.json({ ok: true });
   } catch (e) {
