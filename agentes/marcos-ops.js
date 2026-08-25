@@ -304,11 +304,24 @@ async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado
 
     estadoProv.eventoActivoId = id_evento;
     estadoProv.edificioActivo = vecino?.edificio;
-    estadoProv.notificado = true;
     estadoProv.ultimoMensajeTimestamp = Date.now();
 
-    await ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, id_evento });
-    await marcarTecnicoNotificado(id_evento);
+    const llegoElAviso = await ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, id_evento });
+
+    // La marca de "ya notificado" SOLO se pone si el aviso llegó de verdad.
+    //
+    // Antes se ponía siempre, hubiera salido o no. Y como esa marca es lo que impide el reenvío
+    // duplicado, un aviso que nunca llegó dejaba el caso marcado para siempre: el técnico no se
+    // enteraba nunca y Marcos no reintentaba jamás. En el log se veía "Técnico ya notificado del
+    // [CASO-1001], se omite el reenvío", que parece una decisión correcta y era el bug.
+    //
+    // Y encima la plantilla es lo único que abre la ventana de 24hs de Meta: si no sale, todo lo
+    // que venga después --la foto del reclamo, la ficha de contacto, el contacto de acceso--
+    // también rebota. Un solo fallo silencioso dejaba al técnico completamente aislado.
+    estadoProv.notificado = Boolean(llegoElAviso);
+    if (llegoElAviso) {
+        await marcarTecnicoNotificado(id_evento);
+    }
     return { encolado: false };
 }
 
@@ -365,9 +378,21 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
         );
     }
 
+    // Si las dos plantillas fallaron, queda el mensaje libre. Pero ojo: el mensaje libre SOLO
+    // funciona dentro de la ventana de 24hs, y a un técnico que hace días que no escribe Meta se
+    // lo rechaza. O sea que cuando la plantilla falla, lo más probable es que no llegue NADA.
+    let llegoAlgo = plantillaEnviada;
     if (!plantillaEnviada) {
         const mensajeTecnico = await generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id_evento });
-        await enviarWhatsApp(tecnicoAsignado.telefono, mensajeTecnico, phoneNumberId, accessToken);
+        llegoAlgo = await enviarWhatsApp(tecnicoAsignado.telefono, mensajeTecnico, phoneNumberId, accessToken);
+    }
+
+    if (!llegoAlgo) {
+        console.error(
+            `🚨 AL TÉCNICO ${tecnicoAsignado.nombre} (${tecnicoAsignado.telefono}) NO LE LLEGÓ EL AVISO DEL [${id_evento}]: ` +
+            `fallaron la plantilla en es_AR, la plantilla en es y el mensaje libre. El motivo de cada una está más arriba. ` +
+            `El caso NO se marca como notificado, así que se va a reintentar.`
+        );
     }
 
     const resumenNotifProveedor = `Marcos (a Proveedor): [Plantilla WhatsApp] Hola ${tecnicoAsignado.nombre || 'Técnico'}, tenés una nueva solicitud de servicio en ${direccionExacta} para ${vecinoConDepto} — ${textoProblemaConCaso}. Urgencia: ${(decisionCaso.urgencia || 'media').toUpperCase()}. Acceso: ${tecnicoAsignado.acceso || accesoFinal}.`;
@@ -399,6 +424,8 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
     } catch (e) {
         console.error('Error registrando mensaje inicial a técnico en PostgreSQL:', e.message);
     }
+
+    return llegoAlgo;
 }
 
 /**
@@ -689,7 +716,7 @@ async function enviarPlantillaWhatsApp(to, templateName, languageCode, component
         console.log(`✅ Plantilla '${templateName}' enviada con éxito a ${telefonoDestino}. Message ID:`, res.data?.messages?.[0]?.id);
         return true;
     } catch (error) {
-        console.error(`⚠️ Error enviando plantilla '${templateName}' (${languageCode}):`, error.response?.data || error.message);
+        explicarErrorMeta(`la plantilla '${templateName}' (${languageCode})`, to, error);
         return false;
     }
 }
