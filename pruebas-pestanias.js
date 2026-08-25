@@ -23,7 +23,11 @@ const REALES = [
 const porMinuscula = new Map(REALES.map(n => [n.toLowerCase(), n]));
 
 let fallos = 0;
-const archivos = ['sheets.js', 'dashboard.js', 'revisar-cartera.js']
+// Se revisan también los scripts sueltos: en un RESET, una pestaña que no se encuentra no da
+// error -- simplemente no se borra, y el reset parece haber funcionado cuando quedó a medias.
+const archivos = ['sheets.js', 'dashboard.js', 'revisar-cartera.js', 'reset-test.js',
+    'importar-sheets-a-pg.js', 'limpiar-proveedores.js', 'diagnostico-sheets.js',
+    'reset-conversacion.js', 'limpiar-multimedia.js']
     .filter(f => fs.existsSync(path.join(__dirname, f)));
 
 for (const archivo of archivos) {
