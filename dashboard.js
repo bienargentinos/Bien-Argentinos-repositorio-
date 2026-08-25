@@ -4299,6 +4299,60 @@ async function guardarEditarProveedor(btn){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
+window.guardarEditarProveedor = guardarEditarProveedor;
+
+// ── DATOS DE COBRO DEL PROVEEDOR ──────────────────────────────────────────────────────
+function abrirDatosCobro(row, nombre, cbu, alias, titular, cuit){
+  var r=document.getElementById('cobro-row');if(r)r.value=row;
+  var n=document.getElementById('cobro-nombre');if(n)n.textContent=nombre||'Proveedor';
+  var c=document.getElementById('cobro-cbu');if(c)c.value=cbu||'';
+  var a=document.getElementById('cobro-alias');if(a)a.value=alias||'';
+  var t=document.getElementById('cobro-titular');if(t)t.value=titular||'';
+  var q=document.getElementById('cobro-cuit');if(q)q.value=cuit||'';
+  abrirModal('modal-datos-cobro');
+}
+window.abrirDatosCobro = abrirDatosCobro;
+
+async function guardarDatosCobro(btn){
+  var row=valEl('cobro-row');
+  var cbu=valEl('cobro-cbu').replace(/\D/g,'');
+  var alias=valEl('cobro-alias').trim();
+  var titular=valEl('cobro-titular').trim();
+  var cuit=valEl('cobro-cuit').replace(/\D/g,'');
+  if(!cbu&&!alias){toast('Cargá el CBU o el alias','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/proveedor-datos-cobro',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row,cbu:cbu,alias:alias,titular:titular,cuit:cuit})});
+    var j=await r.json();
+    // El servidor verifica los dígitos del CBU: si no cierra, el mensaje dice qué pasó.
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    cerrarModal('modal-datos-cobro');
+    toast('Datos de cobro guardados','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+window.guardarDatosCobro = guardarDatosCobro;
+
+// Aprobar o rechazar el cambio de cuenta que pidió un proveedor por WhatsApp. Se confirma
+// aparte porque aprobarlo por error manda el pago del mes a otra cuenta.
+async function resolverCambioCobro(btn,row,aprobar){
+  var pregunta = aprobar
+    ? '¿Confirmás el cambio de cuenta?\n\nAntes de aceptar, verificá con el proveedor llamándolo al número de siempre — no respondiendo al mensaje que te mandó.'
+    : '¿Rechazás el cambio? Se va a seguir usando la cuenta anterior.';
+  if(!confirm(pregunta))return;
+  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
+  try{
+    var r=await fetch('/admin/api/proveedor-cambio-cobro',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row,aprobar:!!aprobar})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast(aprobar?'Cambio aprobado: ahora cobra en la cuenta nueva':'Cambio rechazado: sigue la cuenta anterior','ok');
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;btn.textContent=old;}
+}
+window.resolverCambioCobro = resolverCambioCobro;
 
 // --- consejo de administracion ---
 function abrirModalConsejoNuevo(edificios){
@@ -7485,8 +7539,48 @@ router.get('/proveedores', async (req, res) => {
     } catch (_) {}
 
     const label = (t) => `<div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">${t}</div>`;
+
+    // Los datos de cobro, y sobre todo el aviso de cambio pendiente. Un cambio de CBU que llegó
+    // por WhatsApp NO se aplicó: acá se aprueba o se rechaza. Hasta entonces sigue vigente el
+    // anterior, que es lo que evita que a alguien le desvíen el pago del mes.
+    const bloqueCobro = (m) => {
+      const tienePendiente = Boolean(m.cbu_pendiente || m.alias_pendiente);
+      const ult4 = (c) => { const d = String(c || '').replace(/\D/g, ''); return d.length >= 4 ? d.slice(-4) : ''; };
+
+      const vigente = (m.cbu || m.alias_cbu)
+        ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:#334259">
+             <span style="font-weight:700;color:#8595AD">Cobra en:</span>
+             ${m.cbu ? `<span title="${esc(m.cbu)}">CBU ····${esc(ult4(m.cbu))}</span>` : ''}
+             ${m.alias_cbu ? `<span style="font-weight:700;color:#2E6FC0">${esc(m.alias_cbu)}</span>` : ''}
+             ${m.titular ? `<span style="color:#64748B">a nombre de ${esc(m.titular)}</span>` : ''}
+           </div>`
+        : `<div style="font-size:12.5px;color:#8595AD">Sin datos de cobro cargados. Marcos los toma solo cuando el proveedor se los manda.</div>`;
+
+      const pendiente = tienePendiente
+        ? `<div style="margin-top:10px;background:#FFF7ED;border:1px solid #FDBA74;border-radius:10px;padding:11px 13px">
+             <div style="font-size:12.5px;font-weight:800;color:#9A3412;margin-bottom:4px">🔐 Pidió cambiar su cuenta — NO se aplicó</div>
+             <div style="font-size:12.5px;color:#7C2D12;line-height:1.5">
+               Nuevo: ${m.cbu_pendiente ? `CBU ····${esc(ult4(m.cbu_pendiente))}` : ''} ${m.alias_pendiente ? `alias <b>${esc(m.alias_pendiente)}</b>` : ''}<br>
+               ${m.cbu_pendiente_desde ? `<span style="color:#9A3412">Desde ${esc(m.cbu_pendiente_desde)}.</span> ` : ''}
+               Sigue vigente la cuenta anterior hasta que usted decida.
+             </div>
+             <div style="font-size:12px;color:#7C2D12;margin-top:8px;background:#FFEDD5;border-radius:8px;padding:8px 10px">
+               ⚠️ Antes de aprobar, confirmelo con el proveedor <b>llamándolo al número de siempre</b>, no respondiendo al mensaje. Desviar un pago cambiando el CBU es el fraude más común que hay.
+             </div>
+             <div style="display:flex;gap:8px;margin-top:10px">
+               <button onclick="resolverCambioCobro(this,${m._row},true)" style="height:36px;padding:0 14px;border:none;border-radius:9px;background:#15803D;color:#fff;font-weight:700;font-size:13px;cursor:pointer" class="hv-primary">Aprobar cambio</button>
+               <button onclick="resolverCambioCobro(this,${m._row},false)" style="height:36px;padding:0 14px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#334259;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Rechazar</button>
+             </div>
+           </div>`
+        : '';
+
+      return `<div style="flex-basis:100%;margin-top:10px;padding-top:10px;border-top:1px dashed #E7ECF3">
+                ${vigente}${pendiente}
+              </div>`;
+    };
+
     const filas = maestros.length ? maestros.map((m) => `
-      <div style="display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid ${(m.cbu_pendiente || m.alias_pendiente) ? '#FDBA74' : '#E7ECF3'};border-radius:12px;background:#fff;flex-wrap:wrap">
         <span class="rubro-badge ${getRubroClass(m.rubro)}">${esc(m.rubro)}</span>
         <div style="flex:1;min-width:140px">
           <div style="font-size:14.5px;font-weight:700">${esc(m.nombre || '—')}</div>
@@ -7494,9 +7588,11 @@ router.get('/proveedores', async (req, res) => {
         </div>
         <div style="font-size:14px;font-weight:700;color:#2E6FC0">${esc(m.telefono || '—')}</div>
         <div style="display:flex;gap:6px">
+          <button onclick="abrirDatosCobro(${m._row},'${escJs(m.nombre)}','${escJs(m.cbu || '')}','${escJs(m.alias_cbu || '')}','${escJs(m.titular || '')}','${escJs(m.cuit || '')}')" class="btn-edit hv-soft">🏦 Cobro</button>
           <button onclick="abrirEditarProveedor(${m._row},'${escJs(m.rubro)}','${escJs(m.nombre)}','${escJs(m.telefono)}','${escJs(m.notas || '')}')" class="btn-edit hv-soft">Editar</button>
           <button onclick="quitarProveedor(this,${m._row})" class="btn-remove hv-red">Quitar</button>
         </div>
+        ${bloqueCobro(m)}
       </div>`).join('') : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
 
     const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
@@ -7530,6 +7626,43 @@ router.get('/proveedores', async (req, res) => {
         </div>
       </div>`;
 
+    // Carga o corrección a mano de los datos de cobro. El CBU se verifica del lado del servidor
+    // con los dígitos verificadores: un número mal tipeado acá termina en un pago rechazado.
+    const modalDatosCobroHtml = `
+      <div id="modal-datos-cobro" class="modal-overlay" onclick="cerrarModal('modal-datos-cobro')">
+        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Datos de cobro</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏦 <span id="cobro-nombre">Proveedor</span></div>
+          </div>
+          <div style="padding:20px 24px">
+            <input type="hidden" id="cobro-row">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">CBU (22 dígitos)</div>
+            <input id="cobro-cbu" class="inp" inputmode="numeric" placeholder="0070059930004567890123" style="margin-bottom:4px">
+            <div style="font-size:11.5px;color:#64748B;margin-bottom:14px">Se verifica antes de guardar. Si está mal escrito, no se acepta.</div>
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Alias</div>
+            <input id="cobro-alias" class="inp" placeholder="Ej: juan.perez.arg" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Titular de la cuenta</div>
+            <input id="cobro-titular" class="inp" placeholder="Puede no ser el mismo que el proveedor" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">CUIT / CUIL (opcional)</div>
+            <input id="cobro-cuit" class="inp" inputmode="numeric" placeholder="20304050607">
+
+            <div style="margin-top:14px;background:#F1F5FB;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#5A6B85;line-height:1.5">
+              Marcos también toma estos datos cuando el proveedor se los manda por WhatsApp. Si ya
+              había otros cargados, ese cambio queda esperando su aprobación en vez de aplicarse solo.
+            </div>
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-datos-cobro')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarDatosCobro(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar</button>
+          </div>
+        </div>
+      </div>`;
+
     const contenido = `
       <div style="animation:mFade .3s ease both;max-width:820px">
         <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Proveedores</h1>
@@ -7555,7 +7688,8 @@ router.get('/proveedores', async (req, res) => {
           <button onclick="agregarProveedor(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">+ Agregar a mi lista</button>
         </div>
       </div>
-      ${modalEditarProveedorHtml}`;
+      ${modalEditarProveedorHtml}
+      ${modalDatosCobroHtml}`;
 
     res.send(shell(req, d, 'proveedores', contenido));
   } catch (e) {

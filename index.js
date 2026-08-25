@@ -3907,8 +3907,27 @@ iniciarCronReportes();
 const dashboard = require('./dashboard');
 app.use('/admin', dashboard);
 
-const portalVecino = require('./portal-vecino');
-app.use('/vecino', portalVecino);
-app.use('/portal', portalVecino);
+// ── PORTAL DEL VECINO — APAGADO POR DEFECTO ─────────────────────────────────────────────
+//
+// El portal está como prototipo: `POST /vecino/auth` no valida la contraseña (entra cualquiera
+// que escriba algo), y `getVecinoSession` devuelve datos de ejemplo cuando no hay sesión, así
+// que ni siquiera hace falta pasar por el login. Los datos que muestra son ficticios, de modo
+// que hoy no se filtra información de nadie.
+//
+// Lo que sí cuesta es `POST /vecino/api/chat`: llama a Marcos de verdad, sin autenticación ni
+// tope de uso. Cualquiera que encuentre la URL puede hacerlo responder y consumir la cuota de
+// Gemini, que se paga.
+//
+// Por eso se sirve solo con PORTAL_VECINO=on en el .env. Se prende para desarrollar y se apaga
+// para producción, hasta que el login sea real (contraseña hasheada, alta por el administrador)
+// y las rutas exijan sesión. Cuando eso esté, se saca este interruptor.
+if (String(process.env.PORTAL_VECINO || '').toLowerCase() === 'on') {
+    const portalVecino = require('./portal-vecino');
+    app.use('/vecino', portalVecino);
+    app.use('/portal', portalVecino);
+    console.log('🚧 Portal del vecino ACTIVO en /vecino y /portal — sin login real todavía. No dejar prendido en producción.');
+} else {
+    console.log('🔒 Portal del vecino apagado (PORTAL_VECINO=on para prenderlo mientras se desarrolla).');
+}
 
 app.listen(PORT, () => console.log(`🚀 Servidor Marcos corriendo en puerto ${PORT}`));
