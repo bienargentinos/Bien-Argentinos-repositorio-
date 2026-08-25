@@ -393,6 +393,29 @@ Prueba: `node pruebas-renombrar-edificio.js`.
 > marca de "esto es texto y no un número" y no se ve en la planilla. Uno en el **medio** (`27'0`)
 > sí es un carácter real.
 
+## De quién es cada edificio (por qué uno "desaparecía" de su administrador)
+
+La lista `edificios` de la tab `CLIENTES` y el nombre del edificio en `EDIFICIOS` son **dos textos
+escritos a mano en pestañas distintas**. El panel los comparaba con `Array.includes`, que exige que
+sean idénticos carácter por carácter: una mayúscula distinta y el edificio figuraba **"Sin
+asignar"** aunque en la planilla estuviera clarísimo al lado del administrador (y la ficha del
+cliente le contaba 2 edificios en vez de 3).
+
+- `clienteDelEdificio(clientes, nombre)` y `edificiosDeCliente(edificios, cliente)` en
+  `dashboard.js` comparan **normalizado** (mayúsculas, acentos, espacios) pero **exacto**.
+- **No se usa `compararEdificios`**: ese acepta coincidencias parciales, y con eso el 159 quedaría
+  asignado al cliente que tiene el 270 — un administrador viendo reclamos de un consorcio ajeno.
+- `/api/edificio-nuevo`: si el edificio **ya existe y no lo tiene nadie**, lo *asigna* en vez de
+  cortar con "ya existe" (antes no había ninguna pantalla para asignar uno suelto). Si ya lo tiene
+  otro administrador, dice quién y no lo mueve solo.
+
+Prueba: `node pruebas-cliente-edificio.js`.
+
+> El panel lee **Sheets** (`readTab`) y el motor de Marcos lee **PostgreSQL primero** (`datos.js`,
+> con Sheets de respaldo). Son dos fuentes: un cambio que entra por un lado y no se copia al otro
+> hace que el panel y Marcos vean cosas distintas. `expandirEdificiosPermitidos` lee de PG aun
+> estando en el panel, así que un renombre solo en Sheets le deja el permiso viejo.
+
 ## Cuándo Marcos pide el número de unidad
 
 Lo decide el **conteo de unidades** de la tab `edificios`, no el nombre. `san patricio casa` se

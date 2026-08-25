@@ -301,6 +301,38 @@ function mapCliente(r) {
   };
 }
 
+/**
+ * De qué cliente es un edificio, según la lista `edificios` de la tab CLIENTES.
+ *
+ * POR QUÉ NO ALCANZA CON `.includes(nombre)`. La lista del cliente y el nombre del edificio son
+ * dos textos escritos a mano en pestañas distintas, y `Array.includes` exige que sean idénticos
+ * carácter por carácter. Una mayúscula, un espacio de más o un acento distinto y el panel muestra
+ * "Sin asignar" un edificio que en la planilla figura clarísimo al lado del administrador.
+ *
+ * Pasó con "san patricio 270": Alejandra lo tenía asignado en CLIENTES y el panel lo mostraba
+ * suelto, sin forma de arreglarlo desde la pantalla.
+ *
+ * La comparación es EXACTA después de normalizar (mayúsculas, acentos, espacios). No se usa
+ * `compararEdificios`, que acepta coincidencias parciales: con eso "san patricio 159" quedaría
+ * asignado al cliente que tiene el 270, y eso es mostrarle a un administrador los reclamos de
+ * un consorcio ajeno.
+ */
+function clienteDelEdificio(clientes, nombreEdificio) {
+  const n = normEdificio(nombreEdificio);
+  if (!n) return null;
+  return (clientes || []).find((c) =>
+    (c.edificios || []).some((e) => normEdificio(e) === n)
+  ) || null;
+}
+
+// Los edificios de un cliente, con la misma comparación normalizada de `clienteDelEdificio`.
+// Sin esto, la ficha del administrador le mostraba 2 edificios cuando tenía 3: el que estaba
+// escrito con una mayúscula distinta simplemente no aparecía.
+function edificiosDeCliente(edificios, cliente) {
+  const suyos = new Set((cliente?.edificios || []).map(normEdificio).filter(Boolean));
+  return (edificios || []).filter((e) => suyos.has(normEdificio(e.nombre)));
+}
+
 function mapColaborador(r) {
   return {
     _row: r._row,
@@ -4575,8 +4607,10 @@ async function crearEdificio(btn,clienteUsuario){
         plan:plan,clienteUsuario:clienteUsuario||undefined})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Edificio agregado','ok');
-    setTimeout(function(){location.reload();},900);
+    // Cuando el edificio ya estaba cargado y suelto, el backend lo asigna en vez de crearlo:
+    // hay que decirlo, porque "Edificio agregado" a secas haria pensar que se duplico.
+    toast(j.asignado?(j.mensaje||'Edificio asignado'):'Edificio agregado','ok');
+    setTimeout(function(){location.reload();},j.asignado?1800:900);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
@@ -5615,13 +5649,13 @@ function shell(req, d, activeKey, contenido) {
     const filtro = req.session.filtroEdificioDueno || '';
     const label = filtro || 'Todos los edificios';
     const sub = filtro
-      ? ((d.clientes.find((c) => c.edificios.includes(filtro)) || {}).nombre || '')
+      ? ((clienteDelEdificio(d.clientes, filtro) || {}).nombre || '')
       : `${d.edificios.length} consorcios activos`;
     const filas = [
       { label: 'Todos los edificios', sub: `${d.edificios.length} consorcios`, val: '', activo: !filtro },
       ...d.edificios.map((e) => ({
         label: e.nombre,
-        sub: `${(d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar'}${e.unidades ? ' · ' + e.unidades + ' un.' : ''}`,
+        sub: `${(clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar'}${e.unidades ? ' · ' + e.unidades + ' un.' : ''}`,
         val: e.nombre, activo: filtro === e.nombre,
       })),
     ];
@@ -6320,7 +6354,7 @@ router.get('/', async (req, res) => {
     if (esDueno(req)) {
       // ---------- RESUMEN DUEÑO ----------
       const filtro = req.session.filtroEdificioDueno;
-      const edVisibles = filtro ? d.edificios.filter((e) => e.nombre === filtro) : d.edificios;
+      const edVisibles = filtro ? d.edificios.filter((e) => normEdificio(e.nombre) === normEdificio(filtro)) : d.edificios;
       const evVisibles = filtrarPorEdificio(d.eventos, req);
       
       const usarReciente = !!filtro;
@@ -6351,7 +6385,7 @@ router.get('/', async (req, res) => {
         // En el listado general de todos los edificios, mostramos novedades de 24 hs
         const nuevos = ev.filter((x) => esDe24Horas(parseFecha(x.fecha))).length;
         const urg = ev.filter((x) => x.urgencia === 'alta' && estadoNormalizado(x.estado) !== 'resuelto').length;
-        const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
+        const cliente = (clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar';
         return `
           <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/eventos')}"
             style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px;cursor:pointer" class="hv-card">
@@ -8704,7 +8738,7 @@ router.get('/consumos', async (req, res) => {
     const d = await cargarDatos(req);
     const cards = d.edificios.map((e) => {
       const ev = d.eventos.filter((x) => compararEdificios(x.edificio, e.nombre)).length;
-      const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
+      const cliente = (clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar';
       const plan = PLAN_STYLE(e.plan);
       return `
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px;margin-bottom:14px">
@@ -8777,7 +8811,7 @@ router.get('/clientes', async (req, res) => {
 
     const filaEdificioHtml = (e, mostrarCliente) => {
       const plan = PLAN_STYLE(e.plan);
-      const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
+      const cliente = (clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar';
       return `
         <div style="display:flex;align-items:center;gap:16px;background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 18px;flex-wrap:wrap">
           <span style="width:44px;height:44px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🏢</span>
@@ -8807,7 +8841,7 @@ router.get('/clientes', async (req, res) => {
     if (vista === 'todos') {
       cuerpo = `<div style="display:flex;flex-direction:column;gap:12px">${d.edificios.map((e) => filaEdificioHtml(e, true)).join('')}</div>`;
     } else if (clienteSel) {
-      const mis = d.edificios.filter((e) => clienteSel.edificios.includes(e.nombre));
+      const mis = edificiosDeCliente(d.edificios, clienteSel);
       const unidades = mis.reduce((a, e) => a + (Number(e.unidades) || 0), 0);
       cuerpo = `
         <a href="/admin/clientes" style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border:1px solid #E1E7F1;border-radius:9px;background:#fff;color:#5A6B85;font-weight:700;font-size:13px;margin-bottom:16px" class="hv-soft">← Clientes</a>
@@ -8827,7 +8861,7 @@ router.get('/clientes', async (req, res) => {
         </div>`;
     } else {
       const cards = d.clientes.map((c) => {
-        const mis = d.edificios.filter((e) => c.edificios.includes(e.nombre));
+        const mis = edificiosDeCliente(d.edificios, c);
         const unidades = mis.reduce((a, e) => a + (Number(e.unidades) || 0), 0);
         const plus = mis.filter((e) => e.plan === 'Plus').length;
         const base = mis.length - plus;
@@ -10042,8 +10076,53 @@ router.post('/api/edificio-nuevo', async (req, res) => {
     }
 
     const { rows: edRows, headers: edHeaders } = await readTab(TAB_EDIFICIOS);
-    if (edRows.map(mapEdificio).some((e) => e.nombre.toLowerCase() === String(nombre).toLowerCase())) {
-      return res.status(400).json({ error: 'Ya existe un edificio con ese nombre' });
+    const yaExiste = edRows.map(mapEdificio).find((e) => normEdificio(e.nombre) === normEdificio(nombre));
+
+    // ── UN EDIFICIO QUE YA EXISTE PERO NO ES DE NADIE ────────────────────────────────────────
+    //
+    // Antes acá se cortaba con "Ya existe un edificio con ese nombre" y no había otra pantalla
+    // para asignarlo: el edificio quedaba suelto, visible para el dueño, sin forma de ponerlo
+    // bajo su administrador. Pasa siempre que un edificio se carga antes que su cliente, o
+    // después de un renombre.
+    //
+    // Si no lo tiene nadie, se asigna. Si ya lo tiene otro, se dice quién -- moverlo de
+    // administrador es una decisión, no un efecto secundario de tocar "Agregar".
+    if (yaExiste) {
+      const { rows: cliRowsChk } = await readTab(TAB_CLIENTES);
+      const clientes = cliRowsChk.map(mapCliente);
+      const dueñoActual = clienteDelEdificio(clientes, yaExiste.nombre);
+
+      if (dueñoActual && dueñoActual.usuario !== clienteUsuario) {
+        return res.status(409).json({
+          error: `"${yaExiste.nombre}" ya está asignado a ${dueñoActual.nombre}. ` +
+                 `Si hay que pasarlo a otro administrador, primero sacáselo a ${dueñoActual.nombre}.`,
+        });
+      }
+      if (dueñoActual) {
+        return res.status(409).json({ error: `"${yaExiste.nombre}" ya está en la lista de ${dueñoActual.nombre}.` });
+      }
+      if (!clienteObj) {
+        return res.status(409).json({ error: `"${yaExiste.nombre}" ya existe. Elegí a qué administrador asignarlo.` });
+      }
+
+      const nuevaLista = [...clienteObj.edificios, yaExiste.nombre].join(', ');
+      const colAsig = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
+      if (colAsig.create) await ensureHeader(TAB_CLIENTES, colAsig.col, 'edificios', false);
+      await writeCell(TAB_CLIENTES, colAsig.col, clienteObj._row, nuevaLista);
+
+      if (!dueno && req.session) {
+        if (!req.session.edificios) req.session.edificios = [];
+        if (!req.session.edificios.some((e) => normEdificio(e) === normEdificio(yaExiste.nombre))) {
+          req.session.edificios.push(yaExiste.nombre);
+        }
+        await new Promise((resolve) => req.session.save(resolve));
+      }
+
+      console.log(`🏢 "${yaExiste.nombre}" ya existía sin asignar: se asignó a ${clienteObj.nombre} (${clienteObj.usuario}).`);
+      return res.json({
+        ok: true, asignado: true,
+        mensaje: `"${yaExiste.nombre}" ya estaba cargado, así que lo asigné a ${clienteObj.nombre} en vez de crearlo de nuevo.`,
+      });
     }
 
     const adminHeader = edHeaders.find((h) => ['admin_nombre', 'administrador', 'admin'].includes(h)) || 'administrador';
