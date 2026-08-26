@@ -2,14 +2,31 @@
 
 ## Accesos VPS (DonWeb)
 
+**Se entra SOLO con clave SSH. El login por contraseña está apagado en el servidor**
+(`PasswordAuthentication no`), así que no hay contraseña que pedir, escribir ni perder.
+
 ```
-ssh -p5436 root@200.58.102.182
+ssh -i ~/.ssh/marcos_vps -p5436 root@200.58.102.182
+```
+
+Desde Windows la ruta de la clave se escribe según la terminal: `$env:USERPROFILE\.ssh\marcos_vps`
+en PowerShell, `%USERPROFILE%\.ssh\marcos_vps` en CMD. Un agente que se conecta por código pasa la
+**ruta** del archivo, nunca su contenido:
+
+```js
+privateKey: require('fs').readFileSync(process.env.USERPROFILE + '\\.ssh\\marcos_vps')
 ```
 
 > [!CAUTION]
-> **Ninguna credencial va en este archivo.** El repo se hace público cada vez que se usa el `curl`
-> de más abajo para bajar el dashboard, así que todo lo que esté acá es público en ese rato. La
-> contraseña de root va en el gestor de contraseñas, no acá.
+> **Ninguna credencial va en este archivo, ni en un comando, ni en un mensaje.** El repo se hace
+> público cada vez que se usa el `curl` de más abajo, así que todo lo que esté acá es público en
+> ese rato. Y un comando con la contraseña adentro queda en el historial de la terminal y en el
+> log del agente que lo corrió — así fue como se filtró la de root, después de haberla sacado de
+> este archivo. La clave privada (`~/.ssh/marcos_vps`) tampoco se comparte: se comparte la
+> **pública** (`.pub`), que es la que va al servidor.
+>
+> Si alguna credencial se expone, cambiarla es lo único que la invalida: borrarla del archivo no
+> la borra del historial de git ni de los logs.
 
 - Proyecto en: `/root/marcos/Consorcio-AI-Assistant/`
 - Process manager: PM2 → `pm2 list` / `pm2 restart marcos-ia` / `pm2 logs marcos-ia`
