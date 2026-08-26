@@ -8035,13 +8035,13 @@ router.get('/api/facturas', async (req, res) => {
     }
 
     if (clase) {
-      whereClauses.push(`f.clase = $${paramIdx}`);
+      whereClauses.push(`coalesce(f.clase, 'Proveedor') = $${paramIdx}`);
       params.push(clase);
       paramIdx++;
     }
 
     if (origen) {
-      whereClauses.push(`f.origen = $${paramIdx}`);
+      whereClauses.push(`coalesce(f.origen, 'Administrador') = $${paramIdx}`);
       params.push(origen);
       paramIdx++;
     }
@@ -8065,7 +8065,7 @@ router.get('/api/facturas', async (req, res) => {
     }
 
     if (tipo) {
-      whereClauses.push(`f.tipo = $${paramIdx}`);
+      whereClauses.push(`coalesce(f.tipo, 'Factura PDF') = $${paramIdx}`);
       params.push(tipo);
       paramIdx++;
     }
@@ -8098,8 +8098,8 @@ router.get('/api/facturas', async (req, res) => {
     const queryTotales = `
       SELECT
         count(*)::int AS total_facturas,
-        count(*) FILTER (WHERE f.clase = 'Proveedor')::int AS total_proveedor,
-        count(*) FILTER (WHERE f.clase = 'Gasto fijo')::int AS total_gasto_fijo,
+        count(*) FILTER (WHERE coalesce(f.clase, 'Proveedor') = 'Proveedor')::int AS total_proveedor,
+        count(*) FILTER (WHERE coalesce(f.clase, 'Proveedor') = 'Gasto fijo')::int AS total_gasto_fijo,
         count(*) FILTER (WHERE f.monto_num IS NULL)::int AS sin_importe,
         coalesce(sum(f.monto_num) FILTER (WHERE f.estado = 'Pendiente'), 0) AS monto_pendiente_total
       FROM facturas f
@@ -8122,7 +8122,7 @@ router.get('/api/facturas', async (req, res) => {
     const gruposRes = [];
 
     for (const cDef of clasesDef) {
-      const groupWhereSql = `${whereSql} AND f.clase = '${cDef.clase}'`;
+      const groupWhereSql = `${whereSql} AND coalesce(f.clase, 'Proveedor') = '${cDef.clase}'`;
       const groupTotQuery = `
         SELECT
           count(*)::int AS conteo,
@@ -8169,7 +8169,7 @@ router.get('/api/facturas', async (req, res) => {
         }
         return {
           factura_key: f.factura_key || `${f.edificio}|${f.numero_factura}|${f.fecha}`,
-          clase: f.clase,
+          clase: f.clase || 'Proveedor',
           tipo: f.tipo || 'Factura PDF',
           categoria: f.categoria,
           categoria_icono: f.categoria_icono || (f.clase === 'Gasto fijo' ? 'ph-lightning' : 'ph-wrench'),
