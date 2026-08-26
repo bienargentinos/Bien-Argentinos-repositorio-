@@ -1185,6 +1185,9 @@ textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-
   header { height: 58px !important; }
   .login-shell { padding: 20px 12px !important; display: flex !important; align-items: center !important; justify-content: center !important; }
   form[action="/admin/login"] { width: 100% !important; max-width: 100% !important; padding: 20px 16px !important; }
+  .drawer-panel { width: 100% !important; max-width: 100vw !important; border-radius: 0 !important; }
+  .drawer-overlay.open { padding: 0 !important; }
+  button, .inp, select, a.hv-selbtn { min-height: 40px; }
 }
 
 /* Modo Oscuro / Dark Theme (High-Contrast & Ultra-Legible) */
@@ -5997,7 +6000,14 @@ function shell(req, d, activeKey, contenido) {
 <html lang="es-AR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0F326A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Marcos IA">
+<link rel="apple-touch-icon" href="/admin/assets/logo.png">
+<link rel="icon" type="image/png" href="/admin/assets/logo.png">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
