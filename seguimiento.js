@@ -55,6 +55,10 @@ async function procesarUnCaso(caso, deps) {
             notificarEscalacionAlAdmin, phoneNumberId, accessToken } = deps;
 
     const id = caso.id_evento;
+    // Con la DIRECCIÓN de la calle, nunca con el nombre interno del edificio: "san patricio
+    // casa" es un alias nuestro y no le dice nada ni al técnico ni al vecino.
+    const { direccionParaTecnico } = require('./agentes/marcos-ops');
+
     const tecnicoNombre = caso.tecnico || 'el técnico';
 
     // Con quién hablar: el técnico asignado al caso.
@@ -65,10 +69,11 @@ async function procesarUnCaso(caso, deps) {
 
     if (caso.paso <= 1 && tecnico?.telefono) {
         // Paso 1 — se le pregunta primero al proveedor, que es quien sabe si estuvo.
+        const dirSeguimiento = await direccionParaTecnico(caso.edificio);
         await enviarWhatsApp(
             tecnico.telefono,
             `🛠️ *MARCOS — SEGUIMIENTO [${id}]*\n\n` +
-            `Hola ${tecnico.nombre || tecnicoNombre}, ¿pudiste pasar por ${caso.edificio}?\n` +
+            `Hola ${tecnico.nombre || tecnicoNombre}, ¿pudiste pasar por ${dirSeguimiento}?\n` +
             `Si ya está resuelto avisame y cierro el caso. Si no llegaste a ir, decime y lo reprogramamos.`,
             phoneNumberId, accessToken
         );
@@ -86,8 +91,10 @@ async function procesarUnCaso(caso, deps) {
         // Paso 2 — el técnico no contestó: se pregunta en el edificio, que es el testigo real.
         await enviarWhatsApp(
             caso.telefono,
+            // Al vecino tampoco se le habla con el alias interno: él vive ahí, pero el nombre que
+            // usamos en la planilla ("san patricio casa") no es el que él usa.
             `📋 *MARCOS — SEGUIMIENTO*\n\n` +
-            `Hola, ¿pasó el técnico por ${caso.edificio}? Quería confirmar si el inconveniente quedó resuelto.`,
+            `Hola, ¿pasó el técnico por ${await direccionParaTecnico(caso.edificio)}? Quería confirmar si el inconveniente quedó resuelto.`,
             phoneNumberId, accessToken
         );
         await programarSeguimiento({
@@ -116,7 +123,7 @@ async function procesarUnCaso(caso, deps) {
         await enviarWhatsApp(
             suplente.telefono,
             `🛠️ *MARCOS — SERVICIO PENDIENTE [${id}]*\n\n` +
-            `Hola ${suplente.nombre}, tenemos un requerimiento sin resolver en ${caso.edificio}` +
+            `Hola ${suplente.nombre}, tenemos un requerimiento sin resolver en ${await direccionParaTecnico(caso.edificio)}` +
             `${caso.problema ? `: ${caso.problema}` : ''}.\n¿Podés tomarlo? Avisame y coordino el acceso.`,
             phoneNumberId, accessToken
         );

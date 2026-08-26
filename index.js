@@ -3273,7 +3273,11 @@ function validarYSanitizarNombre(nombre) {
 
         const nomVecinoDisp = (vecino.nombre && vecino.nombre !== 'Vecino' && vecino.nombre !== 'Desconocido') ? vecino.nombre : 'El vecino';
         const deptoDisp = vecino.departamento ? ` (Depto ${vecino.departamento})` : '';
-        const edifDisp = session.nombreEdificio || 'el edificio';
+        // La DIRECCIÓN, no el nombre interno. Estos cuatro mensajes van al técnico, y mezclarle
+        // el alias con la calle en el mismo mensaje --"sobre la visita a san patricio casa … en
+        // SAN PATRICIO 159"-- lo deja sin saber a cuál de las dos ir.
+        const { direccionParaTecnico } = require('./agentes/marcos-ops');
+        const edifDisp = await direccionParaTecnico(session.nombreEdificio) || 'el edificio';
 
         // Reenviar Imagen si el vecino mandó foto
         if (msgType === 'image' && media) {

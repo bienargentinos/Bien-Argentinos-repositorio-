@@ -1015,8 +1015,12 @@ function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, p
         }
 
         if (paso <= 2) {
+            // La dirección de la calle, y la unidad SOLO si la sabemos: "(Depto 1A)" por defecto
+            // le inventaba un departamento a un vecino que vive en una casa.
+            const dirInsistencia = await direccionParaTecnico(vecino?.edificio);
+            const unidadInsistencia = vecino?.departamento ? ` (Depto ${vecino.departamento})` : '';
             const msgInsistencia = `⚠️ *MARCOS — RECORDATORIO URGENTE DE SERVICIO [${id_evento}]*\n\n` +
-                `Hola ${tecnicoAsignado.nombre}, aguardamos tu confirmación para el [${id_evento}] en ${vecino?.edificio || 'el consorcio'} (Depto ${vecino?.departamento || '1A'}).\n` +
+                `Hola ${tecnicoAsignado.nombre}, aguardamos tu confirmación para el [${id_evento}] en ${dirInsistencia}${unidadInsistencia}.\n` +
                 `¿Podrás asistir hoy o derivamos a otro servicio? Agradecemos tu respuesta.`;
 
             await enviarWhatsApp(tecnicoAsignado.telefono, msgInsistencia, phoneNumberId, accessToken);
