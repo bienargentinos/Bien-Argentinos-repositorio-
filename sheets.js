@@ -2097,7 +2097,7 @@ async function guardarConfirmacionTecnico({ id_evento, eta = '', tecnico = '' })
 // esperando qué.
 // ─────────────────────────────────────────────
 
-async function programarSeguimiento({ id_evento, cuando, paso = 1, nota = '' }) {
+async function programarSeguimiento({ id_evento, cuando, paso = 1, nota = '', forzar = false }) {
     try {
         if (!id_evento || !cuando) return false;
         const doc = await getSheet();
@@ -2114,6 +2114,37 @@ async function programarSeguimiento({ id_evento, cuando, paso = 1, nota = '' }) 
         const buscado = String(id_evento).toUpperCase().trim();
         const fila = rows.find(r => String(r.get('id_evento') || '').toUpperCase().trim() === buscado);
         if (!fila) return false;
+
+        // Un caso cerrado no se vuelve a controlar. El técnico sigue escribiendo después de
+        // resolverlo --manda la factura, saluda-- y cualquiera de esos mensajes que se lea como
+        // una confirmación volvía a agendar el control. Después el barrido le preguntaba "¿pudiste
+        // pasar?" por un trabajo que ya había facturado.
+        const estadoActual = String(fila.get('estado') || '').toLowerCase().trim();
+        if (estadoActual === 'resuelto' || estadoActual === 'cerrado') {
+            console.log(`⏱️ [${id_evento}] ya está ${estadoActual}: no se le agenda ningún control.`);
+            return false;
+        }
+
+        // El paso NO retrocede.
+        //
+        // La cadena avanza 1 → 2 → 3: se le pregunta al técnico, después al edificio, después se
+        // escala. Cada confirmación del técnico volvía a agendar el paso 1, así que la cadena
+        // arrancaba de cero una y otra vez y el técnico recibía la misma pregunta varias veces sin
+        // que el caso avanzara nunca. Un mensaje suyo no puede hacer retroceder el seguimiento.
+        const pasoActual = parseInt(fila.get('seguimiento_paso') || '0', 10) || 0;
+        if (!forzar && paso < pasoActual) {
+            console.log(`⏱️ [${id_evento}] va por el paso ${pasoActual}: no se vuelve al ${paso}.`);
+            return false;
+        }
+
+        // Y si ya hay un control agendado a futuro para el MISMO paso, se deja el que está: no
+        // hace falta correrlo cada vez que el técnico escribe.
+        const proxActual = new Date(fila.get('proximo_seguimiento') || 0).getTime();
+        if (!forzar && paso === pasoActual && Number.isFinite(proxActual) && proxActual > Date.now()) {
+            const faltan = Math.round((proxActual - Date.now()) / 60000);
+            console.log(`⏱️ [${id_evento}] ya tiene un control agendado en ${faltan} min (paso ${pasoActual}): se respeta.`);
+            return false;
+        }
 
         fila.set('proximo_seguimiento', new Date(cuando).toISOString());
         fila.set('seguimiento_paso', String(paso));

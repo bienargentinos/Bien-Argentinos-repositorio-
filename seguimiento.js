@@ -69,6 +69,28 @@ async function procesarUnCaso(caso, deps) {
 
     if (caso.paso <= 1 && tecnico?.telefono) {
         // Paso 1 — se le pregunta primero al proveedor, que es quien sabe si estuvo.
+        //
+        // PRIMERO SE CORRE LA FECHA, DESPUÉS SE MANDA.
+        //
+        // Al revés --que es como estaba-- si el mensaje sale pero la planilla no se puede
+        // actualizar, el control sigue vencido y el barrido lo vuelve a mandar a los cinco
+        // minutos. Y otra vez. Y otra. Al técnico le llega la misma pregunta para siempre.
+        //
+        // Reservando primero, un fallo cuesta una vuelta perdida en lugar de una repetición sin
+        // fin. Y no se pierde nada importante: la cadena sigue en el paso 2, que le pregunta al
+        // edificio.
+        const reservado = await programarSeguimiento({
+            id_evento: id,
+            cuando: new Date(Date.now() + ESPERA_RESPUESTA_MS),
+            paso: 2,
+            nota: 'Se le preguntó al proveedor si pasó'
+        });
+        if (!reservado) {
+            console.warn(`🛠️ [${id}] no se pudo agendar el paso 2, así que NO se le pregunta al técnico: ` +
+                         `mandar sin reservar es lo que hacía que la misma pregunta saliera una y otra vez.`);
+            return;
+        }
+
         const dirSeguimiento = await direccionParaTecnico(caso.edificio);
         await enviarWhatsApp(
             tecnico.telefono,
@@ -77,18 +99,25 @@ async function procesarUnCaso(caso, deps) {
             `Si ya está resuelto avisame y cierro el caso. Si no llegaste a ir, decime y lo reprogramamos.`,
             phoneNumberId, accessToken
         );
-        await programarSeguimiento({
-            id_evento: id,
-            cuando: new Date(Date.now() + ESPERA_RESPUESTA_MS),
-            paso: 2,
-            nota: 'Se le preguntó al proveedor si pasó'
-        });
         console.log(`🛠️ Seguimiento [${id}] paso 1: se le preguntó al técnico si pudo pasar.`);
         return;
     }
 
     if (caso.paso === 2 && caso.telefono) {
         // Paso 2 — el técnico no contestó: se pregunta en el edificio, que es el testigo real.
+        // Igual que en el paso 1: primero se reserva el próximo control, después se manda. Y acá
+        // importa todavía más, porque al que le llegaría la pregunta repetida es al vecino.
+        const reservado = await programarSeguimiento({
+            id_evento: id,
+            cuando: new Date(Date.now() + ESPERA_RESPUESTA_MS),
+            paso: 3,
+            nota: 'Se le preguntó al edificio si el técnico pasó'
+        });
+        if (!reservado) {
+            console.warn(`📋 [${id}] no se pudo agendar el paso 3, así que NO se le pregunta al vecino.`);
+            return;
+        }
+
         await enviarWhatsApp(
             caso.telefono,
             // Al vecino tampoco se le habla con el alias interno: él vive ahí, pero el nombre que
@@ -97,17 +126,24 @@ async function procesarUnCaso(caso, deps) {
             `Hola, ¿pasó el técnico por ${await direccionParaTecnico(caso.edificio)}? Quería confirmar si el inconveniente quedó resuelto.`,
             phoneNumberId, accessToken
         );
-        await programarSeguimiento({
-            id_evento: id,
-            cuando: new Date(Date.now() + ESPERA_RESPUESTA_MS),
-            paso: 3,
-            nota: 'Se le preguntó al edificio si el técnico pasó'
-        });
         console.log(`📋 Seguimiento [${id}] paso 2: se le preguntó al vecino si el técnico pasó.`);
         return;
     }
 
     // Paso 3 — nadie confirmó que la visita ocurrió: suplente y alerta al administrador.
+    //
+    // Se marca ANTES de escalar, por lo mismo: si el aviso sale y la marca no se guarda, el
+    // administrador recibe el mismo mail de escalación cada cinco minutos.
+    const marcado = await programarSeguimiento({
+        id_evento: id, cuando: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        paso: 9, nota: 'Escalado al administrador'
+    });
+    if (!marcado) {
+        console.warn(`🚨 [${id}] no se pudo marcar como escalado, así que NO se escala: ` +
+                     `sin la marca el aviso saldría en cada barrido.`);
+        return;
+    }
+
     console.log(`🚨 Seguimiento [${id}] paso 3: sin confirmación de visita. Escalando.`);
 
     let suplente = null;
@@ -137,9 +173,9 @@ async function procesarUnCaso(caso, deps) {
         intentosRealizados: 3
     });
 
-    // No se reprograma: a partir de acá el caso es del administrador. Seguir insistiendo solo
-    // agregaría ruido sobre algo que ya está en manos de una persona.
-    await programarSeguimiento({ id_evento: id, cuando: new Date(Date.now() + 24 * 60 * 60 * 1000), paso: 9, nota: 'Escalado al administrador' });
+    // No se reprograma: a partir de acá el caso es del administrador (ya quedó en paso 9 más
+    // arriba). Seguir insistiendo solo agregaría ruido sobre algo que ya está en manos de una
+    // persona.
 }
 
 /**

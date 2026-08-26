@@ -442,6 +442,27 @@ Las 33 búsquedas de pestaña por índice en `sheets.js` pasaron a `pestaña()`,
 escrita como esté. `pruebas-pestanias.js` ahora **prohíbe** el acceso por índice en `sheets.js`
 fuera de la propia `pestaña()`, así el problema no puede volver por otra función.
 
+### Por qué Marcos preguntaba varias veces "¿pudiste pasar?"
+
+El seguimiento avanza en cadena: **paso 1** se le pregunta al técnico, **paso 2** al edificio,
+**paso 3** se busca suplente y se avisa a la Administración. Un barrido cada 5 minutos levanta los
+casos con `proximo_seguimiento` vencido.
+
+Al técnico le llegaba la misma pregunta repetida. Eran dos causas, y las dos son el mismo error de
+fondo: **hacer algo y no verificar que la marca de "ya está hecho" haya quedado**.
+
+1. **El barrido mandaba primero y agendaba después.** Si la planilla no se podía actualizar, el
+   control seguía vencido y a los cinco minutos se mandaba de nuevo. Para siempre. Ahora se
+   **reserva el próximo paso antes de mandar**: si no se puede agendar, no se manda. Un fallo
+   cuesta una vuelta perdida en lugar de una repetición sin fin.
+2. **Cada confirmación del técnico volvía a agendar el paso 1.** El técnico sigue escribiendo
+   después de resolver —manda la factura, saluda— y cualquiera de esos mensajes leído como
+   confirmación reiniciaba la cadena desde cero. `programarSeguimiento` ahora **no deja retroceder
+   el paso**, respeta un control ya agendado a futuro para el mismo paso, y **no agenda nada en un
+   caso resuelto o cerrado**.
+
+Prueba: `node pruebas-seguimiento-una-vez.js`.
+
 ### Cuándo un mensaje es OTRO caso (y no la continuación del abierto)
 
 `guardarReporte` engancha cada mensaje al caso abierto del mismo vecino o del mismo edificio. Está
