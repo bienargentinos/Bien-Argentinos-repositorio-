@@ -30,17 +30,34 @@ async function main() {
     //
     // Las pestañas van por nombre y no por posición: con `sheetsByIndex[0]` alcanzaba con que
     // alguien reordenara la planilla para vaciar la hoja equivocada.
-    const tabs = [
-        doc.sheetsByTitle['VECINOS'],
-        doc.sheetsByTitle['EVENTOS'],
-        doc.sheetsByTitle['memoria'],
+    // Se busca la pestaña sin importar cómo esté escrita. `sheetsByTitle['facturas']` distingue
+    // mayúsculas, y acá eso no da error: la pestaña "no se encuentra", se saltea, y el reset
+    // termina diciendo "Listo" con los datos viejos adentro. Un reset a medias es peor que
+    // ninguno, porque parece limpio y no lo está.
+    const buscarTab = (nombre) => {
+        const directa = doc.sheetsByTitle[nombre];
+        if (directa) return directa;
+        const b = String(nombre).toLowerCase().trim();
+        const t = Object.keys(doc.sheetsByTitle || {}).find(x => String(x).toLowerCase().trim() === b);
+        return t ? doc.sheetsByTitle[t] : null;
+    };
+
+    const nombresTabs = [
+        'VECINOS',
+        'EVENTOS',
+        'memoria',
         // Las facturas de prueba tienen que irse con el resto: si quedan, el técnico pregunta por un
         // pago y Marcos le contesta con los comprobantes de todas las corridas anteriores.
-        doc.sheetsByTitle['facturas'],
+        'facturas',
     ];
+    const tabs = nombresTabs.map(n => {
+        const s = buscarTab(n);
+        if (!s) console.log(`⚠️ No existe ninguna pestaña "${n}": NO se vació.`);
+        return s;
+    });
 
     for (const sheet of tabs) {
-        if (!sheet) { console.log('⚠️ Pestaña no encontrada, se salta.'); continue; }
+        if (!sheet) continue;
         const rows = await sheet.getRows();
         console.log(`"${sheet.title}": ${rows.length} filas encontradas. Vaciando...`);
         await sheet.clearRows();
