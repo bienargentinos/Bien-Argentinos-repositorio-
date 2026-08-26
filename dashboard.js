@@ -2904,15 +2904,19 @@ function separarConversacionesEvento(datos) {
   function esMensajeDeProveedor(item) {
     if (!item) return false;
 
+    // EL TELÉFONO MANDA. Si el mensaje viene del número del técnico del caso, es del técnico y
+    // no hay nada que interpretar. Va ANTES que todo lo demás porque es el único dato duro acá:
+    // el resto son heurísticas sobre el texto, y una de ellas --"pidiéndole datos al vecino"--
+    // engancha frases que el técnico también escribe.
+    var itemPhone = typeof item === 'object' ? String(item.telefono || '').replace(/[^0-9]/g, '') : '';
+    if (itemPhone.length >= 7 && techPhones.has(itemPhone.slice(-10))) return true;
+
     // Si es explícitamente un mensaje dirigido al vecino o pidiéndole datos, NUNCA es de proveedor
     if (esMensajeDeVecino(item)) return false;
 
     var rem = typeof item === 'object' ? String(item.remitente || item.emisor || item.destinatario || item.canal_orig || '').toLowerCase() : '';
     var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
     var strLower = str.toLowerCase();
-
-    var itemPhone = typeof item === 'object' ? String(item.telefono || '').replace(/[^0-9]/g, '') : '';
-    if (itemPhone.length >= 7 && techPhones.has(itemPhone.slice(-10))) return true;
 
     if (rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || rem === 'plomero' || rem === 'electricista' || rem === 'gasista') {
       return true;
