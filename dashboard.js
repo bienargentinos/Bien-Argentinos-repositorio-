@@ -301,6 +301,38 @@ function mapCliente(r) {
   };
 }
 
+/**
+ * De qué cliente es un edificio, según la lista `edificios` de la tab CLIENTES.
+ *
+ * POR QUÉ NO ALCANZA CON `.includes(nombre)`. La lista del cliente y el nombre del edificio son
+ * dos textos escritos a mano en pestañas distintas, y `Array.includes` exige que sean idénticos
+ * carácter por carácter. Una mayúscula, un espacio de más o un acento distinto y el panel muestra
+ * "Sin asignar" un edificio que en la planilla figura clarísimo al lado del administrador.
+ *
+ * Pasó con "san patricio 270": Alejandra lo tenía asignado en CLIENTES y el panel lo mostraba
+ * suelto, sin forma de arreglarlo desde la pantalla.
+ *
+ * La comparación es EXACTA después de normalizar (mayúsculas, acentos, espacios). No se usa
+ * `compararEdificios`, que acepta coincidencias parciales: con eso "san patricio 159" quedaría
+ * asignado al cliente que tiene el 270, y eso es mostrarle a un administrador los reclamos de
+ * un consorcio ajeno.
+ */
+function clienteDelEdificio(clientes, nombreEdificio) {
+  const n = normEdificio(nombreEdificio);
+  if (!n) return null;
+  return (clientes || []).find((c) =>
+    (c.edificios || []).some((e) => normEdificio(e) === n)
+  ) || null;
+}
+
+// Los edificios de un cliente, con la misma comparación normalizada de `clienteDelEdificio`.
+// Sin esto, la ficha del administrador le mostraba 2 edificios cuando tenía 3: el que estaba
+// escrito con una mayúscula distinta simplemente no aparecía.
+function edificiosDeCliente(edificios, cliente) {
+  const suyos = new Set((cliente?.edificios || []).map(normEdificio).filter(Boolean));
+  return (edificios || []).filter((e) => suyos.has(normEdificio(e.nombre)));
+}
+
 function mapColaborador(r) {
   return {
     _row: r._row,
@@ -2846,7 +2878,7 @@ function separarConversacionesEvento(datos) {
 
   function esMensajeDeVecino(item) {
     if (!item) return false;
-    var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
+    var rem = typeof item === 'object' ? String(item.remitente || item.emisor || item.destinatario || item.canal_orig || '').toLowerCase() : '';
     var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
     var strLower = str.toLowerCase();
 
@@ -2872,6 +2904,9 @@ function separarConversacionesEvento(datos) {
   function esMensajeDeProveedor(item) {
     if (!item) return false;
 
+    // Si es explícitamente un mensaje dirigido al vecino o pidiéndole datos, NUNCA es de proveedor
+    if (esMensajeDeVecino(item)) return false;
+
     var rem = typeof item === 'object' ? String(item.remitente || item.emisor || item.destinatario || item.canal_orig || '').toLowerCase() : '';
     var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
     var strLower = str.toLowerCase();
@@ -2885,11 +2920,11 @@ function separarConversacionesEvento(datos) {
     if (/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str)) {
       return true;
     }
-
+    // Una factura o un comprobante son del proveedor. El guard de más arriba ya descartó los
+    // mensajes dirigidos al vecino, así que acá no hace falta volver a preguntarlo.
     if (strLower.indexOf('factura') !== -1 || strLower.indexOf('comprobante') !== -1 || strLower.indexOf('documento') !== -1 || strLower.indexOf('[factura:') !== -1) {
-      if (!esMensajeDeVecino(item)) return true;
+      return true;
     }
-
     if (strLower.indexOf('plantilla whatsapp') !== -1 || strLower.indexOf('plantilla meta') !== -1) {
       return true;
     }
@@ -2905,6 +2940,9 @@ function separarConversacionesEvento(datos) {
     ) {
       return true;
     }
+    // Las preguntas de seguimiento son al TÉCNICO: "¿pudiste ir?", "¿resolviste el reclamo?".
+    // Sin esto quedaban en la columna del vecino y el visor mostraba las dos conversaciones
+    // mezcladas.
     if (
       strLower.indexOf('comunicate directamente con esa persona y avisame') !== -1 ||
       strLower.indexOf('si al llegar no te abren') !== -1 ||
@@ -2919,7 +2957,6 @@ function separarConversacionesEvento(datos) {
     ) {
       return true;
     }
-
     return false;
   }
 
@@ -3061,6 +3098,11 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
     chatLines = tipoBloque === 'proveedor' ? sep.chatProveedor : sep.chatVecino;
   }
 
+  // El nombre real que viene entre paréntesis: "Proveedor (dario juju): ...".
+  // Antes se sacaba con una expresión regular que vive adentro de una plantilla de texto, donde
+  // las barras invertidas se procesan ANTES de servirse: el patrón que llegaba al navegador no
+  // era el que estaba escrito acá, y no enganchaba nunca. Buscar los paréntesis a mano no tiene
+  // ese problema.
   function extraerNombreEntreParentesis(s) {
     if (!s) return '';
     var p1 = s.indexOf('(');
@@ -3081,6 +3123,8 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var isEncargado = rem === 'encargado' || rem === 'portero' || rem === 'seguridad' || /^(Encargado|Seguridad|Portero|Portería)/i.test(str);
       var isAdmin = rem === 'admin' || rem === 'administracion' || /^(Admin|Administración)/i.test(str);
 
+      // Se le saca el prefijo de quién habla ("Vecino: ", "Marcos (a Proveedor): ") sin usar una
+      // expresión regular con barras invertidas, por el mismo motivo que arriba.
       var cleanText = str;
       var colonIdx = str.indexOf(':');
       if (colonIdx !== -1 && colonIdx < 40) {
@@ -3089,7 +3133,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
           cleanText = str.substring(colonIdx + 1).trim();
         }
       }
-
+      
       var senderLabel = 'Marcos IA';
       var align = 'margin-right:auto;background:#FFFFFF;color:#16233B;border:1px solid #E1E7F0;border-bottom-left-radius:2px;';
       var icon = '🤖';
@@ -3113,8 +3157,8 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         icon = '🔧';
         tagBg = '#FDE68A'; tagFg = '#92400E';
       } else if (isEncargado) {
-        var nomEncInStr = extraerNombreEntreParentesis(str);
-        senderLabel = nomEncInStr || 'Personal del Edificio';
+        var mEnc = str.match(/^(Encargado|Seguridad|Portero|Portería)(\s*\(([^)]+)\))?/i);
+        senderLabel = (mEnc && mEnc[3]) ? mEnc[3].trim() : 'Personal del Edificio';
         align = 'margin-left:auto;background:#EDE9FE;color:#4C1D95;border:1px solid #DDD6FE;border-bottom-right-radius:2px;';
         icon = '👷';
         tagBg = '#DDD6FE'; tagFg = '#5B21B6';
@@ -4297,11 +4341,18 @@ async function agregarProveedor(btn){
   var nombre=(document.getElementById('prov-nombre')||{}).value||'';
   var tel=(document.getElementById('prov-tel')||{}).value||'';
   var notas=(document.getElementById('prov-notas')||{}).value||'';
+  // Datos de cobro, opcionales. Van en el alta para no tener que volver a entrar si ya se
+  // tienen a mano. El servidor verifica el CBU y rechaza el alta si está mal escrito.
+  var cbu=((document.getElementById('prov-cbu')||{}).value||'').replace(/\\D/g,'');
+  var alias=((document.getElementById('prov-alias')||{}).value||'').trim();
+  var titular=((document.getElementById('prov-titular')||{}).value||'').trim();
+  var cuit=((document.getElementById('prov-cuit')||{}).value||'').replace(/\\D/g,'');
   if(!nombre.trim()&&!tel.trim()){toast('Cargá al menos nombre o teléfono','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Agregando...';
   try{
     var r=await fetch('/admin/api/proveedor',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({rubro:rubro,nombre:nombre.trim(),telefono:tel.trim(),notas:notas.trim()})});
+      body:JSON.stringify({rubro:rubro,nombre:nombre.trim(),telefono:tel.trim(),notas:notas.trim(),
+        cbu:cbu,alias:alias,titular:titular,cuit:cuit})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Proveedor agregado a tu lista','ok');
@@ -4346,6 +4397,60 @@ async function guardarEditarProveedor(btn){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
+window.guardarEditarProveedor = guardarEditarProveedor;
+
+// ── DATOS DE COBRO DEL PROVEEDOR ──────────────────────────────────────────────────────
+function abrirDatosCobro(row, nombre, cbu, alias, titular, cuit){
+  var r=document.getElementById('cobro-row');if(r)r.value=row;
+  var n=document.getElementById('cobro-nombre');if(n)n.textContent=nombre||'Proveedor';
+  var c=document.getElementById('cobro-cbu');if(c)c.value=cbu||'';
+  var a=document.getElementById('cobro-alias');if(a)a.value=alias||'';
+  var t=document.getElementById('cobro-titular');if(t)t.value=titular||'';
+  var q=document.getElementById('cobro-cuit');if(q)q.value=cuit||'';
+  abrirModal('modal-datos-cobro');
+}
+window.abrirDatosCobro = abrirDatosCobro;
+
+async function guardarDatosCobro(btn){
+  var row=valEl('cobro-row');
+  var cbu=valEl('cobro-cbu').replace(/\\D/g,'');
+  var alias=valEl('cobro-alias').trim();
+  var titular=valEl('cobro-titular').trim();
+  var cuit=valEl('cobro-cuit').replace(/\\D/g,'');
+  if(!cbu&&!alias){toast('Cargá el CBU o el alias','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/proveedor-datos-cobro',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row,cbu:cbu,alias:alias,titular:titular,cuit:cuit})});
+    var j=await r.json();
+    // El servidor verifica los dígitos del CBU: si no cierra, el mensaje dice qué pasó.
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    cerrarModal('modal-datos-cobro');
+    toast('Datos de cobro guardados','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+window.guardarDatosCobro = guardarDatosCobro;
+
+// Aprobar o rechazar el cambio de cuenta que pidió un proveedor por WhatsApp. Se confirma
+// aparte porque aprobarlo por error manda el pago del mes a otra cuenta.
+async function resolverCambioCobro(btn,row,aprobar){
+  var pregunta = aprobar
+    ? '¿Confirmás el cambio de cuenta?\\n\\nAntes de aceptar, verificá con el proveedor llamándolo al número de siempre — no respondiendo al mensaje que te mandó.'
+    : '¿Rechazás el cambio? Se va a seguir usando la cuenta anterior.';
+  if(!confirm(pregunta))return;
+  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
+  try{
+    var r=await fetch('/admin/api/proveedor-cambio-cobro',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row,aprobar:!!aprobar})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast(aprobar?'Cambio aprobado: ahora cobra en la cuenta nueva':'Cambio rechazado: sigue la cuenta anterior','ok');
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;btn.textContent=old;}
+}
+window.resolverCambioCobro = resolverCambioCobro;
 
 // --- consejo de administracion ---
 function abrirModalConsejoNuevo(edificios){
@@ -4561,8 +4666,10 @@ async function crearEdificio(btn,clienteUsuario){
         plan:plan,clienteUsuario:clienteUsuario||undefined})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Edificio agregado','ok');
-    setTimeout(function(){location.reload();},900);
+    // Cuando el edificio ya estaba cargado y suelto, el backend lo asigna en vez de crearlo:
+    // hay que decirlo, porque "Edificio agregado" a secas haria pensar que se duplico.
+    toast(j.asignado?(j.mensaje||'Edificio asignado'):'Edificio agregado','ok');
+    setTimeout(function(){location.reload();},j.asignado?1800:900);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
@@ -5601,13 +5708,13 @@ function shell(req, d, activeKey, contenido) {
     const filtro = req.session.filtroEdificioDueno || '';
     const label = filtro || 'Todos los edificios';
     const sub = filtro
-      ? ((d.clientes.find((c) => c.edificios.includes(filtro)) || {}).nombre || '')
+      ? ((clienteDelEdificio(d.clientes, filtro) || {}).nombre || '')
       : `${d.edificios.length} consorcios activos`;
     const filas = [
       { label: 'Todos los edificios', sub: `${d.edificios.length} consorcios`, val: '', activo: !filtro },
       ...d.edificios.map((e) => ({
         label: e.nombre,
-        sub: `${(d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar'}${e.unidades ? ' · ' + e.unidades + ' un.' : ''}`,
+        sub: `${(clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar'}${e.unidades ? ' · ' + e.unidades + ' un.' : ''}`,
         val: e.nombre, activo: filtro === e.nombre,
       })),
     ];
@@ -6306,7 +6413,7 @@ router.get('/', async (req, res) => {
     if (esDueno(req)) {
       // ---------- RESUMEN DUEÑO ----------
       const filtro = req.session.filtroEdificioDueno;
-      const edVisibles = filtro ? d.edificios.filter((e) => e.nombre === filtro) : d.edificios;
+      const edVisibles = filtro ? d.edificios.filter((e) => normEdificio(e.nombre) === normEdificio(filtro)) : d.edificios;
       const evVisibles = filtrarPorEdificio(d.eventos, req);
       
       const usarReciente = !!filtro;
@@ -6337,7 +6444,7 @@ router.get('/', async (req, res) => {
         // En el listado general de todos los edificios, mostramos novedades de 24 hs
         const nuevos = ev.filter((x) => esDe24Horas(parseFecha(x.fecha))).length;
         const urg = ev.filter((x) => x.urgencia === 'alta' && estadoNormalizado(x.estado) !== 'resuelto').length;
-        const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
+        const cliente = (clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar';
         return `
           <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/eventos')}"
             style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px;cursor:pointer" class="hv-card">
@@ -7532,8 +7639,48 @@ router.get('/proveedores', async (req, res) => {
     } catch (_) {}
 
     const label = (t) => `<div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">${t}</div>`;
+
+    // Los datos de cobro, y sobre todo el aviso de cambio pendiente. Un cambio de CBU que llegó
+    // por WhatsApp NO se aplicó: acá se aprueba o se rechaza. Hasta entonces sigue vigente el
+    // anterior, que es lo que evita que a alguien le desvíen el pago del mes.
+    const bloqueCobro = (m) => {
+      const tienePendiente = Boolean(m.cbu_pendiente || m.alias_pendiente);
+      const ult4 = (c) => { const d = String(c || '').replace(/\D/g, ''); return d.length >= 4 ? d.slice(-4) : ''; };
+
+      const vigente = (m.cbu || m.alias_cbu)
+        ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:#334259">
+             <span style="font-weight:700;color:#8595AD">Cobra en:</span>
+             ${m.cbu ? `<span title="${esc(m.cbu)}">CBU ····${esc(ult4(m.cbu))}</span>` : ''}
+             ${m.alias_cbu ? `<span style="font-weight:700;color:#2E6FC0">${esc(m.alias_cbu)}</span>` : ''}
+             ${m.titular ? `<span style="color:#64748B">a nombre de ${esc(m.titular)}</span>` : ''}
+           </div>`
+        : `<div style="font-size:12.5px;color:#8595AD">Sin datos de cobro cargados. Marcos los toma solo cuando el proveedor se los manda.</div>`;
+
+      const pendiente = tienePendiente
+        ? `<div style="margin-top:10px;background:#FFF7ED;border:1px solid #FDBA74;border-radius:10px;padding:11px 13px">
+             <div style="font-size:12.5px;font-weight:800;color:#9A3412;margin-bottom:4px">🔐 Pidió cambiar su cuenta — NO se aplicó</div>
+             <div style="font-size:12.5px;color:#7C2D12;line-height:1.5">
+               Nuevo: ${m.cbu_pendiente ? `CBU ····${esc(ult4(m.cbu_pendiente))}` : ''} ${m.alias_pendiente ? `alias <b>${esc(m.alias_pendiente)}</b>` : ''}<br>
+               ${m.cbu_pendiente_desde ? `<span style="color:#9A3412">Desde ${esc(m.cbu_pendiente_desde)}.</span> ` : ''}
+               Sigue vigente la cuenta anterior hasta que usted decida.
+             </div>
+             <div style="font-size:12px;color:#7C2D12;margin-top:8px;background:#FFEDD5;border-radius:8px;padding:8px 10px">
+               ⚠️ Antes de aprobar, confirmelo con el proveedor <b>llamándolo al número de siempre</b>, no respondiendo al mensaje. Desviar un pago cambiando el CBU es el fraude más común que hay.
+             </div>
+             <div style="display:flex;gap:8px;margin-top:10px">
+               <button onclick="resolverCambioCobro(this,${m._row},true)" style="height:36px;padding:0 14px;border:none;border-radius:9px;background:#15803D;color:#fff;font-weight:700;font-size:13px;cursor:pointer" class="hv-primary">Aprobar cambio</button>
+               <button onclick="resolverCambioCobro(this,${m._row},false)" style="height:36px;padding:0 14px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#334259;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Rechazar</button>
+             </div>
+           </div>`
+        : '';
+
+      return `<div style="flex-basis:100%;margin-top:10px;padding-top:10px;border-top:1px dashed #E7ECF3">
+                ${vigente}${pendiente}
+              </div>`;
+    };
+
     const filas = maestros.length ? maestros.map((m) => `
-      <div style="display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid ${(m.cbu_pendiente || m.alias_pendiente) ? '#FDBA74' : '#E7ECF3'};border-radius:12px;background:#fff;flex-wrap:wrap">
         <span class="rubro-badge ${getRubroClass(m.rubro)}">${esc(m.rubro)}</span>
         <div style="flex:1;min-width:140px">
           <div style="font-size:14.5px;font-weight:700">${esc(m.nombre || '—')}</div>
@@ -7541,9 +7688,11 @@ router.get('/proveedores', async (req, res) => {
         </div>
         <div style="font-size:14px;font-weight:700;color:#2E6FC0">${esc(m.telefono || '—')}</div>
         <div style="display:flex;gap:6px">
+          <button onclick="abrirDatosCobro(${m._row},'${escJs(m.nombre)}','${escJs(m.cbu || '')}','${escJs(m.alias_cbu || '')}','${escJs(m.titular || '')}','${escJs(m.cuit || '')}')" class="btn-edit hv-soft">🏦 Cobro</button>
           <button onclick="abrirEditarProveedor(${m._row},'${escJs(m.rubro)}','${escJs(m.nombre)}','${escJs(m.telefono)}','${escJs(m.notas || '')}')" class="btn-edit hv-soft">Editar</button>
           <button onclick="quitarProveedor(this,${m._row})" class="btn-remove hv-red">Quitar</button>
         </div>
+        ${bloqueCobro(m)}
       </div>`).join('') : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
 
     const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
@@ -7577,6 +7726,43 @@ router.get('/proveedores', async (req, res) => {
         </div>
       </div>`;
 
+    // Carga o corrección a mano de los datos de cobro. El CBU se verifica del lado del servidor
+    // con los dígitos verificadores: un número mal tipeado acá termina en un pago rechazado.
+    const modalDatosCobroHtml = `
+      <div id="modal-datos-cobro" class="modal-overlay" onclick="cerrarModal('modal-datos-cobro')">
+        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Datos de cobro</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏦 <span id="cobro-nombre">Proveedor</span></div>
+          </div>
+          <div style="padding:20px 24px">
+            <input type="hidden" id="cobro-row">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">CBU (22 dígitos)</div>
+            <input id="cobro-cbu" class="inp" inputmode="numeric" placeholder="0070059930004567890123" style="margin-bottom:4px">
+            <div style="font-size:11.5px;color:#64748B;margin-bottom:14px">Se verifica antes de guardar. Si está mal escrito, no se acepta.</div>
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Alias</div>
+            <input id="cobro-alias" class="inp" placeholder="Ej: juan.perez.arg" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Titular de la cuenta</div>
+            <input id="cobro-titular" class="inp" placeholder="Puede no ser el mismo que el proveedor" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">CUIT / CUIL (opcional)</div>
+            <input id="cobro-cuit" class="inp" inputmode="numeric" placeholder="20304050607">
+
+            <div style="margin-top:14px;background:#F1F5FB;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#5A6B85;line-height:1.5">
+              Marcos también toma estos datos cuando el proveedor se los manda por WhatsApp. Si ya
+              había otros cargados, ese cambio queda esperando su aprobación en vez de aplicarse solo.
+            </div>
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-datos-cobro')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarDatosCobro(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar</button>
+          </div>
+        </div>
+      </div>`;
+
     const contenido = `
       <div style="animation:mFade .3s ease both;max-width:820px">
         <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Proveedores</h1>
@@ -7599,10 +7785,38 @@ router.get('/proveedores', async (req, res) => {
             </div>
             <div>${label('Notas (opcional)')}<input id="prov-notas" class="inp" style="height:44px" placeholder="Ej: tiene llave del edificio"></div>
           </div>
+
+          <!-- Datos de cobro en el alta: si ya los tenés a mano, se cargan de una. Al ser la
+               primera carga no hay cambio que aprobar, se aplican directo. Después Marcos los
+               toma solo si el proveedor se los manda, y ahí sí un cambio queda pendiente. -->
+          <details style="margin-bottom:16px;border:1px solid #E7ECF3;border-radius:12px;background:#F8FAFD">
+            <summary style="padding:12px 14px;cursor:pointer;font-size:13.5px;font-weight:700;color:#334259;list-style:none">
+              🏦 Datos de cobro <span style="font-weight:500;color:#8595AD">— opcional, si ya los tenés</span>
+            </summary>
+            <div style="padding:0 14px 14px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                <div>
+                  ${label('CBU')}
+                  <input id="prov-cbu" class="inp" style="height:44px" inputmode="numeric" placeholder="22 dígitos">
+                  <div style="font-size:11.5px;color:#64748B;margin-top:3px">Se verifica antes de guardar.</div>
+                </div>
+                <div>${label('Alias')}<input id="prov-alias" class="inp" style="height:44px" placeholder="Ej: gaston.plomeria"></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div>
+                  ${label('Titular de la cuenta')}
+                  <input id="prov-titular" class="inp" style="height:44px" placeholder="Puede no ser el proveedor">
+                </div>
+                <div>${label('CUIT / CUIL')}<input id="prov-cuit" class="inp" style="height:44px" inputmode="numeric" placeholder="20304050607"></div>
+              </div>
+            </div>
+          </details>
+
           <button onclick="agregarProveedor(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">+ Agregar a mi lista</button>
         </div>
       </div>
-      ${modalEditarProveedorHtml}`;
+      ${modalEditarProveedorHtml}
+      ${modalDatosCobroHtml}`;
 
     res.send(shell(req, d, 'proveedores', contenido));
   } catch (e) {
@@ -8583,7 +8797,7 @@ router.get('/consumos', async (req, res) => {
     const d = await cargarDatos(req);
     const cards = d.edificios.map((e) => {
       const ev = d.eventos.filter((x) => compararEdificios(x.edificio, e.nombre)).length;
-      const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
+      const cliente = (clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar';
       const plan = PLAN_STYLE(e.plan);
       return `
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px;margin-bottom:14px">
@@ -8656,7 +8870,7 @@ router.get('/clientes', async (req, res) => {
 
     const filaEdificioHtml = (e, mostrarCliente) => {
       const plan = PLAN_STYLE(e.plan);
-      const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
+      const cliente = (clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar';
       return `
         <div style="display:flex;align-items:center;gap:16px;background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 18px;flex-wrap:wrap">
           <span style="width:44px;height:44px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🏢</span>
@@ -8686,7 +8900,7 @@ router.get('/clientes', async (req, res) => {
     if (vista === 'todos') {
       cuerpo = `<div style="display:flex;flex-direction:column;gap:12px">${d.edificios.map((e) => filaEdificioHtml(e, true)).join('')}</div>`;
     } else if (clienteSel) {
-      const mis = d.edificios.filter((e) => clienteSel.edificios.includes(e.nombre));
+      const mis = edificiosDeCliente(d.edificios, clienteSel);
       const unidades = mis.reduce((a, e) => a + (Number(e.unidades) || 0), 0);
       cuerpo = `
         <a href="/admin/clientes" style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border:1px solid #E1E7F1;border-radius:9px;background:#fff;color:#5A6B85;font-weight:700;font-size:13px;margin-bottom:16px" class="hv-soft">← Clientes</a>
@@ -8706,7 +8920,7 @@ router.get('/clientes', async (req, res) => {
         </div>`;
     } else {
       const cards = d.clientes.map((c) => {
-        const mis = d.edificios.filter((e) => c.edificios.includes(e.nombre));
+        const mis = edificiosDeCliente(d.edificios, c);
         const unidades = mis.reduce((a, e) => a + (Number(e.unidades) || 0), 0);
         const plus = mis.filter((e) => e.plan === 'Plus').length;
         const base = mis.length - plus;
@@ -9557,6 +9771,27 @@ router.post('/api/factura-estado', async (req, res) => {
 });
 
 // Edicion directa de la ficha de un edificio (dueño, modal).
+/**
+ * TODAS las columnas de la planilla que son ese mismo campo, no solo la primera.
+ *
+ * POR QUÉ. La tab `EDIFICIOS` tiene el nombre del consorcio escrito en dos columnas, `edificio` y
+ * `nombre`, que son alias del mismo dato. Pero el panel las lee en un orden (`edificio` primero) y
+ * el motor de Marcos en el otro (`nombre` primero, ver `listarEdificiosConocidos` en sheets.js).
+ *
+ * Mientras se escribía solo en la primera que apareciera, cada corrección dejaba la otra columna
+ * con el valor viejo, y el valor que se veía dependía de quién estaba mirando. Así fue como el
+ * apóstrofe de "san patricio 27'0 casa" se corrigió desde el panel y volvió a aparecer solo: nunca
+ * se había ido, estaba en la otra columna.
+ *
+ * Si no existe ninguna, se planifica crearla con el nombre canónico.
+ */
+function columnasDelCampo(headers, candidates) {
+  const columnas = headers
+    .map((h, i) => (candidates.includes(h) ? columnLetter(i + 1) : null))
+    .filter(Boolean);
+  return { columnas, crear: columnas.length === 0 };
+}
+
 const EDIFICIO_FIELDS = {
   nombre: ['edificio', 'nombre', 'consorcio'],
   direccion: ['direccion', 'domicilio'],
@@ -9592,15 +9827,16 @@ router.post('/api/edificio', async (req, res) => {
     for (const field of Object.keys(EDIFICIO_FIELDS)) {
       if (body[field] === undefined) continue;
       const candidates = EDIFICIO_FIELDS[field];
-      let idx = workingHeaders.findIndex((h) => candidates.includes(h));
-      let col;
-      if (idx >= 0) col = columnLetter(idx + 1);
-      else {
-        col = columnLetter(workingHeaders.length + 1);
+      // Se escribe en TODAS las columnas que son este campo, no en la primera que aparezca:
+      // ver la nota de `columnasDelCampo`.
+      let { columnas, crear } = columnasDelCampo(workingHeaders, candidates);
+      if (crear) {
+        const col = columnLetter(workingHeaders.length + 1);
         await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
         workingHeaders.push(candidates[0]);
+        columnas = [col];
       }
-      await writeCell(TAB_EDIFICIOS, col, row, body[field]);
+      for (const col of columnas) await writeCell(TAB_EDIFICIOS, col, row, body[field]);
     }
     res.json({ ok: true });
   } catch (e) {
@@ -9899,8 +10135,53 @@ router.post('/api/edificio-nuevo', async (req, res) => {
     }
 
     const { rows: edRows, headers: edHeaders } = await readTab(TAB_EDIFICIOS);
-    if (edRows.map(mapEdificio).some((e) => e.nombre.toLowerCase() === String(nombre).toLowerCase())) {
-      return res.status(400).json({ error: 'Ya existe un edificio con ese nombre' });
+    const yaExiste = edRows.map(mapEdificio).find((e) => normEdificio(e.nombre) === normEdificio(nombre));
+
+    // ── UN EDIFICIO QUE YA EXISTE PERO NO ES DE NADIE ────────────────────────────────────────
+    //
+    // Antes acá se cortaba con "Ya existe un edificio con ese nombre" y no había otra pantalla
+    // para asignarlo: el edificio quedaba suelto, visible para el dueño, sin forma de ponerlo
+    // bajo su administrador. Pasa siempre que un edificio se carga antes que su cliente, o
+    // después de un renombre.
+    //
+    // Si no lo tiene nadie, se asigna. Si ya lo tiene otro, se dice quién -- moverlo de
+    // administrador es una decisión, no un efecto secundario de tocar "Agregar".
+    if (yaExiste) {
+      const { rows: cliRowsChk } = await readTab(TAB_CLIENTES);
+      const clientes = cliRowsChk.map(mapCliente);
+      const dueñoActual = clienteDelEdificio(clientes, yaExiste.nombre);
+
+      if (dueñoActual && dueñoActual.usuario !== clienteUsuario) {
+        return res.status(409).json({
+          error: `"${yaExiste.nombre}" ya está asignado a ${dueñoActual.nombre}. ` +
+                 `Si hay que pasarlo a otro administrador, primero sacáselo a ${dueñoActual.nombre}.`,
+        });
+      }
+      if (dueñoActual) {
+        return res.status(409).json({ error: `"${yaExiste.nombre}" ya está en la lista de ${dueñoActual.nombre}.` });
+      }
+      if (!clienteObj) {
+        return res.status(409).json({ error: `"${yaExiste.nombre}" ya existe. Elegí a qué administrador asignarlo.` });
+      }
+
+      const nuevaLista = [...clienteObj.edificios, yaExiste.nombre].join(', ');
+      const colAsig = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
+      if (colAsig.create) await ensureHeader(TAB_CLIENTES, colAsig.col, 'edificios', false);
+      await writeCell(TAB_CLIENTES, colAsig.col, clienteObj._row, nuevaLista);
+
+      if (!dueno && req.session) {
+        if (!req.session.edificios) req.session.edificios = [];
+        if (!req.session.edificios.some((e) => normEdificio(e) === normEdificio(yaExiste.nombre))) {
+          req.session.edificios.push(yaExiste.nombre);
+        }
+        await new Promise((resolve) => req.session.save(resolve));
+      }
+
+      console.log(`🏢 "${yaExiste.nombre}" ya existía sin asignar: se asignó a ${clienteObj.nombre} (${clienteObj.usuario}).`);
+      return res.json({
+        ok: true, asignado: true,
+        mensaje: `"${yaExiste.nombre}" ya estaba cargado, así que lo asigné a ${clienteObj.nombre} en vez de crearlo de nuevo.`,
+      });
     }
 
     const adminHeader = edHeaders.find((h) => ['admin_nombre', 'administrador', 'admin'].includes(h)) || 'administrador';
@@ -10051,14 +10332,23 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
       targetEdificios = [edificio];
     }
 
+    let celdasEscritas = 0;
+
     if (campo) {
       const candidates = EDIFICIO_FIELDS[campo] || [campo];
-      let colIdx = edHeaders.findIndex((h) => candidates.includes(h));
-      let col;
-      if (colIdx >= 0) col = columnLetter(colIdx + 1);
-      else {
-        col = columnLetter(edHeaders.length + 1);
+
+      // Se escribe en TODAS las columnas equivalentes que existan, no en la primera.
+      //
+      // Bug real: la planilla tiene `nombre` y `edificio`, que son el mismo dato. Al aprobar un
+      // cambio de nombre se escribía en `nombre` -- la primera de la lista -- pero el resto del
+      // sistema lee `edificio`. El valor quedaba guardado, la solicitud figuraba "aplicada", y en
+      // pantalla no cambiaba nada. Escribir en las dos las mantiene sincronizadas, que es lo que
+      // se esperaba desde el principio: son alias de un mismo campo, no campos distintos.
+      const { columnas, crear } = columnasDelCampo(edHeaders, candidates);
+      if (crear) {
+        const col = columnLetter(edHeaders.length + 1);
         await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
+        columnas.push(col);
       }
 
       for (const edNom of targetEdificios) {
@@ -10066,17 +10356,158 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
           compararEdificios(r.edificio || r.nombre || '', edNom)
         );
         for (const edRow of matchingEdRows) {
-          if (edRow) {
+          if (!edRow) continue;
+          for (const col of columnas) {
             await writeCell(TAB_EDIFICIOS, col, edRow._row, valor_nuevo);
+            celdasEscritas++;
           }
         }
       }
     }
 
+    // ── RENOMBRAR UN EDIFICIO ES RENOMBRARLO EN TODOS LADOS ─────────────────────────────────
+    //
+    // El nombre del consorcio no vive solo en `EDIFICIOS`: está copiado como texto en cada
+    // vecino, cada evento, cada factura, cada asignación de proveedor y en la lista de edificios
+    // del cliente. Ese texto es la única forma que tiene el sistema de relacionar las filas: no
+    // hay un id.
+    //
+    // Cambiarlo en `EDIFICIOS` y en ningún otro lado parte el edificio en dos. Las filas viejas
+    // siguen diciendo "san patricio 27'0 casa", el panel las muestra tal cual, y el apóstrofe
+    // "vuelve solo" -- nunca se había ido, estaba en las otras pestañas.
+    let filasRenombradas = 0;
+    if (campo === 'nombre' && valor_nuevo) {
+      // Dónde figura el nombre de un edificio en cada pestaña. `edificios` (en plural, en
+      // CLIENTES) es una lista separada por comas y se trata aparte.
+      const DONDE_FIGURA = [
+        [TAB_EVENTOS,      ['edificio', 'consorcio']],
+        [TAB_ARCHIVOS,     ['edificio']],
+        [TAB_SUGERENCIAS,  ['edificio']],
+        [TAB_SOLICITUDES,  ['edificio']],
+        [TAB_EXPENSAS,     ['edificio']],
+        [TAB_ASIGNACIONES, ['edificio']],
+        ['vecinos',        ['edificio']],
+      ];
+
+      for (const viejo of targetEdificios) {
+        // Comparación exacta, no `compararEdificios`: ese acepta coincidencias parciales, así que
+        // un cambio de "san patricio 270" a "san patricio 270 casa" se leería como "ya se llamaba
+        // así" y no se renombraría nada.
+        if (normEdificio(viejo) === normEdificio(valor_nuevo)) continue;
+
+        for (const [tab, columnas] of DONDE_FIGURA) {
+          let datos;
+          try { datos = await readTab(tab); } catch { continue; }
+          if (!datos.headers.length) continue;
+
+          for (const nombreCol of columnas) {
+            const i = datos.headers.indexOf(nombreCol);
+            if (i < 0) continue;
+            const letra = columnLetter(i + 1);
+            for (const fila of datos.rows) {
+              // Comparación exacta y normalizada: `compararEdificios` acepta coincidencias
+              // parciales, y con eso un "san patricio 159" se llevaría por delante al 270.
+              if (normEdificio(fila[nombreCol]) !== normEdificio(viejo)) continue;
+              await writeCell(tab, letra, fila._row, valor_nuevo);
+              filasRenombradas++;
+            }
+          }
+        }
+
+        // La lista de edificios del cliente es una sola celda con comas: se reemplaza el ítem
+        // que corresponde y se deja el resto intacto.
+        try {
+          const { rows: cliRows, headers: cliHeaders } = await readTab(TAB_CLIENTES);
+          const iCol = cliHeaders.findIndex(h => h === 'edificios' || h === 'edificio');
+          if (iCol >= 0) {
+            const letra = columnLetter(iCol + 1);
+            const nombreCol = cliHeaders[iCol];
+            for (const fila of cliRows) {
+              const partes = String(fila[nombreCol] || '').split(',').map(s => s.trim()).filter(Boolean);
+              if (!partes.some(p => normEdificio(p) === normEdificio(viejo))) continue;
+              const nuevas = partes.map(p => (normEdificio(p) === normEdificio(viejo) ? valor_nuevo : p));
+              await writeCell(TAB_CLIENTES, letra, fila._row, nuevas.join(', '));
+              filasRenombradas++;
+            }
+          }
+        } catch (e) {
+          console.error(`[Solicitud ${row}] No se pudo actualizar la lista de edificios del cliente: ${e.message}`);
+        }
+      }
+
+      // ── Y EN POSTGRESQL, QUE ES DE DONDE LEE MARCOS ──────────────────────────────────────
+      //
+      // Son dos bases: este panel lee Sheets, pero el motor de Marcos y los permisos del cliente
+      // (`obtenerEdificiosPermitidosUsuario`, `expandirEdificiosPermitidos`) leen PostgreSQL.
+      // Renombrar solo en Sheets deja a Marcos llamando al edificio por el nombre viejo y al
+      // cliente con el permiso apuntando a un edificio que ya no se llama así.
+      //
+      // Y no alcanza con reimportar después: `importar-sheets-a-pg.js` usa la columna `edificio`
+      // como clave, así que con el nombre ya cambiado en Sheets no actualiza la fila -- crea una
+      // segunda. Hay que renombrar la que existe.
+      for (const viejo of targetEdificios) {
+        if (normEdificio(viejo) === normEdificio(valor_nuevo)) continue;
+        try {
+          const cols = await queryPg(`
+            SELECT table_name, column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND data_type IN ('text','character varying','character')
+              AND (column_name IN ('edificio', 'consorcio', 'edificios')
+                   OR (table_name = 'edificios' AND column_name = 'nombre'))
+          `);
+
+          for (const { table_name: tabla, column_name: col } of (cols.rows || [])) {
+            if (col === 'edificios') {
+              // Lista separada por comas: se cambia el ítem y se deja el resto.
+              const filas = await queryPg(`SELECT DISTINCT "${col}" AS v FROM "${tabla}" WHERE "${col}" <> ''`);
+              for (const { v } of (filas.rows || [])) {
+                const partes = String(v || '').split(',').map(s => s.trim()).filter(Boolean);
+                if (!partes.some(p => normEdificio(p) === normEdificio(viejo))) continue;
+                const nueva = partes.map(p => (normEdificio(p) === normEdificio(viejo) ? valor_nuevo : p)).join(', ');
+                await queryPg(`UPDATE "${tabla}" SET "${col}" = $2 WHERE "${col}" = $1`, [v, nueva]);
+                filasRenombradas++;
+              }
+              continue;
+            }
+            // Igualdad exacta salvo mayúsculas y espacios, igual que del lado de Node.
+            const r = await queryPg(
+              `UPDATE "${tabla}" SET "${col}" = $2 WHERE lower(btrim("${col}")) = lower(btrim($1))`,
+              [viejo, valor_nuevo]
+            );
+            filasRenombradas += (r && r.rowCount) || 0;
+          }
+        } catch (e) {
+          // Que falle PostgreSQL no puede tirar abajo la aprobación: Sheets ya quedó bien. Pero
+          // tiene que verse, porque mientras no se corrija, Marcos y el panel ven cosas distintas.
+          console.error(`[Solicitud ${row}] ⚠️ Sheets quedó renombrado pero PostgreSQL NO: ${e.message}. ` +
+                        `Corregilo con: node renombrar-edificio.js "${viejo}" "${valor_nuevo}" --aplicar`);
+        }
+      }
+
+      if (filasRenombradas) {
+        console.log(`[Solicitud ${row}] "${targetEdificios.join(', ')}" → "${valor_nuevo}": ${filasRenombradas} referencia(s) actualizadas fuera de EDIFICIOS.`);
+      }
+    }
+
+    // Si no se escribió nada, la solicitud NO se marca como aplicada.
+    //
+    // Pasó de verdad con un "Paquete Corporativo (3 edificios)": ese texto no es el nombre de
+    // ningún edificio, así que no coincidió con ninguna fila, no se escribió una sola celda, y
+    // la solicitud igual quedó "aplicada". El dueño la vio resuelta y nunca se enteró de que el
+    // cambio no existía. Un fracaso silencioso es peor que un error.
+    if (campo && celdasEscritas === 0) {
+      console.warn(`[Solicitud ${row}] No se aplicó nada: "${edificio}" no coincide con ningún edificio cargado.`);
+      return res.status(409).json({
+        error: `No encontré ningún edificio que coincida con "${edificio}", así que no cambié nada. ` +
+               `Revisá que el nombre del edificio en la solicitud sea el mismo que figura en la planilla.`,
+      });
+    }
+
     const planEstado = await findOrPlanColumn(TAB_SOLICITUDES, ['estado']);
     if (planEstado.create) await ensureHeader(TAB_SOLICITUDES, planEstado.col, 'estado', false);
     await writeCell(TAB_SOLICITUDES, planEstado.col, Number(row), 'aplicada');
-    res.json({ ok: true, edificiosActualizados: targetEdificios });
+    res.json({ ok: true, edificiosActualizados: targetEdificios, celdasEscritas });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -10195,15 +10626,15 @@ async function guardarCamposEdificio(edRow, headers, body, fieldsMap) {
   for (const field of Object.keys(fieldsMap)) {
     if (body[field] === undefined) continue;
     const candidates = fieldsMap[field];
-    let idx = workingHeaders.findIndex((h) => candidates.includes(h));
-    let col;
-    if (idx >= 0) col = columnLetter(idx + 1);
-    else {
-      col = columnLetter(workingHeaders.length + 1);
+    // Igual que en /api/edificio: todas las columnas que son este campo, no solo la primera.
+    let { columnas, crear } = columnasDelCampo(workingHeaders, candidates);
+    if (crear) {
+      const col = columnLetter(workingHeaders.length + 1);
       await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
       workingHeaders.push(candidates[0]);
+      columnas = [col];
     }
-    await writeCell(TAB_EDIFICIOS, col, edRow._row, body[field]);
+    for (const col of columnas) await writeCell(TAB_EDIFICIOS, col, edRow._row, body[field]);
   }
 }
 
@@ -10241,11 +10672,28 @@ function clienteDeSesion(req) {
 router.post('/api/proveedor', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { rubro, nombre, telefono, notas } = req.body || {};
+    const { rubro, nombre, telefono, notas, cbu, alias, titular, cuit } = req.body || {};
     let cliente = clienteDeSesion(req);
     if (!cliente && esDueno(req)) cliente = req.session.user;
     if (!cliente) return res.status(400).json({ error: 'Solo clientes cargan su lista' });
     if (!nombre && !telefono) return res.status(400).json({ error: 'Cargá nombre o teléfono' });
+
+    // Los datos de cobro son opcionales en el alta, pero si vienen se verifican igual que
+    // cuando los manda el proveedor por WhatsApp: un CBU mal tipeado acá termina en un pago
+    // rechazado, y es más barato frenarlo ahora que descubrirlo el día que hay que pagar.
+    const cbuLimpio = String(cbu || '').replace(/\D/g, '');
+    if (cbuLimpio) {
+      const { validarCBU } = require('./cbu');
+      const chequeo = validarCBU(cbuLimpio);
+      if (!chequeo.valido) return res.status(400).json({ error: `Ese CBU no es válido: ${chequeo.motivo}` });
+    }
+    const aliasLimpio = String(alias || '').trim();
+    if (aliasLimpio) {
+      const { validarAlias } = require('./cbu');
+      const chequeo = validarAlias(aliasLimpio);
+      if (!chequeo.valido) return res.status(400).json({ error: `Ese alias no es válido: ${chequeo.motivo}` });
+    }
+
     await appendRow(TAB_PROVEEDORES, {
       cliente,
       rubro: rubro || 'Otro',
@@ -10253,6 +10701,11 @@ router.post('/api/proveedor', async (req, res) => {
       telefono: telefono || '',
       notas: notas || '',
       estado: 'activo',
+      cbu: cbuLimpio,
+      alias_cbu: aliasLimpio.toLowerCase(),
+      titular: String(titular || '').trim(),
+      cuit: String(cuit || '').replace(/\D/g, ''),
+      cbu_actualizado: (cbuLimpio || aliasLimpio) ? new Date().toLocaleString('es-AR') : '',
     });
     res.json({ ok: true });
   } catch (e) {
