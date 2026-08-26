@@ -2826,6 +2826,24 @@ function separarConversacionesEvento(datos) {
     return [];
   }
 
+  var techPhones = new Set();
+  if (datos.tel_tecnico) {
+    var pClean = String(datos.tel_tecnico).replace(/[^0-9]/g, '');
+    if (pClean.length >= 7) techPhones.add(pClean.slice(-10));
+  }
+  if (datos.involucrados_json) {
+    var invs = parseList(datos.involucrados_json);
+    invs.forEach(function(inv){
+      if (typeof inv === 'object' && inv.telefono) {
+        var rLow = String(inv.rol || '').toLowerCase();
+        if (rLow.indexOf('técnico') !== -1 || rLow.indexOf('tecnico') !== -1 || rLow.indexOf('proveedor') !== -1) {
+          var ic = String(inv.telefono).replace(/[^0-9]/g, '');
+          if (ic.length >= 7) techPhones.add(ic.slice(-10));
+        }
+      }
+    });
+  }
+
   function esMensajeDeVecino(item) {
     if (!item) return false;
     var rem = typeof item === 'object' ? String(item.remitente || item.emisor || '').toLowerCase() : '';
@@ -2835,7 +2853,6 @@ function separarConversacionesEvento(datos) {
     if (rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || rem === 'titular' || rem === 'familiar') return true;
     if (/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str)) return true;
 
-    // Preguntas/respuestas directas de Marcos IA al vecino sobre su reclamo o datos de departamento
     if (
       strLower.indexOf('formalizar su reclamo') !== -1 ||
       strLower.indexOf('su nombre y apellido') !== -1 ||
@@ -2858,6 +2875,9 @@ function separarConversacionesEvento(datos) {
     var rem = typeof item === 'object' ? String(item.remitente || item.emisor || item.destinatario || item.canal_orig || '').toLowerCase() : '';
     var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
     var strLower = str.toLowerCase();
+
+    var itemPhone = typeof item === 'object' ? String(item.telefono || '').replace(/[^0-9]/g, '') : '';
+    if (itemPhone.length >= 7 && techPhones.has(itemPhone.slice(-10))) return true;
 
     if (rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || rem === 'plomero' || rem === 'electricista' || rem === 'gasista') {
       return true;
@@ -2894,7 +2914,8 @@ function separarConversacionesEvento(datos) {
       strLower.indexOf('pudiste pasar') !== -1 ||
       strLower.indexOf('resolviste el reclamo') !== -1 ||
       strLower.indexOf('solucionaste el reclamo') !== -1 ||
-      strLower.indexOf('confirmar la visita') !== -1
+      strLower.indexOf('confirmar la visita') !== -1 ||
+      strLower.indexOf('reclamo solucionado') !== -1
     ) {
       return true;
     }
@@ -2982,7 +3003,7 @@ function separarConversacionesEvento(datos) {
         }
       } else {
         var isContactoCompartidoProv = strLower.indexOf('(contacto compartido') !== -1 && lastWasProvMsg;
-        var isMarcosToTech = isContactoCompartidoProv || /al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar/i.test(strLower);
+        var isMarcosToTech = isContactoCompartidoProv || /al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
 
         if (isMarcosToTech) {
           lastWasProvMsg = true;
