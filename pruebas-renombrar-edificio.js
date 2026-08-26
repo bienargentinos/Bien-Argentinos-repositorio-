@@ -55,7 +55,7 @@ function compararEdificios(a, b) {
  * Monta una planilla falsa y corre el bloque de renombrado contra ella. Devuelve la planilla
  * después del cambio, más la lista de escrituras.
  */
-async function renombrar({ planilla, campo, valor_nuevo, targetEdificios, pg }) {
+async function renombrar({ planilla, campo, valor_nuevo, targetEdificios, pg, rechazarTabla = '' }) {
     const escrituras = [];
     const sqlEjecutado = [];
 
@@ -77,27 +77,33 @@ async function renombrar({ planilla, campo, valor_nuevo, targetEdificios, pg }) 
             return { rows };
         }
 
-        const sel = sql.match(/SELECT DISTINCT "(\w+)" AS v FROM "(\w+)"/);
+        // `ctid` es el identificador físico de la fila en PostgreSQL. Acá se imita con
+        // "tabla:columna:indice", que alcanza para ubicar la fila del arreglo.
+        const sel = sql.match(/SELECT ctid, "(\w+)" AS v FROM "(\w+)"/);
         if (sel) {
             const [, col, tabla] = sel;
-            const vals = Array.from(new Set((base[tabla]?.[col] || []).filter(Boolean)));
-            return { rows: vals.map(v => ({ v })) };
+            const lista = base[tabla]?.[col] || [];
+            return {
+                rows: lista
+                    .map((v, i) => ({ ctid: `${tabla}:${col}:${i}`, v }))
+                    .filter(r => r.v),
+            };
         }
 
-        const upd = sql.match(/UPDATE "(\w+)" SET "(\w+)" = \$2 WHERE/);
+        const upd = sql.match(/UPDATE "(\w+)" SET "(\w+)" = \$2 WHERE ctid = \$1/);
         if (upd) {
             const [, tabla, col] = upd;
-            const [buscado, destino] = params;
-            const exacto = /lower\(btrim/.test(sql);
-            const lista = base[tabla]?.[col] || [];
-            let rowCount = 0;
-            for (let i = 0; i < lista.length; i++) {
-                const coincide = exacto
-                    ? String(lista[i] || '').trim().toLowerCase() === String(buscado || '').trim().toLowerCase()
-                    : lista[i] === buscado;
-                if (coincide) { lista[i] = destino; rowCount++; }
+            const [ctid, destino] = params;
+            if (tabla === rechazarTabla) {
+                const err = new Error('duplicate key value violates unique constraint "uq_' + tabla + '"');
+                throw err;
             }
-            return { rowCount };
+            const i = Number(String(ctid).split(':').pop());
+            const lista = base[tabla]?.[col] || [];
+            // Una fila que ya no existe no se toca: el UPDATE no encuentra nada, como en la base.
+            if (!Number.isInteger(i) || i < 0 || i >= lista.length) return { rowCount: 0 };
+            lista[i] = destino;
+            return { rowCount: 1 };
         }
 
         throw new Error(`consulta no prevista en la prueba: ${sql}`);
@@ -140,6 +146,28 @@ async function renombrar({ planilla, campo, valor_nuevo, targetEdificios, pg }) 
     );
 
     return { filasRenombradas, escrituras, planilla, sqlEjecutado, pg: base };
+}
+
+/**
+ * Igual que `renombrar`, pero la tabla `rechazar` devuelve un error de restricción única en el
+ * UPDATE, como haría PostgreSQL. Devuelve el mensaje de error si el renombrado entero se cayó,
+ * o null si siguió adelante -- que es lo que tiene que pasar.
+ */
+async function renombrarConFalla({ planilla, pg, rechazar }) {
+    const baseOriginal = pg;
+    const proxy = new Proxy(baseOriginal, { get: (t, k) => t[k] });
+    try {
+        await renombrar({
+            planilla, campo: 'nombre',
+            valor_nuevo: 'san patricio 270 casa',
+            targetEdificios: ["san patricio 27'0 casa"],
+            pg: proxy,
+            rechazarTabla: rechazar,
+        });
+        return null;
+    } catch (e) {
+        return e.message;
+    }
 }
 
 function planillaDePrueba() {
@@ -252,6 +280,30 @@ console.log('\n── TAMBIÉN SE RENOMBRA EN POSTGRESQL ──');
     verificar('los vecinos', pg.vecinos.edificio[0], 'san patricio 270 casa');
     verificar('la lista del cliente, sin perder el otro edificio',
         pg.clientes.edificios[0], 'san patricio 159, san patricio 270 casa');
+}
+
+console.log('\n── UNA FILA QUE FALLA NO SE LLEVA PUESTAS A LAS DEMÁS ──');
+{
+    // Pasó de verdad al renombrar un proveedor: el UPDATE masivo choco con una restriccion
+    // única, PostgreSQL abortó la sentencia ENTERA, se cayeron tambien las tablas que faltaban,
+    // y el script igual terminó diciendo "listo". La base quedó a medias y parecía hecha.
+    const pg = {
+        edificios: { edificio: ["san patricio 27'0 casa"] },
+        // Esta tabla rechaza el cambio (como haría una restricción única).
+        proveedor_asignaciones: { edificio: ["san patricio 27'0 casa"] },
+        vecinos:   { edificio: ["san patricio 27'0 casa"] },
+        reportes:  { edificio: ["san patricio 27'0 casa"] },
+    };
+
+    const planilla = planillaDePrueba();
+    const rechazar = 'proveedor_asignaciones';
+    const original = await renombrarConFalla({ planilla, pg, rechazar });
+
+    verificar('la tabla que rechaza queda como estaba', pg[rechazar].edificio[0], "san patricio 27'0 casa");
+    verificar('las anteriores igual se renombraron', pg.edificios.edificio[0], 'san patricio 270 casa');
+    verificar('y las POSTERIORES también', pg.vecinos.edificio[0], 'san patricio 270 casa');
+    verificar('reportes, que es la que lee Marcos, también', pg.reportes.edificio[0], 'san patricio 270 casa');
+    verificar('no explota', original, null);
 }
 
 console.log('\n── SI POSTGRESQL FALLA, LA APROBACIÓN NO SE CAE ──');

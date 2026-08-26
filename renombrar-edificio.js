@@ -52,6 +52,7 @@ const COL_LISTA = new Set(['edificios']);
 const DONDE_NOMBRE_ES_EL_EDIFICIO = new Set(['edificios']);
 
 let cambios = 0;
+let fallidos = 0;
 
 // Reemplaza el ítem que corresponde dentro de una lista separada por comas, y deja el resto
 // intacto: pisar la celda entera le borraría al administrador los otros edificios que tiene.
@@ -138,25 +139,43 @@ function anotar(donde, antes, despues) {
             if (!esNombre && !esLista) continue;
 
             // marcos_norm() no está en todas las instalaciones, así que la comparación se hace
-            // acá y no en SQL: se traen los valores distintos y se decide en Node, con la misma
-            // función que usa el resto del sistema.
+            // acá y no en SQL: se traen los valores y se decide en Node, con la misma función que
+            // usa el resto del sistema.
+            //
+            // Fila por fila, con `ctid` (el identificador físico que toda tabla de PostgreSQL
+            // tiene, exista o no una clave primaria). Un UPDATE masivo parece más prolijo y es una
+            // trampa: si al renombrar dos filas quedan iguales, una restricción única aborta la
+            // sentencia entera, se cae el resto de las tablas, y el script termina diciendo
+            // "listo" con la base a medias. Un renombrado parcial es peor que ninguno, porque
+            // parece hecho y no lo está.
             let res;
             try {
-                res = await pool.query(`SELECT DISTINCT "${col}" AS v FROM "${tabla}" WHERE "${col}" IS NOT NULL AND "${col}" <> ''`);
+                res = await pool.query(`SELECT ctid, "${col}" AS v FROM "${tabla}" WHERE "${col}" IS NOT NULL AND "${col}" <> ''`);
             } catch (e) {
                 console.log(`   ⚠️ ${tabla}.${col}: no se pudo leer (${e.message})`);
                 continue;
             }
 
-            for (const { v } of res.rows) {
+            for (const fila of res.rows) {
+                const v = fila.v;
                 const destino = esNombre
                     ? (norm(v) === N_VIEJO ? nuevo : null)
                     : reemplazarEnLista(v);
                 if (destino === null) continue;
 
-                anotar(`${tabla}.${col}`, v, destino);
-                if (aplicar) {
-                    await pool.query(`UPDATE "${tabla}" SET "${col}" = $2 WHERE "${col}" = $1`, [v, destino]);
+                if (!aplicar) { anotar(`${tabla}.${col}`, v, destino); continue; }
+
+                try {
+                    await pool.query(`UPDATE "${tabla}" SET "${col}" = $2 WHERE ctid = $1`, [fila.ctid, destino]);
+                    anotar(`${tabla}.${col}`, v, destino);
+                } catch (e) {
+                    fallidos++;
+                    if (/unique|duplicad|duplicate/i.test(e.message)) {
+                        console.log(`   ⚠️ ${tabla}.${col}: esta fila quedaría repetida con otra que ya dice "${nuevo}".`);
+                        console.log(`      Se dejó como estaba. Hay una fila duplicada en "${tabla}" que conviene borrar a mano.`);
+                    } else {
+                        console.log(`   ❌ ${tabla}.${col}: ${e.message}`);
+                    }
                 }
             }
         }
@@ -165,10 +184,16 @@ function anotar(donde, antes, despues) {
     }
 
     console.log('');
-    if (cambios === 0) {
+    // Si algo falló hay que decirlo arriba de todo: un renombrado que dice "listo" con la mitad
+    // sin hacer es peor que uno que falla entero, porque parece hecho y no lo está.
+    if (fallidos > 0) {
+        console.log(`⚠️ ${fallidos} lugar(es) NO se pudieron renombrar (el motivo está más arriba).`);
+        console.log(`   Resolvelos y volvé a correr el mismo comando: lo ya renombrado no se toca de nuevo.\n`);
+    }
+    if (cambios === 0 && fallidos === 0) {
         console.log(`✅ No quedó ningún "${viejo}" para renombrar.\n`);
     } else if (aplicar) {
-        console.log(`✅ ${cambios} lugar(es) renombrados a "${nuevo}".`);
+        console.log(`${fallidos ? '🟠' : '✅'} ${cambios} lugar(es) renombrados a "${nuevo}"${fallidos ? `, ${fallidos} sin renombrar` : ''}.`);
         console.log(`   Verificá con:  node buscar-texto.js "${viejo}"\n`);
     } else {
         console.log(`📋 ${cambios} lugar(es) cambiarían. NO se escribió nada.`);

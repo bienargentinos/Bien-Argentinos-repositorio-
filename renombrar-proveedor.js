@@ -51,6 +51,7 @@ const DONDE = {
 };
 
 let cambios = 0;
+let fallidos = 0;
 function anotar(donde, antes, despues) {
     cambios++;
     console.log(`   ${aplicar ? '✏️' : '·'} ${donde}`);
@@ -126,15 +127,25 @@ function anotar(donde, antes, despues) {
             const esEnviadaPor = norm(tabla) === 'facturas' && norm(col) === 'enviada_por';
             if (!esColumnaDelNombre && !esEnviadaPor) continue;
 
+            // FILA POR FILA, con `ctid` (el identificador físico que toda tabla de PostgreSQL
+            // tiene, exista o no una clave primaria).
+            //
+            // Un UPDATE masivo parece más prolijo y es una trampa: si al renombrar dos filas
+            // quedan iguales, la restricción única aborta la sentencia ENTERA y no se renombra
+            // ninguna. Peor todavía, aborta el resto de las tablas, y el script termina diciendo
+            // "listo" con la base a medias -- que fue exactamente lo que pasó con
+            // uq_proveedor_asignaciones. Un renombrado parcial es peor que ninguno, porque parece
+            // hecho y no lo está.
             let res;
             try {
-                res = await pool.query(`SELECT DISTINCT "${col}" AS v FROM "${tabla}" WHERE "${col}" IS NOT NULL AND "${col}" <> ''`);
+                res = await pool.query(`SELECT ctid, "${col}" AS v FROM "${tabla}" WHERE "${col}" IS NOT NULL AND "${col}" <> ''`);
             } catch (e) {
                 console.log(`   ⚠️ ${tabla}.${col}: no se pudo leer (${e.message})`);
                 continue;
             }
 
-            for (const { v } of res.rows) {
+            for (const fila of res.rows) {
+                const v = fila.v;
                 let destino = null;
                 if (esEnviadaPor) {
                     const m = String(v).match(/^(.*?)\s*(\([^)]*\))?\s*$/);
@@ -144,9 +155,23 @@ function anotar(donde, antes, despues) {
                 }
                 if (!destino) continue;
 
-                anotar(`${tabla}.${col}`, v, destino);
-                if (aplicar) {
-                    await pool.query(`UPDATE "${tabla}" SET "${col}" = $2 WHERE "${col}" = $1`, [v, destino]);
+                if (!aplicar) { anotar(`${tabla}.${col}`, v, destino); continue; }
+
+                try {
+                    await pool.query(`UPDATE "${tabla}" SET "${col}" = $2 WHERE ctid = $1`, [fila.ctid, destino]);
+                    anotar(`${tabla}.${col}`, v, destino);
+                } catch (e) {
+                    fallidos++;
+                    if (/unique|duplicad|duplicate/i.test(e.message)) {
+                        // La fila renombrada chocaría con otra que ya existe: son la misma
+                        // asignación cargada dos veces con el nombre escrito distinto. No se
+                        // fuerza -- borrar una de las dos es una decisión, no un efecto
+                        // secundario de corregir un nombre.
+                        console.log(`   ⚠️ ${tabla}.${col}: esta fila quedaría repetida con otra que ya dice "${nuevo}".`);
+                        console.log(`      Se dejó como estaba. Hay una asignación duplicada en "${tabla}" que conviene borrar a mano.`);
+                    } else {
+                        console.log(`   ❌ ${tabla}.${col}: ${e.message}`);
+                    }
                 }
             }
         }
@@ -155,10 +180,16 @@ function anotar(donde, antes, despues) {
     }
 
     console.log('');
-    if (cambios === 0) {
+    // Si algo falló hay que decirlo arriba de todo. Un renombrado que dice "listo" con la mitad
+    // sin hacer es peor que uno que falla entero: parece hecho y no lo está.
+    if (fallidos > 0) {
+        console.log(`⚠️ ${fallidos} lugar(es) NO se pudieron corregir (el motivo está más arriba).`);
+        console.log(`   Resolvelos y volvé a correr el mismo comando: lo ya corregido no se toca de nuevo.\n`);
+    }
+    if (cambios === 0 && fallidos === 0) {
         console.log(`✅ No quedó ningún "${viejo}" para corregir.\n`);
     } else if (aplicar) {
-        console.log(`✅ ${cambios} lugar(es) corregidos a "${nuevo}".`);
+        console.log(`${fallidos ? '🟠' : '✅'} ${cambios} lugar(es) corregidos a "${nuevo}"${fallidos ? `, ${fallidos} sin corregir` : ''}.`);
         console.log(`   Las conversaciones ya ocurridas NO se tocaron: son el registro de lo que se dijo.`);
         console.log(`   Verificá con:  node buscar-texto.js "${viejo}"\n`);
     } else {

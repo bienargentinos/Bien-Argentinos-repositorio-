@@ -10461,25 +10461,43 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
                    OR (table_name = 'edificios' AND column_name = 'nombre'))
           `);
 
+          // FILA POR FILA, con `ctid`, y cada una en su propio try.
+          //
+          // Un UPDATE masivo aborta la sentencia entera ante una restricción única, y de paso se
+          // lleva puestas las tablas que faltaban: PostgreSQL queda a medias y la aprobación
+          // igual dice que salió bien. Ya pasó con uq_proveedor_asignaciones al renombrar un
+          // proveedor. Acá lo que falla es una fila, no el renombrado.
           for (const { table_name: tabla, column_name: col } of (cols.rows || [])) {
-            if (col === 'edificios') {
-              // Lista separada por comas: se cambia el ítem y se deja el resto.
-              const filas = await queryPg(`SELECT DISTINCT "${col}" AS v FROM "${tabla}" WHERE "${col}" <> ''`);
-              for (const { v } of (filas.rows || [])) {
-                const partes = String(v || '').split(',').map(s => s.trim()).filter(Boolean);
-                if (!partes.some(p => normEdificio(p) === normEdificio(viejo))) continue;
-                const nueva = partes.map(p => (normEdificio(p) === normEdificio(viejo) ? valor_nuevo : p)).join(', ');
-                await queryPg(`UPDATE "${tabla}" SET "${col}" = $2 WHERE "${col}" = $1`, [v, nueva]);
-                filasRenombradas++;
-              }
+            let filas;
+            try {
+              filas = await queryPg(`SELECT ctid, "${col}" AS v FROM "${tabla}" WHERE "${col}" IS NOT NULL AND "${col}" <> ''`);
+            } catch (e) {
+              console.error(`[Solicitud ${row}] No se pudo leer ${tabla}.${col}: ${e.message}`);
               continue;
             }
-            // Igualdad exacta salvo mayúsculas y espacios, igual que del lado de Node.
-            const r = await queryPg(
-              `UPDATE "${tabla}" SET "${col}" = $2 WHERE lower(btrim("${col}")) = lower(btrim($1))`,
-              [viejo, valor_nuevo]
-            );
-            filasRenombradas += (r && r.rowCount) || 0;
+
+            for (const f of (filas.rows || [])) {
+              let destino = null;
+              if (col === 'edificios') {
+                // Lista separada por comas: se cambia el ítem y se deja el resto.
+                const partes = String(f.v || '').split(',').map(s => s.trim()).filter(Boolean);
+                if (!partes.some(p => normEdificio(p) === normEdificio(viejo))) continue;
+                destino = partes.map(p => (normEdificio(p) === normEdificio(viejo) ? valor_nuevo : p)).join(', ');
+              } else if (normEdificio(f.v) === normEdificio(viejo)) {
+                destino = valor_nuevo;
+              }
+              if (destino === null) continue;
+
+              try {
+                await queryPg(`UPDATE "${tabla}" SET "${col}" = $2 WHERE ctid = $1`, [f.ctid, destino]);
+                filasRenombradas++;
+              } catch (e) {
+                console.error(
+                  `[Solicitud ${row}] ⚠️ No se pudo renombrar ${tabla}.${col} ("${f.v}"): ${e.message}. ` +
+                  `El resto sí se renombró. Revisalo con: node buscar-texto.js "${viejo}"`
+                );
+              }
+            }
           }
         } catch (e) {
           // Que falle PostgreSQL no puede tirar abajo la aprobación: Sheets ya quedó bien. Pero
