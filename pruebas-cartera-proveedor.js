@@ -1,7 +1,7 @@
 // Prueba edificiosDelProveedor y buscarCasosRecientesPorTecnico contra datos inventados que
 // reproducen el caso real de Daniel: UN electricista, VARIOS administradores.
 const path = require('path');
-const RAIZ = '/home/user/Bien-Argentinos-repositorio-';
+const RAIZ = __dirname;
 
 // Sustituimos la base por tablas en memoria antes de que datos-pg la pida.
 const TABLAS = {
