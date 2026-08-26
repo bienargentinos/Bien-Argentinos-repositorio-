@@ -349,6 +349,29 @@ estaba siempre abierta.
 reclamo: la imagen de una plantilla se sube al aprobarla y es fija. La foto de hoy solo sale como
 mensaje libre, o sea con la ventana abierta.
 
+### A qué caso se le imputa una factura
+
+> [!CAUTION]
+> **Un solo caso reciente no es una respuesta para siempre.** La regla vieja decía "si el técnico
+> tiene un único caso reciente, la factura es de ese caso". Para la PRIMERA factura está bien; para
+> la segunda es una adivinanza. Visto en el chat real: dos comprobantes distintos, con números
+> distintos, los dos *"asociados al CASO-1001"*, y el panel sumando los dos montos en el mismo
+> consorcio.
+
+Con un técnico que trabaja para **once administradores** eso está garantizado: manda seis
+comprobantes de obras distintas y los seis se pegan al mismo caso.
+
+- La señal es que **el caso ya tenga su factura** (`casoYaTieneFactura`). Si ya la tiene, la que
+  llega es de otro trabajo: se pregunta mostrando la lista, en vez de adivinar.
+- La factura ahora guarda **`id_evento`**. Antes el caso se le decía al técnico por WhatsApp
+  ("la dejé asociada al CASO-1001") y no quedaba escrito en ningún lado.
+- **La misma factura mandada dos veces no se duplica.** Se identifica por número de comprobante +
+  proveedor, ignorando los ceros de adelante (`0001-284` y `00001-284` son la misma). Sin número
+  no se bloquea: perder una factura es peor que tener dos.
+- Un caso **cerrado** recibe su factura igual — es el caso normal: el trabajo termina, el caso se
+  cierra, y el comprobante llega una semana después.
+- Prueba: `node pruebas-factura-a-que-caso.js`.
+
 ### "Marcos tiró la factura a la basura" — cómo distinguir qué pasó
 
 Cuando un técnico manda una factura y en el panel no aparece, hay tres cosas distintas que desde

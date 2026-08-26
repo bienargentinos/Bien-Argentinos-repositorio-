@@ -1577,12 +1577,16 @@ async function marcarTecnicoNotificado(id_evento) {
 // al plomero"). Viaja pegada a la factura y no solo al evento, porque cuando todavía no sabemos
 // de qué edificio es no hay ningún evento donde ponerla -- y perderla sería justamente perder la
 // única constancia de que el aviso existió.
-async function guardarFactura({ proveedor, monto, concepto, edificio, url_archivo, numero_factura, estado, nota_tecnico, enviada_por }) {
+async function guardarFactura({ proveedor, monto, concepto, edificio, url_archivo, numero_factura, estado, nota_tecnico, enviada_por, id_evento = '' }) {
     try {
         const doc = await getSheet();
         let sheet = pestaña(doc, 'facturas');
 
-        const headersNecesarios = ['fecha', 'proveedor', 'monto', 'concepto', 'edificio', 'url_archivo', 'numero_factura', 'estado', 'nota_tecnico', 'enviada_por'];
+        // `id_evento` faltaba: el caso al que se imputó la factura se le decía al técnico por
+        // WhatsApp ("la dejé asociada al CASO-1001") y no quedaba escrito en ningún lado. Sin eso
+        // no hay forma de saber si un caso ya tiene su comprobante, y cada factura nueva se
+        // pegaba al mismo caso viejo una y otra vez.
+        const headersNecesarios = ['fecha', 'proveedor', 'monto', 'concepto', 'edificio', 'url_archivo', 'numero_factura', 'estado', 'nota_tecnico', 'enviada_por', 'id_evento'];
 
         if (!sheet) {
             // Antes esto miraba `doc.sheetsByTitle['facturas']`, que distingue mayúsculas: con la
@@ -1601,6 +1605,37 @@ async function guardarFactura({ proveedor, monto, concepto, edificio, url_archiv
             await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
         }
 
+        // ── LA MISMA FACTURA DOS VECES ───────────────────────────────────────────────────
+        //
+        // El técnico reenvía el mismo PDF -- porque no vio la respuesta, porque lo manda de nuevo
+        // junto con otros, porque el celular lo repitió. Sin este control se registra otra vez y
+        // el administrador ve el gasto duplicado en el total.
+        //
+        // El número de comprobante es lo que la identifica. Sin número no se puede afirmar nada,
+        // así que se guarda igual: perder una factura es peor que tener dos.
+        // Los ceros de adelante no son parte del número: el mismo comprobante llega escrito
+        // "0001-00000284" o "00001-00000284" según de dónde salga el dato (lo tipeó el técnico, lo
+        // leyó el OCR del PDF). Comparar los dígitos tal cual los daba por facturas distintas y
+        // el gasto quedaba duplicado igual.
+        const numeroComparable = (n) => String(n || '').replace(/\D/g, '').replace(/^0+/, '');
+        const numLimpio = numeroComparable(numero_factura);
+        if (numLimpio) {
+            const filas = await sheet.getRows();
+            const yaEsta = filas.find(r =>
+                numeroComparable(r.get('numero_factura')) === numLimpio &&
+                String(r.get('proveedor') || '').toLowerCase().trim() === String(proveedor || '').toLowerCase().trim()
+            );
+            if (yaEsta) {
+                console.log(`💸 La factura N° ${numero_factura} de ${proveedor} ya estaba registrada: no se duplica.`);
+                return {
+                    duplicada: true,
+                    edificio: yaEsta.get('edificio') || '',
+                    id_evento: yaEsta.get('id_evento') || '',
+                    fecha: yaEsta.get('fecha') || '',
+                };
+            }
+        }
+
         await sheet.addRow({
             fecha:          fechaHoraAR(),
             proveedor:      proveedor  || 'Desconocido',
@@ -1611,12 +1646,42 @@ async function guardarFactura({ proveedor, monto, concepto, edificio, url_archiv
             numero_factura: numero_factura || '',
             estado:         estado     || 'Pendiente',
             nota_tecnico:   nota_tecnico || '',
-            enviada_por:    enviada_por  || ''
+            enviada_por:    enviada_por  || '',
+            id_evento:      id_evento    || ''
         });
 
-        console.log(`💸 Factura de ${proveedor} por ${monto} guardada.`);
+        console.log(`💸 Factura de ${proveedor} por ${monto} guardada${id_evento ? ` (${id_evento})` : ''}.`);
+        return { duplicada: false };
     } catch (err) {
         console.error('Error guardando factura:', err.message);
+        return { duplicada: false, error: err.message };
+    }
+}
+
+/**
+ * Si un caso ya tiene una factura imputada.
+ *
+ * POR QUÉ. Cuando el técnico tiene UN solo caso reciente, Marcos le imputaba ahí todas las
+ * facturas que fuera mandando. Con un técnico que trabaja para once administradores eso es
+ * garantizado: manda seis comprobantes de trabajos distintos y los seis terminan pegados al mismo
+ * caso, con el total sumado en el consorcio equivocado.
+ *
+ * Que el caso ya tenga su comprobante es la señal de que la siguiente factura es de otra cosa. Ahí
+ * no se adivina: se pregunta.
+ */
+async function casoYaTieneFactura(id_evento) {
+    if (!id_evento) return false;
+    try {
+        const doc = await getSheet();
+        const sheet = pestaña(doc, 'facturas');
+        if (!sheet) return false;
+        await sheet.loadHeaderRow().catch(() => {});
+        if (!(sheet.headerValues || []).includes('id_evento')) return false;
+        const filas = await sheet.getRows();
+        return filas.some(r => String(r.get('id_evento') || '').toUpperCase().trim() === String(id_evento).toUpperCase().trim());
+    } catch (err) {
+        console.error('Error mirando si el caso ya tiene factura:', err.message);
+        return false;   // ante la duda no se bloquea la imputación
     }
 }
 
@@ -2297,6 +2362,7 @@ module.exports = {
     fueMaterialEnviadoATecnico,
     marcarMaterialEnviadoATecnico,
     guardarFactura,
+    casoYaTieneFactura,
     buscarFacturasProveedor,
     guardarLlamada,
     buscarRolPorTelefono,

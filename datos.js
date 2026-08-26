@@ -312,6 +312,8 @@ async function guardarReporte(datos) {
 
 async function guardarFactura(datos) {
     const res = await sheets.guardarFactura(datos);
+    // Si ya estaba registrada no se copia de nuevo a PostgreSQL: duplicaría el gasto del otro lado.
+    if (res?.duplicada) return res;
     copiarAPg(`la factura de ${datos?.proveedor || 'proveedor'}`, () => upsert(
         'facturas',
         ['fecha', 'proveedor', 'monto', 'edificio'],
@@ -326,6 +328,7 @@ async function guardarFactura(datos) {
             estado:         datos.estado || 'Pendiente',
             nota_tecnico:   datos.nota_tecnico || '',
             enviada_por:    datos.enviada_por || '',
+            id_evento:      datos.id_evento || '',
         }
     ));
     return res;
@@ -556,6 +559,7 @@ module.exports = {
     ...sheets,
     guardarReporte,
     guardarFactura,
+    casoYaTieneFactura: (id) => sheets.casoYaTieneFactura(id),
     guardarMemoriaVecino,
     agregarVecinoNuevo,
     guardarAutorizacionContacto,

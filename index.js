@@ -2012,9 +2012,28 @@ function validarYSanitizarNombre(nombre) {
                     idCasoFactura = elEnCurso.id_evento;
                     comoSeSupo = `el caso que está atendiendo en esta conversación (${elEnCurso.id_evento})`;
                 } else if (candidatos.length === 1) {
-                    edificioFactura = candidatos[0].edificio;
-                    idCasoFactura = candidatos[0].id_evento || '';
-                    comoSeSupo = `su único caso reciente (${candidatos[0].id_evento}${candidatos[0].cerrado ? ', ya cerrado' : ''})`;
+                    // ── UN SOLO CASO NO ES UNA RESPUESTA PARA SIEMPRE ────────────────────────
+                    //
+                    // Que el técnico tenga un único caso reciente hace razonable imputarle AHÍ su
+                    // primera factura. Pero si ese caso YA tiene su comprobante, la que llega
+                    // ahora es de otro trabajo -- uno que Marcos no vio, porque lo coordinó el
+                    // encargado o el propio vecino.
+                    //
+                    // Sin este chequeo pasaba lo que se ve en el chat: dos facturas distintas,
+                    // con números distintos, las dos "asociadas al CASO-1001", y el panel
+                    // mostrando los dos montos sumados en el mismo consorcio. Con un técnico que
+                    // trabaja para once administradores eso está garantizado: manda seis
+                    // comprobantes y los seis se pegan al mismo caso.
+                    const { casoYaTieneFactura } = require('./datos');
+                    const yaTiene = await casoYaTieneFactura(candidatos[0].id_evento);
+
+                    if (yaTiene) {
+                        console.log(`🧾 ${datosEmisor.nombre} tiene un solo caso reciente (${candidatos[0].id_evento}) pero ESE CASO YA TIENE SU FACTURA. Esta es de otro trabajo: se le pregunta en vez de pegarla ahí.`);
+                    } else {
+                        edificioFactura = candidatos[0].edificio;
+                        idCasoFactura = candidatos[0].id_evento || '';
+                        comoSeSupo = `su único caso reciente (${candidatos[0].id_evento}${candidatos[0].cerrado ? ', ya cerrado' : ''})`;
+                    }
                 } else if (candidatos.length > 1) {
                     console.log(`🤔 ${datosEmisor.nombre} tiene ${candidatos.length} casos recientes en edificios distintos. No se adivina de cuál es la factura: se le pregunta.`);
                 }
@@ -2228,7 +2247,7 @@ function validarYSanitizarNombre(nombre) {
         // aunque todavía no sepamos el edificio y no haya ningún evento donde ponerla: cuando el
         // técnico conteste de qué obra era, el evento se crea con este texto.
         const { guardarFactura } = require('./datos');
-        await guardarFactura({
+        const resGuardado = await guardarFactura({
             proveedor: nombreTecnicoFactura || 'Proveedor',
             monto: datosFactura?.monto || 'Según comprobante',
             concepto: datosFactura?.concepto || 'Servicio técnico realizado',
@@ -2237,8 +2256,24 @@ function validarYSanitizarNombre(nombre) {
             numero_factura: datosFactura?.numero_factura || '',
             estado: edificioFactura ? 'Pendiente' : 'Sin imputar',
             nota_tecnico: notaDeQuienEnvia,
-            enviada_por: `${datosEmisor.nombre || 'Desconocido'} (${datosEmisor.rol})`
+            enviada_por: `${datosEmisor.nombre || 'Desconocido'} (${datosEmisor.rol})`,
+            // A qué caso quedó imputada. Se le decía al técnico por WhatsApp y no se guardaba en
+            // ningún lado, así que no había cómo saber si un caso ya tenía su comprobante.
+            id_evento: idCasoFactura || ''
         });
+
+        // El mismo comprobante mandado dos veces no se registra dos veces: el administrador
+        // vería el gasto duplicado en el total. Se le dice al técnico que ya la tenemos, con el
+        // dato que le sirve -- a qué edificio quedó cargada.
+        if (resGuardado?.duplicada) {
+            const dondeQuedo = resGuardado.edificio
+                ? ` Ya la tengo cargada a *${await require('./agentes/marcos-ops').direccionParaTecnico(resGuardado.edificio)}*${resGuardado.id_evento ? ` (${resGuardado.id_evento})` : ''}.`
+                : '';
+            const respDup = `Gracias ${datosEmisor.nombre}, pero esa factura ya me la habías mandado.${dondeQuedo} No la dupliqué. Si es de otro trabajo, decime de qué dirección y la registro aparte.`;
+            await despacharRespuesta(recipient, respDup, msgTypeRespuesta);
+            historial.push(`Marcos: ${respDup}`);
+            return;
+        }
 
         // ── ¿CORRESPONDE ABRIR UN EVENTO? ────────────────────────────────────────────────
         //
@@ -2258,7 +2293,10 @@ function validarYSanitizarNombre(nombre) {
             // ayuda y lo que menos le cuesta: en vez de escribir la dirección, contesta "el
             // segundo". Y del lado de Marcos, elegir de una lista es un dato duro -- sabe el
             // caso, el edificio y qué administrador lo recibe.
-            if (candidatos.length > 1) {
+            // Con UN candidato también se lista: se llega acá cuando ese caso ya tiene su
+            // factura, así que hay que darle la opción de decir "es de ese mismo" (dos trabajos
+            // en la misma obra) o nombrar otra dirección.
+            if (candidatos.length >= 1) {
                 // Se listan por DIRECCIÓN: el nombre interno del edificio ("san patricio casa")
                 // no le dice nada al técnico, que estuvo en una calle y una altura.
                 const { direccionParaTecnico } = require('./agentes/marcos-ops');
@@ -2267,9 +2305,13 @@ function validarYSanitizarNombre(nombre) {
                 const lista = aMostrar
                     .map((c, i) => `${i + 1}️⃣ *${c.id_evento}* — ${direcciones[i]}${c.problema ? `: ${String(c.problema).slice(0, 60)}` : ''}`)
                     .join('\n');
-                respExtra = `\n\nPara imputarla al consorcio correcto, ¿de cuál de estos trabajos es?\n\n${lista}\n\n` +
-                    `Contestame con el número, con el código del caso o con la dirección. ` +
-                    `Ojo que la dirección del comprobante no me sirve, porque es la de facturación y no la del trabajo.`;
+                respExtra = aMostrar.length === 1
+                    ? `\n\nEse trabajo ya tiene su factura cargada, así que esta debe ser de otro. ` +
+                      `¿De qué dirección es? Si es del mismo trabajo, decime *${aMostrar[0].id_evento}* y la sumo ahí.\n\n${lista}\n\n` +
+                      `Ojo que la dirección del comprobante no me sirve, porque es la de facturación y no la del trabajo.`
+                    : `\n\nPara imputarla al consorcio correcto, ¿de cuál de estos trabajos es?\n\n${lista}\n\n` +
+                      `Contestame con el número, con el código del caso o con la dirección. ` +
+                      `Ojo que la dirección del comprobante no me sirve, porque es la de facturación y no la del trabajo.`;
             } else {
                 respExtra = ` Ahora, para imputarla al consorcio correcto necesito que me digas *de qué edificio es* — la dirección del comprobante no me sirve porque es la de facturación. Si tenés a mano el número de caso (por ejemplo *CASO-1001*), con eso solo alcanza.`;
             }
