@@ -2318,7 +2318,7 @@ function validarYSanitizarNombre(nombre) {
         } else if (idCasoFactura && !quedoPorLaMitad) {
             // Se engancha al caso que documenta. No se abre nada nuevo.
             respExtra = ` La dejé asociada al *${idCasoFactura}* de ${edificioFactura}.`;
-        } else if (explicaElTrabajo || quedoPorLaMitad) {
+        } else if (explicaElTrabajo || quedoPorLaMitad || loMandaElTecnico) {
             // Trabajo coordinado por fuera, con explicación: acá sí vale registrar el evento.
             //
             // El estado depende de lo que dijo. Si avisó que quedó algo pendiente, el caso NO se
@@ -2330,11 +2330,15 @@ function validarYSanitizarNombre(nombre) {
                     ? `el técnico ${nombreTecnicoFactura}`
                     : `${datosEmisor.nombre || 'quien escribió'} (${datosEmisor.rol})${nombreTecnicoFactura ? `, sobre un trabajo de ${nombreTecnicoFactura}` : ''}`;
 
+                const detalleFactura = (datosFactura?.numero_factura ? ` Factura N° ${datosFactura.numero_factura}` : '') +
+                                       (datosFactura?.monto ? ` por $${datosFactura.monto}` : '') +
+                                       ((datosFactura?.numero_factura || datosFactura?.monto) ? '.' : '');
                 const notas = quedoPorLaMitad
                     ? `⚠️ TRABAJO INCOMPLETO. Informado por ${quienInforma} al enviar la factura, sin reclamo previo por este canal. ` +
                       (gremioQueFalta ? `Hace falta un ${gremioQueFalta} para continuar. ` : 'Hace falta otro gremio para continuar. ') +
                       `Textual: "${notaDeQuienEnvia}"`
-                    : `Trabajo informado por ${quienInforma} al enviar la factura, sin reclamo previo por este canal (lo coordinaron directamente). Textual: "${notaDeQuienEnvia}"`;
+                    : `Trabajo informado por ${quienInforma} al enviar la factura, sin reclamo previo por este canal (lo coordinaron directamente).${detalleFactura}` +
+                      (notaDeQuienEnvia ? ` Textual: "${notaDeQuienEnvia}"` : ' No contó qué se hizo; el detalle está en el comprobante.');
 
                 const res = await guardarReporte({
                     // Si ya había un caso al que pertenece, se actualiza ESE en vez de abrir otro.
@@ -2348,7 +2352,7 @@ function validarYSanitizarNombre(nombre) {
                     // administrador lo va a buscar para llamarlo si tiene una duda del trabajo o
                     // del monto. Poner el número del técnico en el campo del vecino lo escondía.
                     telefono: (loMandaElTecnico || esNumeroDesconocido) ? '' : from,
-                    problema: notaDeQuienEnvia || datosFactura?.concepto || 'Trabajo técnico facturado',
+                    problema: notaDeQuienEnvia || datosFactura?.concepto || 'Trabajo facturado, coordinado fuera del sistema',
                     urgencia: quedoPorLaMitad ? 'media' : 'baja',
                     estado: quedoPorLaMitad ? 'en_proceso' : 'resuelto',
                     tecnico: nombreTecnicoFactura || '',
@@ -2367,13 +2371,16 @@ function validarYSanitizarNombre(nombre) {
 
                 respExtra = quedoPorLaMitad
                     ? ` Y te tomo la indicación: la dejé anotada en el *${idCasoFactura || 'caso'}* de ${edificioFactura}, que queda ABIERTO${gremioQueFalta ? ` a la espera del ${gremioQueFalta}` : ' porque falta terminar'}. Ya le avisé a la Administración con tus palabras, así queda constancia de que lo dijiste vos y cuándo.`
-                    : ` Y como me contaste qué se hizo, lo dejé anotado en ${edifDetectadoTexto?.direccion || edificioFactura} como trabajo ya resuelto, así la Administración tiene el antecedente.`;
+                    : explicaElTrabajo
+                        ? ` Y como me contaste qué se hizo, lo dejé anotado en ${edifDetectadoTexto?.direccion || edificioFactura} como trabajo ya resuelto, así la Administración tiene el antecedente.`
+                        : ` La dejé anotada en el *${idCasoFactura || 'caso'}* así la Administración tiene el antecedente del gasto. Si me contás en una línea qué se hizo, se lo agrego.`;
             } catch (e) {
                 console.error('Error registrando el evento desde la factura:', e.message);
             }
         } else {
-            // Sabemos el edificio pero no qué se hizo: se pide el detalle para poder dejar la
-            // ayuda memoria, sin abrir un evento vacío mientras tanto.
+            // Llega acá una factura que reenvió el vecino o el encargado sin contar nada. El
+            // evento lo abre igual el camino de arriba cuando la manda el técnico; acá no, porque
+            // quien la reenvía no es quien hizo el trabajo y no puede describirlo.
             respExtra = ` Quedó cargada a ${edificioFactura}. Si me contás en una línea qué se hizo, se lo dejo anotado a la Administración como antecedente.`;
         }
 
@@ -2752,7 +2759,20 @@ function validarYSanitizarNombre(nombre) {
                         // momento: ahora que sabemos la obra, se abre el evento con sus palabras.
                         let avisoEvento = '';
                         const nota = String(laQueSeImputa?.nota_tecnico || '').trim();
-                        if (cuantas > 0 && nota.length >= 20) {
+
+                        // SIEMPRE se abre el evento, cuente o no qué hizo.
+                        //
+                        // Antes hacía falta una explicación de 20 caracteres. Sin ella la factura
+                        // quedaba archivada y no existía el caso: el administrador veía un gasto
+                        // suelto, sin conversación, sin el teléfono del técnico y sin poder
+                        // preguntarle nada.
+                        //
+                        // Y ese es el caso NORMAL, no la excepción: al técnico lo llama el
+                        // encargado, hace el trabajo y manda la factura. Nunca hubo reclamo por
+                        // este canal. El evento es lo único que le da contexto al gasto -- es
+                        // exactamente lo que el administrador tenía antes en su propio WhatsApp,
+                        // y lo que Marcos tiene que reemplazar.
+                        if (cuantas > 0) {
                             // Mismo criterio que cuando llegó la factura (ver `quedoPorLaMitad`),
                             // incluido el detalle del `\b` después de una vocal acentuada.
                             const faltaOtroGremio = /\b(hay que|habr[ií]a que|tienen que|tendr[ií]an que|deber[ií]an)\s+(llamar|mandar|convocar|contratar|coordinar|buscar|conseguir)\b/i.test(nota)
@@ -2767,7 +2787,9 @@ function validarYSanitizarNombre(nombre) {
                                 const resEv = await guardarReporte({
                                     edificio: edificioElegido,
                                     vecino: 'Trabajo coordinado fuera del sistema',
-                                    problema: nota,
+                                    // Sin explicación, el concepto de la factura es lo único que
+                                    // hay. Es poco, pero es mejor que un caso sin título.
+                                    problema: nota || laQueSeImputa?.concepto || 'Trabajo facturado, coordinado fuera del sistema',
                                     urgencia: faltaOtroGremio ? 'media' : 'baja',
                                     estado: faltaOtroGremio ? 'en_proceso' : 'resuelto',
                                     tecnico: datosEmisor.nombre || '',
@@ -2777,13 +2799,24 @@ function validarYSanitizarNombre(nombre) {
                                     notas_ia: (faltaOtroGremio ? '⚠️ TRABAJO INCOMPLETO. ' : '') +
                                         `Informado por el técnico ${datosEmisor.nombre} al enviar la factura` +
                                         (gremio ? `. Hace falta un ${gremio} para continuar` : '') +
-                                        `. Textual: "${nota}"`,
-                                    historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${nota}`])
+                                        (laQueSeImputa?.numero_factura ? `. Factura N° ${laQueSeImputa.numero_factura}` : '') +
+                                        (laQueSeImputa?.monto ? ` por $${laQueSeImputa.monto}` : '') +
+                                        (nota ? `. Textual: "${nota}"` : '. No contó qué se hizo; el detalle está en el comprobante.'),
+                                    // La conversación entera, no una línea suelta: la pregunta de
+                                    // Marcos y lo que contestó el técnico. Es lo que el
+                                    // administrador necesita leer para entender el gasto.
+                                    historial_chat: JSON.stringify([
+                                        ...(nota ? [`Proveedor (${datosEmisor.nombre}): ${nota}`] : []),
+                                        `Marcos (a Proveedor): ¿De qué edificio es esta factura?`,
+                                        `Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`,
+                                    ])
                                 });
                                 const idEv = resEv?.id_evento || '';
                                 avisoEvento = faltaOtroGremio
                                     ? ` Dejé anotada tu indicación en el *${idEv || 'caso'}*, que queda ABIERTO${gremio ? ` esperando al ${gremio}` : ''}, y ya le avisé a la Administración.`
-                                    : ` Y dejé anotado el trabajo en el *${idEv || 'caso'}* como antecedente para la Administración.`;
+                                    : nota
+                                        ? ` Y dejé anotado el trabajo en el *${idEv || 'caso'}* como antecedente para la Administración.`
+                                        : ` La dejé anotada en el *${idEv || 'caso'}* para que la Administración tenga el antecedente. Si querés contarme en una línea qué se hizo, se lo agrego.`;
 
                                 if (faltaOtroGremio) {
                                     const { avisarAlAdministrador } = require('./agentes/marcos-admin');
@@ -2821,6 +2854,114 @@ function validarYSanitizarNombre(nombre) {
                 }
             } catch (e) {
                 console.error('Error interpretando la respuesta sobre el edificio de la factura:', e.message);
+            }
+        }
+
+        // ── A3. EL PROVEEDOR AVISA QUE LO LLAMARON Y QUE VA ─────────────────────────────
+        //
+        // "Me llamó el encargado de San Patricio 159, voy a pasar a ver la puerta."
+        //
+        // POR QUÉ ABRE UN CASO. Esto es lo que el técnico le decía al administrador por teléfono
+        // ANTES de que existiera Marcos, y es justo el momento que Marcos viene a reemplazar: si
+        // el administrador deja de atender el teléfono, ese aviso tiene que quedar en algún lado.
+        // Sin esto, el trabajo aparece recién con la factura, días después, sin que nadie supiera
+        // que se estaba haciendo.
+        //
+        // Un reclamo no lo abre solo el vecino: el encargado, la limpieza, la seguridad y el
+        // propio administrador ya pueden (caen al camino común). El proveedor era el único que no
+        // podía, porque su rama corta antes.
+        {
+            const avisaQueVa = /\b(me (llam|llamaron|pidi|avis|convoc|mand))/i.test(txtLow)
+                || /\b(voy a (pasar|ir|estar|acercarme)|estoy yendo|voy para|paso (hoy|ma[nñ]ana|luego|m[aá]s tarde)|me acerco|salgo para)\b/i.test(txtLow)
+                || /\b(aviso que|te aviso que|les aviso que)\b/i.test(txtLow);
+
+            // Tiene que nombrar el edificio: sin eso no se sabe a qué consorcio imputarle nada, y
+            // abrir el caso en el edificio equivocado es peor que no abrirlo.
+            const edifAviso = buscarEdificioEnTexto(msgClean, edificiosConocidos);
+            const nombreEdifAviso = edifAviso?.nombre || '';
+
+            // Y tiene que ser un edificio suyo. Con la cartera vacía (no se pudo averiguar) no se
+            // rechaza: se sigue como antes.
+            let esSuyo = true;
+            if (nombreEdifAviso) {
+                try {
+                    const { edificiosDelProveedor } = require('./datos');
+                    const carteraAviso = (await edificiosDelProveedor({ nombre: datosEmisor.nombre, telefono: from })) || [];
+                    if (carteraAviso.length) {
+                        esSuyo = carteraAviso.some(c => normalizarTextoEdificio(c.edificio) === normalizarTextoEdificio(nombreEdifAviso));
+                    }
+                } catch (e) { console.error('No se pudo validar la cartera para el aviso del técnico:', e.message); }
+            }
+
+            if (avisaQueVa && nombreEdifAviso && esSuyo) {
+                const { direccionParaTecnico } = require('./agentes/marcos-ops');
+                const dirAviso = await direccionParaTecnico(nombreEdifAviso);
+                try {
+                    const { guardarReporte } = require('./datos');
+                    const resAviso = await guardarReporte({
+                        edificio: nombreEdifAviso,
+                        vecino: 'Avisado por el proveedor',
+                        problema: msgBodyParaRegistro,
+                        urgencia: /urgen|se inund|no anda|sin luz|sin agua|peligro|riesgo/i.test(txtLow) ? 'alta' : 'media',
+                        estado: 'en_proceso',
+                        tecnico: datosEmisor.nombre || '',
+                        tel_tecnico: from || '',
+                        rubro_tecnico: datosEmisor.especialidad || '',
+                        tipo: 'aviso_proveedor',
+                        notas_ia: `El técnico ${datosEmisor.nombre} avisó que lo convocaron directamente y que va a ir. ` +
+                                  `No hubo reclamo previo por este canal. Textual: "${msgBodyParaRegistro}"`,
+                        historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`]),
+                    });
+                    const idAviso = resAviso?.id_evento || '';
+
+                    // El administrador se entera AHORA, no cuando llegue la factura. Es la llamada
+                    // que antes recibía él.
+                    try {
+                        const { avisarAlAdministrador } = require('./agentes/marcos-admin');
+                        await avisarAlAdministrador({
+                            edificio: nombreEdifAviso,
+                            idEvento: idAviso,
+                            motivo: 'un proveedor avisó que lo convocaron y que va a ir',
+                            titulo: `🔧 MARCOS: UN PROVEEDOR VA A ${dirAviso}`,
+                            cuerpo:
+                                `Un proveedor avisa que lo llamaron directamente y que va a ir.\n\n` +
+                                `📍 Dirección: ${dirAviso}\n` +
+                                `🔧 Quién: ${datosEmisor.nombre}${datosEmisor.especialidad ? ` (${datosEmisor.especialidad})` : ''}\n` +
+                                `📱 Teléfono: ${from}\n` +
+                                `\n🗣️ Textual:\n"${msgBodyParaRegistro}"\n` +
+                                (idAviso ? `\n🤖 Quedó abierto como ${idAviso} en el panel.` : '') +
+                                `\n\nSi este trabajo no corresponde, comuníquese con él antes de que vaya.`,
+                            phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
+                            accessToken: WHATSAPP_ACCESS_TOKEN
+                        });
+                    } catch (e) { console.error('No se pudo avisar a la Administración del aviso del proveedor:', e.message); }
+
+                    // Queda como el caso activo de este técnico, así lo que mande después --una
+                    // foto, la factura-- cae acá y no en un caso viejo. Se lee de la cola global
+                    // y no de `stProv`: esa variable vive en otra rama del webhook y acá no existe.
+                    const colaAviso = global.colasProveedores?.get(String(from).replace(/\D/g, ''));
+                    if (colaAviso && idAviso) {
+                        colaAviso.eventoActivoId = idAviso;
+                        colaAviso.edificioActivo = nombreEdifAviso;
+                        colaAviso.rubroActivo = datosEmisor.especialidad || colaAviso.rubroActivo;
+                    }
+
+                    const respAviso = `Gracias por avisar, ${datosEmisor.nombre}. Lo registré como *${idAviso || 'caso nuevo'}* en ${dirAviso} y ya le avisé a la Administración de que vas.` +
+                        ` Cuando termines, contame qué hiciste y mandame la factura por acá y la dejo asociada a este mismo caso.`;
+                    await despacharRespuesta(recipient, respAviso, msgTypeRespuesta);
+                    historial.push(`Marcos: ${respAviso}`);
+
+                    console.log(`🔧 ${datosEmisor.nombre} avisó que va a ${nombreEdifAviso}: se abrió ${idAviso} y se notificó a la Administración.`);
+                    return;
+                } catch (e) {
+                    console.error('Error registrando el aviso del proveedor:', e.message);
+                }
+            } else if (avisaQueVa && !nombreEdifAviso) {
+                // Avisó que va pero no dijo adónde. Se le pregunta: es un dato que solo él tiene.
+                const respDonde = `Perfecto ${datosEmisor.nombre}, ¿a qué dirección vas? Con eso le aviso a la Administración y te dejo el caso abierto, así después la factura se asocia sola.`;
+                await despacharRespuesta(recipient, respDonde, msgTypeRespuesta);
+                historial.push(`Marcos: ${respDonde}`);
+                return;
             }
         }
 

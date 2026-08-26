@@ -349,6 +349,37 @@ estaba siempre abierta.
 reclamo: la imagen de una plantilla se sube al aprobarla y es fija. La foto de hoy solo sale como
 mensaje libre, o sea con la ventana abierta.
 
+### Un reclamo no lo abre solo el vecino
+
+Marcos se mete en una relación que ya existe: el administrador y sus proveedores vienen
+trabajando por WhatsApp desde antes. Si el administrador deja de atender el teléfono, **Marcos
+tiene que hacer lo que él hacía**.
+
+- **Encargado, limpieza, seguridad y el propio administrador** ya podían abrir un caso: caen al
+  camino común de un reclamo.
+- **El proveedor** era el único que no podía, porque su rama del webhook corta antes. Ahora, si
+  avisa que lo convocaron y que va (`"me llamó el encargado de San Patricio 159, voy a pasar"`),
+  se abre el caso y **se le avisa a la Administración en ese momento** — que es la llamada que
+  antes recibía el administrador. Sin eso, el trabajo aparecía recién con la factura, días
+  después, y nadie sabía que se estaba haciendo.
+- Tiene que **nombrar el edificio** y que sea de su cartera. Si avisa sin decir adónde, se le
+  pregunta: es un dato que solo él tiene.
+- El caso queda como su caso activo, así la foto y la factura que mande después caen ahí.
+- Prueba: `node pruebas-aviso-proveedor.js`.
+
+### Toda factura del técnico deja un evento
+
+Antes hacía falta que contara qué hizo (20 caracteres) para que se abriera el caso. Sin eso la
+factura quedaba archivada y **no existía el evento**: el administrador veía un gasto suelto, sin
+conversación, sin el teléfono del técnico y sin poder preguntarle nada.
+
+Y ese es el caso **normal**, no la excepción: al técnico lo llama el encargado, hace el trabajo y
+manda la factura. Nunca hubo reclamo por este canal. El evento es lo único que le da contexto al
+gasto — es exactamente lo que el administrador tenía antes en su propio WhatsApp.
+
+El evento guarda la conversación completa (la pregunta de Marcos y lo que contestó el técnico), el
+número de factura, el monto y el teléfono del proveedor.
+
 ### A qué caso se le imputa una factura
 
 > [!CAUTION]
