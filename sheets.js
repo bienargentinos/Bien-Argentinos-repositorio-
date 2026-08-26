@@ -1102,6 +1102,34 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             rowExistente = [...rows].reverse().find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
         }
 
+        // ── ¿ES EL MISMO CASO O ES OTRO? ────────────────────────────────────────────────────
+        //
+        // Los pasos 2 y 3 enganchan un mensaje al caso abierto del mismo vecino o del mismo
+        // edificio. Eso es lo correcto mientras la conversación siga siendo SOBRE LO MISMO: el
+        // vecino manda una foto, pregunta si viene el técnico, agradece.
+        //
+        // Pero un reclamo NUEVO no es la continuación de nada. Con la regla vieja, mientras
+        // CASO-1001 siguiera abierto, todo lo que dijera ese vecino caía adentro: una lámpara
+        // quemada terminaba pegada a la pérdida de agua de la semana pasada, con un solo técnico
+        // asignado y una sola plantilla mandada. En el log se veía "Técnico ya notificado del
+        // [CASO-1001], se omite el reenvío duplicado" -- que parece una decisión correcta y era
+        // el bug: el técnico del caso nuevo nunca se enteraba.
+        //
+        // Lo que distingue un reclamo nuevo es el RUBRO: una lámpara no es una canilla. Si el
+        // mensaje trae un problema propio y su rubro no es el del caso abierto, es otro caso.
+        // Si el rubro coincide, o si el mensaje no trae problema (es la cola de algo ya contado),
+        // se sigue enganchando como antes.
+        const { coincideRubro } = require('./rubros');
+        const rubroEntrante = String(rubro_tecnico || '').trim();
+        const traeProblemaPropio = Boolean(String(problema || '').trim());
+
+        const esOtroCaso = (r) => {
+            if (!traeProblemaPropio || !rubroEntrante) return false;  // sin con qué comparar, no se separa
+            const rubroDelCaso = String(r.get('rubro_tecnico') || '').trim();
+            if (!rubroDelCaso) return false;                          // el caso viejo no tiene rubro: no se puede afirmar
+            return !coincideRubro(rubroDelCaso, rubroEntrante);
+        };
+
         // 2. Buscar por teléfono y edificio si no se encontró por ID
         if (!rowExistente && telBuscado && telBuscado.length >= 6) {
             rowExistente = [...rows].reverse().find(r => {
@@ -1109,7 +1137,12 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
                 const rEdif = String(r.get('edificio') || '').toLowerCase();
                 const eBuscado = String(edificio || '').toLowerCase();
                 const rEst = String(r.get('estado') || '').toLowerCase().trim();
-                return (rTel === telBuscado || rTel.includes(telBuscado)) && (rEdif === eBuscado || !eBuscado) && rEst !== 'resuelto' && rEst !== 'cerrado';
+                if (!((rTel === telBuscado || rTel.includes(telBuscado)) && (rEdif === eBuscado || !eBuscado) && rEst !== 'resuelto' && rEst !== 'cerrado')) return false;
+                if (esOtroCaso(r)) {
+                    console.log(`🆕 ${vecino || telBuscado} tiene abierto el [${r.get('id_evento')}] de "${r.get('rubro_tecnico')}", pero esto es de "${rubroEntrante}": se abre un caso nuevo.`);
+                    return false;
+                }
+                return true;
             });
         }
 
@@ -1119,7 +1152,12 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             rowExistente = [...rows].reverse().find(r => {
                 const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
                 const rEst = String(r.get('estado') || '').toLowerCase().trim();
-                return rEdif === eBuscado && rEst !== 'resuelto' && rEst !== 'cerrado';
+                if (!(rEdif === eBuscado && rEst !== 'resuelto' && rEst !== 'cerrado')) return false;
+                if (esOtroCaso(r)) {
+                    console.log(`🆕 En ${edificio} está abierto el [${r.get('id_evento')}] de "${r.get('rubro_tecnico')}", pero esto es de "${rubroEntrante}": se abre un caso nuevo.`);
+                    return false;
+                }
+                return true;
             });
         }
 

@@ -637,31 +637,10 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
-/**
- * Si dos formas de nombrar un oficio son el mismo oficio.
- *
- * Los rubros se escriben de mil maneras -- "electricista", "electricidad", "luz" -- y hace falta
- * poder compararlos para saber cuál de los técnicos que comparten una línea telefónica está
- * atendiendo un caso. Las equivalencias son las mismas que ya usa la derivación de casos
- * (`coincideRubro` en datos-pg.js), para que un técnico no se elija distinto según quién pregunte.
- */
-function coincideRubroTecnico(a, b) {
-    const x = String(a || '').toLowerCase().trim();
-    const y = String(b || '').toLowerCase().trim();
-    if (!x || !y) return false;
-    if (x.includes(y) || y.includes(x)) return true;
-
-    const familias = [
-        ['electr', 'luz', 'tablero', 'iluminacion'],
-        ['plom', 'agua', 'cloaca', 'cania', 'caño'],
-        ['gas', 'calder', 'termotanque'],
-        ['cerraj', 'llav', 'port', 'puerta'],
-        ['alban', 'albañ', 'mamposter', 'pared'],
-        ['ascensor', 'montacarga'],
-        ['refriger', 'aire', 'split'],
-    ];
-    return familias.some(f => f.some(t => x.includes(t)) && f.some(t => y.includes(t)));
-}
+// Si dos formas de nombrar un oficio son el mismo oficio ("electricidad" = "electricista" = "luz").
+// Vive en `rubros.js` porque lo usa también sheets.js, para decidir si un reclamo nuevo continúa
+// un caso abierto o es otro caso.
+const { coincideRubro: coincideRubroTecnico } = require('./rubros');
 
 // La foto/video que el vecino adjuntó al caso. Vive en `material-caso.js` porque también la
 // necesita marcos-ops para decidir si le pide al técnico que conteste.

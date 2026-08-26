@@ -349,6 +349,29 @@ estaba siempre abierta.
 reclamo: la imagen de una plantilla se sube al aprobarla y es fija. La foto de hoy solo sale como
 mensaje libre, o sea con la ventana abierta.
 
+### Cuándo un mensaje es OTRO caso (y no la continuación del abierto)
+
+`guardarReporte` engancha cada mensaje al caso abierto del mismo vecino o del mismo edificio. Está
+bien mientras la conversación siga siendo sobre lo mismo (una foto, "¿ya viene?", un gracias).
+Pero **un reclamo nuevo no es la continuación de nada**, y con la regla vieja todo lo que dijera
+ese vecino caía adentro del caso abierto:
+
+```
+ℹ️ Técnico ya notificado del [CASO-1001], se omite el reenvío duplicado de la plantilla.
+📊 Evento [CASO-1001] unificado/actualizado en Sheets
+```
+
+Parece una decisión correcta y era el bug: el reclamo nuevo quedaba pegado al viejo, con un solo
+técnico asignado, y al técnico del caso nuevo no le llegaba la plantilla nunca. En las pruebas se
+notaba porque CASO-1001 no se cerraba y **cada prueba del mismo día caía adentro**.
+
+- Lo que distingue un reclamo nuevo es el **rubro**: una lámpara quemada no es una canilla que
+  pierde. `rubros.js` (`coincideRubro`) tiene las equivalencias, compartidas con `index.js`.
+- **Ante la duda no se separa**: si el mensaje no trae un problema propio, o si alguno de los dos
+  lados no tiene rubro cargado, se sigue enganchando como antes. Separar de más parte un caso en
+  dos y le muestra al administrador dos reclamos donde hay uno.
+- Prueba: `node pruebas-caso-nuevo-o-mismo.js`.
+
 ### Cuándo se manda la plantilla, y por qué a veces "no se mandó"
 
 La plantilla se manda **una vez por caso**, no una vez por técnico: un caso nuevo en el mismo

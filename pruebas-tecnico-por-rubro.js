@@ -8,21 +8,10 @@
 // saludaba "Gracias, Julio" porque era el primero de la planilla. Para el técnico eso es
 // Marcos hablándole a otra persona.
 
-const fs = require('fs');
-const path = require('path');
-
-// Se carga `coincideRubroTecnico` del propio index.js, para que la prueba valide el código
-// real y no una copia que puede quedar vieja.
-const SRC = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
-const i = SRC.indexOf('function coincideRubroTecnico(');
-if (i === -1) throw new Error('No encontré coincideRubroTecnico en index.js.');
-let d = 0, fin = -1, empezo = false;
-for (let k = i; k < SRC.length; k++) {
-    if (SRC[k] === '{') { d++; empezo = true; }
-    else if (SRC[k] === '}') { d--; if (empezo && d === 0) { fin = k + 1; break; } }
-}
-// eslint-disable-next-line no-new-func
-const coincideRubroTecnico = new Function(`${SRC.slice(i, fin)}; return coincideRubroTecnico;`)();
+// La comparación de rubros vive en `rubros.js`: la usan index.js (para saber cuál de los técnicos
+// de una línea compartida está escribiendo) y sheets.js (para saber si un reclamo nuevo continúa
+// un caso abierto o es otro caso).
+const { coincideRubro: coincideRubroTecnico } = require('./rubros');
 
 // Lo que hace index.js cuando hay varios técnicos en la misma línea.
 function aQuienLeHabla(enEsaLinea, rubroDelCaso, primeroDeLaPlanilla) {
