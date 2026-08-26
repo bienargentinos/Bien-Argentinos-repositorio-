@@ -55,9 +55,44 @@ for (const archivo of archivos) {
     });
 }
 
+// ── Y EN sheets.js, DIRECTAMENTE NO SE USA EL ACCESO POR ÍNDICE ─────────────────────────────
+//
+// La revisión de arriba compara contra la lista de nombres REALES, así que solo agarra el error
+// cuando la lista está al día. Si alguien renombra una pestaña en la planilla y no toca la lista,
+// vuelve a pasar exactamente lo mismo sin que nada avise.
+//
+// `pestaña(doc, '...')` encuentra la pestaña esté escrita como esté, así que en sheets.js no hay
+// ningún motivo para usar el acceso por índice -- salvo adentro de la propia `pestaña()`.
+//
+// Esto no es teórico: `guardarFactura` buscaba `sheetsByTitle['facturas']` y, si la pestaña estaba
+// escrita distinto, no la encontraba y CREABA UNA SEGUNDA. Las facturas se guardaban en la nueva y
+// quien miraba la vieja las daba por perdidas.
+{
+    const src = fs.readFileSync(path.join(__dirname, 'sheets.js'), 'utf8');
+    const lineas = src.split('\n');
+    const dentroDePestania = (i) => {
+        // El cuerpo de `pestaña()`: desde su declaración hasta la primera línea que cierra.
+        const decl = lineas.findIndex(l => l.startsWith('function pestaña('));
+        if (decl === -1) return false;
+        const cierre = lineas.findIndex((l, k) => k > decl && l === '}');
+        return i > decl && i <= cierre;
+    };
+
+    lineas.forEach((linea, i) => {
+        const codigo = linea.replace(/\/\/.*$/, '').trim();
+        if (!codigo || codigo.startsWith('*') || codigo.startsWith('/*')) return;
+        if (!/sheetsByTitle\s*\[/.test(codigo)) return;
+        if (dentroDePestania(i)) return;
+
+        fallos++;
+        console.log(`  ❌ sheets.js:${i + 1} usa sheetsByTitle[...] en vez de pestaña(doc, '...')`);
+        console.log(`     Distingue mayúsculas: si la pestaña está escrita distinto devuelve undefined en silencio.`);
+    });
+}
+
 if (fallos === 0) {
-    console.log(`\n✅ Las ${archivos.length} archivos revisados piden las pestañas con el nombre correcto.\n`);
+    console.log(`\n✅ Los ${archivos.length} archivos revisados piden las pestañas con el nombre correcto.\n`);
 } else {
-    console.log(`\n❌ ${fallos} pestaña(s) pedidas con la caja equivocada.\n`);
+    console.log(`\n❌ ${fallos} pestaña(s) pedidas mal.\n`);
 }
 process.exit(fallos === 0 ? 0 : 1);

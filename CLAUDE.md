@@ -349,6 +349,28 @@ estaba siempre abierta.
 reclamo: la imagen de una plantilla se sube al aprobarla y es fija. La foto de hoy solo sale como
 mensaje libre, o sea con la ventana abierta.
 
+### "Marcos tiró la factura a la basura" — cómo distinguir qué pasó
+
+Cuando un técnico manda una factura y en el panel no aparece, hay tres cosas distintas que desde
+afuera se ven igual:
+
+1. **No la reconoció como factura** → no hay fila en ningún lado. El log lo dice ahora:
+   `🧾❔ NO se trató como factura un mensaje de …` con qué condición falló.
+2. **La reconoció pero no supo de qué edificio es** → la fila **está**, con estado `Sin imputar`.
+   No se perdió: Marcos le preguntó al técnico de qué obra era y espera respuesta.
+3. **Se guardó en otra pestaña.** `guardarFactura` buscaba `sheetsByTitle['facturas']`, que
+   distingue mayúsculas: con la pestaña escrita distinto no la encontraba y **creaba una segunda**.
+   Las facturas iban a la nueva y quien miraba la vieja las daba por perdidas.
+
+```bash
+node revisar-facturas.js            # solo lee: últimas facturas y estado de cada una
+pm2 logs marcos-ai --lines 300 --nostream | grep "🧾"
+```
+
+Las 33 búsquedas de pestaña por índice en `sheets.js` pasaron a `pestaña()`, que la encuentra
+escrita como esté. `pruebas-pestanias.js` ahora **prohíbe** el acceso por índice en `sheets.js`
+fuera de la propia `pestaña()`, así el problema no puede volver por otra función.
+
 ### Cuándo un mensaje es OTRO caso (y no la continuación del abierto)
 
 `guardarReporte` engancha cada mensaje al caso abierto del mismo vecino o del mismo edificio. Está

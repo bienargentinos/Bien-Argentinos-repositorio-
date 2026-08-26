@@ -1869,7 +1869,19 @@ function validarYSanitizarNombre(nombre) {
           )
     );
 
+    // Que un comprobante no se haya tomado como tal tiene que verse. Cuando pasa, la factura no
+    // se archiva y no queda en el chat del proveedor: desde afuera es indistinguible de "Marcos la
+    // tiró a la basura", y sin esta línea no hay forma de saber cuál de las condiciones falló.
+    if (!esFacturaODoc && (media || loMandaElTecnico)) {
+        console.log(
+            `🧾❔ NO se trató como factura un mensaje de ${datosEmisor.nombre || from} (${datosEmisor.rol}). ` +
+            `adjunto=${media ? msgType : 'no'} · el lector dice factura=${Boolean(datosFactura?.es_factura)} · ` +
+            `parece pregunta suelta=${parecePreguntaSinAdjunto} · texto="${String(msgBody || '').slice(0, 80)}"`
+        );
+    }
+
     if (esFacturaODoc) {
+        console.log(`🧾 Mensaje de ${datosEmisor.nombre || from} (${datosEmisor.rol}) tomado como comprobante. Buscando a qué edificio imputarlo...`);
         // ── A QUÉ EDIFICIO PERTENECE ESTA FACTURA ────────────────────────────────────────
         //
         // REGLA DE ORO: el edificio NUNCA sale de la dirección impresa en el comprobante.

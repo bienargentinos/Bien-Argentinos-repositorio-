@@ -44,7 +44,7 @@ async function getSheet() {
 /**
  * Busca una pestaña sin que importen las mayúsculas.
  *
- * `doc.sheetsByTitle['clientes']` distingue mayúsculas, y en esta planilla los nombres están
+ * `pestaña(doc, 'clientes')` distingue mayúsculas, y en esta planilla los nombres están
  * mezclados: `CLIENTES`, `EDIFICIOS` y `EVENTOS` van en mayúscula, pero `proveedores`,
  * `facturas` y `memoria` en minúscula. Pedir la pestaña con la caja equivocada no da error --
  * devuelve `undefined` y la función se va por el camino de "no hay datos", en silencio. Pasó
@@ -209,7 +209,7 @@ async function buscarTecnicoAsignado({ edificio, especialidad, esUrgente = false
         const edifNorm = (edificio || '').toLowerCase().trim();
 
         // 1. Buscar en pestaña 'proveedor_asignaciones' (pestaña del Dashboard web)
-        const sheetAsig = doc.sheetsByTitle['proveedor_asignaciones'];
+        const sheetAsig = pestaña(doc, 'proveedor_asignaciones');
         if (sheetAsig) {
             const rowsAsig = await sheetAsig.getRows();
             const coincide = rowsAsig.find(r => {
@@ -246,7 +246,7 @@ async function buscarTecnicoAsignado({ edificio, especialidad, esUrgente = false
         }
 
         // 2. Buscar en pestaña 'proveedores'
-        const sheetProv = doc.sheetsByTitle['proveedores'];
+        const sheetProv = pestaña(doc, 'proveedores');
         if (sheetProv) {
             const rowsProv = await sheetProv.getRows();
             const coincideProv = rowsProv.find(r => {
@@ -272,7 +272,7 @@ async function buscarTecnicoAsignado({ edificio, especialidad, esUrgente = false
         }
 
         // 3. Fallback: Buscar en pestaña 'tecnicos'
-        const sheet = doc.sheetsByTitle['tecnicos'];
+        const sheet = pestaña(doc, 'tecnicos');
         if (!sheet) return null;
 
         const rows = await sheet.getRows();
@@ -314,7 +314,7 @@ async function buscarTecnicoAsignado({ edificio, especialidad, esUrgente = false
 async function buscarTecnicoSuplente({ edificio, especialidad, telefonoTitular }) {
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['proveedor_asignaciones'];
+        const sheet = pestaña(doc, 'proveedor_asignaciones');
         if (!sheet) return null;
 
         const filas = await sheet.getRows();
@@ -367,7 +367,7 @@ async function buscarTecnicoSuplente({ edificio, especialidad, telefonoTitular }
 async function buscarPersonalDeTurno({ edificio }) {
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['personal'];
+        const sheet = pestaña(doc, 'personal');
         if (!sheet) return null;
 
         const filas = await sheet.getRows();
@@ -413,7 +413,7 @@ async function buscarPerfilEdificio(nombreEdificio) {
     try {
         if (!nombreEdificio) return null;
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EDIFICIOS'];
+        const sheet = pestaña(doc, 'EDIFICIOS');
         if (!sheet) return null;
 
         const rows = await sheet.getRows();
@@ -477,7 +477,7 @@ async function buscarPerfilEdificio(nombreEdificio) {
 async function buscarCliente(nombreAdmin) {
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['CLIENTES'];
+        const sheet = pestaña(doc, 'CLIENTES');
         if (!sheet) return null;
 
         const rows = await sheet.getRows();
@@ -957,7 +957,7 @@ async function buscarCasosRecientesPorTecnico(nombreTecnico, telefonoTecnico = '
 async function listarEdificiosConocidos() {
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EDIFICIOS'];
+        const sheet = pestaña(doc, 'EDIFICIOS');
         if (!sheet) return [];
         const rows = await sheet.getRows();
         const edificios = rows
@@ -997,7 +997,7 @@ async function listarEdificiosConocidos() {
 async function buscarMemoriaVecino(telefono) {
     try {
         const doc = await getSheet();
-        let sheet = doc.sheetsByTitle['memoria'];
+        let sheet = pestaña(doc, 'memoria');
         if (!sheet) return null;
 
         const rows = await sheet.getRows();
@@ -1033,7 +1033,7 @@ async function buscarMemoriaVecino(telefono) {
 async function guardarMemoriaVecino({ telefono, nombre, resumenHistorial, notasTrato }) {
     try {
         const doc = await getSheet();
-        let sheet = doc.sheetsByTitle['memoria'];
+        let sheet = pestaña(doc, 'memoria');
 
         if (!sheet) {
             sheet = await doc.addSheet({
@@ -1079,7 +1079,7 @@ async function guardarMemoriaVecino({ telefono, nombre, resumenHistorial, notasT
 async function guardarReporte({ edificio, vecino, depto, problema, urgencia, estado, notas, notas_ia, fechaInicio, tipo = 'whatsapp', telefono = '', audio_url = '', transcripcion = '', historial_chat = '', id_evento = '', tecnico = '', tel_tecnico = '', rubro_tecnico = '' }) {
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return null;
 
         await sheet.loadHeaderRow().catch(() => {});
@@ -1413,7 +1413,7 @@ async function fueAdminNotificado(id_evento) {
     if (!id_evento) return false;
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return false;
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
@@ -1428,7 +1428,7 @@ async function marcarAdminNotificado(id_evento, motivo = '') {
     if (!id_evento) return;
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return;
         await sheet.loadHeaderRow().catch(() => {});
         if (!(sheet.headerValues || []).includes('admin_notificado')) {
@@ -1453,7 +1453,7 @@ async function fueContactoAccesoAvisado(id_evento) {
     if (!id_evento) return false;
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return false;
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
@@ -1468,7 +1468,7 @@ async function marcarContactoAccesoAvisado(id_evento) {
     if (!id_evento) return;
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return;
         await sheet.loadHeaderRow().catch(() => {});
         if (!(sheet.headerValues || []).includes('contacto_acceso_avisado')) {
@@ -1532,7 +1532,7 @@ async function fueTecnicoNotificado(id_evento) {
     if (!id_evento) return false;
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return false;
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
@@ -1547,7 +1547,7 @@ async function marcarTecnicoNotificado(id_evento) {
     if (!id_evento) return;
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return;
         await sheet.loadHeaderRow().catch(() => {});
         if (!(sheet.headerValues || []).includes('tecnico_notificado')) {
@@ -1577,11 +1577,17 @@ async function marcarTecnicoNotificado(id_evento) {
 async function guardarFactura({ proveedor, monto, concepto, edificio, url_archivo, numero_factura, estado, nota_tecnico, enviada_por }) {
     try {
         const doc = await getSheet();
-        let sheet = doc.sheetsByTitle['facturas'];
+        let sheet = pestaña(doc, 'facturas');
 
         const headersNecesarios = ['fecha', 'proveedor', 'monto', 'concepto', 'edificio', 'url_archivo', 'numero_factura', 'estado', 'nota_tecnico', 'enviada_por'];
 
         if (!sheet) {
+            // Antes esto miraba `doc.sheetsByTitle['facturas']`, que distingue mayúsculas: con la
+            // pestaña llamada "Facturas" no la encontraba y creaba UNA SEGUNDA. Las facturas se
+            // guardaban en la pestaña nueva y el que miraba la vieja las daba por perdidas.
+            // `pestaña()` la encuentra escrita como esté; llegar acá ahora sí significa que no
+            // existe ninguna.
+            console.log('🧾 No existe la pestaña de facturas: se crea.');
             sheet = await doc.addSheet({ title: 'facturas', headerValues: headersNecesarios });
         }
 
@@ -1617,7 +1623,7 @@ async function guardarFactura({ proveedor, monto, concepto, edificio, url_archiv
 async function buscarFacturasProveedor({ proveedor, edificio = '', numeroFactura = '' }) {
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['facturas'];
+        const sheet = pestaña(doc, 'facturas');
         if (!sheet) return [];
 
         const rows = await sheet.getRows();
@@ -1754,7 +1760,7 @@ async function guardarLlamada({
 }) {
     try {
         const doc = await getSheet();
-        let sheet = doc.sheetsByTitle['llamadas'];
+        let sheet = pestaña(doc, 'llamadas');
 
         if (!sheet) {
             sheet = await doc.addSheet({
@@ -1792,7 +1798,7 @@ async function guardarLlamada({
 async function obtenerEventosPendientesAdmin() {
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return [];
         const rows = await sheet.getRows();
         const pendientes = rows.filter(r => (r.get('estado') || '').toLowerCase() !== 'resuelto');
@@ -1814,7 +1820,7 @@ async function obtenerEventosPendientesAdmin() {
 async function obtenerCasosAbiertosEdificio(nombreEdificio) {
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return [];
         const rows = await sheet.getRows();
         const edifBuscado = String(nombreEdificio || '').toLowerCase().trim();
@@ -1848,7 +1854,7 @@ async function obtenerCasosAbiertosEdificio(nombreEdificio) {
 async function marcarCasoResueltoPorId(idEvento) {
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return null;
         const rows = await sheet.getRows();
         const idBuscado = String(idEvento || '').toUpperCase().trim();
@@ -1897,7 +1903,7 @@ async function buscarRolPorTelefono(telefono) {
         const doc = await getSheet();
 
         // 1. Buscar en PROVEEDORES y ASIGNACIONES
-        const sheetProv = doc.sheetsByTitle['proveedores'] || doc.sheetsByTitle['tecnicos'];
+        const sheetProv = pestaña(doc, 'proveedores') || pestaña(doc, 'tecnicos');
         if (sheetProv) {
             const rowsProv = await sheetProv.getRows();
             const provRow = rowsProv.find(r => {
@@ -1915,7 +1921,7 @@ async function buscarRolPorTelefono(telefono) {
             }
         }
 
-        const sheetAsig = doc.sheetsByTitle['proveedor_asignaciones'];
+        const sheetAsig = pestaña(doc, 'proveedor_asignaciones');
         if (sheetAsig) {
             const rowsAsig = await sheetAsig.getRows();
             const asigRow = rowsAsig.find(r => {
@@ -1934,7 +1940,7 @@ async function buscarRolPorTelefono(telefono) {
         }
 
         // 2. Buscar en EDIFICIOS (Encargados y Seguridad)
-        const sheetEdif = doc.sheetsByTitle['EDIFICIOS'];
+        const sheetEdif = pestaña(doc, 'EDIFICIOS');
         if (sheetEdif) {
             const rowsEdif = await sheetEdif.getRows();
             for (const r of rowsEdif) {
@@ -1954,7 +1960,7 @@ async function buscarRolPorTelefono(telefono) {
         }
 
         // 3. Buscar en CLIENTES (Administradores AC)
-        const sheetCli = doc.sheetsByTitle['CLIENTES'];
+        const sheetCli = pestaña(doc, 'CLIENTES');
         if (sheetCli) {
             const rowsCli = await sheetCli.getRows();
             const cliRow = rowsCli.find(r => {
@@ -1984,7 +1990,7 @@ async function guardarConfirmacionTecnico({ id_evento, eta = '', tecnico = '' })
     try {
         if (!id_evento) return false;
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return false;
 
         await sheet.loadHeaderRow().catch(() => {});
@@ -2027,7 +2033,7 @@ async function programarSeguimiento({ id_evento, cuando, paso = 1, nota = '' }) 
     try {
         if (!id_evento || !cuando) return false;
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return false;
 
         await sheet.loadHeaderRow().catch(() => {});
@@ -2060,7 +2066,7 @@ async function cancelarSeguimiento(id_evento) {
     try {
         if (!id_evento) return false;
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return false;
         const rows = await sheet.getRows();
         const buscado = String(id_evento).toUpperCase().trim();
@@ -2080,7 +2086,7 @@ async function cancelarSeguimiento(id_evento) {
 async function obtenerSeguimientosVencidos() {
     try {
         const doc = await getSheet();
-        const sheet = doc.sheetsByTitle['EVENTOS'];
+        const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return [];
         const rows = await sheet.getRows();
         const ahora = Date.now();
@@ -2135,7 +2141,7 @@ const HEADERS_ACCESOS = ['edificio', 'lugar', 'ubicacion', 'quien_abre', 'telefo
 
 async function getSheetAccesos() {
     const doc = await getSheet();
-    let sheet = doc.sheetsByTitle['accesos'];
+    let sheet = pestaña(doc, 'accesos');
     if (!sheet) {
         sheet = await doc.addSheet({ title: 'accesos', headerValues: HEADERS_ACCESOS });
         console.log('🔑 Pestaña accesos creada.');
