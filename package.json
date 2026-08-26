@@ -4,7 +4,8 @@
   "description": "Asistente de IA para consorcios, integración con Meta API.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "verificar": "node verificar-antes-de-subir.js"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.4.1",

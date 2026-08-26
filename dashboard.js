@@ -10454,6 +10454,97 @@ router.post('/api/proveedor-editar', async (req, res) => {
   }
 });
 
+// ── DATOS DE COBRO DEL PROVEEDOR ────────────────────────────────────────────────────────────
+//
+// El navegador ya tenía la pantalla y llamaba a estas dos rutas, pero del lado del servidor no
+// existían: guardar los datos de cobro daba 404 y el mensaje de error no decía por qué. Lo
+// encontró `verificar-antes-de-subir.js`, que compara lo que el front pide contra lo que el back
+// ofrece.
+router.post('/api/proveedor-datos-cobro', async (req, res) => {
+  if (!esDueno(req) && !vistaCliente(req)) return res.status(403).json({ error: 'Sin permiso' });
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row, cbu, alias, titular, cuit } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+    if (!cbu && !alias) return res.status(400).json({ error: 'Hace falta el CBU o el alias' });
+
+    const { rows } = await readTab(TAB_PROVEEDORES);
+    const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
+    if (!prov) return res.status(404).json({ error: 'Proveedor no encontrado' });
+
+    // El CBU trae dos dígitos verificadores. Si no cierran, NO se guarda: son 22 números y un
+    // dígito cambiado manda el pago a otra cuenta sin que nadie lo note.
+    const { validarCBU, validarAlias } = require('./cbu');
+    let cbuOk = '';
+    if (cbu) {
+      const v = validarCBU(cbu);
+      if (!v.valido) return res.status(400).json({ error: `Ese CBU no verifica (${v.motivo || 'los dígitos no cierran'}). Revisalo o cargá el alias, que es más corto y se lee mejor.` });
+      cbuOk = v.cbu;
+    }
+    let aliasOk = '';
+    if (alias) {
+      const v = validarAlias(alias);
+      if (!v.valido) return res.status(400).json({ error: `Ese alias no tiene el formato de un alias bancario (${v.motivo || 'formato inválido'}).` });
+      aliasOk = v.alias;
+    }
+
+    const columnas = {
+      cbu: ['cbu'], alias_cbu: ['alias_cbu', 'alias'], titular: ['titular'],
+      cuit: ['cuit'], cbu_actualizado: ['cbu_actualizado'],
+    };
+    const valores = {
+      cbu: cbuOk, alias_cbu: aliasOk, titular: titular || '', cuit: cuit || '',
+      cbu_actualizado: new Date().toLocaleString('es-AR'),
+    };
+
+    for (const campo of Object.keys(columnas)) {
+      if (valores[campo] === '' && campo !== 'cbu_actualizado') continue;
+      const c = await findOrPlanColumn(TAB_PROVEEDORES, columnas[campo]);
+      if (c.create) await ensureHeader(TAB_PROVEEDORES, c.col, columnas[campo][0], false);
+      await writeCell(TAB_PROVEEDORES, c.col, Number(row), valores[campo]);
+    }
+
+    console.log(`🏦 Datos de cobro cargados desde el panel para "${prov.nombre || 'proveedor'}".`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Aprobar o rechazar el cambio de cuenta que un proveedor pidió por WhatsApp.
+//
+// Cambiar el CBU de un proveedor es el fraude más común que existe: alguien se mete en la
+// conversación, dice "cambié de banco, anotá este otro", y el pago del mes se va a otra cuenta.
+// Por eso el cambio NO se aplica solo: queda pendiente y lo decide una persona acá.
+router.post('/api/proveedor-cambio-cobro', async (req, res) => {
+  if (!esDueno(req) && !vistaCliente(req)) return res.status(403).json({ error: 'Sin permiso' });
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row, aprobar } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+
+    const { rows } = await readTab(TAB_PROVEEDORES);
+    const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
+    if (!prov) return res.status(404).json({ error: 'Proveedor no encontrado' });
+
+    // La lógica vive en sheets.js, que es la misma que usa Marcos: acá no se duplica el criterio
+    // de qué pisa a qué.
+    const { resolverCambioBancario } = require('./datos');
+    const r = await resolverCambioBancario({
+      nombre: prov.nombre || '',
+      telefono: prov.telefono || '',
+      aprobar: Boolean(aprobar),
+    });
+    // `resolverCambioBancario` devuelve el porqué en `motivo`, no en `error`.
+    if (!r?.ok) return res.status(400).json({ error: r?.motivo ? `No se pudo: ${r.motivo}.` : 'No había ningún cambio pendiente para resolver.' });
+
+    console.log(`🏦 Cambio de cuenta de "${prov.nombre}" ${aprobar ? 'APROBADO' : 'rechazado'} desde el panel.`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
 router.post('/api/proveedor-asignar', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
