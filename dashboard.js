@@ -7841,7 +7841,7 @@ router.get('/mi-edificio', async (req, res) => {
         <div style="margin:12px 0">
           <input id="busc-vecinos-inp" oninput="filtrarVecinosList(this.value)" class="inp" placeholder="🔍 Buscar por nombre, departamento, teléfono o email..." style="height:38px;font-size:13.5px;margin:0">
         </div>` : '<div style="margin-bottom:12px"></div>'}
-        <div id="lista-vecinos-wrap" style="display:flex;flex-direction:column;gap:10px">${vecinosFilas}</div>
+        <div id="lista-vecinos-wrap" style="display:flex;flex-direction:column;gap:10px;max-height:480px;overflow-y:auto;padding-right:6px">${vecinosFilas}</div>
       </div>`;
 
     const modalVecinoNuevoHtml = `
