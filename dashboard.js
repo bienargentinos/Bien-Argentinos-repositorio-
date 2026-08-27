@@ -4850,6 +4850,49 @@ async function guardarEditar(btn){
   finally{btn.disabled=false;btn.textContent=old;}
 }
 
+// --- asignar edificio a administrador (dueño / colaboradores de sistema) ---
+var _asigEdificio = null;
+function abrirModalAsignarAdmin(edificio, adminActual, usuarioActual) {
+  _asigEdificio = edificio;
+  var tit = document.getElementById('asig-edificio-nombre');
+  if (tit) tit.textContent = edificio;
+  var act = document.getElementById('asig-admin-actual');
+  if (act) act.textContent = adminActual || 'Sin asignar';
+  var sel = document.getElementById('asig-nuevo-admin');
+  if (sel && usuarioActual) sel.value = usuarioActual;
+  abrirModal('modal-asignar-admin');
+}
+
+async function guardarAsignacionAdmin(btn) {
+  if (!_asigEdificio) return;
+  var sel = document.getElementById('asig-nuevo-admin');
+  var nuevoUsuario = sel ? sel.value : '';
+  if (!nuevoUsuario) {
+    toast('Por favor seleccioná un administrador.', 'err');
+    return;
+  }
+  btn.disabled = true;
+  var old = btn.textContent;
+  btn.textContent = 'Guardando...';
+  try {
+    var r = await fetch('/admin/api/edificio-asignar-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edificio: _asigEdificio, nuevo_usuario: nuevoUsuario })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error');
+    toast('Edificio asignado a ' + (j.nuevo_admin || nuevoUsuario), 'ok');
+    cerrarModal('modal-asignar-admin');
+    setTimeout(function() { location.reload(); }, 900);
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
 // --- gestión multi-personal (encargados, suplentes, seguridad) ---
 function formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb) {
   var partes = [];
@@ -9045,6 +9088,7 @@ router.get('/clientes', async (req, res) => {
           </div>
           <span style="font-size:12px;font-weight:800;padding:5px 12px;border-radius:999px;background:${plan.bg};color:${plan.fg}">Plan ${esc(e.plan)}</span>
           <button onclick="abrirEditar(${e._row},'${escJs(e.nombre)}','${escJs(e.encargado)}','${escJs(e.plan)}','${escJs(e.direccion || '')}','${escJs(e.cuit || '')}','${escJs(e.unidades || '')}','${escJs(e.zona || '')}','${escJs(e.aliases || '')}')" style="height:38px;padding:0 16px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Editar</button>
+          <button onclick="abrirModalAsignarAdmin('${escJs(e.nombre)}','${escJs(cliente)}','${escJs((clienteDelEdificio(d.clientes, e.nombre) || {}).usuario || '')}')" style="height:38px;padding:0 14px;border:1px solid #DCE4F0;border-radius:9px;background:#F8FAFD;color:#17408B;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">👤 Asignar</button>
         </div>`;
     };
 
@@ -9253,9 +9297,34 @@ router.get('/clientes', async (req, res) => {
       </div>`;
 
 
+    const modalAsignarAdminHtml = `
+      <div id="modal-asignar-admin" class="modal-overlay" onclick="cerrarModal('modal-asignar-admin')">
+        <div class="modal-box" style="max-width:440px;max-height:85vh;overflow-y:auto" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Asignación de Edificio</div>
+            <div id="asig-edificio-nombre" style="font-size:19px;font-weight:800;letter-spacing:-.01em"></div>
+          </div>
+          <div style="padding:20px 24px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Administrador asignado actualmente</div>
+            <div id="asig-admin-actual" style="font-size:14px;font-weight:600;color:#64748B;background:#F1F4F9;padding:10px 12px;border-radius:10px;margin-bottom:16px"></div>
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nuevo administrador / cliente</div>
+            <select id="asig-nuevo-admin" class="inp" style="margin-bottom:18px;height:44px">
+              ${d.clientes.map((c) => `<option value="${esc(c.usuario)}">${esc(c.nombre)} (@${esc(c.usuario)})</option>`).join('')}
+            </select>
+            <div style="font-size:12.5px;color:#64748B;line-height:1.4">
+              ℹ️ Al transferir el edificio, se actualizará la planilla y la base de datos automáticamente. El administrador seleccionado podrá gestionarlo de inmediato desde su panel.
+            </div>
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-asignar-admin')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button id="btn-confirmar-asig" onclick="guardarAsignacionAdmin(this)" style="flex:1.4;height:44px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Guardar asignación</button>
+          </div>
+        </div>
+      </div>`;
+
     const contenido = `
       <div style="animation:mFade .3s ease both">${encabezado}${cuerpo}</div>
-      ${modalCliente}${modalClienteEditar}${modalEdificio}${modalEditar}${modalColaboradoresHtml}${modalColaboradorNuevoHtml}`;
+      ${modalCliente}${modalClienteEditar}${modalEdificio}${modalEditar}${modalAsignarAdminHtml}${modalColaboradoresHtml}${modalColaboradorNuevoHtml}`;
 
     res.send(shell(req, d, 'edificios', contenido));
   } catch (e) {
@@ -10366,6 +10435,72 @@ router.post('/api/edificio-nuevo', async (req, res) => {
       }
     }
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Asignación / traspaso de edificio a un administrador (dueño o colaboradores del sistema).
+router.post('/api/edificio-asignar-admin', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Solo administradores del sistema' });
+  try {
+    const { edificio, nuevo_usuario } = req.body || {};
+    if (!edificio) return res.status(400).json({ error: 'Falta el nombre del edificio' });
+    if (!nuevo_usuario) return res.status(400).json({ error: 'Falta el administrador de destino' });
+
+    const { rows: edRows } = await readTab(TAB_EDIFICIOS);
+    const edObj = edRows.map(mapEdificio).find((e) => normEdificio(e.nombre) === normEdificio(edificio));
+    if (!edObj) return res.status(404).json({ error: 'No se encontró el edificio en el sistema' });
+
+    const { rows: cliRows } = await readTab(TAB_CLIENTES);
+    const clientes = cliRows.map(mapCliente);
+    const targetCli = clientes.find((c) => c.usuario === nuevo_usuario);
+    if (!targetCli) return res.status(404).json({ error: 'No se encontró el administrador de destino' });
+
+    const edNombreReal = edObj.nombre;
+    const colEdificiosCli = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
+
+    // 1. Quitar el edificio de cualquier otro cliente que lo tuviera asignado
+    for (const c of clientes) {
+      if (c.usuario !== nuevo_usuario) {
+        const tiene = (c.edificios || []).some((e) => normEdificio(e) === normEdificio(edNombreReal));
+        if (tiene) {
+          const filtrados = (c.edificios || []).filter((e) => normEdificio(e) !== normEdificio(edNombreReal));
+          if (colEdificiosCli && !colEdificiosCli.create) {
+            await writeCell(TAB_CLIENTES, colEdificiosCli.col, c._row, filtrados.join(', '));
+          }
+          try {
+            await queryPg('UPDATE clientes SET edificios = $1 WHERE lower(usuario) = lower($2)', [filtrados.join(', '), c.usuario]);
+          } catch (_) {}
+        }
+      }
+    }
+
+    // 2. Agregar el edificio al nuevo administrador
+    const yaLoTiene = (targetCli.edificios || []).some((e) => normEdificio(e) === normEdificio(edNombreReal));
+    let nuevaLista = targetCli.edificios || [];
+    if (!yaLoTiene) {
+      nuevaLista = [...nuevaLista, edNombreReal];
+      if (colEdificiosCli) {
+        if (colEdificiosCli.create) await ensureHeader(TAB_CLIENTES, colEdificiosCli.col, 'edificios', false);
+        await writeCell(TAB_CLIENTES, colEdificiosCli.col, targetCli._row, nuevaLista.join(', '));
+      }
+      try {
+        await queryPg('UPDATE clientes SET edificios = $1 WHERE lower(usuario) = lower($2)', [nuevaLista.join(', '), targetCli.usuario]);
+      } catch (_) {}
+    }
+
+    // 3. Actualizar la columna administrador en EDIFICIOS
+    const colAdminEd = await findOrPlanColumn(TAB_EDIFICIOS, ['admin_nombre', 'administrador', 'admin']);
+    if (colAdminEd) {
+      if (colAdminEd.create) await ensureHeader(TAB_EDIFICIOS, colAdminEd.col, 'administrador', false);
+      await writeCell(TAB_EDIFICIOS, colAdminEd.col, edObj._row, targetCli.nombre);
+    }
+    try {
+      await queryPg('UPDATE edificios SET admin_nombre = $1 WHERE marcos_norm(edificio) = marcos_norm($2)', [targetCli.nombre, edNombreReal]);
+    } catch (_) {}
+
+    res.json({ ok: true, edificio: edNombreReal, nuevo_admin: targetCli.nombre, nuevo_usuario: targetCli.usuario });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
