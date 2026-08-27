@@ -217,12 +217,15 @@ async function _initPgSchema() {
                 nombre VARCHAR(100),
                 icono VARCHAR(20) DEFAULT '🎉',
                 descripcion TEXT,
+                reglamento TEXT,
                 capacidad INT DEFAULT 20,
                 hora_apertura VARCHAR(10) DEFAULT '08:00',
                 hora_cierre VARCHAR(10) DEFAULT '23:00',
                 activo BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            ALTER TABLE edificio_amenities ADD COLUMN IF NOT EXISTS reglamento TEXT;
 
             CREATE TABLE IF NOT EXISTS reservas_amenities (
                 id SERIAL PRIMARY KEY,

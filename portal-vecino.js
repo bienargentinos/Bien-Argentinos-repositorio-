@@ -1191,6 +1191,7 @@ router.get('/amenities', async (req, res) => {
           nombre: a.nombre,
           icon: a.icono || '🎉',
           desc: a.descripcion || ('Capacidad ' + (a.capacidad || 20) + ' personas'),
+          reglamento: a.reglamento || '',
           hora_apertura: a.hora_apertura || '08:00',
           hora_cierre: a.hora_cierre || '23:00'
         }));
@@ -1217,12 +1218,12 @@ router.get('/amenities', async (req, res) => {
   // Si aún no se configuraron amenities en este edificio, usar catálogo estándar
   if (!amenitiesList.length) {
     amenitiesList = [
-      { id: 'sum', nombre: 'SUM (Salón de Eventos)', icon: '🎉', desc: 'Capacidad 35 personas · Parrilla, vajilla, TV y aire frío/calor', hora_apertura: '09:00', hora_cierre: '23:00' },
-      { id: 'parrilla', nombre: 'Parrilla / Quincho', icon: '🥩', desc: 'Capacidad 15 personas · Parrilla a leña, mesa exterior y bacha', hora_apertura: '10:00', hora_cierre: '23:00' },
-      { id: 'pileta', nombre: 'Pileta & Solarium', icon: '🏊', desc: 'Solarium con reposeras · Temporada habilitada', hora_apertura: '09:00', hora_cierre: '20:00' },
-      { id: 'gimnasio', nombre: 'Gimnasio', icon: '🏋️', desc: 'Cinta para correr, mancuernas, polea y bicicleta estática', hora_apertura: '07:00', hora_cierre: '22:00' },
-      { id: 'cochera', nombre: 'Cochera de Cortesía', icon: '🚗', desc: 'Espacio de estacionamiento para visitas', hora_apertura: '08:00', hora_cierre: '23:00' },
-      { id: 'laundry', nombre: 'Laundry / Lavadero', icon: '🧺', desc: 'Lavarropas y secarropas automáticos', hora_apertura: '08:00', hora_cierre: '21:00' }
+      { id: 'sum', nombre: 'SUM (Salón de Eventos)', icon: '🎉', desc: 'Capacidad 35 personas · Parrilla, vajilla, TV y aire frío/calor', reglamento: 'Música permitida hasta 01:00 hs. Seña de $15.000 para limpieza. Dejar vajilla limpia. Prohibido fumar adentro.', hora_apertura: '09:00', hora_cierre: '23:00' },
+      { id: 'parrilla', nombre: 'Parrilla / Quincho', icon: '🥩', desc: 'Capacidad 15 personas · Parrilla a leña, mesa exterior y bacha', reglamento: 'Uso de carbón o leña propios. Apagar brasas y limpiar la parrilla al finalizar.', hora_apertura: '10:00', hora_cierre: '23:00' },
+      { id: 'pileta', nombre: 'Pileta & Solarium', icon: '🏊', desc: 'Solarium con reposeras · Temporada habilitada', reglamento: 'Uso obligatorio de gorro. Revisación médica previa. Menores de 12 años acompañados por un adulto.', hora_apertura: '09:00', hora_cierre: '20:00' },
+      { id: 'gimnasio', nombre: 'Gimnasio', icon: '🏋️', desc: 'Cinta para correr, mancuernas, polea y bicicleta estática', reglamento: 'Uso de toalla obligatorio para las máquinas. Limpiar y desinfectar el equipamiento tras su uso.', hora_apertura: '07:00', hora_cierre: '22:00' },
+      { id: 'cochera', nombre: 'Cochera de Cortesía', icon: '🚗', desc: 'Espacio de estacionamiento para visitas', reglamento: 'Máximo 48 hs continuas por visitante. Identificar vehículo con patente en portería.', hora_apertura: '08:00', hora_cierre: '23:00' },
+      { id: 'laundry', nombre: 'Laundry / Lavadero', icon: '🧺', desc: 'Lavarropas y secarropas automáticos', reglamento: 'Utilizar jabón para lavarropas automáticos. Retirar prendas al terminar el ciclo.', hora_apertura: '08:00', hora_cierre: '21:00' }
     ];
   }
 
@@ -1234,89 +1235,65 @@ router.get('/amenities', async (req, res) => {
       <p style="font-size:13px;color:#64748B">Espacios comunes y turnos por hora en ${esc(v.edificio)}</p>
     </div>
 
-    <!-- MIS RESERVAS ACTIVAS -->
-    <div class="card" style="padding:16px 18px;margin-bottom:18px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div style="font-size:14.5px;font-weight:800;color:#0F172A;display:flex;align-items:center;gap:6px">
-          <span>📅</span> Mis Reservas Confirmadas
-        </div>
-        <span style="font-size:11.5px;font-weight:700;color:#1E5FB4">${misReservas.length} activas</span>
+    <!-- MIS RESERVAS PRÓXIMAS -->
+    ${misReservas.length ? `
+    <div class="card" style="margin-bottom:16px;padding:16px 18px">
+      <div style="font-size:14px;font-weight:800;color:#0F172A;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        <span>🎟️</span> Mis Reservas Confirmadas (${misReservas.length})
       </div>
-
-      ${misReservas.length > 0 ? `
-      <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;flex-direction:column;gap:8px">
         ${misReservas.map(r => `
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid #E2E8F0;border-radius:12px;background:#F8FAFD;gap:8px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #E2E8F0;border-radius:10px;background:#F8FAFD;gap:10px;flex-wrap:wrap">
             <div>
-              <div style="font-size:14px;font-weight:800;color:#0F172A">${esc(r.amenity)}</div>
-              <div style="font-size:12.5px;color:#64748B;margin-top:2px">
-                📆 <strong>${esc(r.fecha)}</strong> · ⏰ <strong>${esc(r.hora_desde || '00:00')} a ${esc(r.hora_hasta || '00:00')} hs</strong>${r.notas ? ' · 📝 ' + esc(r.notas) : ''}
-              </div>
+              <div style="font-size:13.5px;font-weight:800;color:#0F172A">${esc(r.amenity)}</div>
+              <div style="font-size:12px;color:#64748B">📆 ${esc(r.fecha)} · ⏰ <strong>${esc(r.hora_desde || '00:00')} a ${esc(r.hora_hasta || '00:00')} hs</strong>${r.notas ? ' · ' + esc(r.notas) : ''}</div>
             </div>
-            <button onclick="cancelarReserva(${r.id})" style="padding:6px 12px;border:1px solid #FCA5A5;border-radius:8px;background:#FEF2F2;color:#DC2626;font-size:12px;font-weight:700;cursor:pointer">
-              Cancelar
-            </button>
+            <button onclick="cancelarReserva(${r.id})" style="border:1px solid #FCA5A5;background:#FEF2F2;color:#DC2626;font-size:11.5px;font-weight:700;padding:4px 8px;border-radius:6px;cursor:pointer">Cancelar</button>
           </div>
         `).join('')}
-      </div>` : `
-      <div style="text-align:center;padding:16px;color:#94A3B8;font-size:13px;background:#F8FAFD;border-radius:10px;border:1px dashed #E2E8F0">
-        No tenés reservas activas en este momento.
-      </div>`}
+      </div>
     </div>
+    ` : ''}
 
-    <!-- FORMULARIO NUEVA RESERVA POR HORAS -->
-    <div class="card" style="padding:18px 20px;margin-bottom:18px">
-      <div style="font-size:15px;font-weight:800;color:#0F172A;margin-bottom:12px;display:flex;align-items:center;gap:6px">
-        <span>✨</span> Reservar por Horas
+    <!-- FORMULARIO DE RESERVA POR HORAS (ESTILO BUTACAS / BLOQUES) -->
+    <div class="card" style="margin-bottom:16px;padding:18px 20px">
+      <div style="font-size:15px;font-weight:800;color:#0F172A;margin-bottom:14px;display:flex;align-items:center;gap:6px">
+        <span>📅</span> Nueva Reserva por Horas
       </div>
 
-      <form id="form-amenity" onsubmit="guardarReserva(event)">
-        <!-- 1. Elegir Espacio -->
-        <div style="margin-bottom:14px">
-          <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">1. Seleccioná el espacio común</label>
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px" id="grid-amenities">
+      <form id="form-reserva-amenity" onsubmit="enviarReserva(event)">
+        <!-- 1. Selección del Amenity -->
+        <div style="margin-bottom:16px">
+          <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:8px">1. Elegí el espacio común</label>
+          <div id="grid-amenities" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
             ${amenitiesList.map((a, idx) => `
-              <div onclick="seleccionarAmenity('${a.nombre}', this)" class="card-touch" style="padding:12px 10px;border:1.5px solid ${idx===0?'#1E5FB4':'#E2E8F0'};border-radius:12px;background:${idx===0?'#EBF3FC':'#fff'};cursor:pointer;text-align:center;transition:all .15s ease">
-                <div style="font-size:24px;margin-bottom:4px">${a.icon}</div>
-                <div style="font-size:13px;font-weight:800;color:#0F172A;line-height:1.2">${esc(a.nombre.split(' (')[0])}</div>
-                <div style="font-size:10.5px;color:#64748B;margin-top:2px">${esc(a.hora_apertura)} a ${esc(a.hora_cierre)} hs</div>
+              <div onclick="seleccionarAmenity('${escJs(a.nombre)}', this)" style="border:2px solid ${idx === 0 ? '#1E5FB4' : '#E2E8F0'};border-radius:10px;padding:10px;cursor:pointer;background:${idx === 0 ? '#EBF3FC' : '#fff'};text-align:center;transition:all .2s" class="amenity-card-item">
+                <div style="font-size:24px;margin-bottom:2px">${esc(a.icon)}</div>
+                <div style="font-size:13px;font-weight:800;color:#0F172A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.nombre)}</div>
+                <div style="font-size:11px;color:#64748B">${esc(a.hora_apertura)} a ${esc(a.hora_cierre)} hs</div>
               </div>
             `).join('')}
           </div>
-          <input type="hidden" id="inp-amenity-sel" value="${amenitiesList[0].nombre}">
+          <input type="hidden" id="inp-amenity-sel" value="${esc(amenitiesList[0].nombre)}">
         </div>
 
-        <!-- 2. Elegir Fecha -->
+        <!-- 2. Fecha -->
         <div style="margin-bottom:16px">
-          <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">2. Seleccioná la fecha</label>
-          <input type="date" id="inp-reserva-fecha" min="${hoyStr}" value="${hoyStr}" onchange="renderGrillaHoras()" class="inp" style="background:#fff;margin-bottom:0" required>
+          <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">2. Elegí la fecha</label>
+          <input type="date" id="inp-reserva-fecha" value="${hoyStr}" min="${hoyStr}" class="inp" style="background:#fff;margin-bottom:0" onchange="renderGrillaHoras()">
         </div>
 
-        <!-- 3. Selector de Horas Tipo Asientos de Cine -->
-        <div style="margin-bottom:18px">
+        <!-- 3. Grilla de Horas Estilo Asientos de Cine -->
+        <div style="margin-bottom:16px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <label style="font-size:12.5px;font-weight:700;color:#475569">3. Elegí las horas que vas a utilizar (podés elegir 1 hora o varias)</label>
+            <label style="font-size:12.5px;font-weight:700;color:#475569">3. Tocá las horas que vas a utilizar (bloques de 1h)</label>
+            <span style="font-size:11px;color:#64748B">🟩 Libre · 🟥 Ocupado</span>
           </div>
-
-          <!-- Referencia de colores -->
-          <div style="display:flex;gap:14px;align-items:center;font-size:11.5px;color:#64748B;margin-bottom:10px;flex-wrap:wrap">
-            <span style="display:inline-flex;align-items:center;gap:4px">
-              <span style="width:12px;height:12px;border-radius:3px;background:#fff;border:1.5px solid #CBD5E1"></span> Libre
-            </span>
-            <span style="display:inline-flex;align-items:center;gap:4px">
-              <span style="width:12px;height:12px;border-radius:3px;background:#1E5FB4"></span> Tu selección
-            </span>
-            <span style="display:inline-flex;align-items:center;gap:4px">
-              <span style="width:12px;height:12px;border-radius:3px;background:#FEE2E2;border:1.5px solid #FCA5A5"></span> 🔒 Ocupado
-            </span>
+          <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:12px;margin-bottom:8px">
+            <div id="grid-horas-container" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(95px,1fr));gap:8px">
+              <!-- Renderizado dinámico vía JS -->
+            </div>
           </div>
-
-          <!-- Grilla de Bloques Horarios -->
-          <div id="grid-horas-container" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-bottom:12px">
-            <!-- Renderizado dinámico vía JS -->
-          </div>
-
-          <!-- Resumen de Selección -->
           <div id="resumen-seleccion-horas" style="display:none;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:10px 14px;font-size:13px;color:#1E40AF">
             🕒 Horario seleccionado: <strong id="txt-rango-seleccion"></strong> (<span id="txt-duracion-horas"></span>)
           </div>
@@ -1338,16 +1315,14 @@ router.get('/amenities', async (req, res) => {
       </form>
     </div>
 
-    <!-- REGLAMENTO GENERAL -->
-    <div class="card" style="padding:16px 18px;background:#F8FAFD">
+    <!-- REGLAMENTO DINÁMICO DEL AMENITY SELECCIONADO -->
+    <div id="box-reglamento-amenity" class="card" style="padding:16px 18px;background:#F8FAFD">
       <div style="font-size:13.5px;font-weight:800;color:#0F172A;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-        <span>📜</span> Reglamento de Espacios Comunes
+        <span>📜</span> <span id="titulo-reglamento-amenity">Reglamento: ${esc(amenitiesList[0].nombre)}</span>
       </div>
-      <ul style="padding-left:18px;font-size:12.5px;color:#64748B;line-height:1.6">
-        <li>Podés reservar desde <strong>1 sola hora</strong> para reuniones rápidas hasta varias horas continuas.</li>
-        <li>El espacio debe entregarse limpio y ordenado al finalizar el turno.</li>
-        <li>Horario límite de ruidos molestos: <strong>01:00 hs</strong>.</li>
-      </ul>
+      <div id="contenido-reglamento-amenity" style="font-size:12.5px;color:#475569;line-height:1.6;background:#fff;padding:10px 14px;border:1px solid #E2E8F0;border-radius:10px">
+        ${amenitiesList[0].reglamento ? esc(amenitiesList[0].reglamento) : 'Podés reservar desde 1 sola hora hasta varias continuas. El espacio debe entregarse limpio y en orden. Horario límite de música/ruidos: 01:00 hs.'}
+      </div>
     </div>
 
     <script>
@@ -1357,7 +1332,7 @@ router.get('/amenities', async (req, res) => {
 
       function seleccionarAmenity(nombre, el) {
         document.getElementById('inp-amenity-sel').value = nombre;
-        var cards = document.querySelectorAll('#grid-amenities > div');
+        var cards = document.querySelectorAll('.amenity-card-item');
         cards.forEach(function(c) {
           c.style.borderColor = '#E2E8F0';
           c.style.background = '#fff';
@@ -1365,6 +1340,16 @@ router.get('/amenities', async (req, res) => {
         el.style.borderColor = '#1E5FB4';
         el.style.background = '#EBF3FC';
         _horasSeleccionadas = [];
+        
+        // Actualizar caja de reglamento específico
+        var amObj = _amenitiesList.find(function(a){ return a.nombre === nombre; });
+        var tReg = document.getElementById('titulo-reglamento-amenity');
+        var cReg = document.getElementById('contenido-reglamento-amenity');
+        if (tReg && amObj) tReg.textContent = 'Reglamento: ' + amObj.nombre;
+        if (cReg && amObj) {
+          cReg.textContent = amObj.reglamento ? amObj.reglamento : 'Podés reservar desde 1 sola hora hasta varias continuas. El espacio debe entregarse limpio y en orden. Horario límite de música/ruidos: 01:00 hs.';
+        }
+
         renderGrillaHoras();
       }
 
