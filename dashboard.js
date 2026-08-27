@@ -5871,6 +5871,220 @@ async function eliminarVecino(btn, row) {
   }
 }
 
+var _vecinosParaImportar = [];
+
+function abrirModalImportarVecinos(edificio) {
+  var elEd = document.getElementById('imp-vec-edificio');
+  if (elEd) elEd.value = edificio || '';
+  var elArea = document.getElementById('imp-vec-textarea');
+  if (elArea) elArea.value = '';
+  var elFile = document.getElementById('imp-vec-file');
+  if (elFile) elFile.value = '';
+  _vecinosParaImportar = [];
+  renderizarPreviewImportacion([]);
+  abrirModal('modal-vecinos-importar');
+}
+
+function leerArchivoVecinos(input) {
+  if (!input.files || !input.files[0]) return;
+  var file = input.files[0];
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var text = e.target.result;
+    var elArea = document.getElementById('imp-vec-textarea');
+    if (elArea) elArea.value = text;
+    procesarTextoVecinosImportar(text);
+  };
+  reader.readAsText(file);
+}
+
+function procesarTextoVecinosImportar(rawText) {
+  if (!rawText || !rawText.trim()) {
+    _vecinosParaImportar = [];
+    renderizarPreviewImportacion([]);
+    return;
+  }
+  var nl = String.fromCharCode(10);
+  var cr = String.fromCharCode(13);
+  var tab = String.fromCharCode(9);
+  var q1 = String.fromCharCode(39);
+  var q2 = String.fromCharCode(34);
+
+  var lineas = rawText.split(nl).map(function(l) { return l.replace(cr, '').trim(); }).filter(Boolean);
+  if (!lineas.length) {
+    _vecinosParaImportar = [];
+    renderizarPreviewImportacion([]);
+    return;
+  }
+
+  var primerLinea = lineas[0];
+  var sep = tab;
+  if (primerLinea.indexOf(tab) !== -1) {
+    sep = tab;
+  } else if (primerLinea.indexOf(';') !== -1) {
+    sep = ';';
+  } else if (primerLinea.indexOf(',') !== -1) {
+    sep = ',';
+  }
+
+  var resultados = [];
+  var inicioIdx = 0;
+
+  var lowerPrimera = primerLinea.toLowerCase();
+  if (lowerPrimera.indexOf('nombre') !== -1 || lowerPrimera.indexOf('depto') !== -1 || lowerPrimera.indexOf('unidad') !== -1 || lowerPrimera.indexOf('tel') !== -1 || lowerPrimera.indexOf('mail') !== -1) {
+    inicioIdx = 1;
+  }
+
+  for (var i = inicioIdx; i < lineas.length; i++) {
+    var l = lineas[i];
+    if (!l) continue;
+    var partes = l.split(sep).map(function(p) {
+      var s = p.trim();
+      if (s.startsWith(q1) || s.startsWith(q2)) s = s.slice(1);
+      if (s.endsWith(q1) || s.endsWith(q2)) s = s.slice(0, -1);
+      return s.trim();
+    });
+    if (!partes.length || (partes.length === 1 && !partes[0])) continue;
+
+    var unidad = '';
+    var nombre = '';
+    var telefono = '';
+    var email = '';
+    var notas = '';
+
+    var emailsDetectados = [];
+    var telsDetectados = [];
+    var deptoDetectado = '';
+    var otrosTextos = [];
+
+    partes.forEach(function(p) {
+      if (!p) return;
+      var cleanDigits = p.replace(/[^0-9]/g, '');
+      if (p.indexOf('@') !== -1) {
+        emailsDetectados.push(p);
+      } else if (cleanDigits.length >= 7 && p.length <= 25) {
+        telsDetectados.push(p);
+      } else if (!deptoDetectado && p.length <= 8 && (cleanDigits.length > 0 || p.toUpperCase() === 'PB')) {
+        deptoDetectado = p;
+      } else {
+        otrosTextos.push(p);
+      }
+    });
+
+    if (emailsDetectados.length) email = emailsDetectados[0];
+    if (telsDetectados.length) telefono = telsDetectados[0];
+
+    if (deptoDetectado) {
+      unidad = deptoDetectado;
+      nombre = otrosTextos.length ? otrosTextos.join(' ') : '';
+    } else {
+      if (partes.length === 1) {
+        nombre = partes[0];
+      } else if (partes.length === 2) {
+        unidad = partes[0];
+        nombre = partes[1];
+      } else if (partes.length >= 3) {
+        if (/^[0-9]|^[A-Z]$|^PB/i.test(partes[0])) {
+          unidad = partes[0];
+          nombre = partes[1];
+          if (!telefono) telefono = partes[2];
+          if (partes[3] && !email) email = partes[3];
+          if (partes[4]) notas = partes.slice(4).join(' ');
+        } else {
+          nombre = partes[0];
+          unidad = partes[1];
+          if (!telefono) telefono = partes[2];
+          if (partes[3] && !email) email = partes[3];
+          if (partes[4]) notas = partes.slice(4).join(' ');
+        }
+      }
+    }
+
+    if (nombre || unidad || telefono || email) {
+      resultados.push({
+        unidad: unidad,
+        nombre: nombre,
+        telefono: telefono,
+        email: email,
+        notas: notas
+      });
+    }
+  }
+
+  _vecinosParaImportar = resultados;
+  renderizarPreviewImportacion(resultados);
+}
+
+function renderizarPreviewImportacion(lista) {
+  var countEl = document.getElementById('imp-vec-count');
+  var tableEl = document.getElementById('imp-vec-preview-body');
+  var btnGuardar = document.getElementById('imp-vec-btn-guardar');
+
+  if (countEl) countEl.textContent = lista.length + ' vecinos detectados';
+  if (btnGuardar) {
+    btnGuardar.disabled = lista.length === 0;
+    btnGuardar.textContent = lista.length > 0 ? '✓ Importar ' + lista.length + ' vecinos' : 'Importar vecinos';
+  }
+
+  if (!tableEl) return;
+  if (!lista.length) {
+    tableEl.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:24px;color:#8595AD;font-size:13px">Pegá texto desde Excel o subí un CSV para previsualizar aquí.</td></tr>';
+    return;
+  }
+
+  var html = lista.slice(0, 30).map(function(v) {
+    return '<tr style="border-bottom:1px solid #F1F5FB">' +
+      '<td style="padding:8px 10px;font-weight:700;color:#1E5FB4"><span style="background:#EBF3FC;padding:2px 6px;border-radius:6px">' + (v.unidad || '—') + '</span></td>' +
+      '<td style="padding:8px 10px;font-weight:600;color:#16233B">' + (v.nombre || '—') + '</td>' +
+      '<td style="padding:8px 10px;color:#2E6FC0">' + (v.telefono || '—') + '</td>' +
+      '<td style="padding:8px 10px;color:#64748B;font-size:12px">' + (v.email || '—') + '</td>' +
+      '</tr>';
+  }).join('');
+
+  if (lista.length > 30) {
+    html += '<tr><td colspan="4" style="text-align:center;padding:8px;color:#64748B;font-size:12px;background:#F8FAFC">... y ' + (lista.length - 30) + ' departamentos más.</td></tr>';
+  }
+  tableEl.innerHTML = html;
+}
+
+async function ejecutarImportacionVecinos(btn) {
+  if (!_vecinosParaImportar || !_vecinosParaImportar.length) {
+    toast('No hay datos para importar', 'err');
+    return;
+  }
+  var elEd = document.getElementById('imp-vec-edificio');
+  var edificio = elEd ? elEd.value : '';
+  if (!edificio) {
+    toast('Falta seleccionar edificio', 'err');
+    return;
+  }
+
+  btn.disabled = true;
+  var oldTxt = btn.textContent;
+  btn.textContent = 'Importando ' + _vecinosParaImportar.length + ' vecinos...';
+
+  try {
+    var res = await fetch('/admin/api/vecinos-importar-masivo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edificio: edificio, vecinos: _vecinosParaImportar })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      toast('¡' + (data.importados || _vecinosParaImportar.length) + ' vecinos importados con éxito!', 'ok');
+      setTimeout(function() { location.reload(); }, 700);
+    } else {
+      toast('Error: ' + (data.error || 'No se pudo importar'), 'err');
+      btn.disabled = false;
+      btn.textContent = oldTxt;
+    }
+  } catch (e) {
+    toast('Error de conexión al importar', 'err');
+    btn.disabled = false;
+    btn.textContent = oldTxt;
+  }
+}
+
 // Explicit Global Attachments
 window.abrirDrawerEvento = abrirDrawerEvento;
 window.cerrarDrawerEvento = cerrarDrawerEvento;
@@ -5900,6 +6114,10 @@ window.invitarVecinoWhatsApp = invitarVecinoWhatsApp;
 window.guardarVecinoNuevo = guardarVecinoNuevo;
 window.guardarEditarVecino = guardarEditarVecino;
 window.eliminarVecino = eliminarVecino;
+window.abrirModalImportarVecinos = abrirModalImportarVecinos;
+window.leerArchivoVecinos = leerArchivoVecinos;
+window.procesarTextoVecinosImportar = procesarTextoVecinosImportar;
+window.ejecutarImportacionVecinos = ejecutarImportacionVecinos;
 `;
 
 /* ===================================================================
@@ -7834,6 +8052,7 @@ router.get('/mi-edificio', async (req, res) => {
             <p style="font-size:13px;color:#8595AD;margin:2px 0 0">Listado de propietarios e inquilinos registrados para atención 24/7 y acceso a la Web App del consorcio.</p>
           </div>
           <div style="display:flex;gap:8px">
+            <button onclick="abrirModalImportarVecinos('${escJs(cur.nombre)}')" style="height:36px;padding:0 14px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">📥 Importar padrón</button>
             <button onclick="abrirModalVecinoNuevo('${escJs(cur.nombre)}')" style="height:36px;padding:0 14px;border:none;border-radius:999px;background:#2E6FC0;color:#fff;font-weight:700;font-size:13px;cursor:pointer">+ Agregar vecino</button>
           </div>
         </div>
@@ -7842,6 +8061,59 @@ router.get('/mi-edificio', async (req, res) => {
           <input id="busc-vecinos-inp" oninput="filtrarVecinosList(this.value)" class="inp" placeholder="🔍 Buscar por nombre, departamento, teléfono o email..." style="height:38px;font-size:13.5px;margin:0">
         </div>` : '<div style="margin-bottom:12px"></div>'}
         <div id="lista-vecinos-wrap" style="display:flex;flex-direction:column;gap:10px;max-height:480px;overflow-y:auto;padding-right:6px">${vecinosFilas}</div>
+      </div>`;
+
+    const modalVecinosImportarHtml = `
+      <div id="modal-vecinos-importar" class="modal-overlay" onclick="cerrarModal('modal-vecinos-importar')">
+        <div class="modal-box" style="max-width:620px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Padrón de Vecinos</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">📥 Importar Padrón desde Excel / CSV</div>
+          </div>
+          <div style="padding:20px 24px;max-height:75vh;overflow-y:auto">
+            <input type="hidden" id="imp-vec-edificio">
+            
+            <div style="background:#F1F5FB;border:1px solid #DCE5F2;border-radius:12px;padding:12px 14px;font-size:12.5px;color:#334259;margin-bottom:16px;line-height:1.4">
+              💡 <strong>Instrucciones:</strong> Podés subir un archivo <code>.csv</code> exportado de Excel o copiar las celdas directamente en tu planilla y pegarlas abajo.<br>
+              <strong>Columnas recomendadas:</strong> Unidad / Depto · Nombre · Teléfono · Email
+            </div>
+
+            <div style="margin-bottom:14px">
+              <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Opción A: Subir archivo (.csv / .txt)</div>
+              <input type="file" id="imp-vec-file" accept=".csv,.txt" onchange="leerArchivoVecinos(this)" class="inp" style="padding:8px">
+            </div>
+
+            <div style="margin-bottom:16px">
+              <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Opción B: Pegar datos de Excel (Ctrl+V)</div>
+              <textarea id="imp-vec-textarea" oninput="procesarTextoVecinosImportar(this.value)" class="inp" placeholder="Ejemplo:&#10;1° A	Juan Pérez	1155551111	juan@gmail.com&#10;1° B	María Gómez	1155552222	maria@gmail.com&#10;2° A	Carlos Sosa	1155553333	carlos@gmail.com" style="height:110px;font-family:monospace;font-size:12px"></textarea>
+            </div>
+
+            <div style="margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
+              <div style="font-size:13px;font-weight:800;color:#16233B">Previsualización de datos</div>
+              <div id="imp-vec-count" style="font-size:12px;font-weight:700;color:#2E6FC0">0 vecinos detectados</div>
+            </div>
+
+            <div style="border:1px solid #E2E8F0;border-radius:10px;overflow:hidden;max-height:190px;overflow-y:auto;background:#fff">
+              <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:left">
+                <thead>
+                  <tr style="background:#F8FAFC;border-bottom:1px solid #E2E8F0;color:#64748B">
+                    <th style="padding:8px 10px">Unidad</th>
+                    <th style="padding:8px 10px">Nombre</th>
+                    <th style="padding:8px 10px">Teléfono</th>
+                    <th style="padding:8px 10px">Email</th>
+                  </tr>
+                </thead>
+                <tbody id="imp-vec-preview-body">
+                  <tr><td colspan="4" style="text-align:center;padding:24px;color:#8595AD;font-size:13px">Pegá texto desde Excel o subí un CSV para previsualizar aquí.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6">
+            <button onclick="cerrarModal('modal-vecinos-importar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button id="imp-vec-btn-guardar" onclick="ejecutarImportacionVecinos(this)" disabled style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Importar vecinos</button>
+          </div>
+        </div>
       </div>`;
 
     const modalVecinoNuevoHtml = `
@@ -8117,6 +8389,7 @@ router.get('/mi-edificio', async (req, res) => {
       ${modalNuevoEdificio}
       ${modalVecinoNuevoHtml}
       ${modalVecinoEditarHtml}
+      ${modalVecinosImportarHtml}
       ${modalConsejoNuevoHtml}
       ${modalConsejoEditarHtml}
       ${modalStaffEditHtml}
@@ -10109,6 +10382,58 @@ async function appendRow(tabName, rowData) {
   });
 }
 
+async function appendRows(tabName, rowsArray) {
+  if (!rowsArray || !rowsArray.length) return;
+  await ensureSheetExists(tabName).catch(() => {});
+  const sheets = await getSheetsClient();
+  let res;
+  try {
+    res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${tabName}!1:1`,
+    });
+  } catch (_) {
+    res = null;
+  }
+  let existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
+  if (existingHeaders.length === 0) {
+    const headers = Object.keys(rowsArray[0]);
+    const valuesMatrix = [headers].concat(rowsArray.map((r) => headers.map((k) => (r[k] !== undefined ? String(r[k]) : ''))));
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: `${tabName}!A1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: valuesMatrix },
+    });
+    return;
+  }
+
+  const allKeys = new Set();
+  rowsArray.forEach((r) => Object.keys(r).forEach((k) => allKeys.add(k)));
+  const sinMatch = Array.from(allKeys).filter((k) =>
+    !existingHeaders.some((h) => normalizeKey(h) === normalizeKey(k) || k === h));
+  for (const k of sinMatch) {
+    const col = columnLetter(existingHeaders.length + 1);
+    await ensureHeader(tabName, col, k, false);
+    existingHeaders = existingHeaders.concat([k]);
+  }
+
+  const valuesMatrix = rowsArray.map((r) => {
+    return existingHeaders.map((h) => {
+      const key = normalizeKey(h);
+      const match = Object.keys(r).find((k) => normalizeKey(k) === key || k === h);
+      return match !== undefined ? String(r[match]) : '';
+    });
+  });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: `${tabName}!A1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: valuesMatrix },
+  });
+}
+
 /* ===================================================================
  * APIs (POST & GET)
  * =================================================================== */
@@ -11784,6 +12109,33 @@ router.post('/api/vecino-eliminar', async (req, res) => {
     if (plan.create) await ensureHeader(TAB_VECINOS, plan.col, 'estado', false);
     await writeCell(TAB_VECINOS, plan.col, Number(row), 'eliminado');
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/vecinos-importar-masivo', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, vecinos } = req.body || {};
+    if (!edificio) return res.status(400).json({ error: 'Falta edificio' });
+    if (!Array.isArray(vecinos) || vecinos.length === 0) {
+      return res.status(400).json({ error: 'No se recibieron vecinos para importar' });
+    }
+
+    const rows = vecinos.map((v) => ({
+      edificio: edificio || '',
+      nombre: v.nombre || '',
+      departamento: v.unidad || v.departamento || '',
+      unidad: v.unidad || v.departamento || '',
+      telefono: v.telefono || '',
+      email: v.email || '',
+      notas: v.notas || '',
+      estado: 'activo',
+    }));
+
+    await appendRows(TAB_VECINOS, rows);
+    res.json({ ok: true, importados: rows.length });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
