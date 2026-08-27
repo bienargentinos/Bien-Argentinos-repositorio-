@@ -45,10 +45,15 @@ try {
   datosModule = require('./datos');
 } catch (_) {}
 
-let marcosCara = null;
-try {
-  marcosCara = require('./agentes/marcos-cara');
-} catch (_) {}
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // Estilos visuales oficiales de Marcos IA (Tokens exactos)
 const CSS_VECINO = `
