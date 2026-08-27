@@ -7297,7 +7297,6 @@ router.get('/mi-edificio', async (req, res) => {
           ${editRow('🏠', 'unidades', cur.unidades, 'Unidades funcionales', 'Cantidad')}
           ${solicitarRow('👔', 'administrador', 'Administrador', cur.administrador)}
           ${solicitarRow('📞', 'telefonos', 'Tel. administración', cur.telefonos)}
-          ${solicitarRow('💳', 'plan', 'Plan Contratado', cur.plan, 'border:2px solid #F59E0B !important;box-shadow:0 0 12px rgba(245,158,11,.25) !important;')}
         </div>
       </div>`;
 
