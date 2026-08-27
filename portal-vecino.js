@@ -208,30 +208,69 @@ function shellVecino(title, activeTab, content, vecinoData) {
       <span class="nav-icon"><i class="ph ph-bell${activeTab === 'novedades' ? '-fill' : ''}"></i></span>
       <span>Avisos</span>
     </a>
-  <!-- MODAL LLAMADA ENTRANTE DE PORTERÍA (TIMBRE VIRTUAL) -->
-  <div id="modal-llamada-timbre" style="position:fixed;inset:0;background:rgba(10,31,68,.94);backdrop-filter:blur(10px);z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:#fff;text-align:center">
-    <div style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#1E5FB4,#38BDF8);display:flex;align-items:center;justify-content:center;font-size:46px;margin-bottom:20px;box-shadow:0 0 45px rgba(56,189,248,.7);animation:pulseRing 1.2s infinite">
-      🔔
-    </div>
-    <div style="font-size:13px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#38BDF8;margin-bottom:6px">Llamada de Portería en Puerta</div>
-    <h2 style="font-size:24px;font-weight:900;margin-bottom:6px" id="llamada-timbre-visita">🛵 Delivery en Puerta</h2>
-    <p style="font-size:14.5px;color:#CBD5E1;margin-bottom:24px" id="llamada-timbre-detalle">Tocando timbre para tu unidad (${v.departamento})</p>
+  <!-- MODAL LLAMADA ENTRANTE DE PORTERÍA (TIMBRE VIRTUAL & VOZ WEBRTC) -->
+  <audio id="audio-webrtc-vecino" autoplay playsinline style="display:none"></audio>
+  <div id="modal-llamada-timbre" style="position:fixed;inset:0;background:rgba(10,31,68,.96);backdrop-filter:blur(12px);z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:#fff;text-align:center">
+    
+    <!-- 1. Estado: Sonando Timbre -->
+    <div id="box-timbre-sonando" style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:340px">
+      <div style="width:90px;height:90px;border-radius:50%;background:linear-gradient(135deg,#1E5FB4,#38BDF8);display:flex;align-items:center;justify-content:center;font-size:44px;margin-bottom:18px;box-shadow:0 0 40px rgba(56,189,248,.6);animation:pulseRing 1.2s infinite">
+        🔔
+      </div>
+      <div style="font-size:12.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#38BDF8;margin-bottom:4px">Llamada de Portería</div>
+      <h2 style="font-size:22px;font-weight:900;margin-bottom:4px" id="llamada-timbre-visita">🛵 Delivery en Puerta</h2>
+      <p style="font-size:13.5px;color:#CBD5E1;margin-bottom:20px">Tocando timbre para tu unidad (${v.departamento})</p>
 
-    <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:320px;margin-bottom:16px">
-      <button onclick="responderTimbreVecino('¡Ya bajo!')" style="width:100%;height:50px;border:none;border-radius:14px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 15px rgba(22,163,74,.4)">
-        <span>🏃 ¡Ya bajo!</span>
+      <!-- Botón Hablar en Vivo -->
+      <button onclick="iniciarLlamadaVozVecino()" style="width:100%;height:52px;border:none;border-radius:14px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 4px 18px rgba(22,163,74,.45);margin-bottom:14px">
+        <i class="ph ph-phone-call-fill" style="font-size:22px"></i>
+        <span>HABLAR EN VIVO (Llamada)</span>
       </button>
-      <button onclick="responderTimbreVecino('Dejalo en el hall / puerta')" style="width:100%;height:46px;border:1.5px solid rgba(255,255,255,.2);border-radius:14px;background:rgba(255,255,255,.1);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
-        <span>🚪 Dejalo en el hall</span>
-      </button>
-      <button onclick="responderTimbreVecino('Dejar con el encargado')" style="width:100%;height:46px;border:1.5px solid rgba(255,255,255,.2);border-radius:14px;background:rgba(255,255,255,.1);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
-        <span>📬 Dejar con el encargado</span>
+
+      <div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">O responder con 1 toque:</div>
+
+      <!-- Respuestas Rápidas de Texto -->
+      <div style="display:flex;flex-direction:column;gap:8px;width:100%;margin-bottom:16px">
+        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="width:100%;height:44px;border:1.5px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(255,255,255,.1);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>🏃 ¡Ya bajo!</span>
+        </button>
+        <button onclick="responderTimbreVecino('Dejalo en el hall / puerta')" style="width:100%;height:44px;border:1.5px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(255,255,255,.1);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>🚪 Dejalo en el hall</span>
+        </button>
+        <button onclick="responderTimbreVecino('Dejar con el encargado')" style="width:100%;height:44px;border:1.5px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(255,255,255,.1);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>📬 Dejar con el encargado</span>
+        </button>
+      </div>
+
+      <button onclick="silenciarTimbreVecino()" style="background:transparent;border:none;color:#94A3B8;font-size:13px;font-weight:700;cursor:pointer;padding:6px 12px">
+        ✕ Silenciar timbre
       </button>
     </div>
 
-    <button onclick="silenciarTimbreVecino()" style="background:transparent;border:none;color:#94A3B8;font-size:13.5px;font-weight:700;cursor:pointer;padding:8px 16px">
-      ✕ Silenciar timbre
-    </button>
+    <!-- 2. Estado: En Llamada de Voz Activa -->
+    <div id="box-llamada-voz-activa" style="display:none;flex-direction:column;align-items:center;width:100%;max-width:340px">
+      <div style="width:84px;height:84px;border-radius:50%;background:linear-gradient(135deg,#15803D,#16A34A);display:flex;align-items:center;justify-content:center;font-size:38px;margin-bottom:16px;box-shadow:0 0 35px rgba(22,163,74,.5)">
+        🎙️
+      </div>
+      <div style="font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#86EFAC;margin-bottom:2px">Llamada de Voz Conectada</div>
+      <h2 style="font-size:20px;font-weight:900;margin-bottom:4px">Puerta de Calle</h2>
+      <div id="voz-timer" style="font-size:18px;font-family:monospace;font-weight:700;color:#38BDF8;margin-bottom:20px">00:00</div>
+
+      <div style="display:flex;gap:12px;margin-bottom:20px;width:100%">
+        <button id="btn-mute-voz" onclick="toggleMuteVoz()" style="flex:1;height:48px;border-radius:12px;border:1.5px solid rgba(255,255,255,.25);background:rgba(255,255,255,.1);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>🎙️ Silenciar Mic</span>
+        </button>
+        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="flex:1;height:48px;border-radius:12px;border:none;background:#2563EB;color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>🏃 ¡Ya bajo!</span>
+        </button>
+      </div>
+
+      <button onclick="cortarLlamadaVoz()" style="width:100%;height:50px;border:none;border-radius:14px;background:#DC2626;color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 15px rgba(220,38,38,.4)">
+        <i class="ph ph-phone-disconnect-fill" style="font-size:20px"></i>
+        <span>FINALIZAR LLAMADA</span>
+      </button>
+    </div>
+
   </div>
 
   <script>
@@ -241,6 +280,11 @@ function shellVecino(title, activeTab, content, vecinoData) {
     var _audioCtx = null;
     var _intervalRingtone = null;
     var _llamadaMostradaId = '';
+    var _peerConn = null;
+    var _localStream = null;
+    var _timerInterval = null;
+    var _timerSecs = 0;
+    var _isMuted = false;
 
     function sonarRingtone() {
       try {
@@ -284,6 +328,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
 
     window.responderTimbreVecino = async function(resp) {
       detenerRingtoneLoop();
+      cortarLlamadaVoz();
       document.getElementById('modal-llamada-timbre').style.display = 'none';
       try {
         await fetch('/porteria/api/timbre-responder', {
@@ -296,9 +341,118 @@ function shellVecino(title, activeTab, content, vecinoData) {
 
     window.silenciarTimbreVecino = function() {
       detenerRingtoneLoop();
+      cortarLlamadaVoz();
       document.getElementById('modal-llamada-timbre').style.display = 'none';
     };
 
+    window.iniciarLlamadaVozVecino = async function() {
+      detenerRingtoneLoop();
+      document.getElementById('box-timbre-sonando').style.display = 'none';
+      document.getElementById('box-llamada-voz-activa').style.display = 'flex';
+
+      _timerSecs = 0;
+      clearInterval(_timerInterval);
+      _timerInterval = setInterval(function(){
+        _timerSecs++;
+        var m = String(Math.floor(_timerSecs / 60)).padStart(2, '0');
+        var s = String(_timerSecs % 60).padStart(2, '0');
+        var el = document.getElementById('voz-timer');
+        if (el) el.textContent = m + ':' + s;
+      }, 1000);
+
+      try {
+        await fetch('/porteria/api/timbre-responder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, modoVoz: true })
+        });
+
+        _localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        _peerConn = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+
+        _localStream.getTracks().forEach(function(track){
+          _peerConn.addTrack(track, _localStream);
+        });
+
+        _peerConn.ontrack = function(event){
+          var remoteAudio = document.getElementById('audio-webrtc-vecino');
+          if (remoteAudio && event.streams[0]) {
+            remoteAudio.srcObject = event.streams[0];
+          }
+        };
+
+        _peerConn.onicecandidate = function(event){
+          if (event.candidate) {
+            fetch('/porteria/api/webrtc-signal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, from: 'vecino', signal: { type: 'candidate', candidate: event.candidate } })
+            });
+          }
+        };
+
+        var offer = await _peerConn.createOffer();
+        await _peerConn.setLocalDescription(offer);
+
+        await fetch('/porteria/api/webrtc-signal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, from: 'vecino', signal: { type: 'offer', sdp: offer } })
+        });
+
+        // Polling de señales de respuesta desde la visita
+        var lastSince = Date.now() - 5000;
+        var sigInterval = setInterval(async function(){
+          if (!_peerConn) { clearInterval(sigInterval); return; }
+          try {
+            var sRes = await fetch('/porteria/api/webrtc-signal?edificio=' + encodeURIComponent(_edificioVecino) + '&depto=' + encodeURIComponent(_deptoVecino) + '&forRole=vecino&since=' + lastSince);
+            var sData = await sRes.json();
+            if (sData && sData.signals && sData.signals.length) {
+              for (var i = 0; i < sData.signals.length; i++) {
+                var sigObj = sData.signals[i].signal;
+                lastSince = Math.max(lastSince, sData.signals[i].timestamp);
+                if (sigObj.type === 'answer' && _peerConn.signalingState !== 'stable') {
+                  await _peerConn.setRemoteDescription(new RTCSessionDescription(sigObj.sdp));
+                } else if (sigObj.type === 'candidate' && sigObj.candidate) {
+                  await _peerConn.addIceCandidate(new RTCIceCandidate(sigObj.candidate));
+                }
+              }
+            }
+          } catch(_) {}
+        }, 1000);
+
+      } catch(err) {
+        console.warn('Voz WebRTC:', err.message);
+      }
+    };
+
+    window.toggleMuteVoz = function() {
+      if (_localStream) {
+        _isMuted = !_isMuted;
+        _localStream.getAudioTracks().forEach(function(t){ t.enabled = !_isMuted; });
+        var btn = document.getElementById('btn-mute-voz');
+        if (btn) btn.innerHTML = _isMuted ? '<span>🔇 Mic Silenciado</span>' : '<span>🎙️ Silenciar Mic</span>';
+      }
+    };
+
+    window.cortarLlamadaVoz = function() {
+      clearInterval(_timerInterval);
+      if (_peerConn) {
+        _peerConn.close();
+        _peerConn = null;
+      }
+      if (_localStream) {
+        _localStream.getTracks().forEach(function(t){ t.stop(); });
+        _localStream = null;
+      }
+      document.getElementById('box-timbre-sonando').style.display = 'flex';
+      document.getElementById('box-llamada-voz-activa').style.display = 'none';
+      document.getElementById('modal-llamada-timbre').style.display = 'none';
+    };
+
+    // Polling de timbres entrantes cada 2.5 seg
     setInterval(async function() {
       try {
         var res = await fetch('/porteria/api/timbre-check?edificio=' + encodeURIComponent(_edificioVecino) + '&depto=' + encodeURIComponent(_deptoVecino));
@@ -309,11 +463,13 @@ function shellVecino(title, activeTab, content, vecinoData) {
             var visTitle = data.llamada.tipoVisita || '🛵 Visita en Puerta';
             if (data.llamada.nombreVisita) visTitle += ' (' + data.llamada.nombreVisita + ')';
             document.getElementById('llamada-timbre-visita').textContent = visTitle;
+            document.getElementById('box-timbre-sonando').style.display = 'flex';
+            document.getElementById('box-llamada-voz-activa').style.display = 'none';
             document.getElementById('modal-llamada-timbre').style.display = 'flex';
             iniciarRingtoneLoop();
           }
         } else {
-          if (_llamadaMostradaId) {
+          if (_llamadaMostradaId && !_peerConn) {
             _llamadaMostradaId = '';
             detenerRingtoneLoop();
             document.getElementById('modal-llamada-timbre').style.display = 'none';

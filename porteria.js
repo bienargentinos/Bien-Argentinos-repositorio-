@@ -340,23 +340,33 @@ async function ejecutarTimbre(){
       sonarChime();
     }, 400);
 
-    // Escuchar si el vecino responde desde su app
+    // Escuchar si el vecino responde por texto o inicia llamada de voz
     var checkInterval = setInterval(async function(){
       try {
         var sRes = await fetch('/porteria/api/timbre-visita-status?callId=' + encodeURIComponent(data.callId || '') + '&edificio=' + encodeURIComponent(_edificio) + '&depto=' + encodeURIComponent(_deptoActivo));
         var sData = await sRes.json();
-        if (sData && sData.estado === 'atendido' && sData.respuesta) {
-          clearInterval(checkInterval);
-          fb.style.background = '#DCFCE7';
-          fb.style.color = '#15803D';
-          fb.style.borderColor = '#86EFAC';
-          fb.innerHTML = '🟢 <strong>El vecino atendió:</strong> "' + sData.respuesta + '"';
-          sonarChime();
+        if (sData) {
+          if (sData.estado === 'atendido' && sData.respuesta) {
+            clearInterval(checkInterval);
+            fb.style.background = '#DCFCE7';
+            fb.style.color = '#15803D';
+            fb.style.borderColor = '#86EFAC';
+            fb.innerHTML = '🟢 <strong>El vecino respondió:</strong> "' + sData.respuesta + '"';
+            sonarChime();
+          } else if (sData.estado === 'voz_iniciada') {
+            clearInterval(checkInterval);
+            fb.style.background = '#EBF3FC';
+            fb.style.color = '#1E5FB4';
+            fb.style.borderColor = '#93C5FD';
+            fb.innerHTML = '<div style="font-size:15px;font-weight:800;margin-bottom:6px">🎙️ ¡Llamada de Voz Conectada!</div><p style="font-size:12.5px;margin-bottom:10px">Podés hablar y escuchar al vecino por el celular.</p><button onclick="finalizarLlamadaVisita()" style="padding:6px 14px;border:none;border-radius:8px;background:#DC2626;color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">🔴 Finalizar llamada</button>';
+            sonarChime();
+            iniciarVozVisita();
+          }
         }
       } catch(_) {}
-    }, 1500);
+    }, 1200);
 
-    setTimeout(function(){ clearInterval(checkInterval); }, 45000);
+    setTimeout(function(){ clearInterval(checkInterval); }, 50000);
 
   } catch(err){
     btn.disabled = false;
@@ -368,8 +378,86 @@ async function ejecutarTimbre(){
     fb.innerHTML = '🔔 Timbre tocado en la puerta.';
   }
 }
+
+var _visitaPeerConn = null;
+var _visitaLocalStream = null;
+
+async function iniciarVozVisita() {
+  try {
+    _visitaLocalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _visitaPeerConn = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    _visitaLocalStream.getTracks().forEach(function(track){
+      _visitaPeerConn.addTrack(track, _visitaLocalStream);
+    });
+
+    _visitaPeerConn.ontrack = function(event){
+      var remoteAudio = document.getElementById('audio-webrtc-visita');
+      if (remoteAudio && event.streams[0]) {
+        remoteAudio.srcObject = event.streams[0];
+      }
+    };
+
+    _visitaPeerConn.onicecandidate = function(event){
+      if (event.candidate) {
+        fetch('/porteria/api/webrtc-signal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ edificio: _edificio, depto: _deptoActivo, from: 'visita', signal: { type: 'candidate', candidate: event.candidate } })
+        });
+      }
+    };
+
+    // Polling de oferta de vecino
+    var lastSince = Date.now() - 6000;
+    var sigInterval = setInterval(async function(){
+      if (!_visitaPeerConn) { clearInterval(sigInterval); return; }
+      try {
+        var sRes = await fetch('/porteria/api/webrtc-signal?edificio=' + encodeURIComponent(_edificio) + '&depto=' + encodeURIComponent(_deptoActivo) + '&forRole=visita&since=' + lastSince);
+        var sData = await sRes.json();
+        if (sData && sData.signals && sData.signals.length) {
+          for (var i = 0; i < sData.signals.length; i++) {
+            var sigObj = sData.signals[i].signal;
+            lastSince = Math.max(lastSince, sData.signals[i].timestamp);
+            if (sigObj.type === 'offer' && _visitaPeerConn.signalingState !== 'stable') {
+              await _visitaPeerConn.setRemoteDescription(new RTCSessionDescription(sigObj.sdp));
+              var answer = await _visitaPeerConn.createAnswer();
+              await _visitaPeerConn.setLocalDescription(answer);
+              await fetch('/porteria/api/webrtc-signal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ edificio: _edificio, depto: _deptoActivo, from: 'visita', signal: { type: 'answer', sdp: answer } })
+              });
+            } else if (sigObj.type === 'candidate' && sigObj.candidate) {
+              await _visitaPeerConn.addIceCandidate(new RTCIceCandidate(sigObj.candidate));
+            }
+          }
+        }
+      } catch(_) {}
+    }, 1000);
+
+  } catch(err) {
+    console.warn('Voz visita:', err.message);
+  }
+}
+
+function finalizarLlamadaVisita() {
+  if (_visitaPeerConn) {
+    _visitaPeerConn.close();
+    _visitaPeerConn = null;
+  }
+  if (_visitaLocalStream) {
+    _visitaLocalStream.getTracks().forEach(function(t){ t.stop(); });
+    _visitaLocalStream = null;
+  }
+  var fb = document.getElementById('ring-feedback');
+  if (fb) fb.innerHTML = 'Llamada finalizada.';
+}
 </script>
 
+<audio id="audio-webrtc-visita" autoplay playsinline style="display:none"></audio>
 </body>
 </html>`);
 });
@@ -380,14 +468,14 @@ const _timbresActivos = new Map();
 function limpiarTimbresViejos() {
   const ahora = Date.now();
   for (const [k, v] of _timbresActivos.entries()) {
-    if (ahora - v.timestamp > 45000) {
+    if (ahora - v.timestamp > 60000) {
       _timbresActivos.delete(k);
     }
   }
 }
 
 // -------------------------------------------------------------------
-// 3. ENDPOINTS ACCIÓN DE TIMBRE Y RESPUESTA EN VIVO
+// 3. ENDPOINTS ACCIÓN DE TIMBRE, VOZ WEBRTC Y RESPUESTAS EN VIVO
 // -------------------------------------------------------------------
 router.post('/api/tocar-timbre', async (req, res) => {
   try {
@@ -396,7 +484,7 @@ router.post('/api/tocar-timbre', async (req, res) => {
 
     limpiarTimbresViejos();
 
-    // Guardar en cola de llamadas activas
+    // Guardar en cola de llamadas activas con canal de señales WebRTC
     const callId = 'ring_' + Date.now();
     const ringKey = (edificio || '').toLowerCase().trim() + ':' + (departamento || '').toLowerCase().trim();
     const ringData = {
@@ -407,7 +495,8 @@ router.post('/api/tocar-timbre', async (req, res) => {
       nombreVisita: nombreVisita || '',
       timestamp: Date.now(),
       estado: 'llamando',
-      respuesta: ''
+      respuesta: '',
+      signals: []
     };
     _timbresActivos.set(ringKey, ringData);
 
@@ -455,7 +544,6 @@ router.get('/api/timbre-check', (req, res) => {
 
   let llamada = _timbresActivos.get(ringKey);
   if (!llamada) {
-    // Probar búsqueda difusa de depto
     for (const [k, v] of _timbresActivos.entries()) {
       if (k.startsWith((edificio || '').toLowerCase().trim() + ':') && (k.endsWith(':' + (depto || '').toLowerCase().trim()) || v.departamento.toLowerCase() === (depto || '').toLowerCase())) {
         llamada = v;
@@ -464,19 +552,24 @@ router.get('/api/timbre-check', (req, res) => {
     }
   }
 
-  if (llamada && llamada.estado === 'llamando') {
+  if (llamada && (llamada.estado === 'llamando' || llamada.estado === 'voz_iniciada')) {
     return res.json({ ok: true, timbreActivo: true, llamada });
   }
   res.json({ ok: true, timbreActivo: false });
 });
 
-// Endpoint para que el vecino conteste a la visita en la calle
+// Endpoint para que el vecino conteste a la visita (texto o iniciar llamada de voz)
 router.post('/api/timbre-responder', (req, res) => {
-  const { edificio, depto, respuesta } = req.body || {};
+  const { edificio, depto, respuesta, modoVoz } = req.body || {};
   const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
 
   const llamada = _timbresActivos.get(ringKey);
   if (llamada) {
+    if (modoVoz) {
+      llamada.estado = 'voz_iniciada';
+      llamada.respuesta = '🎙️ Llamada de voz iniciada';
+      return res.json({ ok: true, modoVoz: true, callId: llamada.id });
+    }
     llamada.estado = 'atendido';
     llamada.respuesta = respuesta || '¡Ya bajo!';
     return res.json({ ok: true, mensaje: 'Respuesta enviada a la puerta' });
@@ -484,7 +577,35 @@ router.post('/api/timbre-responder', (req, res) => {
   res.json({ ok: true });
 });
 
-// Endpoint para que el visitante en la calle vea si el vecino le respondió
+// Endpoint para intercambiar señalización WebRTC (SDP / ICE candidates)
+router.post('/api/webrtc-signal', (req, res) => {
+  const { edificio, depto, from, signal } = req.body || {};
+  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
+
+  const llamada = _timbresActivos.get(ringKey);
+  if (llamada) {
+    if (!llamada.signals) llamada.signals = [];
+    llamada.signals.push({ from: from || 'anon', signal, timestamp: Date.now() });
+    return res.json({ ok: true });
+  }
+  res.status(404).json({ ok: false, error: 'Llamada no encontrada' });
+});
+
+// Endpoint para obtener señales WebRTC pendientes para el otro extremo
+router.get('/api/webrtc-signal', (req, res) => {
+  const { edificio, depto, forRole, since } = req.query || {};
+  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
+
+  const llamada = _timbresActivos.get(ringKey);
+  if (llamada && llamada.signals) {
+    const sinceTime = Number(since || 0);
+    const nuevas = llamada.signals.filter(s => s.from !== forRole && s.timestamp > sinceTime);
+    return res.json({ ok: true, signals: nuevas, estado: llamada.estado });
+  }
+  res.json({ ok: true, signals: [], estado: 'finalizado' });
+});
+
+// Endpoint para que el visitante en la calle vea el estado
 router.get('/api/timbre-visita-status', (req, res) => {
   const { callId, edificio, depto } = req.query || {};
   const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
