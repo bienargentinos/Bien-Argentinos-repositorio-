@@ -487,32 +487,15 @@ async function buscarPerfilEdificio(nombreEdificio) {
         if (!sheet) return null;
 
         const rows = await sheet.getRows();
-        const buscado = String(nombreEdificio).toLowerCase().trim();
-        const numBuscado = buscado.match(/\d+/g) || [];
 
-        // 1. Coincidencia por número exacto de calle (ej: 159 vs 270)
-        let row = null;
-        if (numBuscado.length > 0) {
-            row = rows.find(r => {
-                const nombre = (r.get('nombre') || r.get('edificio') || r.get('consorcio') || '').toLowerCase().trim();
-                const direccion = (r.get('direccion') || '').toLowerCase().trim();
-                const aliases = (r.get('aliases') || '').toLowerCase().trim();
-                const numsR = (nombre + ' ' + direccion + ' ' + aliases).match(/\d+/g) || [];
-                return numBuscado.some(n => numsR.includes(n));
-            });
-        }
-
-        // 2. Coincidencia exacta o por inclusión si no hubo coincidencia por número
-        if (!row) {
-            row = rows.find(r => {
-                const nombre = (r.get('nombre') || r.get('edificio') || r.get('consorcio') || '').toLowerCase().trim();
-                const direccion = (r.get('direccion') || '').toLowerCase().trim();
-                const aliases = (r.get('aliases') || '').toLowerCase().trim();
-                return (nombre && (buscado === nombre || buscado.includes(nombre) || nombre.includes(buscado))) ||
-                       (direccion && (buscado === direccion || buscado.includes(direccion) || direccion.includes(buscado))) ||
-                       (aliases && aliases.split(',').some(a => a.trim().length > 3 && buscado.includes(a.trim().toLowerCase())));
-            });
-        }
+        // La decisión de CUÁL fila es vive en `perfil-edificio.js`, compartida con datos-pg.js.
+        // Estaba copiada en los dos y era la misma regla rota: juntaba los números de nombre,
+        // dirección y alias en una bolsa y le alcanzaba uno cualquiera, sin mirar la calle. Con
+        // eso, "San Patricio 270" devolvía la fila del 159 y Marcos mandó a un técnico a la
+        // dirección equivocada, con el contacto de ingreso de otro consorcio.
+        const { elegirFilaEdificio } = require('./perfil-edificio');
+        const elegida = elegirFilaEdificio(rows, nombreEdificio, (f, campo) => f.get(campo));
+        const row = elegida?.fila;
 
         if (!row) return null;
 

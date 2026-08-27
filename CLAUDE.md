@@ -680,6 +680,40 @@ reinicios de PM2.
   de tiempo.
 - Prueba: `node pruebas-plantilla-meta.js`.
 
+### El 270 y el 159 de la misma calle son dos consorcios
+
+> [!CAUTION]
+> **`buscarPerfilEdificio` decide a qué dirección se manda un técnico y a quién se le pide que le
+> abra.** Equivocarse ahí no es un dato feo en el panel: es una persona parada en la puerta de
+> otro consorcio, con el teléfono de un encargado que no la espera.
+
+Caso real: Daniel avisó por una cámara en **San Patricio 270**, el panel mostraba 270, y Marcos le
+contestó *"la dirección correcta es San Patricio 159, para el ingreso comuníquese con Natalia
+Zeballos…"* — dirección y contacto de otro edificio.
+
+La regla vieja juntaba **todos los números** de nombre + dirección + alias en una sola bolsa y le
+alcanzaba con que **uno cualquiera** coincidiera:
+
+```js
+const numsR = (nombre + ' ' + direccion + ' ' + aliases).match(/\d+/g) || [];
+return numBuscado.some(n => numsR.includes(n));
+```
+
+Nunca miraba el nombre de la calle. Un `270` escrito en los alias de una fila avalaba la dirección
+`159` de esa misma fila. Y "Rivadavia 270" habría coincidido con "San Patricio 270".
+
+`perfil-edificio.js` (`elegirFilaEdificio`) juzga **cada campo por separado** y en orden de
+confianza: exacto → misma calle y misma altura → misma calle sin altura. **Una altura que se
+contradice nunca coincide**, y si lo mejor que hay son dos edificios de la misma calle sin altura
+con qué desempatar, **no se elige ninguno**: sin perfil, quien pregunta se queda con el nombre
+interno del edificio — vago, pero no falso.
+
+> Estaba escrito **dos veces, igual**, en `sheets.js` y en `datos-pg.js`. Y como `datos.js` lee
+> PostgreSQL primero, arreglar solo el de Sheets no habría cambiado nada en producción. Ahora la
+> decisión vive en un archivo y una prueba verifica que ninguna de las dos copias vuelva.
+
+Prueba: `node pruebas-perfil-edificio.js`.
+
 ### Cómo se le habla al técnico: dirección y número de caso, siempre
 
 - **Dirección, nunca el nombre interno del edificio.** En la planilla los edificios tienen un alias
