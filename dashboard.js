@@ -94,8 +94,23 @@ const TAB_ASIGNACIONES = process.env.SHEET_TAB_ASIGNACIONES || 'proveedor_asigna
 const TAB_COLABORADORES = process.env.SHEET_TAB_COLABORADORES || 'colaboradores';
 const TAB_CONFIG_PLANES = process.env.SHEET_TAB_CONFIG_PLANES || 'configuracion_planes';
 const TAB_CONSEJO = process.env.SHEET_TAB_CONSEJO || 'consejo';
+const TAB_VECINOS = process.env.SHEET_TAB_VECINOS || 'vecinos';
 const TAB_SUSCRIPCIONES_PLANES = process.env.SHEET_TAB_SUSCRIPCIONES_PLANES || 'suscripciones_planes';
 const TAB_SUSCRIPCIONES_BANCO = process.env.SHEET_TAB_SUSCRIPCIONES_BANCO || 'suscripciones_banco';
+
+function mapVecino(r) {
+  return {
+    _row: r._row,
+    nombre: r.nombre || '',
+    edificio: r.edificio || '',
+    unidad: r.unidad || r.departamento || r.depto || '',
+    departamento: r.departamento || r.unidad || r.depto || '',
+    telefono: r.telefono || r.tel || '',
+    email: r.email || r.mail || '',
+    notas: r.notas || r.observaciones || '',
+    estado: r.estado || 'activo',
+  };
+}
 
 /* ===================================================================
  * SESSION
@@ -1360,7 +1375,8 @@ textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-
 .dark-theme .drawer-grid-card { background:#1C2B4E !important; border-color:#2A3A5E !important; }
 .dark-theme .drawer-grid-card div { color:#F1F5F9 !important; }
 .dark-theme .drawer-grid-card div:first-child { color:#94A3B8 !important; }
-.dark-theme .drawer-notes-box { background:#162447 !important; border-colorkground:#EAF1FB"],
+.dark-theme .drawer-notes-box { background:#162447 !important; border-color:#2A3A5E !important; }
+.dark-theme [style*="background:#EAF1FB"],
 .dark-theme [style*="background: #EAF1FB"],
 .dark-theme [style*="background: rgb(247, 249, 252)"],
 .dark-theme [style*="background: rgb(248, 250, 253)"],
@@ -5703,6 +5719,158 @@ window.addEventListener('DOMContentLoaded', function() {
   }
 });
 
+function abrirModalVecinoNuevo(edificio) {
+  var elEd = document.getElementById('vec-edificio');
+  if (elEd) elEd.value = edificio || '';
+  var elNom = document.getElementById('vec-nombre');
+  if (elNom) elNom.value = '';
+  var elUni = document.getElementById('vec-unidad');
+  if (elUni) elUni.value = '';
+  var elTel = document.getElementById('vec-tel');
+  if (elTel) elTel.value = '';
+  var elEmail = document.getElementById('vec-email');
+  if (elEmail) elEmail.value = '';
+  var elNotas = document.getElementById('vec-notas');
+  if (elNotas) elNotas.value = '';
+  abrirModal('modal-vecino-nuevo');
+}
+function abrirEditarVecino(row, nombre, unidad, tel, email, notas) {
+  var elRow = document.getElementById('edit-vec-row');
+  if (elRow) elRow.value = row;
+  var elNom = document.getElementById('edit-vec-nombre');
+  if (elNom) elNom.value = nombre || '';
+  var elUni = document.getElementById('edit-vec-unidad');
+  if (elUni) elUni.value = unidad || '';
+  var elTel = document.getElementById('edit-vec-tel');
+  if (elTel) elTel.value = tel || '';
+  var elEmail = document.getElementById('edit-vec-email');
+  if (elEmail) elEmail.value = email || '';
+  var elNotas = document.getElementById('edit-vec-notas');
+  if (elNotas) elNotas.value = notas || '';
+  abrirModal('modal-vecino-editar');
+}
+function filtrarVecinosList(val) {
+  var q = String(val || '').toLowerCase().trim();
+  var items = document.querySelectorAll('.vecino-fila-item');
+  items.forEach(function(el) {
+    var txt = el.getAttribute('data-vecino-search') || '';
+    el.style.display = (!q || txt.indexOf(q) !== -1) ? 'flex' : 'none';
+  });
+}
+function invitarVecinoWhatsApp(nombre, tel, edificio) {
+  var cleanTel = String(tel || '').replace(/\D/g, '');
+  if (!cleanTel) {
+    toast('Este vecino no tiene teléfono cargado', 'err');
+    return;
+  }
+  var primerNombre = nombre ? String(nombre).split(' ')[0] : '';
+  var msg = '¡Hola ' + primerNombre + '! Te invitamos a acceder al Portal Web de tu edificio (' + (edificio || '') + ') en https://marcos.bienargentinos.com/vecino/login con tu teléfono ' + tel + '.';
+  var url = 'https://wa.me/' + cleanTel + '?text=' + encodeURIComponent(msg);
+  window.open(url, '_blank');
+}
+async function guardarVecinoNuevo(btn) {
+  var elEd = document.getElementById('vec-edificio');
+  var edificio = elEd ? elEd.value : '';
+  var elNom = document.getElementById('vec-nombre');
+  var nombre = elNom ? elNom.value.trim() : '';
+  var elUni = document.getElementById('vec-unidad');
+  var unidad = elUni ? elUni.value.trim() : '';
+  var elTel = document.getElementById('vec-tel');
+  var telefono = elTel ? elTel.value.trim() : '';
+  var elEmail = document.getElementById('vec-email');
+  var email = elEmail ? elEmail.value.trim() : '';
+  var elNotas = document.getElementById('vec-notas');
+  var notas = elNotas ? elNotas.value.trim() : '';
+
+  if (!nombre && !unidad) {
+    toast('Ingresá al menos el nombre o el depto', 'err');
+    return;
+  }
+  btn.disabled = true;
+  var oldTxt = btn.textContent;
+  btn.textContent = 'Guardando...';
+  try {
+    var res = await fetch('/admin/api/vecino-crear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edificio: edificio, nombre: nombre, unidad: unidad, telefono: telefono, email: email, notas: notas })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      toast('Vecino guardado con éxito', 'ok');
+      setTimeout(function() { location.reload(); }, 600);
+    } else {
+      toast('Error: ' + (data.error || 'No se pudo guardar'), 'err');
+      btn.disabled = false;
+      btn.textContent = oldTxt;
+    }
+  } catch (e) {
+    toast('Error de conexión', 'err');
+    btn.disabled = false;
+    btn.textContent = oldTxt;
+  }
+}
+async function guardarEditarVecino(btn) {
+  var elRow = document.getElementById('edit-vec-row');
+  var row = elRow ? elRow.value : '';
+  var elNom = document.getElementById('edit-vec-nombre');
+  var nombre = elNom ? elNom.value.trim() : '';
+  var elUni = document.getElementById('edit-vec-unidad');
+  var unidad = elUni ? elUni.value.trim() : '';
+  var elTel = document.getElementById('edit-vec-tel');
+  var telefono = elTel ? elTel.value.trim() : '';
+  var elEmail = document.getElementById('edit-vec-email');
+  var email = elEmail ? elEmail.value.trim() : '';
+  var elNotas = document.getElementById('edit-vec-notas');
+  var notas = elNotas ? elNotas.value.trim() : '';
+
+  btn.disabled = true;
+  var oldTxt = btn.textContent;
+  btn.textContent = 'Guardando...';
+  try {
+    var res = await fetch('/admin/api/vecino-editar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row: row, nombre: nombre, unidad: unidad, telefono: telefono, email: email, notas: notas })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      toast('Vecino actualizado', 'ok');
+      setTimeout(function() { location.reload(); }, 600);
+    } else {
+      toast('Error: ' + (data.error || 'No se pudo actualizar'), 'err');
+      btn.disabled = false;
+      btn.textContent = oldTxt;
+    }
+  } catch (e) {
+    toast('Error de conexión', 'err');
+    btn.disabled = false;
+    btn.textContent = oldTxt;
+  }
+}
+async function eliminarVecino(btn, row) {
+  if (!confirm('¿Seguro que querés quitar a este vecino del padrón?')) return;
+  btn.disabled = true;
+  try {
+    var res = await fetch('/admin/api/vecino-eliminar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row: row })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      toast('Vecino quitado', 'ok');
+      setTimeout(function() { location.reload(); }, 600);
+    } else {
+      toast('Error: ' + (data.error || 'No se pudo quitar'), 'err');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    toast('Error de conexión', 'err');
+    btn.disabled = false;
+  }
+}
+
 // Explicit Global Attachments
 window.abrirDrawerEvento = abrirDrawerEvento;
 window.cerrarDrawerEvento = cerrarDrawerEvento;
@@ -5725,6 +5893,13 @@ window.abrirModalFiltrosAvanzados = abrirModalFiltrosAvanzados;
 window.abrirModal = abrirModal;
 window.cerrarModal = cerrarModal;
 window.toast = toast;
+window.abrirModalVecinoNuevo = abrirModalVecinoNuevo;
+window.abrirEditarVecino = abrirEditarVecino;
+window.filtrarVecinosList = filtrarVecinosList;
+window.invitarVecinoWhatsApp = invitarVecinoWhatsApp;
+window.guardarVecinoNuevo = guardarVecinoNuevo;
+window.guardarEditarVecino = guardarEditarVecino;
+window.eliminarVecino = eliminarVecino;
 `;
 
 /* ===================================================================
@@ -7619,6 +7794,119 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
+    let vecinos = [];
+    try {
+      const { rows: vRows } = await readTab(TAB_VECINOS);
+      vecinos = vRows.map(mapVecino).filter((v) => cur && compararEdificios(v.edificio, cur.nombre) && v.estado !== 'eliminado');
+    } catch (_) {}
+
+    const vecinosFilas = vecinos.length ? vecinos.map((v, idx) => {
+      const waTel = String(v.telefono || '').replace(/\D/g, '');
+      const idUsuario = '#VEC-' + String(v._row || idx + 1).padStart(3, '0');
+      return `
+        <div class="vecino-fila-item" data-vecino-search="${esc((v.nombre + ' ' + (v.unidad || '') + ' ' + (v.telefono || '') + ' ' + (v.email || '')).toLowerCase())}" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
+          <span style="font-size:12.5px;font-weight:800;background:#EBF3FC;color:#1E5FB4;padding:4px 10px;border-radius:8px;border:1px solid #BFDBFE;letter-spacing:.02em">
+            ${esc(v.unidad || 'S/D')}
+          </span>
+          <div style="flex:1;min-width:140px">
+            <div style="font-size:14.5px;font-weight:700;color:#16233B">${esc(v.nombre || 'Sin nombre')}</div>
+            <div style="font-size:12px;color:#8595AD">${esc(v.email ? v.email : 'Sin email')}${v.notas ? ' · ' + esc(v.notas) : ''}</div>
+          </div>
+          <div style="font-size:12px;font-weight:700;color:#64748B;background:#F1F5F9;padding:4px 8px;border-radius:6px">
+            ${esc(idUsuario)}
+          </div>
+          <div style="font-size:13.5px;font-weight:700;color:#2E6FC0;min-width:110px">
+            ${waTel ? `<a href="https://wa.me/${esc(waTel)}" target="_blank" style="color:#2E6FC0;text-decoration:none;display:inline-flex;align-items:center;gap:4px">💬 ${esc(v.telefono)}</a>` : '<span style="color:#94A3B8">Sin teléfono</span>'}
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            ${waTel ? `<button onclick="invitarVecinoWhatsApp('${escJs(v.nombre)}','${escJs(v.telefono)}','${escJs(cur.nombre)}')" class="btn-edit-sm hv-soft" style="color:#15803D;background:#DCFCE7;border-color:#86EFAC;font-weight:700" title="Enviar enlace de acceso al portal por WhatsApp">📱 Invitar</button>` : ''}
+            <button onclick="abrirEditarVecino(${v._row},'${escJs(v.nombre)}','${escJs(v.unidad || '')}','${escJs(v.telefono || '')}','${escJs(v.email || '')}','${escJs(v.notas || '')}')" class="btn-edit-sm hv-soft">Editar</button>
+            <button onclick="eliminarVecino(this,${v._row})" class="btn-remove-sm hv-red">Quitar</button>
+          </div>
+        </div>`;
+    }).join('') : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">Todavía no hay vecinos registrados para este edificio. Agregá el primer vecino o importá el padrón.</div>';
+
+    const vecinosCard = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+          <div>
+            <div style="font-size:16px;font-weight:800;color:#16233B">👥 Padrón de Vecinos y Unidades Funcionales (${vecinos.length})</div>
+            <p style="font-size:13px;color:#8595AD;margin:2px 0 0">Listado de propietarios e inquilinos registrados para atención 24/7 y acceso a la Web App del consorcio.</p>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="abrirModalVecinoNuevo('${escJs(cur.nombre)}')" style="height:36px;padding:0 14px;border:none;border-radius:999px;background:#2E6FC0;color:#fff;font-weight:700;font-size:13px;cursor:pointer">+ Agregar vecino</button>
+          </div>
+        </div>
+        ${vecinos.length > 3 ? `
+        <div style="margin:12px 0">
+          <input id="busc-vecinos-inp" oninput="filtrarVecinosList(this.value)" class="inp" placeholder="🔍 Buscar por nombre, departamento, teléfono o email..." style="height:38px;font-size:13.5px;margin:0">
+        </div>` : '<div style="margin-bottom:12px"></div>'}
+        <div id="lista-vecinos-wrap" style="display:flex;flex-direction:column;gap:10px;max-height:480px;overflow-y:auto;padding-right:6px">${vecinosFilas}</div>
+      </div>`;
+
+    const modalVecinoNuevoHtml = `
+      <div id="modal-vecino-nuevo" class="modal-overlay" onclick="cerrarModal('modal-vecino-nuevo')">
+        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Padrón de Vecinos</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">👥 Agregar Vecino</div>
+          </div>
+          <div style="padding:20px 24px">
+            <input type="hidden" id="vec-edificio">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
+            <input id="vec-nombre" class="inp" placeholder="Ej: Lucía Gómez" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Unidad Funcional / Departamento</div>
+            <input id="vec-unidad" class="inp" placeholder="Ej: 4° B" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Teléfono WhatsApp</div>
+            <input id="vec-tel" class="inp" placeholder="Ej: +54 9 11 5555 4444" style="margin-bottom:4px">
+            <div style="font-size:11.5px;color:#64748B;margin-bottom:14px">⚠️ Incluir +54 para WhatsApp y acceso web.</div>
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email (opcional)</div>
+            <input id="vec-email" class="inp" placeholder="ejemplo@correo.com" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas / Observaciones (opcional)</div>
+            <input id="vec-notas" class="inp" placeholder="Ej: Inquilino / Propietario">
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-vecino-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarVecinoNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar vecino</button>
+          </div>
+        </div>
+      </div>`;
+
+    const modalVecinoEditarHtml = `
+      <div id="modal-vecino-editar" class="modal-overlay" onclick="cerrarModal('modal-vecino-editar')">
+        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Padrón de Vecinos</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Vecino</div>
+          </div>
+          <div style="padding:20px 24px">
+            <input type="hidden" id="edit-vec-row">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
+            <input id="edit-vec-nombre" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Unidad / Departamento</div>
+            <input id="edit-vec-unidad" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Teléfono WhatsApp</div>
+            <input id="edit-vec-tel" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email (opcional)</div>
+            <input id="edit-vec-email" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
+            <input id="edit-vec-notas" class="inp">
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-vecino-editar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarEditarVecino(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
+          </div>
+        </div>
+      </div>`;
+
     let consejo = [];
     try {
       const { rows: cRows } = await readTab(TAB_CONSEJO);
@@ -7819,6 +8107,7 @@ router.get('/mi-edificio', async (req, res) => {
         ${bloqueServiciosHtml}
         ${bloqueEspaciosHtml}
         ${bloqueAccesosHtml}
+        ${vecinosCard}
         ${consejoCard}
         ${proveedoresCard}
       </div>
@@ -7826,6 +8115,8 @@ router.get('/mi-edificio', async (req, res) => {
       ${modalEncargadoHorario}
       ${modalEditarCampo}
       ${modalNuevoEdificio}
+      ${modalVecinoNuevoHtml}
+      ${modalVecinoEditarHtml}
       ${modalConsejoNuevoHtml}
       ${modalConsejoEditarHtml}
       ${modalStaffEditHtml}
@@ -11428,6 +11719,70 @@ router.post('/api/consejo-quitar', async (req, res) => {
     const plan = await findOrPlanColumn(TAB_CONSEJO, ['estado']);
     if (plan.create) await ensureHeader(TAB_CONSEJO, plan.col, 'estado', false);
     await writeCell(TAB_CONSEJO, plan.col, Number(row), 'eliminado');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/vecino-crear', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, nombre, unidad, telefono, email, notas } = req.body || {};
+    if (!edificio) return res.status(400).json({ error: 'Falta edificio' });
+    await appendRow(TAB_VECINOS, {
+      edificio: edificio || '',
+      nombre: nombre || '',
+      departamento: unidad || '',
+      unidad: unidad || '',
+      telefono: telefono || '',
+      email: email || '',
+      notas: notas || '',
+      estado: 'activo',
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/vecino-editar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row, nombre, unidad, telefono, email, notas } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Falta fila' });
+    const cNombre = await findOrPlanColumn(TAB_VECINOS, ['nombre', 'vecino']);
+    const cUnidad = await findOrPlanColumn(TAB_VECINOS, ['departamento', 'unidad', 'depto']);
+    const cTel = await findOrPlanColumn(TAB_VECINOS, ['telefono', 'tel']);
+    const cEmail = await findOrPlanColumn(TAB_VECINOS, ['email', 'mail']);
+    const cNotas = await findOrPlanColumn(TAB_VECINOS, ['notas', 'observaciones']);
+
+    if (cNombre.create) await ensureHeader(TAB_VECINOS, cNombre.col, 'nombre', false);
+    if (cUnidad.create) await ensureHeader(TAB_VECINOS, cUnidad.col, 'departamento', false);
+    if (cTel.create) await ensureHeader(TAB_VECINOS, cTel.col, 'telefono', false);
+    if (cEmail.create) await ensureHeader(TAB_VECINOS, cEmail.col, 'email', false);
+    if (cNotas.create) await ensureHeader(TAB_VECINOS, cNotas.col, 'notas', false);
+
+    if (nombre !== undefined) await writeCell(TAB_VECINOS, cNombre.col, Number(row), nombre);
+    if (unidad !== undefined) await writeCell(TAB_VECINOS, cUnidad.col, Number(row), unidad);
+    if (telefono !== undefined) await writeCell(TAB_VECINOS, cTel.col, Number(row), telefono);
+    if (email !== undefined) await writeCell(TAB_VECINOS, cEmail.col, Number(row), email);
+    if (notas !== undefined) await writeCell(TAB_VECINOS, cNotas.col, Number(row), notas);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/vecino-eliminar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Falta fila' });
+    const plan = await findOrPlanColumn(TAB_VECINOS, ['estado']);
+    if (plan.create) await ensureHeader(TAB_VECINOS, plan.col, 'estado', false);
+    await writeCell(TAB_VECINOS, plan.col, Number(row), 'eliminado');
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
