@@ -2896,6 +2896,13 @@ function validarYSanitizarNombre(nombre) {
             if (avisaQueVa && nombreEdifAviso && esSuyo) {
                 const { direccionParaTecnico } = require('./agentes/marcos-ops');
                 const dirAviso = await direccionParaTecnico(nombreEdifAviso);
+
+                // El rubro sale de la ficha del proveedor, y en la planilla real eso viene vacío
+                // seguido. Sin rubro no se puede saber después si un reclamo nuevo es otro caso, ni
+                // cuál de los técnicos de una línea compartida escribió. Lo que la persona contó
+                // ("un problema eléctrico en las luminarias") alcanza para deducirlo.
+                const { rubroDelTexto } = require('./rubros');
+                const rubroAviso = datosEmisor.especialidad || rubroDelTexto(msgBodyParaRegistro) || '';
                 try {
                     const { guardarReporte } = require('./datos');
                     const resAviso = await guardarReporte({
@@ -2904,9 +2911,12 @@ function validarYSanitizarNombre(nombre) {
                         problema: msgBodyParaRegistro,
                         urgencia: /urgen|se inund|no anda|sin luz|sin agua|peligro|riesgo/i.test(txtLow) ? 'alta' : 'media',
                         estado: 'en_proceso',
+                        // Si la línea la comparten varios técnicos y todavía no se sabe cuál
+                        // escribe, se anota el teléfono igual: el administrador necesita a quién
+                        // llamarle, y el nombre se completa cuando se resuelva.
                         tecnico: datosEmisor.nombre || '',
                         tel_tecnico: from || '',
-                        rubro_tecnico: datosEmisor.especialidad || '',
+                        rubro_tecnico: rubroAviso,
                         tipo: 'aviso_proveedor',
                         notas_ia: `El técnico ${datosEmisor.nombre} avisó que lo convocaron directamente y que va a ir. ` +
                                   `No hubo reclamo previo por este canal. Textual: "${msgBodyParaRegistro}"`,
@@ -2943,7 +2953,24 @@ function validarYSanitizarNombre(nombre) {
                     if (colaAviso && idAviso) {
                         colaAviso.eventoActivoId = idAviso;
                         colaAviso.edificioActivo = nombreEdifAviso;
-                        colaAviso.rubroActivo = datosEmisor.especialidad || colaAviso.rubroActivo;
+                        colaAviso.rubroActivo = rubroAviso || colaAviso.rubroActivo;
+                    }
+
+                    // Y se agenda el control. Sin esto el caso queda ABIERTO y nadie vuelve a
+                    // preguntar nunca si el técnico fue: se queda colgado en silencio, que es
+                    // justo lo que el seguimiento existe para evitar. El plazo sale de lo que él
+                    // mismo dijo ("voy mañana", "paso más tarde").
+                    if (idAviso) {
+                        try {
+                            const { programarSeguimiento } = require('./datos');
+                            const { calcularPrimerControl } = require('./seguimiento');
+                            await programarSeguimiento({
+                                id_evento: idAviso,
+                                cuando: calcularPrimerControl(msgBodyParaRegistro),
+                                paso: 1,
+                                nota: 'El proveedor avisó que lo convocaron y que va a ir'
+                            });
+                        } catch (e) { console.error('Error agendando el control del aviso del proveedor:', e.message); }
                     }
 
                     const respAviso = `Gracias por avisar, ${datosEmisor.nombre}. Lo registré como *${idAviso || 'caso nuevo'}* en ${dirAviso} y ya le avisé a la Administración de que vas.` +

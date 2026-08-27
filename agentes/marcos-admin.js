@@ -167,7 +167,11 @@ async function reportarAlAdmin({
         urgencia:  decisionCaso.urgencia || 'baja',
         tecnico:   tecnicoAsignado?.nombre || '',
         tel_tecnico: tecnicoAsignado?.telefono || '',
-        rubro_tecnico: tecnicoAsignado?.especialidad || decisionCaso.tipo_problema || '',
+        // Y si ninguno de los dos está cargado, se deduce de lo que contó el vecino. En la
+        // planilla real los casos quedaban TODOS "sin rubro", y sin rubro no se puede saber
+        // después si un reclamo nuevo es otro caso o la continuación de este.
+        rubro_tecnico: tecnicoAsignado?.especialidad || decisionCaso.tipo_problema
+                       || require('../rubros').rubroDelTexto(decisionCaso.resumen_problema || resumenReporte) || '',
         acceso:    tecnicoAsignado?.acceso || '',
         // Un caso se cierra cuando la IA decide que está resuelto y no queda nada que derivar.
         //

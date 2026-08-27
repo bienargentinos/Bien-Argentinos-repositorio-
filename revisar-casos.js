@@ -58,8 +58,15 @@ const corto = (t, n = 90) => {
 
         console.log(`${abierto ? '🟢' : '⚪'} ${id}  ·  ${f.get('fecha') || 's/fecha'}`);
         console.log(`   Edificio: ${f.get('edificio') || '—'}   ·   Estado: ${estado || '—'}`);
-        console.log(`   Rubro: ${f.get('rubro_tecnico') || '— sin rubro —'}   ·   Técnico: ${f.get('tecnico') || '—'}`);
+        // El teléfono del técnico va aparte del del vecino: es el que el administrador necesita
+        // para llamarlo si tiene una duda del trabajo o del monto. Sin mostrarlo, un caso abierto
+        // por el propio proveedor parecía no tener a nadie detrás.
+        const telTec = f.get('tel_tecnico') || '';
+        console.log(`   Rubro: ${f.get('rubro_tecnico') || '— SIN RUBRO —'}   ·   Técnico: ${f.get('tecnico') || '—'}${telTec ? ` (${telTec})` : ''}`);
         console.log(`   Vecino: ${f.get('vecino') || '—'}${f.get('depto') ? ` (${f.get('depto')})` : ''}   ·   Tel: ${f.get('telefono') || '—'}`);
+        if (!f.get('rubro_tecnico')) {
+            console.log(`   ⚠️ Sin rubro: no se puede saber si un reclamo nuevo de este vecino es OTRO caso o la continuación de este.`);
+        }
         console.log(`   El pedido: ${corto(f.get('mensaje'), 120) || '—'}`);
         console.log(`   Conversación: ${chatV.length} mensaje(s) con el vecino · ${chatP.length} con el proveedor`);
 

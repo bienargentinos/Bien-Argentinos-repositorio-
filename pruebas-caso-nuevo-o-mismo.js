@@ -101,5 +101,34 @@ console.log('\n── EL CASO REAL QUE LO DESTAPÓ ──');
         decidir({ problema: 'Se traba el portero eléctrico', rubro_tecnico: 'portero', casoAbierto: casoDeLuz }), true);
 }
 
+console.log('\n── EL RUBRO DEDUCIDO DE LO QUE CONTARON ──');
+{
+    // En la planilla real los primeros cuatro casos quedaron TODOS "sin rubro": la ficha del
+    // proveedor venía vacía y nadie avisaba. Sin rubro, toda la separación de arriba está muerta.
+    // Lo que sí está siempre es lo que la persona dijo.
+    const { rubroDelTexto } = require('./rubros');
+
+    verificar('un problema eléctrico en las luminarias',
+        rubroDelTexto('Me llamó el encargado por un problema eléctrico en las luminarias de la cochera'), 'electricidad');
+    verificar('las luces del hall',
+        rubroDelTexto('Puerta de entrada magnética sin traba y luces del hall sin funcionar'), 'electricidad');
+    verificar('el jardín',
+        rubroDelTexto('Hay un problema en el jardín, el césped está muy alto'), 'jardinería');
+    verificar('una canilla que pierde',
+        rubroDelTexto('Pierde agua la canilla del baño'), 'plomería');
+    verificar('el ascensor', rubroDelTexto('No anda el ascensor'), 'ascensores');
+    verificar('una pérdida de gas', rubroDelTexto('Se siente olor a gas en el pasillo'), 'gas');
+
+    // Ante la duda, vacío. Un rubro inventado separa casos que son el mismo, o manda el aviso al
+    // gremio equivocado.
+    verificar('un saludo no dice nada', rubroDelTexto('Hola, cómo va'), '');
+    verificar('vacío', rubroDelTexto(''), '');
+    verificar('null', rubroDelTexto(null), '');
+
+    // Y con esto la separación vuelve a funcionar aunque la ficha del proveedor esté vacía.
+    verificar('la luz de la cochera y el jardín no son el mismo rubro',
+        rubroDelTexto('luminarias de la cochera') === rubroDelTexto('problema en el jardín'), false);
+}
+
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);
 process.exit(fallos === 0 ? 0 : 1);
