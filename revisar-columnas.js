@@ -28,30 +28,9 @@
 
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
-// Lo que cada pestaña necesita, copiado de las funciones que escriben en ella. Si mañana alguna
-// función agrega una columna nueva, se agrega también acá y este script la va a reclamar.
-const NECESARIAS = {
-    'EVENTOS': [
-        'id_evento', 'fecha', 'edificio', 'vecino', 'depto', 'unidad', 'mensaje', 'tipo',
-        'urgencia', 'estado', 'notas', 'feedback', 'telefono', 'tecnico', 'tel_tecnico',
-        'rubro_tecnico', 'hora_fin', 'audio_url', 'transcripcion', 'historial_chat',
-        'audios_json', 'involucrados_json', 'chat_vecino_json', 'chat_proveedor_json',
-        'tecnico_notificado', 'admin_notificado', 'contacto_acceso_avisado',
-        'material_enviado_tecnico', 'tecnico_confirmado', 'tecnico_eta',
-        'proximo_seguimiento', 'seguimiento_paso', 'seguimiento_nota',
-    ],
-    'facturas': [
-        'fecha', 'proveedor', 'monto', 'concepto', 'edificio', 'url_archivo',
-        'numero_factura', 'estado', 'nota_tecnico', 'enviada_por', 'id_evento',
-    ],
-    'proveedores': [
-        'cliente', 'rubro', 'nombre', 'telefono', 'notas', 'estado',
-        'cbu', 'alias_cbu', 'titular', 'cuit', 'cbu_actualizado',
-        'cbu_pendiente', 'alias_pendiente', 'cbu_pendiente_desde',
-    ],
-    'vecinos': ['telefono', 'nombre', 'edificio', 'autoriza_contacto', 'contacto_acceso'],
-    'accesos': ['edificio', 'instalacion', 'quien_tiene', 'telefono', 'notas', 'fecha'],
-};
+// La lista vive en un archivo aparte para que este script y `crear-columnas.js` no puedan
+// separarse con el tiempo.
+const NECESARIAS = require('./columnas-necesarias');
 
 (async () => {
     const sheets = require('./sheets');

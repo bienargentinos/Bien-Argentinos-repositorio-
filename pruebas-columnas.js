@@ -172,6 +172,17 @@ console.log('\n── QUE NO PUEDA VOLVER POR OTRA FUNCIÓN ──');
     // está adentro de `asegurarColumnas`.
     const llamadas = (src.match(/\.setHeaderRow\(/g) || []).length;
     verificar('setHeaderRow se llama en un solo lugar', llamadas, 1);
+
+    // El diagnóstico (`revisar-columnas.js`) solo sirve si su lista sabe de todas las pestañas
+    // donde el código crea columnas. Si mañana alguien empieza a escribir en una pestaña nueva y
+    // no la agrega a `columnas-necesarias.js`, el diagnóstico va a decir que está todo bien
+    // mientras el dato se pierde -- que es exactamente el agujero que estamos tapando.
+    const NECESARIAS = require('./columnas-necesarias');
+    const conocidas = Object.keys(NECESARIAS).map(k => k.toLowerCase());
+    const usadas = [...src.matchAll(/asegurarColumnas\([^,]+,[^,]+,\s*'([^']+)'\s*\)/g)]
+        .map(m => m[1].toLowerCase());
+    const huerfanas = [...new Set(usadas)].filter(p => !conocidas.includes(p));
+    verificar('toda pestaña donde se crean columnas está en columnas-necesarias.js', huerfanas, []);
 }
 
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);

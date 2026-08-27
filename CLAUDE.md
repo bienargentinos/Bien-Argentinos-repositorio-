@@ -475,8 +475,18 @@ escribir** y grita si no puede. Dos detalles que importan:
   planilla — el código solo puede decirlo fuerte.
 
 ```bash
-node revisar-columnas.js     # solo lee: si a alguna pestaña le falta lugar, lo dice
+node revisar-columnas.js            # solo lee: si a alguna pestaña le falta lugar, lo dice
+node crear-columnas.js              # muestra qué columnas crearía, no toca nada
+node crear-columnas.js --aplicar    # las crea (solo agrega al final; no renombra ni reordena)
 ```
+
+`asegurarColumnas` ya lo arregla solo, pero recién la próxima vez que Marcos escriba en esa
+pestaña. `crear-columnas.js` lo hace ahora, para dejar el terreno parejo antes de una prueba.
+**No rellena los casos viejos**: un caso guardado sin `tel_tecnico` porque la columna no existía
+ya perdió ese dato.
+
+La lista de qué necesita cada pestaña vive en `columnas-necesarias.js`, en un solo lugar, y una
+prueba verifica que ninguna pestaña donde el código crea columnas quede afuera de esa lista.
 
 Pruebas: `node pruebas-columnas.js`. Incluye un candado estructural: **ningún `setHeaderRow` puede
 volver a tragarse su error**, y solo se lo puede llamar desde `asegurarColumnas`.
