@@ -317,6 +317,17 @@ function mapCliente(r) {
  * asignado al cliente que tiene el 270, y eso es mostrarle a un administrador los reclamos de
  * un consorcio ajeno.
  */
+/**
+ * Misma normalización que la función `marcos_norm` de PostgreSQL, para poder decidir del lado de
+ * Node exactamente igual que decide la base.
+ */
+function normEdificio(txt) {
+  return String(txt || '')
+    .replace(/[ÁÉÍÓÚÜÑáéíóúüñ]/g, c => 'AEIOUUNaeiouun'['ÁÉÍÓÚÜÑáéíóúüñ'.indexOf(c)])
+    .toLowerCase()
+    .trim();
+}
+
 function clienteDelEdificio(clientes, nombreEdificio) {
   const n = normEdificio(nombreEdificio);
   if (!n) return null;
@@ -740,7 +751,7 @@ function edificiosPermitidos(req) {
   if (enPreview(req)) return req.session.previewEdificios || [];
   const propios = req.session.edificios || [];
   const activo = req.session.edificioActivo;
-  if (activo && propios.includes(activo)) return [activo];
+  if (activo && propios.some(p => normEdificio(p) === normEdificio(activo))) return [activo];
   return propios;
 }
 
@@ -5685,11 +5696,13 @@ async function cargarDatos(req) {
 
   // Edificio "actual" para la vista cliente.
   const permitidos = edificiosPermitidos(req);
+  const suyosNorm = new Set((edificiosDeLaCuenta(req) || []).map(normEdificio).filter(Boolean));
   const propios = vistaCliente(req)
-    ? edificios.filter((e) => edificiosDeLaCuenta(req).includes(e.nombre))
+    ? edificios.filter((e) => suyosNorm.has(normEdificio(e.nombre)))
     : edificios;
+  const permitidosNorm = permitidos ? new Set(permitidos.map(normEdificio).filter(Boolean)) : null;
   const curBuilding = vistaCliente(req)
-    ? (propios.find((e) => permitidos && permitidos.includes(e.nombre)) || propios[0] || {
+    ? (propios.find((e) => permitidosNorm && permitidosNorm.has(normEdificio(e.nombre))) || propios[0] || {
         nombre: 'Sin edificio asignado',
         direccion: 'Consulte con su administración',
         encargado: '—',
