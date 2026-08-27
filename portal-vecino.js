@@ -246,17 +246,62 @@ body{background:#0F326A;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 45%
 </html>`);
 });
 
-router.post('/auth', (req, res) => {
+router.post('/auth', async (req, res) => {
   const { identificador } = req.body || {};
+  const limpio = String(identificador || '').trim();
+  const telLimpio = limpio.replace(/\D/g, '');
+
+  let vecinoEncontrado = null;
+
+  // 1. Buscar por teléfono en datos-pg
+  if (telLimpio.length >= 6 && datosPg && typeof datosPg.buscarVecinosPorTelefono === 'function') {
+    try {
+      const vecList = await datosPg.buscarVecinosPorTelefono(telLimpio);
+      if (vecList && vecList.length > 0) {
+        vecinoEncontrado = vecList[0];
+      }
+    } catch (_) {}
+  }
+
+  // 2. Si no encontró por teléfono, buscar en la base de datos PostgreSQL
+  if (!vecinoEncontrado && limpio) {
+    try {
+      const { pool } = require('./db-pg');
+      const q = `SELECT * FROM vecinos WHERE LOWER(telefono) LIKE LOWER($1) OR LOWER(nombre) LIKE LOWER($1) LIMIT 1`;
+      const result = await pool.query(q, ['%' + limpio + '%']);
+      if (result.rows && result.rows.length > 0) {
+        const r = result.rows[0];
+        vecinoEncontrado = {
+          nombre: r.nombre || 'Vecino',
+          telefono: r.telefono || limpio,
+          edificio: r.edificio || 'Consorcio',
+          departamento: r.departamento || 'Unidad',
+        };
+      }
+    } catch (_) {}
+  }
+
+  // 3. Guardar en la sesión
   if (req.session) {
-    req.session.vecino = {
-      nombre: identificador ? identificador.split('@')[0] : 'Daniel Morales',
-      telefono: '+54 9 11 5555-4321',
-      edificio: 'Torre Norte Edifica',
-      departamento: '4° B',
-      saldoExpensa: '$120.000,00',
-      estadoExpensa: 'Al día',
-    };
+    if (vecinoEncontrado) {
+      req.session.vecino = {
+        nombre: vecinoEncontrado.nombre,
+        telefono: vecinoEncontrado.telefono,
+        edificio: vecinoEncontrado.edificio,
+        departamento: vecinoEncontrado.departamento,
+        saldoExpensa: '$120.000,00',
+        estadoExpensa: 'Al día',
+      };
+    } else {
+      req.session.vecino = {
+        nombre: limpio.includes('@') ? limpio.split('@')[0] : (limpio || 'Vecino'),
+        telefono: telLimpio || '+54 9 11 5555-4321',
+        edificio: 'Consorcio Demo',
+        departamento: '1° A',
+        saldoExpensa: '$120.000,00',
+        estadoExpensa: 'Al día',
+      };
+    }
   }
   res.redirect('/vecino');
 });
