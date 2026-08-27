@@ -1221,6 +1221,7 @@ router.get('/amenities', async (req, res) => {
       { id: 'parrilla', nombre: 'Parrilla / Quincho', icon: '🥩', desc: 'Capacidad 15 personas · Parrilla a leña, mesa exterior y bacha', hora_apertura: '10:00', hora_cierre: '23:00' },
       { id: 'pileta', nombre: 'Pileta & Solarium', icon: '🏊', desc: 'Solarium con reposeras · Temporada habilitada', hora_apertura: '09:00', hora_cierre: '20:00' },
       { id: 'gimnasio', nombre: 'Gimnasio', icon: '🏋️', desc: 'Cinta para correr, mancuernas, polea y bicicleta estática', hora_apertura: '07:00', hora_cierre: '22:00' },
+      { id: 'cochera', nombre: 'Cochera de Cortesía', icon: '🚗', desc: 'Espacio de estacionamiento para visitas', hora_apertura: '08:00', hora_cierre: '23:00' },
       { id: 'laundry', nombre: 'Laundry / Lavadero', icon: '🧺', desc: 'Lavarropas y secarropas automáticos', hora_apertura: '08:00', hora_cierre: '21:00' }
     ];
   }

@@ -7779,6 +7779,7 @@ router.get('/mi-edificio', async (req, res) => {
           ${solicitarRow('🧾', 'cuit', 'CUIT del edificio', cur.cuit)}
           ${editRow('🗺️', 'zona', cur.zona, 'Zona / barrio', 'Barrio, ciudad')}
           ${editRow('🏠', 'unidades', cur.unidades, 'Unidades funcionales', 'Cantidad')}
+          ${editRow('🚗', 'cocheras', cur.cocheras, 'Cocheras y Cortesía', 'Ej: 22 fijas + 4 de cortesía', 'Cantidad de cocheras fijas del edificio y cocheras de cortesía para visitas.')}
           ${solicitarRow('👔', 'administrador', 'Administrador', cur.administrador)}
           ${solicitarRow('📞', 'telefonos', 'Tel. administración', cur.telefonos)}
         </div>
@@ -7895,18 +7896,6 @@ router.get('/mi-edificio', async (req, res) => {
         ${renderStaffCards(cur.encargado, cur.tel_encargado, 'encargado', '🧑‍🔧', 'Encargados Titulares', cur.nombre, cur._row)}
         ${renderStaffCards(cur.encargado_suplente, cur.tel_suplente, 'suplente', '🧹', 'Encargados Suplentes y Personal de Limpieza', cur.nombre, cur._row)}
         ${renderStaffCards(cur.tel_seguridad, '', 'seguridad', '🛡️', 'Personal de Portería y Seguridad Entrada', cur.nombre, cur._row)}
-      </div>`;
-
-    const bloqueEspaciosHtml = `
-      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-          <span style="font-size:20px">🛋️</span>
-          <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Espacios Comunes, Horarios y Cocheras</h2>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
-          ${editRow('📅', 'horario_sum', cur.horario_sum, 'Horario SUM / Reglamento', 'Ej: 10 a 24hs · seña $15.000')}
-          ${editRow('🚗', 'cocheras', cur.cocheras, 'Cocheras', 'Ej: 22 fijas + 4 de cortesía')}
-        </div>
       </div>`;
 
     let accesosEdificio = [];
@@ -8229,6 +8218,7 @@ router.get('/mi-edificio', async (req, res) => {
                   <option value="🏋️">🏋️ Gimnasio</option>
                   <option value="🧺">🧺 Laundry / Lavadero</option>
                   <option value="💼">💼 Coworking / Sala</option>
+                  <option value="🚗">🚗 Cochera de Cortesía / Estacionamiento</option>
                   <option value="🎾">🎾 Cancha de Paddle / Tenis</option>
                   <option value="🌅">🌅 Terraza / Rooftop</option>
                 </select>
@@ -8574,7 +8564,6 @@ router.get('/mi-edificio', async (req, res) => {
         ${pendHtml}
         ${bloqueBaseHtml}
         ${bloqueServiciosHtml}
-        ${bloqueEspaciosHtml}
         ${bloqueAccesosHtml}
         ${vecinosCard}
         ${amenitiesCard}
