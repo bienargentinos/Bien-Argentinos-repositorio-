@@ -524,7 +524,12 @@ async function obtenerHistorialMensajes(eventoId) {
                 `SELECT DISTINCT ON (id) id, evento_id, edificio, telefono, remitente, mensaje, tipo_canal, url_media, timestamp
                  FROM mensajes
                  WHERE evento_id = $1 
-                    OR (telefono = ANY($2::text[]) AND timestamp >= (COALESCE($3::timestamptz, NOW()) - INTERVAL '2 hours'))
+                    OR (
+                        (evento_id IS NULL OR evento_id = '' OR evento_id = $1)
+                        AND telefono = ANY($2::text[]) 
+                        AND timestamp >= (COALESCE($3::timestamptz, NOW()) - INTERVAL '20 minutes')
+                        AND timestamp <= (COALESCE($3::timestamptz, NOW()) + INTERVAL '20 minutes')
+                    )
                  ORDER BY id ASC, timestamp ASC`,
                 [eventoId, tels, rep.created_at || null]
             );

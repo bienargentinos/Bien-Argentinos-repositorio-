@@ -5796,6 +5796,15 @@ async function cargarDatos(req) {
  * VISTA DE EVENTO (fila del feed + datos del drawer)
  * =================================================================== */
 
+function limpiarTextoMedia(str) {
+  if (!str) return '';
+  let s = String(str);
+  s = s.replace(/\[AUDIO:[^\]]+\]/gi, ' ');
+  s = s.replace(/\[(IMAGEN|FOTO|VIDEO|DOC|DOCUMENTO):[^\]]+\]/gi, ' ');
+  s = s.replace(/\s{2,}/g, ' ').trim();
+  return s;
+}
+
 function vistaEvento(e, filterFn, listaEdificios) {
   const cat = clasificarEvento(e);
   const catInfo = CATEGORIAS_EVENTO[cat];
@@ -5819,13 +5828,20 @@ function vistaEvento(e, filterFn, listaEdificios) {
   }
   const edificioMostrar = dirReal || e.direccion || e.edificio || '—';
 
+  const msgLimpio = limpiarTextoMedia(e.mensaje);
+  const notasLimpias = limpiarTextoMedia(e.notas);
+  const transLimpia = limpiarTextoMedia(e.transcripcion);
+  const esAudio = Boolean(e.audio_url || e.audios_json || /\[AUDIO:/i.test(e.mensaje || '') || /\[AUDIO:/i.test(e.notas || ''));
+  const tituloFinal = msgLimpio || transLimpia || notasLimpias || (esAudio ? '🎙️ Nota de voz' : 'Evento');
+  const detalleFinal = notasLimpias || transLimpia || '';
+
   return {
     row: e._row,
     id_evento: e.id_evento || ('CASO-' + String(e._row).padStart(4, '0')),
     audios_json: e.audios_json || '',
     involucrados_json: e.involucrados_json || '',
-    titulo: truncate(e.mensaje || e.notas || 'Evento', 80),
-    detalle: truncate(e.notas || '', 150),
+    titulo: truncate(tituloFinal, 90),
+    detalle: truncate(detalleFinal, 160),
     catKey: cat, catLabel: catInfo.label, catIcon: catInfo.icon, catBg: catInfo.bg,
     urgKey: e.urgencia, urgLabel: urg.label, urgBg: urg.bg, urgFg: urg.fg,
     estKey, estLabel: est.label, estBg: est.bg, estFg: est.fg,
@@ -5872,6 +5888,7 @@ function filaEvento(v, idx, chipEdificio) {
       <span style="width:44px;height:44px;border-radius:12px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${v.catIcon}</span>
       <span style="flex:1;min-width:0">
         <span style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+          <span style="font-size:11.5px;font-weight:800;padding:2px 7px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
           <span style="font-size:15px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
           ${badgeExternoHtml}
           <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
@@ -6725,6 +6742,7 @@ router.get('/', async (req, res) => {
           <span style="width:40px;height:40px;border-radius:11px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${v.catIcon}</span>
           <span style="flex:1;min-width:0">
             <span style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+              <span style="font-size:11px;font-weight:800;padding:2px 6px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
               <span style="font-size:14.5px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
               <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
               <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 ${esc(v.edificio)}</span>
@@ -6826,6 +6844,7 @@ router.get('/', async (req, res) => {
         <span style="width:40px;height:40px;border-radius:11px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${v.catIcon}</span>
         <span style="flex:1;min-width:0">
           <span style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:800;padding:2px 6px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
             <span style="font-size:14.5px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
             <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
           </span>
