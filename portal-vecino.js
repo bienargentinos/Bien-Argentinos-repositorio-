@@ -11,6 +11,28 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+
+// Almacenamiento seguro de comprobantes de pago subidos por vecinos
+const storageComprobantes = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = path.join(__dirname, 'almacenamiento', 'facturas');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname);
+    const name = 'comprobante_' + Date.now() + ext;
+    cb(null, name);
+  }
+});
+const uploadComprobante = multer({
+  storage: storageComprobantes,
+  limits: { fileSize: 15 * 1024 * 1024 }
+});
 
 // Intentar cargar adaptadores de datos
 let datosPg = null;
@@ -521,10 +543,53 @@ router.post('/api/chat', async (req, res) => {
 });
 
 // -------------------------------------------------------------------
-// 4. MIS EXPENSAS (HISTORIAL & DETALLE)
+// 4. MIS EXPENSAS (HISTORIAL, DATOS BANCARIOS & COMPROBANTES)
 // -------------------------------------------------------------------
-router.get('/expensas', (req, res) => {
+router.get('/expensas', async (req, res) => {
   const v = getVecinoSession(req);
+
+  let expensas = [];
+  let datosBanco = null;
+
+  // 1. Obtener expensas reales de la base de datos
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const qExp = `SELECT * FROM expensas WHERE LOWER(edificio) = LOWER($1) AND estado != 'eliminada' ORDER BY id DESC`;
+      const resExp = await pool.query(qExp, [v.edificio]);
+      if (resExp && resExp.rows && resExp.rows.length > 0) {
+        expensas = resExp.rows;
+      }
+    }
+  } catch (_) {}
+
+  // 2. Obtener datos bancarios del consorcio
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const qEd = `SELECT cbu, alias, titular, banco, cuit FROM edificios WHERE LOWER(nombre) = LOWER($1) OR LOWER(consorcio) = LOWER($1) LIMIT 1`;
+      const resEd = await pool.query(qEd, [v.edificio]);
+      if (resEd && resEd.rows && resEd.rows.length > 0) {
+        const r = resEd.rows[0];
+        if (r.cbu || r.alias) {
+          datosBanco = r;
+        }
+      }
+    }
+  } catch (_) {}
+
+  // Fallback si el edificio aún no cargó CBU específico
+  if (!datosBanco) {
+    datosBanco = {
+      banco: 'Banco Oficial del Consorcio',
+      titular: 'Consorcio ' + (v.edificio || 'Edificio'),
+      cbu: 'Consultar con Administración',
+      alias: (v.edificio || 'consorcio').toLowerCase().replace(/[^a-z0-9]/g, '') + '.expensas',
+    };
+  }
+
+  const ultimaExpensa = expensas.length > 0 ? expensas[0] : null;
+  const historialExpensas = expensas.length > 1 ? expensas.slice(1) : [];
 
   const content = `
     <div style="margin-bottom:16px">
@@ -532,50 +597,230 @@ router.get('/expensas', (req, res) => {
       <p style="font-size:13px;color:#64748B">${v.edificio} · Unidad ${v.departamento}</p>
     </div>
 
-    <!-- Estado Actual -->
-    <div class="card" style="padding:18px 20px;margin-bottom:18px;border-left:4px solid #16A34A">
-      <div style="font-size:12px;font-weight:800;color:#16A34A;text-transform:uppercase;margin-bottom:4px">Estado de Cuenta</div>
-      <div style="font-size:24px;font-weight:800;color:#0F172A;margin-bottom:2px">Sin deuda pendiente</div>
-      <p style="font-size:13px;color:#64748B">Tu última expensa abonada corresponde al período Agosto 2026.</p>
+    <!-- 1. Tarjeta Última Liquidación -->
+    <div class="card" style="padding:20px;margin-bottom:16px;border-left:5px solid #2E6FC0;background:#fff">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+        <span style="font-size:11.5px;font-weight:800;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em">Liquidación del Mes</span>
+        <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#EBF3FC;color:#1E5FB4">Digital</span>
+      </div>
+      <div style="font-size:22px;font-weight:800;color:#0F172A;margin-bottom:4px">
+        ${ultimaExpensa ? (ultimaExpensa.periodo || 'Período Vigente') : 'Período en Proceso'}
+      </div>
+      <p style="font-size:13px;color:#64748B;line-height:1.45;margin-bottom:14px">
+        ${ultimaExpensa ? 'La administración publicó el resumen de expensas correspondiente a este período.' : 'La administración publicará la liquidación digital de este mes a la brevedad.'}
+      </p>
+      ${ultimaExpensa && (ultimaExpensa.url || ultimaExpensa.nombre) ? `
+      <a href="${ultimaExpensa.url || ('/archivos/facturas/' + ultimaExpensa.nombre)}" target="_blank" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;box-shadow:0 3px 10px rgba(46,111,192,.3)">
+        <i class="ph ph-file-pdf" style="font-size:18px"></i>
+        <span>Ver / Descargar Liquidación</span>
+      </a>` : `
+      <div style="font-size:12.5px;color:#8595AD;background:#F8FAFD;padding:8px 12px;border-radius:8px;border:1px dashed #DCE4F0">
+        📄 Podés solicitar la copia por chat a Marcos IA en cualquier momento.
+      </div>`}
     </div>
 
-    <!-- Historial de Recibos -->
-    <div style="font-size:14px;font-weight:800;color:#0F172A;margin-bottom:10px">Historial de Períodos</div>
-    
+    <!-- 2. Datos Bancarios del Consorcio -->
+    <div class="card" style="padding:18px 20px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span style="font-size:20px">🏦</span>
+        <div>
+          <div style="font-size:15px;font-weight:800;color:#0F172A">Datos para Transferencias</div>
+          <div style="font-size:11.5px;color:#64748B">Cuenta oficial del consorcio</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+        ${datosBanco.titular ? `
+        <div style="display:flex;justify-content:space-between;border-bottom:1px solid #F1F5F9;padding-bottom:6px">
+          <span style="color:#64748B">Titular:</span>
+          <strong style="color:#0F172A">${datosBanco.titular}</strong>
+        </div>` : ''}
+        ${datosBanco.banco ? `
+        <div style="display:flex;justify-content:space-between;border-bottom:1px solid #F1F5F9;padding-bottom:6px">
+          <span style="color:#64748B">Banco:</span>
+          <strong style="color:#0F172A">${datosBanco.banco}</strong>
+        </div>` : ''}
+        ${datosBanco.cuit ? `
+        <div style="display:flex;justify-content:space-between;border-bottom:1px solid #F1F5F9;padding-bottom:6px">
+          <span style="color:#64748B">CUIT:</span>
+          <strong style="color:#0F172A">${datosBanco.cuit}</strong>
+        </div>` : ''}
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #F1F5F9;padding-bottom:6px">
+          <div>
+            <span style="color:#64748B;display:block;font-size:11.5px">Alias:</span>
+            <strong style="color:#1E5FB4;font-size:14px">${datosBanco.alias || '—'}</strong>
+          </div>
+          ${datosBanco.alias ? `<button onclick="copiarTexto('${datosBanco.alias}', this)" style="padding:4px 10px;border-radius:6px;border:1px solid #CBD5E1;background:#F8FAFD;color:#1E5FB4;font-size:11.5px;font-weight:700;cursor:pointer">📋 Copiar</button>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding-top:2px">
+          <div>
+            <span style="color:#64748B;display:block;font-size:11.5px">CBU:</span>
+            <strong style="color:#0F172A;font-size:13px;font-family:monospace">${datosBanco.cbu || '—'}</strong>
+          </div>
+          ${datosBanco.cbu ? `<button onclick="copiarTexto('${datosBanco.cbu}', this)" style="padding:4px 10px;border-radius:6px;border:1px solid #CBD5E1;background:#F8FAFD;color:#1E5FB4;font-size:11.5px;font-weight:700;cursor:pointer">📋 Copiar</button>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Formulario Subir Comprobante de Pago -->
+    <div class="card" style="padding:18px 20px;margin-bottom:18px;background:#FAFCFF;border:1.5px dashed #B8D5F8">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:20px">📤</span>
+        <div>
+          <div style="font-size:15px;font-weight:800;color:#0F172A">Informar Pago / Subir Comprobante</div>
+          <div style="font-size:11.5px;color:#64748B">Adjuntá tu transferencia bancaria</div>
+        </div>
+      </div>
+
+      <form id="form-comprobante" onsubmit="enviarComprobante(event)">
+        <div style="margin-bottom:10px">
+          <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Captura o PDF de la Transferencia <span style="color:#EF4444">*</span></label>
+          <input type="file" id="inp-comprobante-file" accept="image/*,.pdf" class="inp" style="padding:8px;background:#fff;margin-bottom:8px" required>
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Importe o Detalle (opcional)</label>
+          <input type="text" id="inp-comprobante-monto" placeholder="Ej: $120.000 (Expensa Agosto)" class="inp" style="background:#fff;margin-bottom:0">
+        </div>
+        <button id="btn-comprobante" type="submit" style="width:100%;height:44px;border:none;border-radius:10px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-weight:800;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 3px 10px rgba(22,163,74,.25)">
+          <i class="ph ph-check-circle" style="font-size:18px"></i>
+          <span>Enviar Comprobante a la Administración</span>
+        </button>
+        <div id="comprobante-msg" style="display:none;margin-top:10px;padding:10px;border-radius:8px;font-size:12.5px;text-align:center"></div>
+      </form>
+    </div>
+
+    <!-- 4. Historial de Liquidaciones Anteriores -->
+    ${historialExpensas.length > 0 ? `
+    <div style="font-size:14px;font-weight:800;color:#0F172A;margin-bottom:10px">Períodos Anteriores</div>
     <div style="display:flex;flex-direction:column;gap:10px">
-      <div class="card" style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
-        <div style="display:flex;align-items:center;gap:12px">
-          <div style="width:40px;height:40px;border-radius:10px;background:#FDECEC;color:#C0392B;display:flex;align-items:center;justify-content:center;font-size:20px">
-            <i class="ph ph-file-pdf"></i>
+      ${historialExpensas.map((x) => `
+        <div class="card" style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:38px;height:38px;border-radius:10px;background:#FDECEC;color:#C0392B;display:flex;align-items:center;justify-content:center;font-size:18px">
+              <i class="ph ph-file-pdf"></i>
+            </div>
+            <div>
+              <div style="font-size:14px;font-weight:800;color:#0F172A">${x.periodo || 'Período'}</div>
+              <div style="font-size:11.5px;color:#64748B">Resumen Consorcio</div>
+            </div>
           </div>
-          <div>
-            <div style="font-size:14.5px;font-weight:800;color:#0F172A">Agosto 2026</div>
-            <div style="font-size:12px;color:#64748B">$120.000,00 · Pagado el 05/08</div>
-          </div>
+          ${x.url || x.nombre ? `
+          <a href="${x.url || ('/archivos/facturas/' + x.nombre)}" target="_blank" style="padding:6px 12px;border-radius:8px;border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:12px;font-weight:700">
+            Descargar
+          </a>` : ''}
         </div>
-        <button onclick="alert('Descargando comprobante de Agosto 2026...')" style="padding:6px 12px;border-radius:8px;border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer">
-          Descargar
-        </button>
-      </div>
+      `).join('')}
+    </div>` : ''}
 
-      <div class="card" style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
-        <div style="display:flex;align-items:center;gap:12px">
-          <div style="width:40px;height:40px;border-radius:10px;background:#FDECEC;color:#C0392B;display:flex;align-items:center;justify-content:center;font-size:20px">
-            <i class="ph ph-file-pdf"></i>
-          </div>
-          <div>
-            <div style="font-size:14.5px;font-weight:800;color:#0F172A">Julio 2026</div>
-            <div style="font-size:12px;color:#64748B">$115.000,00 · Pagado el 08/07</div>
-          </div>
-        </div>
-        <button onclick="alert('Descargando comprobante de Julio 2026...')" style="padding:6px 12px;border-radius:8px;border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer">
-          Descargar
-        </button>
-      </div>
-    </div>
+    <script>
+      function copiarTexto(texto, btn) {
+        navigator.clipboard.writeText(texto).then(function() {
+          var old = btn.textContent;
+          btn.textContent = '✓ Copiado';
+          setTimeout(function() { btn.textContent = old; }, 1500);
+        });
+      }
+
+      async function enviarComprobante(e) {
+        e.preventDefault();
+        var fileInp = document.getElementById('inp-comprobante-file');
+        var montoInp = document.getElementById('inp-comprobante-monto');
+        var btn = document.getElementById('btn-comprobante');
+        var msg = document.getElementById('comprobante-msg');
+
+        if (!fileInp.files || !fileInp.files[0]) {
+          alert('Por favor adjuntá el comprobante');
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Enviando comprobante...';
+
+        var formData = new FormData();
+        formData.append('comprobante', fileInp.files[0]);
+        formData.append('monto', montoInp.value.trim());
+
+        try {
+          var res = await fetch('/vecino/api/comprobante-pago', {
+            method: 'POST',
+            body: formData
+          });
+          var data = await res.json();
+          if (data.ok) {
+            msg.style.display = 'block';
+            msg.style.background = '#DCFCE7';
+            msg.style.color = '#15803D';
+            msg.style.border = '1px solid #86EFAC';
+            msg.textContent = data.mensaje || '¡Comprobante enviado con éxito!';
+            fileInp.value = '';
+            montoInp.value = '';
+            btn.textContent = '✓ Enviado';
+          } else {
+            msg.style.display = 'block';
+            msg.style.background = '#FEE2E2';
+            msg.style.color = '#991B1B';
+            msg.style.border = '1px solid #FCA5A5';
+            msg.textContent = 'Error: ' + (data.error || 'No se pudo enviar el comprobante');
+            btn.disabled = false;
+            btn.textContent = 'Reintentar envío';
+          }
+        } catch (err) {
+          msg.style.display = 'block';
+          msg.style.background = '#FEE2E2';
+          msg.style.color = '#991B1B';
+          msg.style.border = '1px solid #FCA5A5';
+          msg.textContent = 'Error de conexión al enviar el comprobante.';
+          btn.disabled = false;
+          btn.textContent = 'Reintentar envío';
+        }
+      }
+    </script>
   `;
 
   res.send(shellVecino('Mis Expensas', 'expensas', content, v));
+});
+
+// Endpoint receptor de Comprobantes de Pago
+router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const { monto } = req.body || {};
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ ok: false, error: 'No se recibió ningún archivo de comprobante' });
+    }
+
+    const archivoUrl = '/archivos/facturas/' + file.filename;
+
+    // Guardar en la base de datos PostgreSQL si está disponible
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        const q = `INSERT INTO facturas (edificio, tipo, proveedor, monto, fecha, url, estado, notas, created_at)
+                   VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $7, NOW())`;
+        await pool.query(q, [
+          v.edificio,
+          'comprobante_pago',
+          v.nombre + ' (' + v.departamento + ')',
+          monto || '0',
+          archivoUrl,
+          'pendiente_aprobacion',
+          'Comprobante de transferencia subido por vecino ' + v.nombre + ' (' + v.departamento + ')'
+        ]);
+      }
+    } catch (errDb) {
+      console.warn('Registro comprobante:', errDb.message);
+    }
+
+    res.json({
+      ok: true,
+      mensaje: '¡Comprobante enviado con éxito! Tu administración lo revisará a la brevedad.',
+      archivoUrl
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 // -------------------------------------------------------------------
