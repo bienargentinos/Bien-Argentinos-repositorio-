@@ -4641,4 +4641,12 @@ if (String(process.env.PORTAL_VECINO || '').toLowerCase() === 'on') {
     console.log('🔒 Portal del vecino apagado (PORTAL_VECINO=on para prenderlo mientras se desarrolla).');
 }
 
+// Portería Virtual & Timbre Inteligente Web
+try {
+    const porteriaRouter = require('./porteria');
+    app.use('/porteria', porteriaRouter);
+} catch (errPort) {
+    console.warn('No se pudo cargar porteria router:', errPort.message);
+}
+
 app.listen(PORT, () => console.log(`🚀 Servidor Marcos corriendo en puerto ${PORT}`));

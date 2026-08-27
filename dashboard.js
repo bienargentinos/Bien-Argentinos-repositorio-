@@ -8051,7 +8051,8 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:16px;font-weight:800;color:#16233B">👥 Padrón de Vecinos y Unidades Funcionales (${vecinos.length})</div>
             <p style="font-size:13px;color:#8595AD;margin:2px 0 0">Listado de propietarios e inquilinos registrados para atención 24/7 y acceso a la Web App del consorcio.</p>
           </div>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <a href="/porteria/cartel/${encodeURIComponent(cur.nombre)}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border:1px solid #DCE4F0;border-radius:999px;background:#F8FAFD;color:#0F326A;font-weight:700;font-size:13px;text-decoration:none" class="hv-soft">🔔 Cartel Portería QR</a>
             <button onclick="abrirModalImportarVecinos('${escJs(cur.nombre)}')" style="height:36px;padding:0 14px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">📥 Importar padrón</button>
             <button onclick="abrirModalVecinoNuevo('${escJs(cur.nombre)}')" style="height:36px;padding:0 14px;border:none;border-radius:999px;background:#2E6FC0;color:#fff;font-weight:700;font-size:13px;cursor:pointer">+ Agregar vecino</button>
           </div>
