@@ -1168,19 +1168,39 @@ router.get('/novedades', (req, res) => {
 // -------------------------------------------------------------------
 // 6. RESERVA DE AMENITIES Y SUM
 // -------------------------------------------------------------------
+// -------------------------------------------------------------------
+// 6. RESERVA DE AMENITIES Y SUM (SELECTOR POR HORAS ESTILO CINE)
+// -------------------------------------------------------------------
 router.get('/amenities', async (req, res) => {
   const v = getVecinoSession(req);
   let misReservas = [];
   let todasReservasEdificio = [];
+  let amenitiesList = [];
 
   try {
     const { pool } = require('./db-pg');
     if (pool) {
-      // Buscar reservas de este edificio
+      // 1. Cargar amenities configurados para este edificio
+      const qAm = `SELECT * FROM edificio_amenities 
+                   WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) 
+                   AND activo = TRUE ORDER BY id ASC`;
+      const resAm = await pool.query(qAm, [v.edificio, '%' + v.edificio + '%']);
+      if (resAm && resAm.rows && resAm.rows.length > 0) {
+        amenitiesList = resAm.rows.map(a => ({
+          id: String(a.id),
+          nombre: a.nombre,
+          icon: a.icono || '🎉',
+          desc: a.descripcion || ('Capacidad ' + (a.capacidad || 20) + ' personas'),
+          hora_apertura: a.hora_apertura || '08:00',
+          hora_cierre: a.hora_cierre || '23:00'
+        }));
+      }
+
+      // 2. Cargar reservas existentes
       const q = `SELECT * FROM reservas_amenities 
                  WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) 
                  AND estado != 'cancelada' 
-                 ORDER BY fecha ASC, id ASC`;
+                 ORDER BY fecha ASC, hora_desde ASC, id ASC`;
       const result = await pool.query(q, [v.edificio, '%' + v.edificio + '%']);
       if (result && result.rows) {
         todasReservasEdificio = result.rows;
@@ -1194,21 +1214,23 @@ router.get('/amenities', async (req, res) => {
     console.warn('Carga reservas amenities:', errDb.message);
   }
 
-  // Lista de amenities estándar
-  const amenitiesList = [
-    { id: 'sum', nombre: 'SUM (Salón de Eventos)', icon: '🎉', desc: 'Capacidad 35 personas · Parrilla, vajilla, TV y aire frío/calor', turnos: ['Almuerzo (12:00 a 17:00 hs)', 'Cena (19:00 a 01:00 hs)'] },
-    { id: 'parrilla', nombre: 'Parrilla / Quincho', icon: '🥩', desc: 'Capacidad 15 personas · Parrilla a leña, mesa exterior y bacha', turnos: ['Almuerzo (12:00 a 17:00 hs)', 'Cena (19:00 a 01:00 hs)'] },
-    { id: 'pileta', nombre: 'Pileta & Solarium', icon: '🏊', desc: 'Solarium con reposeras · Temporada habilitada (10:00 a 20:00 hs)', turnos: ['Mañana (10:00 a 14:00 hs)', 'Tarde (14:00 a 20:00 hs)'] },
-    { id: 'gimnasio', nombre: 'Gimnasio', icon: '🏋️', desc: 'Cinta para correr, mancuernas, polea y bicicleta estática', turnos: ['Mañana (07:00 a 13:00 hs)', 'Tarde/Noche (13:00 a 22:00 hs)'] },
-    { id: 'laundry', nombre: 'Laundry / Lavadero', icon: '🧺', desc: 'Lavarropas y secarropas automáticos (fichas en portería)', turnos: ['Mañana (08:00 a 14:00 hs)', 'Tarde (14:00 a 20:00 hs)'] }
-  ];
+  // Si aún no se configuraron amenities en este edificio, usar catálogo estándar
+  if (!amenitiesList.length) {
+    amenitiesList = [
+      { id: 'sum', nombre: 'SUM (Salón de Eventos)', icon: '🎉', desc: 'Capacidad 35 personas · Parrilla, vajilla, TV y aire frío/calor', hora_apertura: '09:00', hora_cierre: '23:00' },
+      { id: 'parrilla', nombre: 'Parrilla / Quincho', icon: '🥩', desc: 'Capacidad 15 personas · Parrilla a leña, mesa exterior y bacha', hora_apertura: '10:00', hora_cierre: '23:00' },
+      { id: 'pileta', nombre: 'Pileta & Solarium', icon: '🏊', desc: 'Solarium con reposeras · Temporada habilitada', hora_apertura: '09:00', hora_cierre: '20:00' },
+      { id: 'gimnasio', nombre: 'Gimnasio', icon: '🏋️', desc: 'Cinta para correr, mancuernas, polea y bicicleta estática', hora_apertura: '07:00', hora_cierre: '22:00' },
+      { id: 'laundry', nombre: 'Laundry / Lavadero', icon: '🧺', desc: 'Lavarropas y secarropas automáticos', hora_apertura: '08:00', hora_cierre: '21:00' }
+    ];
+  }
 
   const hoyStr = new Date().toISOString().split('T')[0];
 
   const content = `
     <div style="margin-bottom:16px">
       <h2 style="font-size:20px;font-weight:800;color:#0F326A;margin-bottom:2px">Reserva de Amenities</h2>
-      <p style="font-size:13px;color:#64748B">Espacios comunes de ${esc(v.edificio)}</p>
+      <p style="font-size:13px;color:#64748B">Espacios comunes y turnos por hora en ${esc(v.edificio)}</p>
     </div>
 
     <!-- MIS RESERVAS ACTIVAS -->
@@ -1227,7 +1249,7 @@ router.get('/amenities', async (req, res) => {
             <div>
               <div style="font-size:14px;font-weight:800;color:#0F172A">${esc(r.amenity)}</div>
               <div style="font-size:12.5px;color:#64748B;margin-top:2px">
-                📆 <strong>${esc(r.fecha)}</strong> · ⏰ ${esc(r.turno)}
+                📆 <strong>${esc(r.fecha)}</strong> · ⏰ <strong>${esc(r.hora_desde || '00:00')} a ${esc(r.hora_hasta || '00:00')} hs</strong>${r.notas ? ' · 📝 ' + esc(r.notas) : ''}
               </div>
             </div>
             <button onclick="cancelarReserva(${r.id})" style="padding:6px 12px;border:1px solid #FCA5A5;border-radius:8px;background:#FEF2F2;color:#DC2626;font-size:12px;font-weight:700;cursor:pointer">
@@ -1241,10 +1263,10 @@ router.get('/amenities', async (req, res) => {
       </div>`}
     </div>
 
-    <!-- FORMULARIO NUEVA RESERVA -->
+    <!-- FORMULARIO NUEVA RESERVA POR HORAS -->
     <div class="card" style="padding:18px 20px;margin-bottom:18px">
       <div style="font-size:15px;font-weight:800;color:#0F172A;margin-bottom:12px;display:flex;align-items:center;gap:6px">
-        <span>✨</span> Reservar un Espacio
+        <span>✨</span> Reservar por Horas
       </div>
 
       <form id="form-amenity" onsubmit="guardarReserva(event)">
@@ -1255,7 +1277,8 @@ router.get('/amenities', async (req, res) => {
             ${amenitiesList.map((a, idx) => `
               <div onclick="seleccionarAmenity('${a.nombre}', this)" class="card-touch" style="padding:12px 10px;border:1.5px solid ${idx===0?'#1E5FB4':'#E2E8F0'};border-radius:12px;background:${idx===0?'#EBF3FC':'#fff'};cursor:pointer;text-align:center;transition:all .15s ease">
                 <div style="font-size:24px;margin-bottom:4px">${a.icon}</div>
-                <div style="font-size:13px;font-weight:800;color:#0F172A;line-height:1.2">${a.nombre.split(' (')[0]}</div>
+                <div style="font-size:13px;font-weight:800;color:#0F172A;line-height:1.2">${esc(a.nombre.split(' (')[0])}</div>
+                <div style="font-size:10.5px;color:#64748B;margin-top:2px">${esc(a.hora_apertura)} a ${esc(a.hora_cierre)} hs</div>
               </div>
             `).join('')}
           </div>
@@ -1263,32 +1286,51 @@ router.get('/amenities', async (req, res) => {
         </div>
 
         <!-- 2. Elegir Fecha -->
-        <div style="margin-bottom:14px">
+        <div style="margin-bottom:16px">
           <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">2. Seleccioná la fecha</label>
-          <input type="date" id="inp-reserva-fecha" min="${hoyStr}" value="${hoyStr}" onchange="verificarDisponibilidad()" class="inp" style="background:#fff;margin-bottom:0" required>
+          <input type="date" id="inp-reserva-fecha" min="${hoyStr}" value="${hoyStr}" onchange="renderGrillaHoras()" class="inp" style="background:#fff;margin-bottom:0" required>
         </div>
 
-        <!-- 3. Elegir Turno -->
-        <div style="margin-bottom:16px">
-          <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">3. Seleccioná el turno / horario</label>
-          <select id="inp-reserva-turno" onchange="verificarDisponibilidad()" class="inp" style="background:#fff;margin-bottom:0" required>
-            <option value="Almuerzo (12:00 a 17:00 hs)">☀️ Almuerzo (12:00 a 17:00 hs)</option>
-            <option value="Cena (19:00 a 01:00 hs)">🌙 Cena (19:00 a 01:00 hs)</option>
-            <option value="Mañana (08:00 a 13:00 hs)">⏳ Mañana (08:00 a 13:00 hs)</option>
-            <option value="Día Completo (10:00 a 23:00 hs)">🌟 Día Completo (10:00 a 23:00 hs)</option>
-          </select>
+        <!-- 3. Selector de Horas Tipo Asientos de Cine -->
+        <div style="margin-bottom:18px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <label style="font-size:12.5px;font-weight:700;color:#475569">3. Elegí las horas que vas a utilizar (podés elegir 1 hora o varias)</label>
+          </div>
+
+          <!-- Referencia de colores -->
+          <div style="display:flex;gap:14px;align-items:center;font-size:11.5px;color:#64748B;margin-bottom:10px;flex-wrap:wrap">
+            <span style="display:inline-flex;align-items:center;gap:4px">
+              <span style="width:12px;height:12px;border-radius:3px;background:#fff;border:1.5px solid #CBD5E1"></span> Libre
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:4px">
+              <span style="width:12px;height:12px;border-radius:3px;background:#1E5FB4"></span> Tu selección
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:4px">
+              <span style="width:12px;height:12px;border-radius:3px;background:#FEE2E2;border:1.5px solid #FCA5A5"></span> 🔒 Ocupado
+            </span>
+          </div>
+
+          <!-- Grilla de Bloques Horarios -->
+          <div id="grid-horas-container" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-bottom:12px">
+            <!-- Renderizado dinámico vía JS -->
+          </div>
+
+          <!-- Resumen de Selección -->
+          <div id="resumen-seleccion-horas" style="display:none;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:10px 14px;font-size:13px;color:#1E40AF">
+            🕒 Horario seleccionado: <strong id="txt-rango-seleccion"></strong> (<span id="txt-duracion-horas"></span>)
+          </div>
         </div>
 
         <!-- 4. Notas / Motivo -->
         <div style="margin-bottom:16px">
-          <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">Cantidad de invitados / Motivo (opcional)</label>
-          <input type="text" id="inp-reserva-notas" placeholder="Ej: Cumpleaños familiar, 15 personas" class="inp" style="background:#fff;margin-bottom:0">
+          <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">Motivo / Cantidad de personas (opcional)</label>
+          <input type="text" id="inp-reserva-notas" placeholder="Ej: Reunión de consejo (4 personas) o Asado familiar" class="inp" style="background:#fff;margin-bottom:0">
         </div>
 
-        <!-- Estado de disponibilidad en vivo -->
-        <div id="box-disponibilidad" style="display:none;padding:10px 14px;border-radius:10px;font-size:13px;margin-bottom:14px"></div>
+        <input type="hidden" id="inp-hora-desde" value="">
+        <input type="hidden" id="inp-hora-hasta" value="">
 
-        <button id="btn-submit-reserva" type="submit" style="width:100%;height:48px;border:none;border-radius:12px;background:linear-gradient(135deg,#1E5FB4,#2E6FC0);color:#fff;font-size:15px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 3px 12px rgba(30,95,180,.3)">
+        <button id="btn-submit-reserva" type="submit" disabled style="width:100%;height:48px;border:none;border-radius:12px;background:linear-gradient(135deg,#1E5FB4,#2E6FC0);color:#fff;font-size:15px;font-weight:800;cursor:not-allowed;display:flex;align-items:center;justify-content:center;gap:8px;opacity:0.5;box-shadow:0 3px 12px rgba(30,95,180,.3)">
           <i class="ph ph-check-circle" style="font-size:18px"></i>
           <span>Confirmar Reserva</span>
         </button>
@@ -1301,14 +1343,16 @@ router.get('/amenities', async (req, res) => {
         <span>📜</span> Reglamento de Espacios Comunes
       </div>
       <ul style="padding-left:18px;font-size:12.5px;color:#64748B;line-height:1.6">
+        <li>Podés reservar desde <strong>1 sola hora</strong> para reuniones rápidas hasta varias horas continuas.</li>
         <li>El espacio debe entregarse limpio y ordenado al finalizar el turno.</li>
-        <li>Horario límite de música y ruidos molestos: <strong>01:00 hs</strong>.</li>
-        <li>El vecino titular es responsable de sus invitados y del cuidado de las instalaciones.</li>
+        <li>Horario límite de ruidos molestos: <strong>01:00 hs</strong>.</li>
       </ul>
     </div>
 
     <script>
       var _todasReservas = ${JSON.stringify(todasReservasEdificio)};
+      var _amenitiesList = ${JSON.stringify(amenitiesList)};
+      var _horasSeleccionadas = [];
 
       function seleccionarAmenity(nombre, el) {
         document.getElementById('inp-amenity-sel').value = nombre;
@@ -1319,52 +1363,145 @@ router.get('/amenities', async (req, res) => {
         });
         el.style.borderColor = '#1E5FB4';
         el.style.background = '#EBF3FC';
-        verificarDisponibilidad();
+        _horasSeleccionadas = [];
+        renderGrillaHoras();
       }
 
-      function verificarDisponibilidad() {
-        var amenity = document.getElementById('inp-amenity-sel').value;
+      function parseHoraToNum(hStr) {
+        if (!hStr) return 0;
+        var parts = hStr.split(':');
+        return parseInt(parts[0], 10) + (parseInt(parts[1] || 0, 10) / 60);
+      }
+
+      function renderGrillaHoras() {
+        var amenityNombre = document.getElementById('inp-amenity-sel').value;
         var fecha = document.getElementById('inp-reserva-fecha').value;
-        var turno = document.getElementById('inp-reserva-turno').value;
-        var box = document.getElementById('box-disponibilidad');
-        var btn = document.getElementById('btn-submit-reserva');
+        var grid = document.getElementById('grid-horas-container');
+        grid.innerHTML = '';
 
         if (!fecha) return;
 
-        var ocupada = _todasReservas.find(function(r) {
-          return r.amenity.toLowerCase() === amenity.toLowerCase() && 
+        var amenityObj = _amenitiesList.find(function(a){ return a.nombre === amenityNombre; }) || _amenitiesList[0];
+        var horaInicio = parseInt((amenityObj.hora_apertura || '08:00').split(':')[0], 10);
+        var horaFin = parseInt((amenityObj.hora_cierre || '23:00').split(':')[0], 10);
+
+        // Buscar reservas existentes para esta fecha y amenity
+        var reservasFecha = _todasReservas.filter(function(r) {
+          return r.amenity.toLowerCase() === amenityNombre.toLowerCase() && 
                  r.fecha === fecha && 
-                 r.turno === turno && 
                  r.estado !== 'cancelada';
         });
 
-        box.style.display = 'block';
-        if (ocupada) {
-          box.style.background = '#FEF2F2';
-          box.style.color = '#991B1B';
-          box.style.border = '1px solid #FCA5A5';
-          box.innerHTML = '⚠️ <strong>Turno no disponible:</strong> Ya está reservado por el departamento <strong>' + (ocupada.departamento || 'vecino') + '</strong>.';
+        for (var h = horaInicio; h < horaFin; h++) {
+          var hStartStr = String(h).padStart(2, '0') + ':00';
+          var hEndStr = String(h + 1).padStart(2, '0') + ':00';
+          var slotLabel = hStartStr + ' - ' + hEndStr;
+
+          // Verificar si esta hora cae dentro de alguna reserva
+          var ocupadoPor = null;
+          for (var i = 0; i < reservasFecha.length; i++) {
+            var r = reservasFecha[i];
+            if (r.hora_desde && r.hora_hasta) {
+              var rStart = parseHoraToNum(r.hora_desde);
+              var rEnd = parseHoraToNum(r.hora_hasta);
+              if (h >= rStart && h < rEnd) {
+                ocupadoPor = r.departamento || 'Depto';
+                break;
+              }
+            } else if (r.turno) {
+              if (r.turno.indexOf('Almuerzo') !== -1 && h >= 12 && h < 17) ocupadoPor = r.departamento || 'Depto';
+              if (r.turno.indexOf('Cena') !== -1 && h >= 19 && h < 24) ocupadoPor = r.departamento || 'Depto';
+              if (r.turno.indexOf('Mañana') !== -1 && h >= 8 && h < 13) ocupadoPor = r.departamento || 'Depto';
+              if (r.turno.indexOf('Día Completo') !== -1 && h >= 10 && h < 23) ocupadoPor = r.departamento || 'Depto';
+            }
+          }
+
+          var btnSlot = document.createElement('button');
+          btnSlot.type = 'button';
+          btnSlot.setAttribute('data-hora', h);
+
+          if (ocupadoPor) {
+            btnSlot.disabled = true;
+            btnSlot.style.cssText = 'padding:10px 6px;border-radius:10px;background:#FEE2E2;border:1.5px solid #FCA5A5;color:#991B1B;font-size:12px;font-weight:700;text-align:center;cursor:not-allowed;opacity:0.9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px';
+            btnSlot.innerHTML = '<span>🔒 ' + hStartStr + '</span><span style="font-size:9.5px;opacity:.8">' + ocupadoPor + '</span>';
+          } else {
+            var isSel = _horasSeleccionadas.indexOf(h) !== -1;
+            btnSlot.style.cssText = 'padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:800;text-align:center;cursor:pointer;transition:all .12s ease;' + 
+              (isSel ? 'background:#1E5FB4;border:1.5px solid #1E5FB4;color:#fff;box-shadow:0 3px 8px rgba(30,95,180,.35)' : 'background:#fff;border:1.5px solid #CBD5E1;color:#16233B');
+            btnSlot.innerHTML = '<span>' + hStartStr + '</span><span style="font-size:10px;font-weight:600;opacity:' + (isSel ? '1' : '.6') + '">' + (isSel ? '✓ Elegido' : 'Libre') + '</span>';
+            
+            btnSlot.onclick = (function(horaNum){
+              return function() { toggleHora(horaNum); };
+            })(h);
+          }
+
+          grid.appendChild(btnSlot);
+        }
+
+        actualizarResumenSeleccion();
+      }
+
+      function toggleHora(h) {
+        var idx = _horasSeleccionadas.indexOf(h);
+        if (idx !== -1) {
+          _horasSeleccionadas.splice(idx, 1);
+        } else {
+          _horasSeleccionadas.push(h);
+        }
+        _horasSeleccionadas.sort(function(a,b){ return a - b; });
+        renderGrillaHoras();
+      }
+
+      function actualizarResumenSeleccion() {
+        var box = document.getElementById('resumen-seleccion-horas');
+        var btn = document.getElementById('btn-submit-reserva');
+        var inpHoraDesde = document.getElementById('inp-hora-desde');
+        var inpHoraHasta = document.getElementById('inp-hora-hasta');
+
+        if (_horasSeleccionadas.length === 0) {
+          box.style.display = 'none';
           btn.disabled = true;
           btn.style.opacity = '0.5';
           btn.style.cursor = 'not-allowed';
-        } else {
-          box.style.background = '#DCFCE7';
-          box.style.color = '#15803D';
-          box.style.border = '1px solid #86EFAC';
-          box.innerHTML = '✓ <strong>¡Disponible!</strong> Podés confirmar tu reserva para este turno.';
-          btn.disabled = false;
-          btn.style.opacity = '1';
-          btn.style.cursor = 'pointer';
+          btn.innerHTML = '<i class="ph ph-check-circle" style="font-size:18px"></i><span>Elegí las horas a reservar</span>';
+          inpHoraDesde.value = '';
+          inpHoraHasta.value = '';
+          return;
         }
+
+        var minH = _horasSeleccionadas[0];
+        var maxH = _horasSeleccionadas[_horasSeleccionadas.length - 1] + 1;
+        var duracion = _horasSeleccionadas.length;
+
+        var strDesde = String(minH).padStart(2, '0') + ':00';
+        var strHasta = String(maxH).padStart(2, '0') + ':00';
+
+        inpHoraDesde.value = strDesde;
+        inpHoraHasta.value = strHasta;
+
+        box.style.display = 'block';
+        document.getElementById('txt-rango-seleccion').textContent = strDesde + ' a ' + strHasta + ' hs';
+        document.getElementById('txt-duracion-horas').textContent = duracion + (duracion === 1 ? ' hora' : ' horas');
+
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+        btn.innerHTML = '<i class="ph ph-check-circle" style="font-size:18px"></i><span>Confirmar Reserva (' + strDesde + ' a ' + strHasta + ' hs)</span>';
       }
 
       async function guardarReserva(e) {
         e.preventDefault();
         var amenity = document.getElementById('inp-amenity-sel').value;
         var fecha = document.getElementById('inp-reserva-fecha').value;
-        var turno = document.getElementById('inp-reserva-turno').value;
+        var horaDesde = document.getElementById('inp-hora-desde').value;
+        var horaHasta = document.getElementById('inp-hora-hasta').value;
         var notas = document.getElementById('inp-reserva-notas').value;
         var btn = document.getElementById('btn-submit-reserva');
+
+        if (!horaDesde || !horaHasta) {
+          alert('Por favor seleccioná al menos 1 hora en la grilla.');
+          return;
+        }
 
         btn.disabled = true;
         btn.textContent = 'Guardando reserva...';
@@ -1373,11 +1510,11 @@ router.get('/amenities', async (req, res) => {
           var res = await fetch('/vecino/api/reservar-amenity', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amenity: amenity, fecha: fecha, turno: turno, notas: notas })
+            body: JSON.stringify({ amenity: amenity, fecha: fecha, hora_desde: horaDesde, hora_hasta: horaHasta, notas: notas })
           });
           var data = await res.json();
           if (data.ok) {
-            alert('✓ ¡Reserva confirmada con éxito!');
+            alert('✓ ¡Reserva confirmada de ' + horaDesde + ' a ' + horaHasta + ' hs con éxito!');
             location.reload();
           } else {
             alert('Error: ' + (data.error || 'No se pudo completar la reserva'));
@@ -1401,7 +1538,7 @@ router.get('/amenities', async (req, res) => {
           });
           var data = await res.json();
           if (data.ok) {
-            alert('✓ Reserva cancelada');
+            alert('✓ Reserva cancelada. El horario quedó disponible para otros vecinos.');
             location.reload();
           } else {
             alert('Error al cancelar');
@@ -1412,7 +1549,7 @@ router.get('/amenities', async (req, res) => {
       }
 
       document.addEventListener('DOMContentLoaded', function() {
-        verificarDisponibilidad();
+        renderGrillaHoras();
       });
     </script>
   `;
@@ -1420,37 +1557,56 @@ router.get('/amenities', async (req, res) => {
   res.send(shellVecino('Amenities', 'amenities', content, v));
 });
 
-// Endpoint Crear Reserva de Amenity
+// Endpoint Crear Reserva de Amenity por Horas
 router.post('/api/reservar-amenity', async (req, res) => {
   try {
     const v = getVecinoSession(req);
-    const { amenity, fecha, turno, notas } = req.body || {};
+    const { amenity, fecha, hora_desde, hora_hasta, notas } = req.body || {};
 
-    if (!amenity || !fecha || !turno) {
-      return res.status(400).json({ ok: false, error: 'Faltan datos obligatorios para la reserva' });
+    if (!amenity || !fecha || !hora_desde || !hora_hasta) {
+      return res.status(400).json({ ok: false, error: 'Faltan datos obligatorios para la reserva (amenity, fecha, horario)' });
     }
 
     const { pool } = require('./db-pg');
     if (pool) {
-      // Validar si ya está ocupado
-      const qCheck = `SELECT id FROM reservas_amenities 
+      // Validar si existe solapamiento con alguna reserva activa en la misma fecha y amenity
+      const qCheck = `SELECT id, departamento, hora_desde, hora_hasta, turno FROM reservas_amenities 
                       WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
                       AND LOWER(amenity) = LOWER($3)
                       AND fecha = $4
-                      AND turno = $5
-                      AND estado != 'cancelada' LIMIT 1`;
-      const checkRes = await pool.query(qCheck, [v.edificio, '%' + v.edificio + '%', amenity, fecha, turno]);
+                      AND estado != 'cancelada'`;
+      const checkRes = await pool.query(qCheck, [v.edificio, '%' + v.edificio + '%', amenity, fecha]);
+      
       if (checkRes && checkRes.rows && checkRes.rows.length > 0) {
-        return res.status(400).json({ ok: false, error: 'Este turno ya fue reservado por otro vecino' });
+        const nuevaStart = parseInt(hora_desde.split(':')[0], 10) + (parseInt(hora_desde.split(':')[1] || 0, 10) / 60);
+        const nuevaEnd = parseInt(hora_hasta.split(':')[0], 10) + (parseInt(hora_hasta.split(':')[1] || 0, 10) / 60);
+
+        for (const r of checkRes.rows) {
+          if (r.hora_desde && r.hora_hasta) {
+            const exStart = parseInt(r.hora_desde.split(':')[0], 10) + (parseInt(r.hora_desde.split(':')[1] || 0, 10) / 60);
+            const exEnd = parseInt(r.hora_hasta.split(':')[0], 10) + (parseInt(r.hora_hasta.split(':')[1] || 0, 10) / 60);
+            
+            // Solapamiento: no termina antes de que empiece la otra ni empieza después de que termine
+            if (!(nuevaEnd <= exStart || nuevaStart >= exEnd)) {
+              return res.status(400).json({ 
+                ok: false, 
+                error: `El horario de ${hora_desde} a ${hora_hasta} se superpone con una reserva del Depto ${r.departamento || 'vecino'} (${r.hora_desde} a ${r.hora_hasta} hs).` 
+              });
+            }
+          }
+        }
       }
 
-      const qIns = `INSERT INTO reservas_amenities (edificio, amenity, fecha, turno, departamento, nombre_vecino, telefono, estado, notas, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()) RETURNING id`;
+      const turnoLabel = `${hora_desde} a ${hora_hasta} hs`;
+      const qIns = `INSERT INTO reservas_amenities (edificio, amenity, fecha, hora_desde, hora_hasta, turno, departamento, nombre_vecino, telefono, estado, notas, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()) RETURNING id`;
       const insRes = await pool.query(qIns, [
         v.edificio,
         amenity,
         fecha,
-        turno,
+        hora_desde,
+        hora_hasta,
+        turnoLabel,
         v.departamento,
         v.nombre,
         v.telefono || '',

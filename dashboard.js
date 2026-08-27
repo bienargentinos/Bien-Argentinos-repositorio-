@@ -4564,6 +4564,78 @@ async function guardarEditarProveedor(btn){
 }
 window.guardarEditarProveedor = guardarEditarProveedor;
 
+// ── GESTIÓN DE AMENITIES Y ESPACIOS COMUNES (CLIENTE) ──
+function abrirModalAmenityNuevo(edificio) {
+  var e = document.getElementById('amenity-nuevo-edificio');
+  if (e) e.value = edificio || '';
+  abrirModal('modal-amenity-nuevo');
+}
+window.abrirModalAmenityNuevo = abrirModalAmenityNuevo;
+
+async function guardarAmenityNuevo(btn) {
+  var edificio = valEl('amenity-nuevo-edificio');
+  var nombre = valEl('amenity-nuevo-nombre');
+  var icono = valEl('amenity-nuevo-icono') || '🎉';
+  var apertura = valEl('amenity-nuevo-apertura') || '08:00';
+  var cierre = valEl('amenity-nuevo-cierre') || '23:00';
+  var capacidad = valEl('amenity-nuevo-capacidad') || '20';
+  var descripcion = valEl('amenity-nuevo-desc') || '';
+
+  if (!nombre.trim()) {
+    toast('Ingresá el nombre del espacio común (ej: SUM, Piscina, Gimnasio)', 'err');
+    return;
+  }
+
+  btn.disabled = true;
+  var old = btn.textContent;
+  btn.textContent = 'Guardando...';
+
+  try {
+    var r = await fetch('/admin/api/edificio-amenity-guardar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        edificio: edificio,
+        nombre: nombre.trim(),
+        icono: icono.trim(),
+        hora_apertura: apertura,
+        hora_cierre: cierre,
+        capacidad: parseInt(capacidad, 10) || 20,
+        descripcion: descripcion.trim()
+      })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al guardar amenity');
+    cerrarModal('modal-amenity-nuevo');
+    toast('¡Espacio común configurado con éxito!', 'ok');
+    setTimeout(function() { location.reload(); }, 700);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+window.guardarAmenityNuevo = guardarAmenityNuevo;
+
+async function eliminarAmenity(id, nombre) {
+  if (!confirm('¿Estás seguro de eliminar el amenity "' + nombre + '" de este edificio?')) return;
+  try {
+    var r = await fetch('/admin/api/edificio-amenity-eliminar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al eliminar');
+    toast('Amenity eliminado', 'ok');
+    setTimeout(function() { location.reload(); }, 700);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+window.eliminarAmenity = eliminarAmenity;
+
 // ── DATOS DE COBRO DEL PROVEEDOR ──────────────────────────────────────────────────────
 function abrirDatosCobro(row, nombre, cbu, alias, titular, cuit){
   var r=document.getElementById('cobro-row');if(r)r.value=row;
@@ -8064,11 +8136,16 @@ router.get('/mi-edificio', async (req, res) => {
         <div id="lista-vecinos-wrap" style="display:flex;flex-direction:column;gap:10px;max-height:480px;overflow-y:auto;padding-right:6px">${vecinosFilas}</div>
       </div>`;
 
+    let amenitiesEdificio = [];
     let reservasEdificio = [];
     try {
       const { pool } = require('./db-pg');
       if (pool && cur) {
-        const qR = `SELECT * FROM reservas_amenities WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) AND estado != 'cancelada' ORDER BY fecha DESC, id DESC LIMIT 15`;
+        const qAm = `SELECT * FROM edificio_amenities WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) AND activo = TRUE ORDER BY id ASC`;
+        const resAm = await pool.query(qAm, [cur.nombre, '%' + cur.nombre + '%']);
+        if (resAm && resAm.rows) amenitiesEdificio = resAm.rows;
+
+        const qR = `SELECT * FROM reservas_amenities WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) AND estado != 'cancelada' ORDER BY fecha DESC, hora_desde ASC, id DESC LIMIT 20`;
         const resR = await pool.query(qR, [cur.nombre, '%' + cur.nombre + '%']);
         if (resR && resR.rows) reservasEdificio = resR.rows;
       }
@@ -8076,27 +8153,111 @@ router.get('/mi-edificio', async (req, res) => {
 
     const amenitiesCard = `
       <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px">
           <div>
-            <div style="font-size:16px;font-weight:800;color:#16233B">📅 Reservas de Amenities y SUM (${reservasEdificio.length})</div>
-            <p style="font-size:13px;color:#8595AD;margin:2px 0 0">Control de reservas de espacios comunes (SUM, Parrilla, Quincho, Pileta) solicitadas por los vecinos desde la Web App.</p>
+            <div style="font-size:16px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:6px">
+              <span>🏊</span> <span>Amenities y Espacios Comunes (${amenitiesEdificio.length || 'Estándar'})</span>
+            </div>
+            <p style="font-size:13px;color:#8595AD;margin:2px 0 0">Espacios disponibles para reserva por horas desde la Web App del Vecino (SUM, Piscina, Gimnasio, Parrilla, Quincho, etc.).</p>
           </div>
+          <button onclick="abrirModalAmenityNuevo('${escJs(cur ? cur.nombre : '')}')" style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:none;border-radius:999px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13px;cursor:pointer" class="hv-primary">
+            <span>+ Agregar Amenity</span>
+          </button>
         </div>
-        ${reservasEdificio.length ? `
-        <div style="display:flex;flex-direction:column;gap:10px;max-height:360px;overflow-y:auto">
-          ${reservasEdificio.map(r => `
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid #E2E8F0;border-radius:12px;background:#F8FAFD;gap:10px;flex-wrap:wrap">
-              <div style="display:flex;align-items:center;gap:10px">
-                <span style="font-size:22px">🎉</span>
+
+        <!-- Badges de Amenities Configurados -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:18px">
+          ${amenitiesEdificio.length ? amenitiesEdificio.map(a => `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid #E2E8F0;border-radius:12px;background:#F8FAFD;gap:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:20px">${esc(a.icono || '🎉')}</span>
                 <div>
-                  <div style="font-size:14px;font-weight:800;color:#0F172A">${esc(r.amenity)} · <span style="color:#1E5FB4">${esc(r.departamento || 'Depto')} (${esc(r.nombre_vecino || 'Vecino')})</span></div>
-                  <div style="font-size:12px;color:#64748B">📆 ${esc(r.fecha)} · ⏰ ${esc(r.turno)}${r.notas ? ' · 📝 ' + esc(r.notas) : ''}</div>
+                  <div style="font-size:13.5px;font-weight:800;color:#0F172A">${esc(a.nombre)}</div>
+                  <div style="font-size:11.5px;color:#64748B">${esc(a.hora_apertura || '08:00')} a ${esc(a.hora_cierre || '23:00')} hs · Cap. ${esc(a.capacidad || 20)} pers.</div>
                 </div>
               </div>
-              <span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:#DCFCE7;color:#15803D;text-transform:uppercase">Confirmada</span>
+              <button onclick="eliminarAmenity(${a.id}, '${escJs(a.nombre)}')" style="border:none;background:none;color:#EF4444;font-size:12px;font-weight:700;cursor:pointer;padding:4px" title="Eliminar amenity">✕</button>
             </div>
-          `).join('')}
-        </div>` : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">No hay reservas registradas para este edificio todavía. Los vecinos pueden reservar desde su Web App.</div>'}
+          `).join('') : `
+            <div style="grid-column:1/-1;padding:12px 14px;background:#F8FAFD;border:1px dashed #CBD5E1;border-radius:10px;font-size:12.5px;color:#64748B">
+              💡 <em>Catálogo estándar activo (SUM, Parrilla, Pileta, Gimnasio, Laundry). Podés agregar espacios personalizados con horarios propios usando el botón <strong>+ Agregar Amenity</strong>.</em>
+            </div>
+          `}
+        </div>
+
+        <!-- Historial de Reservas Activas -->
+        <div style="border-top:1px solid #EEF1F6;padding-top:14px">
+          <div style="font-size:14px;font-weight:800;color:#16233B;margin-bottom:8px">📅 Reservas Activas (${reservasEdificio.length})</div>
+          ${reservasEdificio.length ? `
+          <div style="display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto">
+            ${reservasEdificio.map(r => `
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #E2E8F0;border-radius:10px;background:#fff;gap:10px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font-size:18px">🎉</span>
+                  <div>
+                    <div style="font-size:13px;font-weight:800;color:#0F172A">${esc(r.amenity)} · <span style="color:#1E5FB4">${esc(r.departamento || 'Depto')} (${esc(r.nombre_vecino || 'Vecino')})</span></div>
+                    <div style="font-size:12px;color:#64748B">📆 ${esc(r.fecha)} · ⏰ <strong>${esc(r.hora_desde || '00:00')} a ${esc(r.hora_hasta || '00:00')} hs</strong>${r.notas ? ' · 📝 ' + esc(r.notas) : ''}</div>
+                  </div>
+                </div>
+                <span style="font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:#DCFCE7;color:#15803D;text-transform:uppercase">Confirmada</span>
+              </div>
+            `).join('')}
+          </div>` : '<div style="font-size:12.5px;color:#8595AD;padding:4px 0">No hay reservas registradas para este edificio todavía.</div>'}
+        </div>
+      </div>`;
+
+    const modalAmenityNuevoHtml = `
+      <div id="modal-amenity-nuevo" class="modal-overlay" onclick="cerrarModal('modal-amenity-nuevo')">
+        <div class="modal-box" style="max-width:500px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Espacios Comunes</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏊 Añadir Amenity al Edificio</div>
+          </div>
+          <div style="padding:20px 24px">
+            <input type="hidden" id="amenity-nuevo-edificio" value="${esc(cur ? cur.nombre : '')}">
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Nombre del espacio común</label>
+              <input id="amenity-nuevo-nombre" placeholder="Ej: SUM, Piscina, Gimnasio, Coworking, Cancha de Tenis" class="inp" style="background:#fff">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Ícono</label>
+                <select id="amenity-nuevo-icono" class="inp" style="background:#fff">
+                  <option value="🎉">🎉 Salón / SUM</option>
+                  <option value="🥩">🥩 Parrilla / Quincho</option>
+                  <option value="🏊">🏊 Piscina / Solarium</option>
+                  <option value="🏋️">🏋️ Gimnasio</option>
+                  <option value="🧺">🧺 Laundry / Lavadero</option>
+                  <option value="💼">💼 Coworking / Sala</option>
+                  <option value="🎾">🎾 Cancha de Paddle / Tenis</option>
+                  <option value="🌅">🌅 Terraza / Rooftop</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Capacidad (personas)</label>
+                <input type="number" id="amenity-nuevo-capacidad" value="20" min="1" max="500" class="inp" style="background:#fff">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Horario Apertura</label>
+                <input type="time" id="amenity-nuevo-apertura" value="08:00" class="inp" style="background:#fff">
+              </div>
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Horario Cierre</label>
+                <input type="time" id="amenity-nuevo-cierre" value="23:00" class="inp" style="background:#fff">
+              </div>
+            </div>
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Descripción o Equipamiento</label>
+              <textarea id="amenity-nuevo-desc" placeholder="Ej: Aire acondicionado, vajilla para 30 personas, heladera y parrilla." class="inp" style="height:60px;resize:vertical;background:#fff"></textarea>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;padding:0 24px 20px">
+            <button onclick="cerrarModal('modal-amenity-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarAmenityNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar Amenity</button>
+          </div>
+        </div>
       </div>`;
 
     const modalVecinosImportarHtml = `
@@ -8431,6 +8592,7 @@ router.get('/mi-edificio', async (req, res) => {
       ${modalConsejoEditarHtml}
       ${modalStaffEditHtml}
       ${modalAccesoNuevoHtml}
+      ${modalAmenityNuevoHtml}
       ${modalPlanesAcHtml(planesList, d.propios)}
       <script>window.__CUR_BUILDING__=${JSON.stringify(cur)};window.__EDIFICIOS__=${JSON.stringify(d.propios)};window.__ES_DUENO__=false;</script>`;
 
@@ -12226,6 +12388,52 @@ router.get('/api/busqueda-global', async (req, res) => {
     const { busquedaGlobal } = require('./db-pg');
     const resBusqueda = await busquedaGlobal(q);
     res.json({ ok: true, resultados: resBusqueda });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// ── ENDPOINTS GESTIÓN DE AMENITIES POR EDIFICIO (CLIENTE / ADMIN) ──
+router.post('/api/edificio-amenity-guardar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion } = req.body || {};
+    if (!edificio || !nombre) {
+      return res.status(400).json({ error: 'Faltan datos obligatorios (edificio, nombre)' });
+    }
+
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `INSERT INTO edificio_amenities (edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, activo, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, NOW()) RETURNING id`;
+      const result = await pool.query(q, [
+        edificio,
+        nombre,
+        icono || '🎉',
+        hora_apertura || '08:00',
+        hora_cierre || '23:00',
+        Number(capacidad) || 20,
+        descripcion || ''
+      ]);
+      return res.json({ ok: true, mensaje: 'Amenity configurado con éxito', id: result.rows[0].id });
+    }
+    res.json({ ok: true, mensaje: 'Amenity registrado' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/edificio-amenity-eliminar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { id } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'ID de amenity requerido' });
+
+    const { pool } = require('./db-pg');
+    if (pool) {
+      await pool.query('UPDATE edificio_amenities SET activo = FALSE WHERE id = $1', [id]);
+    }
+    res.json({ ok: true, mensaje: 'Amenity eliminado' });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
