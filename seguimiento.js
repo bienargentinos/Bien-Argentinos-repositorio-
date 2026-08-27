@@ -22,6 +22,113 @@ const GRACIA_MS = 30 * 60 * 1000;      // margen sobre el plazo que dio el técn
 const ESPERA_RESPUESTA_MS = 30 * 60 * 1000; // cuánto se espera cada respuesta antes de subir un paso
 const SIN_ETA_MS = 3 * 60 * 60 * 1000; // si confirmó sin dar horario
 
+// A NADIE SE LE PREGUNTA NADA DE MADRUGADA.
+//
+// Un "¿pudiste pasar?" a las 3 de la mañana no lo contesta nadie, despierta a una persona y quema
+// exactamente la confianza que Marcos necesita para existir. Y no cuesta nada evitarlo: el control
+// que cae fuera de este rango se corre a la mañana siguiente. Perder ocho horas en un seguimiento
+// no le hace daño a nadie; un mensaje a las 3 AM sí.
+const HORA_DESDE = 8;
+const HORA_HASTA = 22;
+
+// Argentina no cambia de hora desde 2009, así que el desfase es fijo. Se hace la cuenta a mano y
+// no con `toLocaleString` porque el Node de este VPS está compilado con ICU reducido y el formato
+// en español se cae al inglés -- el mismo motivo por el que existe `fecha.js`.
+const OFFSET_AR_MIN = -180;
+
+/** Descompone un instante en fecha y hora ARGENTINA. */
+function partesAR(fecha) {
+    const t = new Date(fecha.getTime() + OFFSET_AR_MIN * 60000);
+    return { y: t.getUTCFullYear(), m: t.getUTCMonth(), d: t.getUTCDate(), h: t.getUTCHours(), min: t.getUTCMinutes() };
+}
+
+/** Vuelve a armar un instante a partir de una fecha y hora argentina. */
+function desdeAR({ y, m, d, h, min = 0 }) {
+    return new Date(Date.UTC(y, m, d, h, min) - OFFSET_AR_MIN * 60000);
+}
+
+/** Corre a horario laboral un control que cayó de madrugada o de noche. */
+function enHorarioRazonable(fecha) {
+    const p = partesAR(fecha);
+    if (p.h >= HORA_DESDE && p.h < HORA_HASTA) return fecha;
+    const aLaManiana = desdeAR({ ...p, h: HORA_DESDE, min: 0 });
+    // Antes de las 8 se corre a las 8 del MISMO día; después de las 22, a las 8 del siguiente.
+    return p.h < HORA_DESDE ? aLaManiana : new Date(aLaManiana.getTime() + 24 * 60 * 60 * 1000);
+}
+
+/**
+ * A qué hora dijo que iba, en serio.
+ *
+ * > **"Mañana a las 10" es un MOMENTO, no una duración.**
+ *
+ * `estimarPlazoMs` devuelve siempre un plazo contado desde ahora: "mañana" eran 20 horas. Si el
+ * técnico avisaba a las 8 de la mañana, el control caía a las 4 de la madrugada del otro día --
+ * antes incluso de la hora a la que había prometido ir. Y si avisaba a las 19, caía a las 15 del
+ * día siguiente, cinco horas tarde.
+ *
+ * Acá se lee la hora del reloj cuando está dicha ("mañana a las 10", "a las 18", "el lunes a la
+ * tarde") y se ancla a ese momento real. Los plazos relativos ("en 30 minutos", "en 2 horas")
+ * siguen contándose desde ahora, que es lo correcto para ellos.
+ *
+ * Devuelve `null` cuando el texto no dice ninguna hora: ahí decide `estimarPlazoMs` como siempre.
+ */
+function momentoPrometido(eta, ahora = new Date()) {
+    const t = String(eta || '').toLowerCase().trim();
+    if (!t) return null;
+
+    // "Mañana" es dos palabras distintas: el día de mañana y la parte del día. Se saca primero la
+    // parte del día para que "mañana a la mañana" no cuente como dos días.
+    const sinParteDelDia = t.replace(/(a|de|por|en) la ma[nñ]ana/g, ' ');
+
+    let diasAdelante = 0;
+    let nombraUnDia = /\bhoy\b/.test(t);
+    if (/pasado ma[nñ]ana/.test(t)) { diasAdelante = 2; nombraUnDia = true; }
+    else if (/\bma[nñ]ana\b/.test(sinParteDelDia)) { diasAdelante = 1; nombraUnDia = true; }
+
+    // La hora del reloj tiene que estar dicha como hora: "a las 10", "10:30", "9 am", "18 hs".
+    // Un número suelto NO alcanza -- "en 2 horas" es una duración y se cuenta desde ahora.
+    let hora = null;
+    let minuto = 0;
+
+    const reloj = t.match(/\ba\s+las?\s+(\d{1,2})(?:[:.](\d{2}))?/)
+        || t.match(/\b(\d{1,2})(?:[:.](\d{2}))\s*(?:hs?\b|horas?\b)?/)
+        || t.match(/\b(\d{1,2})\s*(?:am|pm)\b/)
+        || t.match(/\b(\d{1,2})\s*hs\b/);
+
+    if (reloj) {
+        hora = parseInt(reloj[1], 10);
+        minuto = parseInt(reloj[2] || '0', 10);
+        // "8 de la tarde" son las 20. "8 de la mañana" son las 8. Sin aclaración se toma como
+        // está: en Argentina se escribe "a las 18" tanto como "a las 6 de la tarde".
+        if (/de la tarde|de la noche|\bpm\b/.test(t) && hora < 12) hora += 12;
+        if (/de la ma[nñ]ana|\bam\b/.test(t) && hora === 12) hora = 0;
+        if (hora > 23 || minuto > 59) hora = null;
+    } else {
+        // Sin hora exacta, la parte del día alcanza para no preguntar a cualquier hora.
+        if (/mediod[ií]a/.test(t)) hora = 12;
+        else if (/(a|de|por|en) la tarde|\bla tarde\b/.test(t)) hora = 15;
+        else if (/(a|de|por|en) la noche|\bla noche\b/.test(t)) hora = 19;
+        else if (/(a|de|por|en) la ma[nñ]ana/.test(t)) hora = 9;
+        else if (/primera hora|temprano/.test(t)) hora = 8;
+        // "Voy mañana", sin hora: tiene TODO el día. Preguntarle a las 8 de la mañana si ya pasó
+        // es preguntar antes de que empiece. Se espera al final de la jornada, que es cuando la
+        // promesa se puede dar por incumplida.
+        else if (nombraUnDia) hora = 18;
+    }
+
+    if (hora === null) return null;
+
+    const p = partesAR(ahora);
+    let cuando = desdeAR({ y: p.y, m: p.m, d: p.d + diasAdelante, h: hora, min: minuto });
+
+    // Si la hora que dijo ya pasó y no aclaró el día, se entiende que habla del día siguiente:
+    // a las 14 nadie promete ir "a las 10" de esta mañana.
+    if (cuando.getTime() <= ahora.getTime() && diasAdelante === 0) {
+        cuando = new Date(cuando.getTime() + 24 * 60 * 60 * 1000);
+    }
+    return cuando;
+}
+
 /**
  * Convierte a milisegundos el plazo que dijo el técnico ("en 2 horas", "hoy a la tarde").
  * Deliberadamente simple: ante la duda usa el plazo largo. Preguntar de más molesta al técnico;
@@ -45,9 +152,16 @@ function estimarPlazoMs(eta) {
     return SIN_ETA_MS;
 }
 
-/** Cuándo hay que volver a mirar este caso después de que el técnico confirmó. */
-function calcularPrimerControl(eta) {
-    return new Date(Date.now() + estimarPlazoMs(eta) + GRACIA_MS);
+/**
+ * Cuándo hay que volver a mirar este caso después de que el técnico confirmó.
+ *
+ * Primero se intenta anclar a la hora que prometió; si no dijo ninguna, se usa el plazo estimado
+ * contado desde ahora. En los dos casos se le suma la gracia y se corre fuera de la madrugada.
+ */
+function calcularPrimerControl(eta, ahora = new Date()) {
+    const prometido = momentoPrometido(eta, ahora);
+    const base = prometido ? prometido.getTime() : ahora.getTime() + estimarPlazoMs(eta);
+    return enHorarioRazonable(new Date(base + GRACIA_MS));
 }
 
 async function procesarUnCaso(caso, deps) {
@@ -81,7 +195,7 @@ async function procesarUnCaso(caso, deps) {
         // edificio.
         const reservado = await programarSeguimiento({
             id_evento: id,
-            cuando: new Date(Date.now() + ESPERA_RESPUESTA_MS),
+            cuando: enHorarioRazonable(new Date(Date.now() + ESPERA_RESPUESTA_MS)),
             paso: 2,
             nota: 'Se le preguntó al proveedor si pasó'
         });
@@ -92,14 +206,24 @@ async function procesarUnCaso(caso, deps) {
         }
 
         const dirSeguimiento = await direccionParaTecnico(caso.edificio);
+
+        // A un caso `avisado` NO se le pregunta si pudo pasar: el técnico nunca dijo que iba.
+        // Avisó que lo convocaron y quedó pendiente de confirmar. Preguntarle "¿pudiste pasar?"
+        // por algo que no se comprometió a hacer suena a reclamo por un incumplimiento inventado.
+        const sinConfirmar = /avisad|sin confirmar/i.test(String(caso.estado || ''));
+
         await enviarWhatsApp(
             tecnico.telefono,
             `🛠️ *MARCOS — SEGUIMIENTO [${id}]*\n\n` +
-            `Hola ${tecnico.nombre || tecnicoNombre}, ¿pudiste pasar por ${dirSeguimiento}?\n` +
-            `Si ya está resuelto avisame y cierro el caso. Si no llegaste a ir, decime y lo reprogramamos.`,
+            (sinConfirmar
+                ? `Hola ${tecnico.nombre || tecnicoNombre}, quedó pendiente lo de ${dirSeguimiento}. ` +
+                  `¿Vas a poder pasar? Si me decís qué día y a qué hora, aviso en el edificio para que te esperen.\n` +
+                  `Y si no vas a poder ir, decímelo también y le busco una vuelta con la Administración.`
+                : `Hola ${tecnico.nombre || tecnicoNombre}, ¿pudiste pasar por ${dirSeguimiento}?\n` +
+                  `Si ya está resuelto avisame y cierro el caso. Si no llegaste a ir, decime y lo reprogramamos.`),
             phoneNumberId, accessToken
         );
-        console.log(`🛠️ Seguimiento [${id}] paso 1: se le preguntó al técnico si pudo pasar.`);
+        console.log(`🛠️ Seguimiento [${id}] paso 1: se le preguntó al técnico ${sinConfirmar ? 'si va a poder ir' : 'si pudo pasar'}.`);
         return;
     }
 
@@ -109,7 +233,7 @@ async function procesarUnCaso(caso, deps) {
         // importa todavía más, porque al que le llegaría la pregunta repetida es al vecino.
         const reservado = await programarSeguimiento({
             id_evento: id,
-            cuando: new Date(Date.now() + ESPERA_RESPUESTA_MS),
+            cuando: enHorarioRazonable(new Date(Date.now() + ESPERA_RESPUESTA_MS)),
             paso: 3,
             nota: 'Se le preguntó al edificio si el técnico pasó'
         });
@@ -218,4 +342,4 @@ async function revisarSeguimientos(deps) {
     }
 }
 
-module.exports = { revisarSeguimientos, calcularPrimerControl, estimarPlazoMs };
+module.exports = { revisarSeguimientos, calcularPrimerControl, estimarPlazoMs, momentoPrometido, enHorarioRazonable };

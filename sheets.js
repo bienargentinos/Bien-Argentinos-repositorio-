@@ -2254,6 +2254,10 @@ async function obtenerSeguimientosVencidos() {
                 problema:    r.get('mensaje') || r.get('problema') || '',
                 urgencia:    r.get('urgencia') || '',
                 tecnico:     r.get('tecnico') || '',
+                // El estado viaja porque el paso 1 pregunta cosas distintas según él: a un caso
+                // `avisado` (el técnico avisó que lo convocaron pero NO confirmó que iba) hay que
+                // preguntarle si va a poder ir, no si ya pudo pasar.
+                estado:      r.get('estado') || '',
                 paso:        parseInt(r.get('seguimiento_paso') || '1', 10) || 1,
                 nota:        r.get('seguimiento_nota') || '',
             }));

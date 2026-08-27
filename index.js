@@ -2896,6 +2896,28 @@ function validarYSanitizarNombre(nombre) {
                 || /\b(voy a (pasar|ir|estar|acercarme)|estoy yendo|voy para|paso (hoy|ma[nñ]ana|luego|m[aá]s tarde)|me acerco|salgo para)\b/i.test(txtLow)
                 || /\b(aviso que|te aviso que|les aviso que)\b/i.test(txtLow);
 
+            // AVISAR QUE LO LLAMARON NO ES DECIR QUE VA.
+            //
+            // "Hola, me llamaron del edificio, hay una cámara que no funciona" es un aviso a medias:
+            // el administrador tiene que enterarse igual, pero nadie sabe todavía si el técnico va
+            // a ir, ni cuándo, ni si necesita que le abran. Antes eso se daba por confirmado y se
+            // agendaba un control contra una promesa que nunca existió.
+            //
+            // Daniel: "si no digo que voy, que Marcos pregunte: ok gracias por avisarme, ¿vas a
+            // pasar? ¿cuándo? ¿necesitás algo que gestione? Así no espera que el tipo le diga --
+            // que indague".
+            const confirmaQueVa = /\b(voy a (pasar|ir|estar|acercarme)|estoy yendo|voy para|voy ma[nñ]ana|voy hoy|paso (hoy|ma[nñ]ana|luego|m[aá]s tarde|por la)|me acerco|salgo para|ya salgo|estoy en camino|en camino)\b/i.test(txtLow)
+                || /\b(voy|paso|llego|estar[eé]|ir[eé])\b[^.]{0,30}\b(hoy|ma[nñ]ana|a las?\s*\d|en \d+\s*(min|hs?|hora))/i.test(txtLow);
+
+            // Y cómo se contesta de verdad "¿vas a pasar? ¿cuándo?": "sí, mañana a las 10",
+            // "dale, voy", "a las 9". Sin verbo y sin repetir la dirección, porque la acaba de
+            // decir. Esto NO abre nada por sí solo: solo sirve para reconocer la respuesta cuando
+            // hay un caso esperando confirmación, y si no lo hay el mensaje sigue su camino.
+            const pareceRespuestaDeAgenda = /^\s*(s[ií]|dale|ok|oka|okey|listo|perfecto|claro|obvio|de una|joya|b[aá]rbaro)\b/i.test(txtLow)
+                || /\ba\s+las?\s*\d{1,2}\b/i.test(txtLow)
+                || /\b(hoy|ma[nñ]ana|pasado ma[nñ]ana|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i.test(txtLow)
+                || /\ben\s+\d+\s*(min|minutos?|hs?|horas?)\b/i.test(txtLow);
+
             // Tiene que nombrar el edificio: sin eso no se sabe a qué consorcio imputarle nada, y
             // abrir el caso en el edificio equivocado es peor que no abrirlo.
             const edifAviso = buscarEdificioEnTexto(msgClean, edificiosConocidos);
@@ -2934,7 +2956,10 @@ function validarYSanitizarNombre(nombre) {
                         vecino: 'Avisado por el proveedor',
                         problema: msgBodyParaRegistro,
                         urgencia: /urgen|se inund|no anda|sin luz|sin agua|peligro|riesgo/i.test(txtLow) ? 'alta' : 'media',
-                        estado: 'en_proceso',
+                        // `avisado` = lo convocaron pero TODAVÍA no dijo que va. El caso se abre
+                        // igual --el administrador tiene que enterarse-- pero no se da por hecha
+                        // una visita que nadie prometió.
+                        estado: confirmaQueVa ? 'en_proceso' : 'avisado',
                         // Si la línea la comparten varios técnicos y todavía no se sabe cuál
                         // escribe, se anota el teléfono igual: el administrador necesita a quién
                         // llamarle, y el nombre se completa cuando se resuelva.
@@ -2942,7 +2967,9 @@ function validarYSanitizarNombre(nombre) {
                         tel_tecnico: from || '',
                         rubro_tecnico: rubroAviso,
                         tipo: 'aviso_proveedor',
-                        notas_ia: `El técnico ${datosEmisor.nombre} avisó que lo convocaron directamente y que va a ir. ` +
+                        notas_ia: (confirmaQueVa
+                                    ? `El técnico ${datosEmisor.nombre} avisó que lo convocaron directamente y que va a ir. `
+                                    : `El técnico ${datosEmisor.nombre} avisó que lo convocaron. TODAVÍA NO CONFIRMÓ si va ni cuándo: se le preguntó. `) +
                                   `No hubo reclamo previo por este canal. Textual: "${msgBodyParaRegistro}"`,
                         historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`]),
                     });
@@ -2955,10 +2982,16 @@ function validarYSanitizarNombre(nombre) {
                         await avisarAlAdministrador({
                             edificio: nombreEdifAviso,
                             idEvento: idAviso,
-                            motivo: 'un proveedor avisó que lo convocaron y que va a ir',
-                            titulo: `🔧 MARCOS: UN PROVEEDOR VA A ${dirAviso}`,
+                            motivo: confirmaQueVa
+                                ? 'un proveedor avisó que lo convocaron y que va a ir'
+                                : 'un proveedor avisó que lo convocaron, sin confirmar todavía si va',
+                            titulo: confirmaQueVa
+                                ? `🔧 MARCOS: UN PROVEEDOR VA A ${dirAviso}`
+                                : `🔧 MARCOS: CONVOCARON A UN PROVEEDOR EN ${dirAviso}`,
                             cuerpo:
-                                `Un proveedor avisa que lo llamaron directamente y que va a ir.\n\n` +
+                                (confirmaQueVa
+                                    ? `Un proveedor avisa que lo llamaron directamente y que va a ir.\n\n`
+                                    : `Un proveedor avisa que lo llamaron directamente. Todavía NO confirmó si va ni cuándo -- ya se lo pregunté.\n\n`) +
                                 `📍 Dirección: ${dirAviso}\n` +
                                 `🔧 Quién: ${datosEmisor.nombre}${datosEmisor.especialidad ? ` (${datosEmisor.especialidad})` : ''}\n` +
                                 `📱 Teléfono: ${from}\n` +
@@ -2981,24 +3014,42 @@ function validarYSanitizarNombre(nombre) {
                     }
 
                     // Y se agenda el control. Sin esto el caso queda ABIERTO y nadie vuelve a
-                    // preguntar nunca si el técnico fue: se queda colgado en silencio, que es
-                    // justo lo que el seguimiento existe para evitar. El plazo sale de lo que él
-                    // mismo dijo ("voy mañana", "paso más tarde").
+                    // preguntar nunca: se queda colgado en silencio, que es justo lo que el
+                    // seguimiento existe para evitar.
+                    //
+                    // Si confirmó, el plazo sale de la HORA que él mismo dijo ("mañana a las 10")
+                    // y no de una duración contada desde ahora, que es lo que hacía que Marcos
+                    // preguntara "¿pudiste pasar?" a las 4 de la madrugada.
+                    //
+                    // Si NO confirmó, lo que se espera es su respuesta, no su visita: se vuelve a
+                    // preguntar en un par de horas, y el paso 1 sabe --por el estado `avisado`--
+                    // que tiene que preguntar "¿vas a poder pasar?" y no "¿pudiste pasar?".
                     if (idAviso) {
                         try {
                             const { programarSeguimiento } = require('./datos');
-                            const { calcularPrimerControl } = require('./seguimiento');
+                            const { calcularPrimerControl, enHorarioRazonable } = require('./seguimiento');
                             await programarSeguimiento({
                                 id_evento: idAviso,
-                                cuando: calcularPrimerControl(msgBodyParaRegistro),
+                                cuando: confirmaQueVa
+                                    ? calcularPrimerControl(msgBodyParaRegistro)
+                                    : enHorarioRazonable(new Date(Date.now() + 2 * 60 * 60 * 1000)),
                                 paso: 1,
-                                nota: 'El proveedor avisó que lo convocaron y que va a ir'
+                                nota: confirmaQueVa
+                                    ? 'El proveedor avisó que lo convocaron y que va a ir'
+                                    : 'El proveedor avisó que lo convocaron; falta que confirme si va'
                             });
                         } catch (e) { console.error('Error agendando el control del aviso del proveedor:', e.message); }
                     }
 
-                    const respAviso = `Gracias por avisar, ${datosEmisor.nombre}. Lo registré como *${idAviso || 'caso nuevo'}* en ${dirAviso} y ya le avisé a la Administración de que vas.` +
-                        ` Cuando termines, contame qué hiciste y mandame la factura por acá y la dejo asociada a este mismo caso.`;
+                    // Si no dijo que va, se le pregunta ACÁ MISMO en vez de esperar a que lo diga
+                    // solo. Son las tres cosas que la Administración necesita saber y que solo él
+                    // puede contestar: si va, cuándo, y si le hace falta que le gestionen algo.
+                    const respAviso = confirmaQueVa
+                        ? `Gracias por avisar, ${datosEmisor.nombre}. Lo registré como *${idAviso || 'caso nuevo'}* en ${dirAviso} y ya le avisé a la Administración de que vas.` +
+                          ` Cuando termines, contame qué hiciste y mandame la factura por acá y la dejo asociada a este mismo caso.`
+                        : `Gracias por avisarme, ${datosEmisor.nombre}. Lo dejé anotado como *${idAviso || 'caso nuevo'}* en ${dirAviso} y ya le avisé a la Administración.\n\n` +
+                          `¿Vas a pasar? ¿Qué día y a qué hora te queda cómodo?\n` +
+                          `¿Necesitás que gestione algo para entrar --que te esperen, el contacto del encargado, alguna llave?`;
                     await despacharRespuesta(recipient, respAviso, msgTypeRespuesta);
                     historial.push(`Marcos: ${respAviso}`);
 
@@ -3007,12 +3058,76 @@ function validarYSanitizarNombre(nombre) {
                 } catch (e) {
                     console.error('Error registrando el aviso del proveedor:', e.message);
                 }
-            } else if (avisaQueVa && !nombreEdifAviso) {
-                // Avisó que va pero no dijo adónde. Se le pregunta: es un dato que solo él tiene.
-                const respDonde = `Perfecto ${datosEmisor.nombre}, ¿a qué dirección vas? Con eso le aviso a la Administración y te dejo el caso abierto, así después la factura se asocia sola.`;
-                await despacharRespuesta(recipient, respDonde, msgTypeRespuesta);
-                historial.push(`Marcos: ${respDonde}`);
-                return;
+            } else if (!nombreEdifAviso && (avisaQueVa || pareceRespuestaDeAgenda)) {
+                // LA RESPUESTA A LA PREGUNTA DE RECIÉN.
+                //
+                // Marcos le preguntó "¿vas a pasar? ¿cuándo?" y él contesta "sí, mañana a las 10"
+                // -- sin repetir la dirección, porque acaba de decirla. Pedírsela de nuevo es
+                // hacerle repetir lo que ya dijo, que es exactamente lo que un humano no haría.
+                //
+                // El caso pendiente se busca en la PLANILLA y no en memoria: PM2 reinicia seguido
+                // y una conversación a medias no puede depender de que el proceso siga vivo.
+                let casoPendiente = null;
+                if (confirmaQueVa || pareceRespuestaDeAgenda) {
+                    try {
+                        const { buscarCasosRecientesPorTecnico } = require('./datos');
+                        const suyos = (await buscarCasosRecientesPorTecnico(datosEmisor.nombre, from, 7)) || [];
+                        casoPendiente = suyos.find(c => !c.cerrado && /avisad|sin confirmar/i.test(String(c.estado || '')));
+                    } catch (e) { console.error('No se pudo buscar el caso pendiente de confirmar:', e.message); }
+                }
+
+                if (casoPendiente) {
+                    const { direccionParaTecnico } = require('./agentes/marcos-ops');
+                    const dirPend = await direccionParaTecnico(casoPendiente.edificio);
+                    try {
+                        const { guardarReporte, programarSeguimiento } = require('./datos');
+                        await guardarReporte({
+                            id_evento: casoPendiente.id_evento,
+                            edificio: casoPendiente.edificio,
+                            estado: 'en_proceso',
+                            tecnico: datosEmisor.nombre || '',
+                            tel_tecnico: from || '',
+                            historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`]),
+                        });
+
+                        // El control se ancla a la hora que acaba de prometer, no a un plazo
+                        // contado desde ahora. `forzar` porque el caso ya tenía un control
+                        // agendado --el de "todavía no contestó"-- y este lo reemplaza: ahora hay
+                        // una promesa concreta contra la cual controlar.
+                        const { calcularPrimerControl } = require('./seguimiento');
+                        await programarSeguimiento({
+                            id_evento: casoPendiente.id_evento,
+                            cuando: calcularPrimerControl(msgBodyParaRegistro),
+                            paso: 1,
+                            nota: `Confirmó que va: "${String(msgBodyParaRegistro).slice(0, 60)}"`,
+                            forzar: true
+                        });
+                    } catch (e) { console.error('Error confirmando el caso pendiente del proveedor:', e.message); }
+
+                    const colaConf = global.colasProveedores?.get(String(from).replace(/\D/g, ''));
+                    if (colaConf) {
+                        colaConf.eventoActivoId = casoPendiente.id_evento;
+                        colaConf.edificioActivo = casoPendiente.edificio;
+                    }
+
+                    const respConf = `Listo ${datosEmisor.nombre}, lo anoté en el *${casoPendiente.id_evento}* de ${dirPend} y le aviso a la Administración.` +
+                        ` Si necesitás que te esperen o que te consiga alguna llave, decime y lo gestiono.` +
+                        ` Cuando termines, contame qué hiciste y mandame la factura por acá.`;
+                    await despacharRespuesta(recipient, respConf, msgTypeRespuesta);
+                    historial.push(`Marcos: ${respConf}`);
+                    console.log(`🔧 ${datosEmisor.nombre} confirmó la visita del [${casoPendiente.id_evento}] en ${casoPendiente.edificio}.`);
+                    return;
+                }
+
+                // Sin caso pendiente, solo se pregunta la dirección si de verdad avisó que va.
+                // Un "dale" suelto que no confirma nada no puede quedarse con el mensaje: sigue
+                // su camino por el resto de la rama, como cualquier otro.
+                if (avisaQueVa) {
+                    const respDonde = `Perfecto ${datosEmisor.nombre}, ¿a qué dirección vas? Con eso le aviso a la Administración y te dejo el caso abierto, así después la factura se asocia sola.`;
+                    await despacharRespuesta(recipient, respDonde, msgTypeRespuesta);
+                    historial.push(`Marcos: ${respDonde}`);
+                    return;
+                }
             }
         }
 

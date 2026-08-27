@@ -491,6 +491,58 @@ prueba verifica que ninguna pestaña donde el código crea columnas quede afuera
 Pruebas: `node pruebas-columnas.js`. Incluye un candado estructural: **ningún `setHeaderRow` puede
 volver a tragarse su error**, y solo se lo puede llamar desde `asegurarColumnas`.
 
+### Avisar que lo llamaron no es decir que va
+
+> *"Hola, me llamaron del edificio, hay una cámara que no funciona."*
+
+Eso es un aviso a medias: el administrador tiene que enterarse igual, pero nadie sabe todavía si
+el técnico va a ir, ni cuándo, ni si necesita que le abran. Antes se daba por confirmado y se
+agendaba un control contra una promesa que nunca existió.
+
+Daniel: *"si no digo que voy, que Marcos pregunte: ok gracias por avisarme, ¿vas a pasar? ¿cuándo?
+¿necesitás algo que gestione? Así no espera que el tipo le diga — que indague"*.
+
+- **`confirmaQueVa` se separó de `avisaQueVa`.** Convocado sin confirmar → el caso se abre igual,
+  con estado **`avisado`**, y Marcos pregunta las tres cosas. Confirmado → `en_proceso` como antes.
+- **El caso se abre en los dos casos**, y a propósito: si se esperara la confirmación para abrirlo,
+  un técnico que avisa y después no contesta nunca deja al administrador sin enterarse de nada —
+  que es justo el agujero que Marcos viene a tapar.
+- **El paso 1 del seguimiento pregunta distinto según el estado**: a un caso `avisado` le pregunta
+  *"¿vas a poder pasar?"*, no *"¿pudiste pasar?"*. Reclamarle a alguien por un incumplimiento que
+  nunca prometió es peor que no preguntar nada.
+- **La respuesta se reconoce sin repetir nada.** "Sí, mañana a las 10" no trae verbo ni dirección
+  —la acaba de decir— y ahí `pareceRespuestaDeAgenda` la engancha con el caso pendiente, que se
+  busca **en la planilla** y no en RAM: PM2 reinicia seguido y una conversación a medias no puede
+  depender de que el proceso siga vivo.
+
+Prueba: `node pruebas-confirma-visita.js`.
+
+### "Mañana a las 10" es un momento, no una duración
+
+> [!CAUTION]
+> **`estimarPlazoMs` devolvía siempre un plazo contado desde ahora.** "Mañana" eran 20 horas,
+> dijera lo que dijera el técnico. Nunca miraba la hora que había prometido.
+
+- Avisa a las **8 de la mañana** que va mañana → el control caía a las **4 de la madrugada**, antes
+  incluso de la hora a la que había prometido ir.
+- Avisa a las **19** que va mañana → caía a las **15** del otro día, cinco horas tarde.
+
+`momentoPrometido(texto, ahora)` lee la hora del reloj cuando está dicha ("mañana a las 10", "a las
+18", "a la tarde") y la ancla a ese momento real. Los plazos relativos ("en 30 minutos", "en 2
+horas") siguen contándose desde ahora, que es lo correcto para ellos. `"voy mañana"` sin hora se
+controla **al final de la jornada**: tuvo todo el día, preguntarle a las 8 AM es preguntar antes de
+que empiece.
+
+Y hay un piso: **a nadie se le pregunta nada entre las 22 y las 8**. Un "¿pudiste pasar?" a las 3
+AM no lo contesta nadie, despierta a una persona y quema la confianza que Marcos necesita para
+existir. `enHorarioRazonable()` corre a la mañana siguiente cualquier control que caiga afuera, y
+se aplica también a los pasos 2 y 3 de la cadena.
+
+> La cuenta de horas se hace a mano con desfase fijo `-3` (Argentina no cambia de hora desde 2009)
+> y no con `toLocaleString`, por el mismo ICU reducido del VPS que obligó a escribir `fecha.js`.
+
+Prueba: `node pruebas-horario-seguimiento.js`.
+
 ### Por qué Marcos preguntaba varias veces "¿pudiste pasar?"
 
 El seguimiento avanza en cadena: **paso 1** se le pregunta al técnico, **paso 2** al edificio,
