@@ -506,7 +506,9 @@ Daniel: *"si no digo que voy, que Marcos pregunte: ok gracias por avisarme, ¿va
   con estado **`avisado`**, y Marcos pregunta las tres cosas. Confirmado → `en_proceso` como antes.
 - **El caso se abre en los dos casos**, y a propósito: si se esperara la confirmación para abrirlo,
   un técnico que avisa y después no contesta nunca deja al administrador sin enterarse de nada —
-  que es justo el agujero que Marcos viene a tapar.
+  que es justo el agujero que Marcos viene a tapar. **Daniel lo confirmó**: su pedido original era
+  no abrirlo hasta que el técnico dijera que iba, y al ver el costo de esperar decidió que se abra
+  igual. No revertir esto sin preguntarle.
 - **El paso 1 del seguimiento pregunta distinto según el estado**: a un caso `avisado` le pregunta
   *"¿vas a poder pasar?"*, no *"¿pudiste pasar?"*. Reclamarle a alguien por un incumplimiento que
   nunca prometió es peor que no preguntar nada.
