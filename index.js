@@ -2485,8 +2485,23 @@ function validarYSanitizarNombre(nombre) {
         // se reconocían y caían al ramal libre, donde Marcos improvisaba en vez de mirar la planilla.
         // Los verbos van conjugados a propósito: "depósito" a secas es el cuartito del edificio, y
         // "¿quién tiene la llave del depósito?" no es una consulta de plata.
+        // > [!CAUTION]
+        // > **`/pag/` sin `\b` adelante matchea "aPAGada", "se aPAGó" y "aPAGón".**
+        //
+        // Pasó de verdad: Daniel escribió que había que ver una cámara en San Patricio 270 y
+        // Marcos le contestó la lista de facturas pendientes de pago. Una cámara que no anda es,
+        // casi siempre, una cámara apagada -- y para un electricista "se apagó" es la mitad de lo
+        // que dice en un día. El `\b` de adelante lo resuelve entero: en "apagada" el "pag" no
+        // arranca en límite de palabra.
+        //
+        // Se pensó excluir "cobre" (el metal) de `/cobr/`, pero Daniel lo corrigió: *"no decimos
+        // cable de cobre casi nunca -- cable es cable, no hay otro que no sea de cobre"*. O sea que
+        // el falso positivo era imaginario, y excluirlo sí costaba caro: **"¿ya cobre?" sin tilde**
+        // es como se escribe de verdad en WhatsApp, y quedaba afuera. Se deja `\bcobr` a secas.
         const esConsultaPago = parecePreguntaSinAdjunto && (
-            /pag|cobr|abon/i.test(txtLow) ||
+            /\bpag/i.test(txtLow) ||
+            /\bcobr/i.test(txtLow) ||
+            /\babon/i.test(txtLow) ||
             // Solo formas conjugadas: "depósito" a secas es el cuartito del edificio, y sin el
             // acento queda igual que la primera persona del verbo.
             /deposit(aron|aste|ó|aban|ada|ado|an)\b/i.test(txtLow) ||
@@ -3002,7 +3017,19 @@ function validarYSanitizarNombre(nombre) {
         }
 
         // B. MANEJO DE SOLICITUD DE DATOS/FOTOS/VIDEOS AL VECINO
-        const esSolicitudDatos = /solicitar|m.s datos|mas datos|detalles|pedir|foto|imagen|video|cerradura|especifi|aclarar|ver/.test(txtLow);
+        //
+        // Esta rama es para cuando el TÉCNICO le pide a Marcos que le saque más información al
+        // vecino ("necesito ver la cerradura de cerca", "pedile una foto"). Dos palabras de la
+        // lista vieja no dicen eso ni de casualidad:
+        //
+        // - **`ver` suelto**, que matchea "hay que VER una cámara en San Patricio 270" -- que es
+        //   un trabajo, no un pedido de datos. Y también "a ver", "verdad", "volver", "verificar".
+        //   Lo que distingue un pedido es la PRIMERA PERSONA: "necesito ver" es un pedido, "hay
+        //   que ver" es una descripción de trabajo.
+        // - **`cerradura` suelta**, que es vocabulario diario de quien hace control de acceso.
+        //   Nombrar una cerradura no es pedir nada; "necesito ver la cerradura" ya entra por
+        //   "necesito ver".
+        const esSolicitudDatos = /\bsolicitar|m[aá]s datos|mas datos|\bdetalles\b|\bpedirle?\b|\bped[ií]le\b|\bfoto|\bimagen|\bvideo|especifi|aclarar|\b(necesito|quiero|dejame|d[eé]jame|podr[ií]a|puedo|pod[eé]s|me deja) ver\b|\bver (bien|de cerca|mejor)\b/.test(txtLow);
 
         if (esSolicitudDatos) {
             const vecinoActivo = await obtenerVecinoActivoDeProveedor({

@@ -535,6 +535,32 @@ notaba porque CASO-1001 no se cerraba y **cada prueba del mismo día caía adent
   dos y le muestra al administrador dos reclamos donde hay uno.
 - Prueba: `node pruebas-caso-nuevo-o-mismo.js`.
 
+### Una palabra suelta adentro de una expresión se come mensajes enteros
+
+> [!CAUTION]
+> **La rama del proveedor decide por coincidencia de texto, y la primera que matchea CORTA.**
+> Si un mensaje cae en la rama equivocada no abre caso, no registra el reclamo y no llega a
+> ningún otro camino: Marcos contesta otra cosa y listo.
+
+Caso real: Daniel escribió que había que ver **una cámara** en San Patricio 270 y Marcos le
+contestó **la lista de facturas pendientes de pago**. Dos condiciones distintas, el mismo defecto:
+
+| Estaba | Se come | Por qué duele acá |
+|---|---|---|
+| `/pag\|cobr\|abon/` | a**pag**ada, se a**pag**ó, a**pag**ón | una cámara que no anda es una cámara apagada, y "se apagó" es la mitad de lo que dice un electricista en un día |
+| `...\|cerradura\|ver/` | "hay que **ver**", "a **ver**", "**ver**dad", "vol**ver**" | *"hay que ver una cámara"* es un trabajo, no un pedido de datos |
+
+- `\b` adelante arregla el primero entero: en "apagada" el `pag` no arranca en límite de palabra.
+- Para el segundo lo que distingue un pedido es la **primera persona**: "necesito ver" es un
+  pedido, "hay que ver" es una descripción de trabajo. `cerradura` suelta también se fue: nombrar
+  una cerradura no es pedir nada, y es vocabulario diario de quien hace control de acceso.
+
+> Se pensó excluir además "cobre" (el metal) de `/cobr/`. Daniel lo corrigió: *"no decimos cable
+> de cobre casi nunca — cable es cable, no hay otro que no sea de cobre"*. El falso positivo era
+> imaginario y la exclusión costaba caro: **"¿ya cobre?" sin tilde** es como se escribe de verdad.
+
+Prueba: `node pruebas-consulta-pago.js`.
+
 ### El oficio de la persona no es el rubro del trabajo
 
 > [!CAUTION]
