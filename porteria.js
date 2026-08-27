@@ -334,11 +334,29 @@ async function ejecutarTimbre(){
 
     btn.style.display = 'none';
     fb.style.display = 'block';
-    fb.innerHTML = '✓ ¡Aviso enviado! Le notificamos a <strong>' + (_nombreActivo || _deptoActivo) + '</strong> al WhatsApp.';
+    fb.innerHTML = '✓ ¡Llamando al vecino! Le sonó el timbre en su celular.';
     
     setTimeout(function(){
       sonarChime();
     }, 400);
+
+    // Escuchar si el vecino responde desde su app
+    var checkInterval = setInterval(async function(){
+      try {
+        var sRes = await fetch('/porteria/api/timbre-visita-status?callId=' + encodeURIComponent(data.callId || '') + '&edificio=' + encodeURIComponent(_edificio) + '&depto=' + encodeURIComponent(_deptoActivo));
+        var sData = await sRes.json();
+        if (sData && sData.estado === 'atendido' && sData.respuesta) {
+          clearInterval(checkInterval);
+          fb.style.background = '#DCFCE7';
+          fb.style.color = '#15803D';
+          fb.style.borderColor = '#86EFAC';
+          fb.innerHTML = '🟢 <strong>El vecino atendió:</strong> "' + sData.respuesta + '"';
+          sonarChime();
+        }
+      } catch(_) {}
+    }, 1500);
+
+    setTimeout(function(){ clearInterval(checkInterval); }, 45000);
 
   } catch(err){
     btn.disabled = false;
@@ -356,13 +374,42 @@ async function ejecutarTimbre(){
 </html>`);
 });
 
+// Cola en memoria de llamadas de timbre activas (TTL 45 seg)
+const _timbresActivos = new Map();
+
+function limpiarTimbresViejos() {
+  const ahora = Date.now();
+  for (const [k, v] of _timbresActivos.entries()) {
+    if (ahora - v.timestamp > 45000) {
+      _timbresActivos.delete(k);
+    }
+  }
+}
+
 // -------------------------------------------------------------------
-// 3. ENDPOINT ACCIÓN DE TOCAR TIMBRE
+// 3. ENDPOINTS ACCIÓN DE TIMBRE Y RESPUESTA EN VIVO
 // -------------------------------------------------------------------
 router.post('/api/tocar-timbre', async (req, res) => {
   try {
     const { edificio, departamento, tipoVisita, nombreVisita } = req.body || {};
     let vecino = null;
+
+    limpiarTimbresViejos();
+
+    // Guardar en cola de llamadas activas
+    const callId = 'ring_' + Date.now();
+    const ringKey = (edificio || '').toLowerCase().trim() + ':' + (departamento || '').toLowerCase().trim();
+    const ringData = {
+      id: callId,
+      edificio: edificio || '',
+      departamento: departamento || '',
+      tipoVisita: tipoVisita || '🛵 Delivery',
+      nombreVisita: nombreVisita || '',
+      timestamp: Date.now(),
+      estado: 'llamando',
+      respuesta: ''
+    };
+    _timbresActivos.set(ringKey, ringData);
 
     // Buscar el vecino en PostgreSQL
     try {
@@ -392,11 +439,61 @@ router.post('/api/tocar-timbre', async (req, res) => {
     res.json({
       ok: true,
       mensaje: 'Timbre registrado con éxito',
+      callId: callId,
       vecino: nombre
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// Endpoint para que la Web App del vecino verifique llamadas entrantes en su celular
+router.get('/api/timbre-check', (req, res) => {
+  limpiarTimbresViejos();
+  const { edificio, depto } = req.query || {};
+  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
+
+  let llamada = _timbresActivos.get(ringKey);
+  if (!llamada) {
+    // Probar búsqueda difusa de depto
+    for (const [k, v] of _timbresActivos.entries()) {
+      if (k.startsWith((edificio || '').toLowerCase().trim() + ':') && (k.endsWith(':' + (depto || '').toLowerCase().trim()) || v.departamento.toLowerCase() === (depto || '').toLowerCase())) {
+        llamada = v;
+        break;
+      }
+    }
+  }
+
+  if (llamada && llamada.estado === 'llamando') {
+    return res.json({ ok: true, timbreActivo: true, llamada });
+  }
+  res.json({ ok: true, timbreActivo: false });
+});
+
+// Endpoint para que el vecino conteste a la visita en la calle
+router.post('/api/timbre-responder', (req, res) => {
+  const { edificio, depto, respuesta } = req.body || {};
+  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
+
+  const llamada = _timbresActivos.get(ringKey);
+  if (llamada) {
+    llamada.estado = 'atendido';
+    llamada.respuesta = respuesta || '¡Ya bajo!';
+    return res.json({ ok: true, mensaje: 'Respuesta enviada a la puerta' });
+  }
+  res.json({ ok: true });
+});
+
+// Endpoint para que el visitante en la calle vea si el vecino le respondió
+router.get('/api/timbre-visita-status', (req, res) => {
+  const { callId, edificio, depto } = req.query || {};
+  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
+
+  const llamada = _timbresActivos.get(ringKey);
+  if (llamada && (llamada.id === callId || !callId)) {
+    return res.json({ ok: true, estado: llamada.estado, respuesta: llamada.respuesta });
+  }
+  res.json({ ok: true, estado: 'finalizado' });
 });
 
 // -------------------------------------------------------------------

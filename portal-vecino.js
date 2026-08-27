@@ -208,7 +208,121 @@ function shellVecino(title, activeTab, content, vecinoData) {
       <span class="nav-icon"><i class="ph ph-bell${activeTab === 'novedades' ? '-fill' : ''}"></i></span>
       <span>Avisos</span>
     </a>
-  </nav>
+  <!-- MODAL LLAMADA ENTRANTE DE PORTERÍA (TIMBRE VIRTUAL) -->
+  <div id="modal-llamada-timbre" style="position:fixed;inset:0;background:rgba(10,31,68,.94);backdrop-filter:blur(10px);z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:#fff;text-align:center">
+    <div style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#1E5FB4,#38BDF8);display:flex;align-items:center;justify-content:center;font-size:46px;margin-bottom:20px;box-shadow:0 0 45px rgba(56,189,248,.7);animation:pulseRing 1.2s infinite">
+      🔔
+    </div>
+    <div style="font-size:13px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#38BDF8;margin-bottom:6px">Llamada de Portería en Puerta</div>
+    <h2 style="font-size:24px;font-weight:900;margin-bottom:6px" id="llamada-timbre-visita">🛵 Delivery en Puerta</h2>
+    <p style="font-size:14.5px;color:#CBD5E1;margin-bottom:24px" id="llamada-timbre-detalle">Tocando timbre para tu unidad (${v.departamento})</p>
+
+    <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:320px;margin-bottom:16px">
+      <button onclick="responderTimbreVecino('¡Ya bajo!')" style="width:100%;height:50px;border:none;border-radius:14px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 15px rgba(22,163,74,.4)">
+        <span>🏃 ¡Ya bajo!</span>
+      </button>
+      <button onclick="responderTimbreVecino('Dejalo en el hall / puerta')" style="width:100%;height:46px;border:1.5px solid rgba(255,255,255,.2);border-radius:14px;background:rgba(255,255,255,.1);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+        <span>🚪 Dejalo en el hall</span>
+      </button>
+      <button onclick="responderTimbreVecino('Dejar con el encargado')" style="width:100%;height:46px;border:1.5px solid rgba(255,255,255,.2);border-radius:14px;background:rgba(255,255,255,.1);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+        <span>📬 Dejar con el encargado</span>
+      </button>
+    </div>
+
+    <button onclick="silenciarTimbreVecino()" style="background:transparent;border:none;color:#94A3B8;font-size:13.5px;font-weight:700;cursor:pointer;padding:8px 16px">
+      ✕ Silenciar timbre
+    </button>
+  </div>
+
+  <script>
+  (function(){
+    var _edificioVecino = '${v.edificio}';
+    var _deptoVecino = '${v.departamento}';
+    var _audioCtx = null;
+    var _intervalRingtone = null;
+    var _llamadaMostradaId = '';
+
+    function sonarRingtone() {
+      try {
+        if (!_audioCtx) {
+          _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (_audioCtx.state === 'suspended') {
+          _audioCtx.resume();
+        }
+        var osc = _audioCtx.createOscillator();
+        var gain = _audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, _audioCtx.currentTime);
+        osc.frequency.setValueAtTime(659.25, _audioCtx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.4, _audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, _audioCtx.currentTime + 0.6);
+        osc.connect(gain);
+        gain.connect(_audioCtx.destination);
+        osc.start();
+        osc.stop(_audioCtx.currentTime + 0.6);
+
+        if (navigator.vibrate) {
+          navigator.vibrate([300, 150, 300, 150, 500]);
+        }
+      } catch(_) {}
+    }
+
+    function iniciarRingtoneLoop() {
+      sonarRingtone();
+      if (!_intervalRingtone) {
+        _intervalRingtone = setInterval(sonarRingtone, 1200);
+      }
+    }
+
+    function detenerRingtoneLoop() {
+      if (_intervalRingtone) {
+        clearInterval(_intervalRingtone);
+        _intervalRingtone = null;
+      }
+    }
+
+    window.responderTimbreVecino = async function(resp) {
+      detenerRingtoneLoop();
+      document.getElementById('modal-llamada-timbre').style.display = 'none';
+      try {
+        await fetch('/porteria/api/timbre-responder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, respuesta: resp })
+        });
+      } catch(_) {}
+    };
+
+    window.silenciarTimbreVecino = function() {
+      detenerRingtoneLoop();
+      document.getElementById('modal-llamada-timbre').style.display = 'none';
+    };
+
+    setInterval(async function() {
+      try {
+        var res = await fetch('/porteria/api/timbre-check?edificio=' + encodeURIComponent(_edificioVecino) + '&depto=' + encodeURIComponent(_deptoVecino));
+        var data = await res.json();
+        if (data && data.timbreActivo && data.llamada) {
+          if (_llamadaMostradaId !== data.llamada.id) {
+            _llamadaMostradaId = data.llamada.id;
+            var visTitle = data.llamada.tipoVisita || '🛵 Visita en Puerta';
+            if (data.llamada.nombreVisita) visTitle += ' (' + data.llamada.nombreVisita + ')';
+            document.getElementById('llamada-timbre-visita').textContent = visTitle;
+            document.getElementById('modal-llamada-timbre').style.display = 'flex';
+            iniciarRingtoneLoop();
+          }
+        } else {
+          if (_llamadaMostradaId) {
+            _llamadaMostradaId = '';
+            detenerRingtoneLoop();
+            document.getElementById('modal-llamada-timbre').style.display = 'none';
+          }
+        }
+      } catch(_) {}
+    }, 2500);
+  })();
+  </script>
 
 </div>
 </body>
