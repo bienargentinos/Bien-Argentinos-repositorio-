@@ -730,13 +730,61 @@ async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento
     //    llegue y se quede parado en la vereda.
     try {
         if (!(await fueContactoAccesoAvisado(idEvento))) {
+            // QUE ALGUIEN HAYA ABIERTO UNA VEZ NO QUIERE DECIR QUE ABRA SIEMPRE.
+            //
+            // Antes esto leía derecho el `contactoAcceso` del legajo del vecino y lo entregaba como
+            // un hecho: "el vecino dejó este contacto para que le abran". Ese dato se había guardado
+            // en el CASO-1001 porque esa vez no había nadie y Natalia se ofreció -- y quedó como el
+            // contacto de ingreso del edificio para siempre.
+            //
+            // El orden correcto es el del edificio primero (encargado, suplente, seguridad, lo
+            // aprendido sobre sus accesos) y recién al final, como SUGERENCIA, lo que pasó una vez.
+            const { contactoParaElIngreso, mensajeDeIngreso } = require('./contacto-ingreso');
             const vecinoFicha = telVecino ? await buscarVecinoPorTelefono(telVecino) : null;
-            const contacto = String(vecinoFicha?.contactoAcceso || '').trim();
+
+            let perfilIngreso = null;
+            let accesosIngreso = [];
+            try {
+                const { buscarPerfilEdificio, buscarAccesosEdificio } = require('./datos');
+                perfilIngreso = edificio ? await buscarPerfilEdificio(edificio) : null;
+                accesosIngreso = edificio ? ((await buscarAccesosEdificio(edificio)) || []) : [];
+            } catch (e) { console.error('No se pudo leer quién abre en el edificio:', e.message); }
+
+            const contacto = contactoParaElIngreso({
+                perfil: perfilIngreso,
+                accesos: accesosIngreso,
+                contactoDeCasoAnterior: String(vecinoFicha?.contactoAcceso || '').trim(),
+                edificioDelContacto: vecinoFicha?.edificio || '',
+                edificio: edificio || '',
+            });
+
+            // Sin nada firme, la Administración es la que sabe: se le pregunta en vez de reciclar
+            // el arreglo de otra visita.
+            //
+            // Solo cuando HAY algo flojo que decir. Esta función corre en cada mensaje entrante del
+            // proveedor: preguntar en todas sería spam, y además la falta total de un contacto de
+            // ingreso no es un pendiente de entrega -- es un dato que falta en el edificio, y se
+            // resuelve en la ficha, no acá.
+            if (contacto && !contacto.firme) {
+                try {
+                    const { avisarAlAdministrador } = require('./agentes/marcos-admin');
+                    await avisarAlAdministrador({
+                        edificio: edificio || '',
+                        idEvento,
+                        motivo: 'no hay un contacto de ingreso confirmado para el edificio',
+                        titulo: `🔑 MARCOS: ¿QUIÉN LE ABRE AL TÉCNICO EN ${direccion}?`,
+                        cuerpo:
+                            `Va a ir ${nombreTecnico || 'un técnico'} (${telTecnico}) por el ${idEvento} y no tengo cargado quién le abre.\n\n` +
+                            (contacto ? `Lo único que tengo es que ${contacto.texto} ${contacto.origen} — pero fue por esa vez, no es un contacto fijo.\n\n` : '') +
+                            `¿A quién le aviso para que lo dejen entrar? Con eso lo cargo en el edificio y no vuelvo a preguntar.`,
+                        phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
+                        accessToken: WHATSAPP_ACCESS_TOKEN
+                    });
+                } catch (e) { console.error('No se pudo preguntarle a la Administración quién abre:', e.message); }
+            }
+
             if (contacto) {
-                const msg = `📞 *MARCOS — CONTACTO PARA EL INGRESO [${idEvento}]*\n\n` +
-                    `${nombreTecnico || 'Hola'}, para la visita en ${direccion} el vecino dejó este contacto para que le abran: *${contacto}*.\n` +
-                    (/\s\/\s/.test(contacto) ? `Tiene más de un número registrado, probá con cualquiera.\n` : '') +
-                    `Si al llegar no te abren, comunicate directamente con esa persona y avisame cualquier inconveniente.`;
+                const msg = mensajeDeIngreso({ contacto, idEvento, direccion, nombreTecnico });
 
                 const salio = await enviarWhatsApp(telTecnico, msg, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                 if (salio) {

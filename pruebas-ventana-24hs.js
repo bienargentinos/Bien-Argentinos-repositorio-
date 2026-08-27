@@ -54,10 +54,14 @@ function verificar(titulo, real, esperado) {
  * Arma la función con todas sus dependencias reemplazadas por dobles, y devuelve además el
  * registro de lo que hizo: qué mandó, qué marcó y qué anotó en el historial del caso.
  */
-function armar({ yaEnviadoMaterial = false, yaAvisadoContacto = false, hayMaterial = true, contactoAcceso = '11 4444-5555', metaAcepta = true }) {
-    const hecho = { envios: [], marcas: [], chat: [] };
+function armar({ yaEnviadoMaterial = false, yaAvisadoContacto = false, hayMaterial = true, contactoAcceso = '11 4444-5555', metaAcepta = true, perfil = null, accesos = [] }) {
+    const hecho = { envios: [], marcas: [], chat: [], preguntasAlAdmin: [] };
 
     const datosFalsos = {
+        // Quién abre en el edificio: es lo PRIMERO que se mira ahora. El contacto suelto de un
+        // caso viejo pasó a ser el último recurso y una sugerencia, no un hecho.
+        buscarPerfilEdificio: async () => perfil,
+        buscarAccesosEdificio: async () => accesos,
         fueMaterialEnviadoATecnico: async () => yaEnviadoMaterial,
         marcarMaterialEnviadoATecnico: async () => { hecho.marcas.push('material'); },
         fueContactoAccesoAvisado: async () => yaAvisadoContacto,
@@ -73,9 +77,16 @@ function armar({ yaEnviadoMaterial = false, yaAvisadoContacto = false, hayMateri
         direccionParaTecnico: async (nombre) => (nombre ? `Calle Falsa 123 (${nombre})` : 'el edificio'),
     };
 
+    const adminFalso = {
+        avisarAlAdministrador: async (a) => { hecho.preguntasAlAdmin.push(a); return true; },
+    };
+
     const requireFalso = (m) => {
         if (m === './datos') return datosFalsos;
         if (m === './agentes/marcos-ops') return opsFalsas;
+        if (m === './agentes/marcos-admin') return adminFalso;
+        // Este va de verdad: es la decisión que se está probando.
+        if (m === './contacto-ingreso') return require('./contacto-ingreso');
         throw new Error(`require inesperado en la prueba: ${m}`);
     };
 

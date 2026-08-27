@@ -714,6 +714,38 @@ interno del edificio — vago, pero no falso.
 
 Prueba: `node pruebas-perfil-edificio.js`.
 
+### Que alguien haya abierto una vez no quiere decir que abra siempre
+
+> [!CAUTION]
+> **Un favor puntual no es una regla del edificio.**
+
+En el CASO-1001 no había nadie para abrir y Natalia se ofreció **esa vez**. Marcos guardó su
+teléfono y desde ahí lo entregó como si fuera el contacto de ingreso del edificio: *"para el
+ingreso por favor comuníquese con Natalia Zeballos"*. Afirmado, sin matices, y encima en otro
+edificio.
+
+Daniel: *"se dio por esa vez nada más… no puede tomar como consideración que siempre abrirá
+Natalia. Debe usar los datos que hay en el edificio de accesos, pero si no hay, que hable con el
+administrador y que sugiera quizás a Natalia — pero lo dio por hecho"*.
+
+`contacto-ingreso.js` ordena de más firme a más flojo:
+
+| | De dónde | ¿Se afirma? |
+|---|---|---|
+| 1 | Encargado del edificio, si está activo | sí |
+| 2 | Suplente, si el encargado no está | sí |
+| 3 | Seguridad de la entrada | sí |
+| 4 | Lo aprendido sobre los accesos **de ese edificio** | sí |
+| 5 | Un contacto puntual de un caso anterior | **no — se sugiere** |
+
+- Lo del punto 5 **solo vale para el mismo edificio**: que alguien haya abierto en San Patricio 159
+  no dice nada sobre el 270.
+- Cuando lo mejor que hay es el punto 5, el mensaje al técnico dice que **fue por esa vez y que no
+  cuente con eso**, y se le pregunta a la Administración quién abre.
+- Sin nada, no se inventa: *"todavía no tengo confirmado quién te abre, ya lo estoy averiguando"*.
+
+Prueba: `node pruebas-contacto-ingreso.js`.
+
 ### Cómo se le habla al técnico: dirección y número de caso, siempre
 
 - **Dirección, nunca el nombre interno del edificio.** En la planilla los edificios tienen un alias
