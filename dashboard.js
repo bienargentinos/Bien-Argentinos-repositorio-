@@ -8064,6 +8064,41 @@ router.get('/mi-edificio', async (req, res) => {
         <div id="lista-vecinos-wrap" style="display:flex;flex-direction:column;gap:10px;max-height:480px;overflow-y:auto;padding-right:6px">${vecinosFilas}</div>
       </div>`;
 
+    let reservasEdificio = [];
+    try {
+      const { pool } = require('./db-pg');
+      if (pool && cur) {
+        const qR = `SELECT * FROM reservas_amenities WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) AND estado != 'cancelada' ORDER BY fecha DESC, id DESC LIMIT 15`;
+        const resR = await pool.query(qR, [cur.nombre, '%' + cur.nombre + '%']);
+        if (resR && resR.rows) reservasEdificio = resR.rows;
+      }
+    } catch (_) {}
+
+    const amenitiesCard = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+          <div>
+            <div style="font-size:16px;font-weight:800;color:#16233B">📅 Reservas de Amenities y SUM (${reservasEdificio.length})</div>
+            <p style="font-size:13px;color:#8595AD;margin:2px 0 0">Control de reservas de espacios comunes (SUM, Parrilla, Quincho, Pileta) solicitadas por los vecinos desde la Web App.</p>
+          </div>
+        </div>
+        ${reservasEdificio.length ? `
+        <div style="display:flex;flex-direction:column;gap:10px;max-height:360px;overflow-y:auto">
+          ${reservasEdificio.map(r => `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid #E2E8F0;border-radius:12px;background:#F8FAFD;gap:10px;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-size:22px">🎉</span>
+                <div>
+                  <div style="font-size:14px;font-weight:800;color:#0F172A">${esc(r.amenity)} · <span style="color:#1E5FB4">${esc(r.departamento || 'Depto')} (${esc(r.nombre_vecino || 'Vecino')})</span></div>
+                  <div style="font-size:12px;color:#64748B">📆 ${esc(r.fecha)} · ⏰ ${esc(r.turno)}${r.notas ? ' · 📝 ' + esc(r.notas) : ''}</div>
+                </div>
+              </div>
+              <span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:#DCFCE7;color:#15803D;text-transform:uppercase">Confirmada</span>
+            </div>
+          `).join('')}
+        </div>` : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">No hay reservas registradas para este edificio todavía. Los vecinos pueden reservar desde su Web App.</div>'}
+      </div>`;
+
     const modalVecinosImportarHtml = `
       <div id="modal-vecinos-importar" class="modal-overlay" onclick="cerrarModal('modal-vecinos-importar')">
         <div class="modal-box" style="max-width:620px" onclick="stopEv(event)">
@@ -8381,6 +8416,7 @@ router.get('/mi-edificio', async (req, res) => {
         ${bloqueEspaciosHtml}
         ${bloqueAccesosHtml}
         ${vecinosCard}
+        ${amenitiesCard}
         ${consejoCard}
         ${proveedoresCard}
       </div>

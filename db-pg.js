@@ -211,6 +211,20 @@ async function _initPgSchema() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS reservas_amenities (
+                id SERIAL PRIMARY KEY,
+                edificio VARCHAR(150),
+                amenity VARCHAR(100),
+                fecha VARCHAR(50),
+                turno VARCHAR(100),
+                departamento VARCHAR(50),
+                nombre_vecino VARCHAR(150),
+                telefono VARCHAR(50),
+                estado VARCHAR(50) DEFAULT 'confirmada',
+                notas TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS sugerencias (
                 id SERIAL PRIMARY KEY,
                 fecha VARCHAR(100),

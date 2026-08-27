@@ -200,6 +200,10 @@ function shellVecino(title, activeTab, content, vecinoData) {
       <span class="nav-icon"><i class="ph ph-chat-circle-dots${activeTab === 'chat' ? '-fill' : ''}"></i></span>
       <span>Marcos IA</span>
     </a>
+    <a href="/vecino/amenities" class="${activeTab === 'amenities' ? 'active' : ''}">
+      <span class="nav-icon"><i class="ph ph-calendar-check${activeTab === 'amenities' ? '-fill' : ''}"></i></span>
+      <span>Amenities</span>
+    </a>
     <a href="/vecino/expensas" class="${activeTab === 'expensas' ? 'active' : ''}">
       <span class="nav-icon"><i class="ph ph-receipt${activeTab === 'expensas' ? '-fill' : ''}"></i></span>
       <span>Expensas</span>
@@ -208,6 +212,8 @@ function shellVecino(title, activeTab, content, vecinoData) {
       <span class="nav-icon"><i class="ph ph-bell${activeTab === 'novedades' ? '-fill' : ''}"></i></span>
       <span>Avisos</span>
     </a>
+  </nav>
+
   <!-- MODAL LLAMADA ENTRANTE DE PORTERÍA (TIMBRE VIRTUAL & VOZ WEBRTC) -->
   <audio id="audio-webrtc-vecino" autoplay playsinline style="display:none"></audio>
   <div id="modal-llamada-timbre" style="position:fixed;inset:0;background:rgba(10,31,68,.96);backdrop-filter:blur(12px);z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:#fff;text-align:center">
@@ -1151,7 +1157,326 @@ router.get('/novedades', (req, res) => {
     </div>
   `;
 
-  res.send(shellVecino('Avisos', 'novedades', content, v));
+// -------------------------------------------------------------------
+// 6. RESERVA DE AMENITIES Y SUM
+// -------------------------------------------------------------------
+router.get('/amenities', async (req, res) => {
+  const v = getVecinoSession(req);
+  let misReservas = [];
+  let todasReservasEdificio = [];
+
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      // Buscar reservas de este edificio
+      const q = `SELECT * FROM reservas_amenities 
+                 WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) 
+                 AND estado != 'cancelada' 
+                 ORDER BY fecha ASC, id ASC`;
+      const result = await pool.query(q, [v.edificio, '%' + v.edificio + '%']);
+      if (result && result.rows) {
+        todasReservasEdificio = result.rows;
+        misReservas = result.rows.filter(r => 
+          (r.departamento && r.departamento.toLowerCase() === v.departamento.toLowerCase()) ||
+          (r.nombre_vecino && r.nombre_vecino.toLowerCase() === v.nombre.toLowerCase())
+        );
+      }
+    }
+  } catch (errDb) {
+    console.warn('Carga reservas amenities:', errDb.message);
+  }
+
+  // Lista de amenities estándar
+  const amenitiesList = [
+    { id: 'sum', nombre: 'SUM (Salón de Eventos)', icon: '🎉', desc: 'Capacidad 35 personas · Parrilla, vajilla, TV y aire frío/calor', turnos: ['Almuerzo (12:00 a 17:00 hs)', 'Cena (19:00 a 01:00 hs)'] },
+    { id: 'parrilla', nombre: 'Parrilla / Quincho', icon: '🥩', desc: 'Capacidad 15 personas · Parrilla a leña, mesa exterior y bacha', turnos: ['Almuerzo (12:00 a 17:00 hs)', 'Cena (19:00 a 01:00 hs)'] },
+    { id: 'pileta', nombre: 'Pileta & Solarium', icon: '🏊', desc: 'Solarium con reposeras · Temporada habilitada (10:00 a 20:00 hs)', turnos: ['Mañana (10:00 a 14:00 hs)', 'Tarde (14:00 a 20:00 hs)'] },
+    { id: 'gimnasio', nombre: 'Gimnasio', icon: '🏋️', desc: 'Cinta para correr, mancuernas, polea y bicicleta estática', turnos: ['Mañana (07:00 a 13:00 hs)', 'Tarde/Noche (13:00 a 22:00 hs)'] },
+    { id: 'laundry', nombre: 'Laundry / Lavadero', icon: '🧺', desc: 'Lavarropas y secarropas automáticos (fichas en portería)', turnos: ['Mañana (08:00 a 14:00 hs)', 'Tarde (14:00 a 20:00 hs)'] }
+  ];
+
+  const hoyStr = new Date().toISOString().split('T')[0];
+
+  const content = `
+    <div style="margin-bottom:16px">
+      <h2 style="font-size:20px;font-weight:800;color:#0F326A;margin-bottom:2px">Reserva de Amenities</h2>
+      <p style="font-size:13px;color:#64748B">Espacios comunes de ${esc(v.edificio)}</p>
+    </div>
+
+    <!-- MIS RESERVAS ACTIVAS -->
+    <div class="card" style="padding:16px 18px;margin-bottom:18px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:14.5px;font-weight:800;color:#0F172A;display:flex;align-items:center;gap:6px">
+          <span>📅</span> Mis Reservas Confirmadas
+        </div>
+        <span style="font-size:11.5px;font-weight:700;color:#1E5FB4">${misReservas.length} activas</span>
+      </div>
+
+      ${misReservas.length > 0 ? `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${misReservas.map(r => `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid #E2E8F0;border-radius:12px;background:#F8FAFD;gap:8px;flex-wrap:wrap">
+            <div>
+              <div style="font-size:14px;font-weight:800;color:#0F172A">${esc(r.amenity)}</div>
+              <div style="font-size:12.5px;color:#64748B;margin-top:2px">
+                📆 <strong>${esc(r.fecha)}</strong> · ⏰ ${esc(r.turno)}
+              </div>
+            </div>
+            <button onclick="cancelarReserva(${r.id})" style="padding:6px 12px;border:1px solid #FCA5A5;border-radius:8px;background:#FEF2F2;color:#DC2626;font-size:12px;font-weight:700;cursor:pointer">
+              Cancelar
+            </button>
+          </div>
+        `).join('')}
+      </div>` : `
+      <div style="text-align:center;padding:16px;color:#94A3B8;font-size:13px;background:#F8FAFD;border-radius:10px;border:1px dashed #E2E8F0">
+        No tenés reservas activas en este momento.
+      </div>`}
+    </div>
+
+    <!-- FORMULARIO NUEVA RESERVA -->
+    <div class="card" style="padding:18px 20px;margin-bottom:18px">
+      <div style="font-size:15px;font-weight:800;color:#0F172A;margin-bottom:12px;display:flex;align-items:center;gap:6px">
+        <span>✨</span> Reservar un Espacio
+      </div>
+
+      <form id="form-amenity" onsubmit="guardarReserva(event)">
+        <!-- 1. Elegir Espacio -->
+        <div style="margin-bottom:14px">
+          <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">1. Seleccioná el espacio común</label>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px" id="grid-amenities">
+            ${amenitiesList.map((a, idx) => `
+              <div onclick="seleccionarAmenity('${a.nombre}', this)" class="card-touch" style="padding:12px 10px;border:1.5px solid ${idx===0?'#1E5FB4':'#E2E8F0'};border-radius:12px;background:${idx===0?'#EBF3FC':'#fff'};cursor:pointer;text-align:center;transition:all .15s ease">
+                <div style="font-size:24px;margin-bottom:4px">${a.icon}</div>
+                <div style="font-size:13px;font-weight:800;color:#0F172A;line-height:1.2">${a.nombre.split(' (')[0]}</div>
+              </div>
+            `).join('')}
+          </div>
+          <input type="hidden" id="inp-amenity-sel" value="${amenitiesList[0].nombre}">
+        </div>
+
+        <!-- 2. Elegir Fecha -->
+        <div style="margin-bottom:14px">
+          <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">2. Seleccioná la fecha</label>
+          <input type="date" id="inp-reserva-fecha" min="${hoyStr}" value="${hoyStr}" onchange="verificarDisponibilidad()" class="inp" style="background:#fff;margin-bottom:0" required>
+        </div>
+
+        <!-- 3. Elegir Turno -->
+        <div style="margin-bottom:16px">
+          <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">3. Seleccioná el turno / horario</label>
+          <select id="inp-reserva-turno" onchange="verificarDisponibilidad()" class="inp" style="background:#fff;margin-bottom:0" required>
+            <option value="Almuerzo (12:00 a 17:00 hs)">☀️ Almuerzo (12:00 a 17:00 hs)</option>
+            <option value="Cena (19:00 a 01:00 hs)">🌙 Cena (19:00 a 01:00 hs)</option>
+            <option value="Mañana (08:00 a 13:00 hs)">⏳ Mañana (08:00 a 13:00 hs)</option>
+            <option value="Día Completo (10:00 a 23:00 hs)">🌟 Día Completo (10:00 a 23:00 hs)</option>
+          </select>
+        </div>
+
+        <!-- 4. Notas / Motivo -->
+        <div style="margin-bottom:16px">
+          <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">Cantidad de invitados / Motivo (opcional)</label>
+          <input type="text" id="inp-reserva-notas" placeholder="Ej: Cumpleaños familiar, 15 personas" class="inp" style="background:#fff;margin-bottom:0">
+        </div>
+
+        <!-- Estado de disponibilidad en vivo -->
+        <div id="box-disponibilidad" style="display:none;padding:10px 14px;border-radius:10px;font-size:13px;margin-bottom:14px"></div>
+
+        <button id="btn-submit-reserva" type="submit" style="width:100%;height:48px;border:none;border-radius:12px;background:linear-gradient(135deg,#1E5FB4,#2E6FC0);color:#fff;font-size:15px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 3px 12px rgba(30,95,180,.3)">
+          <i class="ph ph-check-circle" style="font-size:18px"></i>
+          <span>Confirmar Reserva</span>
+        </button>
+      </form>
+    </div>
+
+    <!-- REGLAMENTO GENERAL -->
+    <div class="card" style="padding:16px 18px;background:#F8FAFD">
+      <div style="font-size:13.5px;font-weight:800;color:#0F172A;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+        <span>📜</span> Reglamento de Espacios Comunes
+      </div>
+      <ul style="padding-left:18px;font-size:12.5px;color:#64748B;line-height:1.6">
+        <li>El espacio debe entregarse limpio y ordenado al finalizar el turno.</li>
+        <li>Horario límite de música y ruidos molestos: <strong>01:00 hs</strong>.</li>
+        <li>El vecino titular es responsable de sus invitados y del cuidado de las instalaciones.</li>
+      </ul>
+    </div>
+
+    <script>
+      var _todasReservas = ${JSON.stringify(todasReservasEdificio)};
+
+      function seleccionarAmenity(nombre, el) {
+        document.getElementById('inp-amenity-sel').value = nombre;
+        var cards = document.querySelectorAll('#grid-amenities > div');
+        cards.forEach(function(c) {
+          c.style.borderColor = '#E2E8F0';
+          c.style.background = '#fff';
+        });
+        el.style.borderColor = '#1E5FB4';
+        el.style.background = '#EBF3FC';
+        verificarDisponibilidad();
+      }
+
+      function verificarDisponibilidad() {
+        var amenity = document.getElementById('inp-amenity-sel').value;
+        var fecha = document.getElementById('inp-reserva-fecha').value;
+        var turno = document.getElementById('inp-reserva-turno').value;
+        var box = document.getElementById('box-disponibilidad');
+        var btn = document.getElementById('btn-submit-reserva');
+
+        if (!fecha) return;
+
+        var ocupada = _todasReservas.find(function(r) {
+          return r.amenity.toLowerCase() === amenity.toLowerCase() && 
+                 r.fecha === fecha && 
+                 r.turno === turno && 
+                 r.estado !== 'cancelada';
+        });
+
+        box.style.display = 'block';
+        if (ocupada) {
+          box.style.background = '#FEF2F2';
+          box.style.color = '#991B1B';
+          box.style.border = '1px solid #FCA5A5';
+          box.innerHTML = '⚠️ <strong>Turno no disponible:</strong> Ya está reservado por el departamento <strong>' + (ocupada.departamento || 'vecino') + '</strong>.';
+          btn.disabled = true;
+          btn.style.opacity = '0.5';
+          btn.style.cursor = 'not-allowed';
+        } else {
+          box.style.background = '#DCFCE7';
+          box.style.color = '#15803D';
+          box.style.border = '1px solid #86EFAC';
+          box.innerHTML = '✓ <strong>¡Disponible!</strong> Podés confirmar tu reserva para este turno.';
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.style.cursor = 'pointer';
+        }
+      }
+
+      async function guardarReserva(e) {
+        e.preventDefault();
+        var amenity = document.getElementById('inp-amenity-sel').value;
+        var fecha = document.getElementById('inp-reserva-fecha').value;
+        var turno = document.getElementById('inp-reserva-turno').value;
+        var notas = document.getElementById('inp-reserva-notas').value;
+        var btn = document.getElementById('btn-submit-reserva');
+
+        btn.disabled = true;
+        btn.textContent = 'Guardando reserva...';
+
+        try {
+          var res = await fetch('/vecino/api/reservar-amenity', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amenity: amenity, fecha: fecha, turno: turno, notas: notas })
+          });
+          var data = await res.json();
+          if (data.ok) {
+            alert('✓ ¡Reserva confirmada con éxito!');
+            location.reload();
+          } else {
+            alert('Error: ' + (data.error || 'No se pudo completar la reserva'));
+            btn.disabled = false;
+            btn.textContent = 'Confirmar Reserva';
+          }
+        } catch(err) {
+          alert('Error de conexión al guardar la reserva.');
+          btn.disabled = false;
+          btn.textContent = 'Confirmar Reserva';
+        }
+      }
+
+      async function cancelarReserva(id) {
+        if (!confirm('¿Estás seguro de cancelar esta reserva?')) return;
+        try {
+          var res = await fetch('/vecino/api/cancelar-reserva', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id })
+          });
+          var data = await res.json();
+          if (data.ok) {
+            alert('✓ Reserva cancelada');
+            location.reload();
+          } else {
+            alert('Error al cancelar');
+          }
+        } catch(err) {
+          alert('Error de conexión');
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        verificarDisponibilidad();
+      });
+    </script>
+  `;
+
+  res.send(shellVecino('Amenities', 'amenities', content, v));
+});
+
+// Endpoint Crear Reserva de Amenity
+router.post('/api/reservar-amenity', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const { amenity, fecha, turno, notas } = req.body || {};
+
+    if (!amenity || !fecha || !turno) {
+      return res.status(400).json({ ok: false, error: 'Faltan datos obligatorios para la reserva' });
+    }
+
+    const { pool } = require('./db-pg');
+    if (pool) {
+      // Validar si ya está ocupado
+      const qCheck = `SELECT id FROM reservas_amenities 
+                      WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
+                      AND LOWER(amenity) = LOWER($3)
+                      AND fecha = $4
+                      AND turno = $5
+                      AND estado != 'cancelada' LIMIT 1`;
+      const checkRes = await pool.query(qCheck, [v.edificio, '%' + v.edificio + '%', amenity, fecha, turno]);
+      if (checkRes && checkRes.rows && checkRes.rows.length > 0) {
+        return res.status(400).json({ ok: false, error: 'Este turno ya fue reservado por otro vecino' });
+      }
+
+      const qIns = `INSERT INTO reservas_amenities (edificio, amenity, fecha, turno, departamento, nombre_vecino, telefono, estado, notas, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()) RETURNING id`;
+      const insRes = await pool.query(qIns, [
+        v.edificio,
+        amenity,
+        fecha,
+        turno,
+        v.departamento,
+        v.nombre,
+        v.telefono || '',
+        'confirmada',
+        notas || ''
+      ]);
+
+      return res.json({ ok: true, mensaje: 'Reserva confirmada con éxito', id: insRes.rows[0].id });
+    }
+
+    res.json({ ok: true, mensaje: 'Reserva registrada' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Endpoint Cancelar Reserva
+router.post('/api/cancelar-reserva', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const { id } = req.body || {};
+
+    if (!id) return res.status(400).json({ ok: false, error: 'ID de reserva requerido' });
+
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `UPDATE reservas_amenities SET estado = 'cancelada' WHERE id = $1`;
+      await pool.query(q, [id]);
+    }
+
+    res.json({ ok: true, mensaje: 'Reserva cancelada' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 module.exports = router;
