@@ -1360,7 +1360,8 @@ textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-
 .dark-theme .drawer-grid-card { background:#1C2B4E !important; border-color:#2A3A5E !important; }
 .dark-theme .drawer-grid-card div { color:#F1F5F9 !important; }
 .dark-theme .drawer-grid-card div:first-child { color:#94A3B8 !important; }
-.dark-theme .drawer-notes-box { background:#162447 !important; border-colorkground:#EAF1FB"],
+.dark-theme .drawer-notes-box { background:#162447 !important; border-color:#2A3A5E !important; }
+.dark-theme [style*="background:#EAF1FB"],
 .dark-theme [style*="background: #EAF1FB"],
 .dark-theme [style*="background: rgb(247, 249, 252)"],
 .dark-theme [style*="background: rgb(248, 250, 253)"],
