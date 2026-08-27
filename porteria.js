@@ -334,27 +334,51 @@ async function ejecutarTimbre(){
 
     btn.style.display = 'none';
     fb.style.display = 'block';
-    fb.innerHTML = '✓ ¡Llamando al vecino! Le sonó el timbre en su celular.';
+    fb.innerHTML = '<div style="font-size:14.5px;font-weight:800;margin-bottom:4px">✓ ¡Llamando al vecino!</div>' +
+      '<div style="font-size:12.5px;color:#166534;margin-bottom:10px">Le sonó el timbre en su celular y enviamos aviso por WhatsApp.</div>' +
+      '<div id="timer-auto-reset" style="font-size:11.5px;color:#4B5563;margin-bottom:12px">⏱️ Esta pantalla se restablecerá en <strong id="secs-reset">30</strong>s para otra entrega.</div>' +
+      '<button onclick="restablecerPorteria()" style="width:100%;height:40px;border:1px solid #CBD5E1;border-radius:10px;background:#fff;color:#0F326A;font-weight:700;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">' +
+        '<span>🔄 Llamar a otro depto ahora</span>' +
+      '</button>';
     
     setTimeout(function(){
       sonarChime();
     }, 400);
 
+    // Cuenta regresiva de 30 segundos para restablecer pantalla automáticamente
+    var _secsRestantes = 30;
+    clearInterval(_autoResetInterval);
+    _autoResetInterval = setInterval(function(){
+      _secsRestantes--;
+      var elSecs = document.getElementById('secs-reset');
+      if (elSecs) elSecs.textContent = _secsRestantes;
+      if (_secsRestantes <= 0) {
+        clearInterval(_autoResetInterval);
+        restablecerPorteria();
+      }
+    }, 1000);
+
     // Escuchar si el vecino responde por texto o inicia llamada de voz
-    var checkInterval = setInterval(async function(){
+    clearInterval(_checkInterval);
+    _checkInterval = setInterval(async function(){
       try {
         var sRes = await fetch('/porteria/api/timbre-visita-status?callId=' + encodeURIComponent(data.callId || '') + '&edificio=' + encodeURIComponent(_edificio) + '&depto=' + encodeURIComponent(_deptoActivo));
         var sData = await sRes.json();
         if (sData) {
           if (sData.estado === 'atendido' && sData.respuesta) {
-            clearInterval(checkInterval);
+            clearInterval(_checkInterval);
             fb.style.background = '#DCFCE7';
             fb.style.color = '#15803D';
             fb.style.borderColor = '#86EFAC';
-            fb.innerHTML = '🟢 <strong>El vecino respondió:</strong> "' + sData.respuesta + '"';
+            fb.innerHTML = '<div style="font-size:14.5px;font-weight:800;margin-bottom:4px">🟢 El vecino respondió:</div>' +
+              '<div style="font-size:15px;font-weight:900;color:#15803D;margin-bottom:10px">"' + (sData.respuesta || '') + '"</div>' +
+              '<button onclick="restablecerPorteria()" style="width:100%;height:40px;border:1px solid #86EFAC;border-radius:10px;background:#fff;color:#15803D;font-weight:700;font-size:13px;cursor:pointer">' +
+                '<span>🔄 Llamar a otro depto</span>' +
+              '</button>';
             sonarChime();
           } else if (sData.estado === 'voz_iniciada') {
-            clearInterval(checkInterval);
+            clearInterval(_checkInterval);
+            clearInterval(_autoResetInterval);
             fb.style.background = '#EBF3FC';
             fb.style.color = '#1E5FB4';
             fb.style.borderColor = '#93C5FD';
@@ -365,8 +389,6 @@ async function ejecutarTimbre(){
         }
       } catch(_) {}
     }, 1200);
-
-    setTimeout(function(){ clearInterval(checkInterval); }, 50000);
 
   } catch(err){
     btn.disabled = false;
@@ -381,6 +403,36 @@ async function ejecutarTimbre(){
 
 var _visitaPeerConn = null;
 var _visitaLocalStream = null;
+var _checkInterval = null;
+var _autoResetInterval = null;
+var _sigInterval = null;
+
+function restablecerPorteria() {
+  clearInterval(_checkInterval);
+  clearInterval(_autoResetInterval);
+  clearInterval(_sigInterval);
+
+  if (_visitaPeerConn) {
+    _visitaPeerConn.close();
+    _visitaPeerConn = null;
+  }
+  if (_visitaLocalStream) {
+    _visitaLocalStream.getTracks().forEach(function(t){ t.stop(); });
+    _visitaLocalStream = null;
+  }
+
+  var btn = document.getElementById('btn-tocar');
+  var fb = document.getElementById('ring-feedback');
+  if (btn) {
+    btn.disabled = false;
+    btn.style.display = 'flex';
+    btn.innerHTML = '<i class="ph ph-bell-ringing-fill" style="font-size:22px"></i><span>TOCAR TIMBRE</span>';
+  }
+  if (fb) {
+    fb.style.display = 'none';
+  }
+  cerrarTimbre();
+}
 
 async function iniciarVozVisita() {
   try {
@@ -412,8 +464,8 @@ async function iniciarVozVisita() {
 
     // Polling de oferta de vecino
     var lastSince = Date.now() - 6000;
-    var sigInterval = setInterval(async function(){
-      if (!_visitaPeerConn) { clearInterval(sigInterval); return; }
+    _sigInterval = setInterval(async function(){
+      if (!_visitaPeerConn) { clearInterval(_sigInterval); return; }
       try {
         var sRes = await fetch('/porteria/api/webrtc-signal?edificio=' + encodeURIComponent(_edificio) + '&depto=' + encodeURIComponent(_deptoActivo) + '&forRole=visita&since=' + lastSince);
         var sData = await sRes.json();
@@ -444,16 +496,7 @@ async function iniciarVozVisita() {
 }
 
 function finalizarLlamadaVisita() {
-  if (_visitaPeerConn) {
-    _visitaPeerConn.close();
-    _visitaPeerConn = null;
-  }
-  if (_visitaLocalStream) {
-    _visitaLocalStream.getTracks().forEach(function(t){ t.stop(); });
-    _visitaLocalStream = null;
-  }
-  var fb = document.getElementById('ring-feedback');
-  if (fb) fb.innerHTML = 'Llamada finalizada.';
+  restablecerPorteria();
 }
 </script>
 
