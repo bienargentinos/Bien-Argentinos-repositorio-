@@ -535,6 +535,47 @@ notaba porque CASO-1001 no se cerraba y **cada prueba del mismo día caía adent
   dos y le muestra al administrador dos reclamos donde hay uno.
 - Prueba: `node pruebas-caso-nuevo-o-mismo.js`.
 
+### El oficio de la persona no es el rubro del trabajo
+
+> [!CAUTION]
+> **`especialidad` es el oficio de la PERSONA. El rubro es de qué se trata ESTE trabajo.**
+> Se mezclaban, y eso rompía justo lo que el rubro existe para resolver.
+
+Caso real: Dario está cargado como **Electricista**, avisó por una **pérdida de agua**, y el caso
+quedó marcado "Electricista" — el mismo rubro que su caso eléctrico abierto en ese edificio. Como
+los rubros coincidían, el aviso de plomería se metió **adentro** del caso de la luz.
+
+Y pasa siempre. Palabras de Daniel: *"yo en los edificios a veces hago electricidad, portería,
+control de acceso y CCTV"*. Un mismo técnico hace trabajos de rubros distintos; su ficha no dice
+cuál es el de hoy.
+
+- `rubroDelCaso(texto, especialidad)` — **manda lo que la persona contó**; la ficha es el respaldo
+  para cuando el texto no alcanza. Y `"Proveedor"` deja de escribirse como rubro: es un rol, no un
+  oficio, y `coincideRubro` lo comparaba contra oficios de verdad.
+- **Los mensajes de puro registro ya no reclasifican el caso.** La mayoría de los `guardarReporte`
+  de un proveedor son para dejar la conversación guardada (no traen problema propio), y sin embargo
+  mandaban su `rubro_tecnico` y le pisaban el rubro al caso: cualquier mensaje del electricista
+  marcaba "Electricista" un caso de plomería. Ahora el rubro **se completa si está vacío y no se
+  reescribe** — corregirlo es una decisión, no un efecto secundario.
+
+### Separar casos y elegir técnico son preguntas opuestas
+
+Las dos usaban `coincideRubro` y había que elegir cuál romper:
+
+| Pregunta | Función | Criterio | Por qué |
+|---|---|---|---|
+| ¿Es el mismo trabajo? (separar un reclamo nuevo) | `coincideRubro` | **estricto** | Cambiar el portero no es poner una cámara. Si se mezclan, dos trabajos distintos quedan en un solo caso con una sola factura. |
+| ¿Este técnico hace esto? (elegir a quién hablarle) | `atiendeRubro` | **amplio** | La ficha dice "Electricista" y el caso es de CCTV: es él igual. |
+
+`rubroDelTexto` distingue ahora **portería**, **control de acceso** y **CCTV** como rubros
+propios, y van **antes** que electricidad en la lista: "portero **eléctrico**" y "cerradura
+**electro**magnética" contienen la palabra que dispara electricidad, así que con el orden al revés
+se las llevaba todas puestas.
+
+> Esto es el respaldo, no la respuesta buena. Lo correcto es que la ficha del proveedor liste sus
+> rubros de verdad (`electricidad, portería, control de acceso, cctv`) — y eso ya funciona, porque
+> la comparación mira si un texto contiene al otro.
+
 ### Cuándo se manda la plantilla, y por qué a veces "no se mandó"
 
 La plantilla se manda **una vez por caso**, no una vez por técnico: un caso nuevo en el mismo

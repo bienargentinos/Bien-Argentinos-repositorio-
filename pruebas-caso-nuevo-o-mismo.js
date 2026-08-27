@@ -130,5 +130,57 @@ console.log('\n── EL RUBRO DEDUCIDO DE LO QUE CONTARON ──');
         rubroDelTexto('luminarias de la cochera') === rubroDelTexto('problema en el jardín'), false);
 }
 
+console.log('\n── EL OFICIO DE LA PERSONA NO ES EL RUBRO DEL TRABAJO ──');
+{
+    // El caso real: Dario está cargado como "Electricista" y avisó por una PÉRDIDA DE AGUA. Con el
+    // oficio de la ficha, ese aviso quedaba marcado "Electricista" -- el mismo rubro que su caso
+    // eléctrico abierto en ese edificio -- y se metía adentro en vez de abrir uno nuevo.
+    const { rubroDelCaso, atiendeRubro, coincideRubro } = require('./rubros');
+
+    verificar('lo que contó le gana a la ficha',
+        rubroDelCaso('me llamaron por una pérdida de agua en el sótano', 'Electricista'), 'plomería');
+    verificar('la ficha queda de respaldo cuando el texto no dice nada',
+        rubroDelCaso('hola, buenas', 'Electricista'), 'Electricista');
+    verificar('"Proveedor" no es un rubro: es un rol',
+        rubroDelCaso('hola, buenas', 'Proveedor'), '');
+    verificar('y el aviso de plomería SÍ se separa del caso eléctrico',
+        decidir({ problema: 'pérdida de agua en el sótano', rubro_tecnico: 'plomería', casoAbierto: casoDeLuz }), true);
+}
+
+console.log('\n── UN ELECTRICISTA DE EDIFICIOS HACE CUATRO COSAS ──');
+{
+    // Daniel: "yo en los edificios a veces hago electricidad, portería, control de acceso y CCTV".
+    // Son trabajos distintos aunque los haga la misma persona, y hay que poder distinguirlos.
+    const { rubroDelTexto, rubroDelCaso, atiendeRubro, coincideRubro } = require('./rubros');
+
+    verificar('el portero eléctrico NO es electricidad',
+        rubroDelTexto('no anda el portero eléctrico del 3ro B'), 'portería');
+    verificar('una cámara es CCTV', rubroDelTexto('la cámara del hall no graba'), 'cctv');
+    verificar('el DVR también', rubroDelTexto('hay que cambiar el DVR'), 'cctv');
+    verificar('las tarjetas son control de acceso',
+        rubroDelTexto('las tarjetas de acceso no abren el molinete'), 'control de acceso');
+    verificar('la cerradura electromagnética también',
+        rubroDelTexto('la cerradura electromagnética quedó sin traba'), 'control de acceso');
+    verificar('y el disyuntor sigue siendo electricidad',
+        rubroDelTexto('saltó el disyuntor de las luces de la cochera'), 'electricidad');
+
+    // SEPARAR CASOS: estricto. Si se mezclan, dos trabajos distintos terminan adentro de un solo
+    // caso, con un solo técnico y una sola factura.
+    verificar('un reclamo de cámaras no continúa el caso de la luz',
+        decidir({ problema: 'la cámara del hall no graba', rubro_tecnico: 'cctv', casoAbierto: casoDeLuz }), true);
+    verificar('ni uno del portero eléctrico',
+        decidir({ problema: 'no anda el portero eléctrico', rubro_tecnico: 'portería', casoAbierto: casoDeLuz }), true);
+    verificar('cctv y electricidad no son el mismo trabajo', coincideRubro('cctv', 'electricidad'), false);
+
+    // ELEGIR TÉCNICO: amplio. Es la pregunta opuesta y por eso es otra función: la ficha dice
+    // "Electricista" y el caso es de CCTV, y es él igual.
+    verificar('un electricista atiende un caso de CCTV', atiendeRubro('Electricista', 'cctv'), true);
+    verificar('y uno de portería', atiendeRubro('Electricista', 'portería'), true);
+    verificar('y uno de control de acceso', atiendeRubro('Electricista', 'control de acceso'), true);
+    verificar('pero NO uno de plomería', atiendeRubro('Electricista', 'plomería'), false);
+    verificar('una ficha con varios rubros funciona sola',
+        atiendeRubro('electricidad, portería, control de acceso, cctv', 'cctv'), true);
+}
+
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);
 process.exit(fallos === 0 ? 0 : 1);

@@ -640,7 +640,10 @@ app.post('/webhook', async (req, res) => {
 // Si dos formas de nombrar un oficio son el mismo oficio ("electricidad" = "electricista" = "luz").
 // Vive en `rubros.js` porque lo usa también sheets.js, para decidir si un reclamo nuevo continúa
 // un caso abierto o es otro caso.
-const { coincideRubro: coincideRubroTecnico } = require('./rubros');
+// `atiendeRubro` y no `coincideRubro`: acá la pregunta es "¿este técnico hace este trabajo?", que
+// es más amplia que "¿es el mismo trabajo?". La ficha de Dario dice "Electricista" y el caso es de
+// CCTV: es él igual. Con el criterio estricto no lo encontraba y le hablaba al plomero.
+const { atiendeRubro, rubroDelCaso } = require('./rubros');
 
 // La foto/video que el vecino adjuntó al caso. Vive en `material-caso.js` porque también la
 // necesita marcos-ops para decidir si le pide al técnico que conteste.
@@ -1216,17 +1219,20 @@ function validarYSanitizarNombre(nombre) {
             const enEsaLinea = (await proveedoresPorTelefono(from)) || [];
 
             if (enEsaLinea.length > 1) {
-                const rubroDelCaso = String(stProv.rubroActivo || '').trim();
+                // Se llama `rubroActivoDelCaso` y no `rubroDelCaso` para no tapar a la función
+                // `rubroDelCaso` que se importa arriba: son cosas distintas y el nombre repetido
+                // hacía que adentro de este bloque la función no existiera.
+                const rubroActivoDelCaso = String(stProv.rubroActivo || '').trim();
                 const nombres = enEsaLinea.map(p => `${p.nombre} (${p.rubro || 'sin rubro'})`).join(', ');
 
-                if (rubroDelCaso) {
-                    const elCorrecto = enEsaLinea.find(p => coincideRubroTecnico(p.rubro, rubroDelCaso));
+                if (rubroActivoDelCaso) {
+                    const elCorrecto = enEsaLinea.find(p => atiendeRubro(p.rubro, rubroActivoDelCaso));
                     if (elCorrecto && elCorrecto.nombre !== datosEmisor.nombre) {
-                        console.log(`🎯 En ${from} hay ${enEsaLinea.length} técnicos [${nombres}]. El caso es de "${rubroDelCaso}", así que quien escribe es ${elCorrecto.nombre}, no ${datosEmisor.nombre}.`);
+                        console.log(`🎯 En ${from} hay ${enEsaLinea.length} técnicos [${nombres}]. El caso es de "${rubroActivoDelCaso}", así que quien escribe es ${elCorrecto.nombre}, no ${datosEmisor.nombre}.`);
                         datosEmisor.nombre = elCorrecto.nombre;
                         datosEmisor.especialidad = elCorrecto.rubro || datosEmisor.especialidad;
                     } else if (!elCorrecto) {
-                        console.log(`🤔 En ${from} hay ${enEsaLinea.length} técnicos [${nombres}] y ninguno es de "${rubroDelCaso}". Se deja "${datosEmisor.nombre}".`);
+                        console.log(`🤔 En ${from} hay ${enEsaLinea.length} técnicos [${nombres}] y ninguno es de "${rubroActivoDelCaso}". Se deja "${datosEmisor.nombre}".`);
                     }
                 } else {
                     // Sin caso no hay rubro con qué desempatar. Llamarlo por un nombre elegido al
@@ -2453,7 +2459,7 @@ function validarYSanitizarNombre(nombre) {
                     edificio: edificioFactura,
                     tecnico: datosEmisor.nombre || '',
                     tel_tecnico: from || '',
-                    rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
+                    rubro_tecnico: rubroDelCaso(msgBodyParaRegistro, datosEmisor.especialidad),
                     historial_chat: JSON.stringify([msgProveedorParaChat, `Marcos (a Proveedor): ${respFactura}`])
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
@@ -2557,7 +2563,7 @@ function validarYSanitizarNombre(nombre) {
                     edificio: session.nombreEdificio,
                     tecnico: datosEmisor.nombre || '',
                     tel_tecnico: from || '',
-                    rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
+                    rubro_tecnico: rubroDelCaso(msgBodyParaRegistro, datosEmisor.especialidad),
                     historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos (a Proveedor): ${respPago}`])
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
@@ -2794,7 +2800,7 @@ function validarYSanitizarNombre(nombre) {
                                     estado: faltaOtroGremio ? 'en_proceso' : 'resuelto',
                                     tecnico: datosEmisor.nombre || '',
                                     tel_tecnico: from || '',
-                                    rubro_tecnico: datosEmisor.especialidad || '',
+                                    rubro_tecnico: rubroDelCaso(nota || laQueSeImputa?.concepto || '', datosEmisor.especialidad),
                                     tipo: 'trabajo_externo',
                                     notas_ia: (faltaOtroGremio ? '⚠️ TRABAJO INCOMPLETO. ' : '') +
                                         `Informado por el técnico ${datosEmisor.nombre} al enviar la factura` +
@@ -2901,8 +2907,11 @@ function validarYSanitizarNombre(nombre) {
                 // seguido. Sin rubro no se puede saber después si un reclamo nuevo es otro caso, ni
                 // cuál de los técnicos de una línea compartida escribió. Lo que la persona contó
                 // ("un problema eléctrico en las luminarias") alcanza para deducirlo.
-                const { rubroDelTexto } = require('./rubros');
-                const rubroAviso = datosEmisor.especialidad || rubroDelTexto(msgBodyParaRegistro) || '';
+                // Manda lo que contó, no lo que dice su ficha: a Dario lo tenemos cargado como
+                // "Electricista" y avisó por una pérdida de agua. Con el oficio de la ficha, ese
+                // aviso quedaba con el mismo rubro que su caso eléctrico abierto en ese edificio
+                // y se metía adentro en vez de abrir uno nuevo.
+                const rubroAviso = rubroDelCaso(msgBodyParaRegistro, datosEmisor.especialidad);
                 try {
                     const { guardarReporte } = require('./datos');
                     const resAviso = await guardarReporte({
@@ -3072,7 +3081,7 @@ function validarYSanitizarNombre(nombre) {
                     edificio: edifNom,
                     tecnico: datosEmisor.nombre || '',
                     tel_tecnico: from || '',
-                    rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
+                    rubro_tecnico: rubroDelCaso(msgBodyParaRegistro, datosEmisor.especialidad),
                     historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos (a Proveedor): ${respTecnico}`])
                 });
             } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }
@@ -3231,7 +3240,7 @@ function validarYSanitizarNombre(nombre) {
                 edificio: edifNomCatchAll,
                 tecnico: datosEmisor.nombre || '',
                 tel_tecnico: from || '',
-                rubro_tecnico: datosEmisor.especialidad || 'Proveedor',
+                rubro_tecnico: rubroDelCaso(msgBodyParaRegistro, datosEmisor.especialidad),
                 historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`, `Marcos (a Proveedor): ${respGenericaProveedor}`])
             });
         } catch (e) { console.error('Error guardando chat de proveedor:', e.message); }

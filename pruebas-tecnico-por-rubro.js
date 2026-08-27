@@ -61,13 +61,35 @@ const pares = [
     ['electricidad', 'electricista', true],
     ['plomeria', 'plomero', true],
     ['gas', 'gasista', true],
-    ['cerrajeria', 'portero electrico', true],
+    // El portero eléctrico NO es cerrajería. Daniel: "yo en los edificios a veces hago
+    // electricidad, portería, control de acceso y CCTV". Es corriente débil, y quien lo atiende
+    // es el electricista -- no el cerrajero, que hace cerraduras y llaves.
+    ['cerrajeria', 'portero electrico', false],
     ['electricidad', 'plomeria', false],
     ['plomeria', 'cerrajeria', false],
     ['gas', 'electricidad', false],
 ];
 for (const [a, b, esp] of pares) {
     verificar(`"${a}" y "${b}" ${esp ? 'son' : 'NO son'} el mismo oficio`, coincideRubroTecnico(a, b), esp);
+}
+
+console.log('\n── QUIÉN ATIENDE QUÉ (que no es lo mismo) ──');
+{
+    // `coincideRubro` responde "¿es el mismo trabajo?" (para separar casos) y `atiendeRubro`
+    // responde "¿este técnico hace esto?" (para elegir a quién se le habla). Son opuestas a
+    // propósito: la primera estricta, la segunda amplia.
+    const { atiendeRubro } = require('./rubros');
+    const casos = [
+        ['electricista', 'portería', true],
+        ['electricista', 'cctv', true],
+        ['electricista', 'control de acceso', true],
+        ['electricista', 'plomeria', false],
+        ['cerrajero', 'portería', false],
+        ['plomero', 'cctv', false],
+    ];
+    for (const [oficio, trabajo, esp] of casos) {
+        verificar(`un ${oficio} ${esp ? 'SÍ' : 'NO'} atiende un caso de ${trabajo}`, atiendeRubro(oficio, trabajo), esp);
+    }
 }
 
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);

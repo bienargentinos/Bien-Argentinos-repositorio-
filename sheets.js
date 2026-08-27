@@ -1374,7 +1374,24 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             if (notasFinales) rowExistente.set('notas', notasFinales);
             if (tecnico) rowExistente.set('tecnico', tecnico);
             if (tel_tecnico) rowExistente.set('tel_tecnico', tel_tecnico);
-            if (rubro_tecnico) rowExistente.set('rubro_tecnico', rubro_tecnico);
+
+            // EL RUBRO DE UN CASO NO SE REESCRIBE: se completa si está vacío y nada más.
+            //
+            // La mayoría de los `guardarReporte` de un proveedor son para dejar la conversación
+            // registrada -- no traen problema propio, solo el chat. Pero igual mandaban su
+            // `rubro_tecnico`, que sale del oficio de la ficha del técnico, y le pisaban la
+            // clasificación al caso. Un caso de plomería quedaba marcado "Electricista" porque el
+            // electricista mandó un mensaje adentro.
+            //
+            // Con el rubro pisado se cae todo lo que depende de él, y de la peor forma: parece
+            // bien puesto. Deja de poder distinguirse un reclamo nuevo del abierto, cuál de los
+            // técnicos de una línea compartida escribió, y a qué caso va una factura.
+            //
+            // Corregir un rubro mal puesto es una decisión, no un efecto secundario de que
+            // alguien haya escrito algo.
+            if (rubro_tecnico && !String(rowExistente.get('rubro_tecnico') || '').trim()) {
+                rowExistente.set('rubro_tecnico', rubro_tecnico);
+            }
             if (audio_url) rowExistente.set('audio_url', audio_url);
             if (transcripcion) rowExistente.set('transcripcion', transcripcion);
             if (audiosLista.length > 0) rowExistente.set('audios_json', JSON.stringify(audiosLista));
