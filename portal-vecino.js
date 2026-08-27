@@ -55,6 +55,16 @@ function esc(s) {
     .replace(/'/g, '&#39;');
 }
 
+function escJs(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '');
+}
+
 // Estilos visuales oficiales de Marcos IA (Tokens exactos)
 const CSS_VECINO = `
 *{box-sizing:border-box;margin:0;padding:0}
