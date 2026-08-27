@@ -689,28 +689,49 @@ router.get('/expensas', async (req, res) => {
       </form>
     </div>
 
-    <!-- 4. Historial de Liquidaciones Anteriores -->
-    ${historialExpensas.length > 0 ? `
-    <div style="font-size:14px;font-weight:800;color:#0F172A;margin-bottom:10px">Períodos Anteriores</div>
-    <div style="display:flex;flex-direction:column;gap:10px">
-      ${historialExpensas.map((x) => `
-        <div class="card" style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
-          <div style="display:flex;align-items:center;gap:12px">
-            <div style="width:38px;height:38px;border-radius:10px;background:#FDECEC;color:#C0392B;display:flex;align-items:center;justify-content:center;font-size:18px">
-              <i class="ph ph-file-pdf"></i>
-            </div>
-            <div>
-              <div style="font-size:14px;font-weight:800;color:#0F172A">${x.periodo || 'Período'}</div>
-              <div style="font-size:11.5px;color:#64748B">Resumen Consorcio</div>
-            </div>
+    <!-- 4. Historial Completo de Liquidaciones Anteriores -->
+    <div class="card" style="padding:18px 20px;margin-bottom:18px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:20px">📚</span>
+          <div>
+            <div style="font-size:15px;font-weight:800;color:#0F172A">Historial de Liquidaciones (${expensas.length} períodos)</div>
+            <div style="font-size:11.5px;color:#64748B">Descargá cualquier liquidación oficial de tu consorcio</div>
           </div>
-          ${x.url || x.nombre ? `
-          <a href="${x.url || ('/archivos/facturas/' + x.nombre)}" target="_blank" style="padding:6px 12px;border-radius:8px;border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:12px;font-weight:700">
-            Descargar
-          </a>` : ''}
         </div>
-      `).join('')}
-    </div>` : ''}
+      </div>
+
+      ${expensas.length > 0 ? `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${expensas.map((x, idx) => {
+          const downloadUrl = x.url || ('/archivos/facturas/' + x.nombre);
+          const isUltima = idx === 0;
+          return `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid #E2E8F0;border-radius:12px;background:#F8FAFD;gap:10px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:38px;height:38px;border-radius:10px;background:#FDECEC;color:#C0392B;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">
+                <i class="ph ph-file-pdf"></i>
+              </div>
+              <div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px;font-weight:800;color:#0F172A">${x.periodo || 'Período'}</span>
+                  ${isUltima ? '<span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:#DCFCE7;color:#15803D">ÚLTIMO</span>' : ''}
+                </div>
+                <div style="font-size:11.5px;color:#64748B">${x.nombre || 'Liquidación de Expensas'}</div>
+              </div>
+            </div>
+            ${downloadUrl ? `
+            <a href="${downloadUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;background:#fff;border:1px solid #CBD5E1;color:#1E5FB4;font-size:12.5px;font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.04)">
+              <i class="ph ph-download-simple" style="font-size:15px"></i>
+              <span>Descargar PDF</span>
+            </a>` : ''}
+          </div>`;
+        }).join('')}
+      </div>` : `
+      <div style="text-align:center;padding:24px 16px;color:#8595AD;font-size:13px;background:#F8FAFD;border-radius:12px;border:1px dashed #DCE4F0">
+        Las liquidaciones de períodos anteriores se irán archivando automáticamente acá a medida que la administración las publique.
+      </div>`}
+    </div>
 
     <script>
       function copiarTexto(texto, btn) {
