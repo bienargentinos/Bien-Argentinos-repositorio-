@@ -63,6 +63,82 @@ function pestaña(doc, nombre) {
     return titulo ? doc.sheetsByTitle[titulo] : null;
 }
 
+/**
+ * Se asegura de que la pestaña tenga TODAS las columnas que hacen falta, y GRITA si no lo logra.
+ *
+ * > [!CAUTION]
+ * > **Una hoja de Google trae 26 columnas (A..Z) y `EVENTOS` necesita más de treinta.**
+ *
+ * Cuando se pasa de ese techo, `setHeaderRow` se planta con *"Sheet is not large enough to fit N
+ * columns. Resize the sheet first."* — y los doce lugares que la llamaban tenían `.catch(() => {})`,
+ * así que nadie se enteraba nunca. A partir de ese momento `addRow` **descarta en silencio toda
+ * clave que no sea una columna existente**: el dato se pasa completo desde `index.js`, la función
+ * devuelve bien, el log dice que se guardó, y en la planilla la celda está vacía.
+ *
+ * Así se perdieron `tecnico`, `tel_tecnico` y `rubro_tecnico` en los cuatro primeros casos reales.
+ * `tel_tecnico` no puede llegar vacío --es el teléfono de quien escribe-- y en la planilla estaba
+ * vacío en los cuatro. Con eso muerto queda muerto todo lo que depende del rubro: la separación de
+ * un reclamo nuevo, cuál de los técnicos de una línea compartida escribió, y a qué caso se imputa
+ * una factura. El administrador, además, veía casos abiertos sin nadie a quien llamar.
+ *
+ * Es el mismo error de siempre: **hacer algo y no verificar que haya quedado hecho.**
+ *
+ * Dos detalles que importan:
+ *
+ * - **Las columnas que ya están no se tocan ni se reordenan.** Los datos de las filas viven por
+ *   POSICIÓN, no por nombre: reescribir el encabezado en otro orden --o colapsar dos columnas sin
+ *   título en una, que es lo que hacía el `new Set([...headers, ...])` de antes-- le cambia el
+ *   nombre a columnas que tienen adentro otra cosa. Se agrega SOLO al final.
+ * - **Un encabezado repetido rompe la pestaña entera.** La librería tira `Duplicate header
+ *   detected` y desde ahí no se puede leer ni escribir por nombre. Eso se arregla a mano en la
+ *   planilla, así que acá lo único útil es decirlo fuerte en vez de tragarlo.
+ *
+ * Devuelve los encabezados que quedaron (los viejos, si no se pudo agregar nada).
+ */
+async function asegurarColumnas(sheet, necesarias, quien = '') {
+    if (!sheet || !Array.isArray(necesarias) || !necesarias.length) return sheet?.headerValues || [];
+    const donde = quien || sheet.title || 'la pestaña';
+
+    try {
+        await sheet.loadHeaderRow();
+    } catch (err) {
+        // Pestaña vacía todavía: no es un problema, el setHeaderRow de abajo la estrena.
+        // Encabezado repetido: sí lo es, y no se arregla desde acá.
+        if (/Duplicate header/i.test(err.message || '')) {
+            console.error(`🧱 ${donde}: ${err.message} — hasta que no se borre esa columna repetida A MANO en la planilla, no se puede leer ni escribir por nombre en esta pestaña.`);
+            return sheet.headerValues || [];
+        }
+    }
+
+    const headers = sheet.headerValues || [];
+    const yaEstan = new Set(headers.map(h => String(h || '').trim()).filter(Boolean));
+    const faltan = necesarias.filter(n => !yaEstan.has(String(n).trim()));
+    if (!faltan.length) return headers;
+
+    const completos = [...headers, ...faltan];
+
+    if (completos.length > (sheet.columnCount || 0)) {
+        try {
+            // Con holgura: agrandar cuesta una llamada y quedarse justo garantiza volver a pasar
+            // por acá en la próxima columna que se agregue.
+            await sheet.resize({ rowCount: sheet.rowCount || 1000, columnCount: completos.length + 10 });
+            console.log(`📐 ${donde}: la hoja tenía ${sheet.columnCount || '?'} columnas y hacían falta ${completos.length}. Agrandada.`);
+        } catch (err) {
+            console.error(`🧱 ${donde}: NO se pudo agrandar la hoja para ${faltan.join(', ')} → ${err.message}. Todo lo que se guarde en esas columnas SE VA A PERDER EN SILENCIO.`);
+            return headers;
+        }
+    }
+
+    try {
+        await sheet.setHeaderRow(completos);
+        console.log(`🆕 ${donde}: columnas nuevas → ${faltan.join(', ')}`);
+        return completos;
+    } catch (err) {
+        console.error(`🧱 ${donde}: NO se pudieron crear las columnas ${faltan.join(', ')} → ${err.message}. Todo lo que se guarde en ellas SE VA A PERDER EN SILENCIO.`);
+        return headers;
+    }
+}
+
 // ─────────────────────────────────────────────
 // VECINOS
 // ─────────────────────────────────────────────
@@ -155,13 +231,7 @@ async function guardarAutorizacionContacto({ telefono, autoriza = true, contacto
     try {
         const doc = await getSheet();
         const sheet = doc.sheetsByIndex[0];
-        await sheet.loadHeaderRow().catch(() => {});
-        const headers = sheet.headerValues || [];
-        const necesarios = ['autoriza_contacto', 'contacto_acceso'];
-        const nuevos = Array.from(new Set([...headers, ...necesarios]));
-        if (nuevos.length > headers.length) {
-            await sheet.setHeaderRow(nuevos).catch(() => {});
-        }
+        await asegurarColumnas(sheet, ['autoriza_contacto', 'contacto_acceso'], 'vecinos');
 
         const rows = await sheet.getRows();
         const telBuscado = String(telefono || '').replace(/\D/g, '');
@@ -684,10 +754,7 @@ async function guardarDatosBancariosProveedor({ nombre = '', telefono = '', cbu 
         if (ambiguo) return { ok: false, ambiguo: true, candidatos };
         if (!fila) return { ok: false, motivo: 'no se encontró ese proveedor' };
 
-        await hoja.loadHeaderRow().catch(() => {});
-        const headers = hoja.headerValues || [];
-        const nuevos = Array.from(new Set([...headers, ...COLUMNAS_BANCARIAS]));
-        if (nuevos.length > headers.length) await hoja.setHeaderRow(nuevos).catch(() => {});
+        await asegurarColumnas(hoja, COLUMNAS_BANCARIAS, 'proveedores');
 
         const cbuActual   = String(fila.get('cbu') || '').replace(/\D/g, '');
         const aliasActual = String(fila.get('alias_cbu') || '').toLowerCase().trim();
@@ -757,11 +824,7 @@ async function registrarProveedorNoVerificado({ nombre = '', telefono = '', rubr
         const tel = String(telefono || '').replace(/\D/g, '');
         if (!tel) return { ok: false, motivo: 'sin teléfono no se puede registrar' };
 
-        await hoja.loadHeaderRow().catch(() => {});
-        const headers = hoja.headerValues || [];
-        const necesarias = ['cliente', 'rubro', 'nombre', 'telefono', 'notas', 'estado', ...COLUMNAS_BANCARIAS];
-        const nuevas = Array.from(new Set([...headers, ...necesarias]));
-        if (nuevas.length > headers.length) await hoja.setHeaderRow(nuevas).catch(() => {});
+        await asegurarColumnas(hoja, ['cliente', 'rubro', 'nombre', 'telefono', 'notas', 'estado', ...COLUMNAS_BANCARIAS], 'proveedores');
 
         const mismoTelefono = (a) => {
             const x = String(a || '').replace(/\D/g, '');
@@ -1082,15 +1145,10 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
         const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return null;
 
-        await sheet.loadHeaderRow().catch(() => {});
-        const headers = sheet.headerValues || [];
-
-        // Asegurar que los headers tengan los campos requeridos incluyendo id_evento, audios_json, involucrados_json, chat_vecino_json, chat_proveedor_json, tecnico, tel_tecnico, rubro_tecnico
+        // Todas las columnas que esta función escribe. Si alguna no existe, `addRow` la descarta
+        // sin decir nada: por eso se crean acá y por eso `asegurarColumnas` avisa si no puede.
         const headersNecesarios = ['id_evento', 'fecha', 'edificio', 'vecino', 'depto', 'unidad', 'mensaje', 'tipo', 'urgencia', 'estado', 'notas', 'feedback', 'telefono', 'tecnico', 'tel_tecnico', 'rubro_tecnico', 'hora_fin', 'audio_url', 'transcripcion', 'historial_chat', 'audios_json', 'involucrados_json', 'chat_vecino_json', 'chat_proveedor_json', 'tecnico_notificado'];
-        const nuevosHeaders = Array.from(new Set([...headers, ...headersNecesarios]));
-        if (nuevosHeaders.length > headers.length) {
-            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
-        }
+        await asegurarColumnas(sheet, headersNecesarios, 'EVENTOS');
 
         const rows = await sheet.getRows();
         const telBuscado = String(telefono || '').replace(/\D/g, '');
@@ -1433,11 +1491,7 @@ async function marcarAdminNotificado(id_evento, motivo = '') {
         const doc = await getSheet();
         const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return;
-        await sheet.loadHeaderRow().catch(() => {});
-        if (!(sheet.headerValues || []).includes('admin_notificado')) {
-            const nuevosHeaders = Array.from(new Set([...(sheet.headerValues || []), 'admin_notificado']));
-            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
-        }
+        await asegurarColumnas(sheet, ['admin_notificado'], 'EVENTOS');
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
         if (row) {
@@ -1473,11 +1527,7 @@ async function marcarContactoAccesoAvisado(id_evento) {
         const doc = await getSheet();
         const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return;
-        await sheet.loadHeaderRow().catch(() => {});
-        if (!(sheet.headerValues || []).includes('contacto_acceso_avisado')) {
-            const nuevosHeaders = Array.from(new Set([...(sheet.headerValues || []), 'contacto_acceso_avisado']));
-            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
-        }
+        await asegurarColumnas(sheet, ['contacto_acceso_avisado'], 'EVENTOS');
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
         if (row) {
@@ -1515,11 +1565,7 @@ async function marcarMaterialEnviadoATecnico(id_evento) {
         const doc = await getSheet();
         const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return;
-        await sheet.loadHeaderRow().catch(() => {});
-        if (!(sheet.headerValues || []).includes('material_enviado_tecnico')) {
-            const nuevosHeaders = Array.from(new Set([...(sheet.headerValues || []), 'material_enviado_tecnico']));
-            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
-        }
+        await asegurarColumnas(sheet, ['material_enviado_tecnico'], 'EVENTOS');
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
         if (row) {
@@ -1552,11 +1598,7 @@ async function marcarTecnicoNotificado(id_evento) {
         const doc = await getSheet();
         const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return;
-        await sheet.loadHeaderRow().catch(() => {});
-        if (!(sheet.headerValues || []).includes('tecnico_notificado')) {
-            const nuevosHeaders = Array.from(new Set([...(sheet.headerValues || []), 'tecnico_notificado']));
-            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
-        }
+        await asegurarColumnas(sheet, ['tecnico_notificado'], 'EVENTOS');
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
         if (row) {
@@ -1598,12 +1640,7 @@ async function guardarFactura({ proveedor, monto, concepto, edificio, url_archiv
             sheet = await doc.addSheet({ title: 'facturas', headerValues: headersNecesarios });
         }
 
-        await sheet.loadHeaderRow().catch(() => {});
-        const headers = sheet.headerValues || [];
-        const nuevosHeaders = Array.from(new Set([...headers, ...headersNecesarios]));
-        if (nuevosHeaders.length > headers.length) {
-            await sheet.setHeaderRow(nuevosHeaders).catch(() => {});
-        }
+        await asegurarColumnas(sheet, headersNecesarios, 'facturas');
 
         // ── LA MISMA FACTURA DOS VECES ───────────────────────────────────────────────────
         //
@@ -2061,11 +2098,7 @@ async function guardarConfirmacionTecnico({ id_evento, eta = '', tecnico = '' })
         const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return false;
 
-        await sheet.loadHeaderRow().catch(() => {});
-        const headers = sheet.headerValues || [];
-        const necesarios = ['tecnico_confirmado', 'tecnico_eta'];
-        const completos = Array.from(new Set([...headers, ...necesarios]));
-        if (completos.length > headers.length) await sheet.setHeaderRow(completos).catch(() => {});
+        await asegurarColumnas(sheet, ['tecnico_confirmado', 'tecnico_eta'], 'EVENTOS');
 
         const rows = await sheet.getRows();
         const buscado = String(id_evento).toUpperCase().trim();
@@ -2104,11 +2137,7 @@ async function programarSeguimiento({ id_evento, cuando, paso = 1, nota = '', fo
         const sheet = pestaña(doc, 'EVENTOS');
         if (!sheet) return false;
 
-        await sheet.loadHeaderRow().catch(() => {});
-        const headers = sheet.headerValues || [];
-        const necesarios = ['proximo_seguimiento', 'seguimiento_paso', 'seguimiento_nota'];
-        const completos = Array.from(new Set([...headers, ...necesarios]));
-        if (completos.length > headers.length) await sheet.setHeaderRow(completos).catch(() => {});
+        await asegurarColumnas(sheet, ['proximo_seguimiento', 'seguimiento_paso', 'seguimiento_nota'], 'EVENTOS');
 
         const rows = await sheet.getRows();
         const buscado = String(id_evento).toUpperCase().trim();
@@ -2246,10 +2275,7 @@ async function getSheetAccesos() {
         console.log('🔑 Pestaña accesos creada.');
         return sheet;
     }
-    await sheet.loadHeaderRow().catch(() => {});
-    const headers = sheet.headerValues || [];
-    const completos = Array.from(new Set([...headers, ...HEADERS_ACCESOS]));
-    if (completos.length > headers.length) await sheet.setHeaderRow(completos).catch(() => {});
+    await asegurarColumnas(sheet, HEADERS_ACCESOS, 'accesos');
     return sheet;
 }
 
@@ -2355,6 +2381,7 @@ async function quitarAccesoEdificio({ edificio, lugar }) {
 
 module.exports = {
     getSheet,
+    asegurarColumnas,
     buscarVecinoPorTelefono,
     buscarVecinosPorTelefono,
     agregarVecinoNuevo,

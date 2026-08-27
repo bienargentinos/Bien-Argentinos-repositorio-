@@ -442,6 +442,45 @@ Las 33 búsquedas de pestaña por índice en `sheets.js` pasaron a `pestaña()`,
 escrita como esté. `pruebas-pestanias.js` ahora **prohíbe** el acceso por índice en `sheets.js`
 fuera de la propia `pestaña()`, así el problema no puede volver por otra función.
 
+### Una hoja de Google tiene 26 columnas, y `EVENTOS` necesita más de treinta
+
+> [!CAUTION]
+> **Cuando no entra una columna más, `addRow` DESCARTA EN SILENCIO todo lo que iba en ella.**
+> El dato se pasa completo, la función devuelve bien, el log dice que se guardó, y la celda queda
+> vacía.
+
+`setHeaderRow` se planta con *"Sheet is not large enough to fit N columns. Resize the sheet
+first."* — y los **doce** lugares de `sheets.js` que creaban columnas lo atrapaban con
+`.catch(() => {})`. Es el mismo error de siempre: **hacer algo y no verificar que haya quedado
+hecho.**
+
+Así se perdieron `tecnico`, `tel_tecnico` y `rubro_tecnico` en los cuatro primeros casos reales.
+`tel_tecnico` es el teléfono de quien está escribiendo: **no puede estar vacío**, y en la planilla
+estaba vacío en los cuatro. Lo que eso rompía:
+
+- El administrador veía casos **abiertos sin nadie a quien llamar**.
+- Con el rubro vacío quedaba muerto **todo lo que depende de él**, sin que nada avisara: la
+  separación de un reclamo nuevo (`coincideRubro`), cuál de los técnicos de una línea compartida
+  escribió, y a qué caso se le imputa una factura.
+
+Ahora todo pasa por `asegurarColumnas(sheet, necesarias, quien)`, que **agranda la hoja antes de
+escribir** y grita si no puede. Dos detalles que importan:
+
+- **Las columnas que ya están no se reordenan ni se tocan**: los datos de las filas viven por
+  POSICIÓN, no por nombre. El `new Set([...headers, ...necesarias])` de antes además **colapsaba
+  las columnas sin título en una sola**, y a partir de ahí cada columna quedaba con el nombre de
+  la de al lado. Se agrega solo al final.
+- **Un encabezado repetido rompe la pestaña entera** (`Duplicate header detected`): la librería se
+  planta y desde ahí no se puede leer ni escribir por nombre. Eso se arregla **a mano** en la
+  planilla — el código solo puede decirlo fuerte.
+
+```bash
+node revisar-columnas.js     # solo lee: si a alguna pestaña le falta lugar, lo dice
+```
+
+Pruebas: `node pruebas-columnas.js`. Incluye un candado estructural: **ningún `setHeaderRow` puede
+volver a tragarse su error**, y solo se lo puede llamar desde `asegurarColumnas`.
+
 ### Por qué Marcos preguntaba varias veces "¿pudiste pasar?"
 
 El seguimiento avanza en cadena: **paso 1** se le pregunta al técnico, **paso 2** al edificio,
