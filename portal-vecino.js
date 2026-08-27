@@ -156,7 +156,8 @@ function shellVecino(title, activeTab, content, vecinoData) {
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Marcos Vecinos">
+<meta name="apple-mobile-web-app-title" content="Mi Consorcio">
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/admin/assets/logo.png">
 <link rel="icon" type="image/png" href="/admin/assets/logo.png">
 <title>Marcos IA · ${title}</title>
@@ -175,6 +176,11 @@ function shellVecino(title, activeTab, content, vecinoData) {
   function toggleTheme(){
     const isDark = document.documentElement.classList.toggle('dark-theme');
     localStorage.setItem('marcos_theme', isDark ? 'dark' : 'light');
+  }
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('/sw.js').catch(function(e){ console.warn('SW:', e); });
+    });
   }
 </script>
 </head>
@@ -202,6 +208,23 @@ function shellVecino(title, activeTab, content, vecinoData) {
 
   <!-- CONTENIDO PRINCIPAL -->
   <main style="flex:1;padding:16px 16px 85px" class="anim-fade">
+    <!-- PWA INSTALL BANNER DISCRETO -->
+    <div id="pwa-install-banner" style="display:none;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:14px;box-shadow:0 4px 14px rgba(15,50,106,.22);align-items:center;justify-content:space-between;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">
+          📲
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:800;line-height:1.2">Instalar App del Edificio</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.8)">Acceso directo y llamadas de timbre</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <button onclick="instalarPwa()" style="padding:6px 12px;border:none;border-radius:8px;background:#fff;color:#0F326A;font-weight:800;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.1)">Instalar</button>
+        <button onclick="cerrarBannerPwa()" style="background:none;border:none;color:rgba(255,255,255,.7);font-size:16px;cursor:pointer;padding:4px">✕</button>
+      </div>
+    </div>
+
     ${content}
   </main>
 
@@ -498,8 +521,87 @@ function shellVecino(title, activeTab, content, vecinoData) {
         }
       } catch(_) {}
     }, 2500);
+    // ── LÓGICA DE INSTALACIÓN PWA (ANDROID & IOS) ──
+    var _deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', function(e) {
+      e.preventDefault();
+      _deferredPrompt = e;
+      var isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+      if (!isStandalone && !localStorage.getItem('pwa_banner_closed')) {
+        var b = document.getElementById('pwa-install-banner');
+        if (b) b.style.display = 'flex';
+      }
+    });
+
+    window.instalarPwa = function() {
+      var isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+      var isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+      
+      if (isStandalone) {
+        alert('¡La aplicación ya está instalada en tu teléfono!');
+        return;
+      }
+
+      if (isIos) {
+        var m = document.getElementById('modal-pwa-ios');
+        if (m) m.style.display = 'flex';
+        return;
+      }
+
+      if (_deferredPrompt) {
+        _deferredPrompt.prompt();
+        _deferredPrompt.userChoice.then(function(choice) {
+          if (choice && choice.outcome === 'accepted') {
+            var b = document.getElementById('pwa-install-banner');
+            if (b) b.style.display = 'none';
+          }
+          _deferredPrompt = null;
+        });
+      } else {
+        alert('Para instalar la aplicación, tocá el menú de opciones de tu navegador (⋮) y seleccioná "Instalar aplicación" o "Agregar a la pantalla principal".');
+      }
+    };
+
+    window.cerrarBannerPwa = function() {
+      var b = document.getElementById('pwa-install-banner');
+      if (b) b.style.display = 'none';
+      localStorage.setItem('pwa_banner_closed', 'true');
+    };
+
+    window.addEventListener('appinstalled', function() {
+      var b = document.getElementById('pwa-install-banner');
+      if (b) b.style.display = 'none';
+    });
   })();
   </script>
+
+  <!-- MODAL GUÍA DE INSTALACIÓN IOS / SAFARI -->
+  <div id="modal-pwa-ios" style="position:fixed;inset:0;background:rgba(10,31,68,.85);backdrop-filter:blur(8px);z-index:99999;display:none;align-items:flex-end;justify-content:center;padding:16px">
+    <div style="background:#fff;border-radius:22px 22px 18px 18px;width:100%;max-width:480px;padding:24px 20px;text-align:center;box-shadow:0 -10px 40px rgba(0,0,0,.25);animation:fadeIn .25s ease both">
+      <div style="width:52px;height:52px;border-radius:14px;background:#EBF3FC;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 12px">
+        📲
+      </div>
+      <h3 style="font-size:18px;font-weight:800;color:#0F326A;margin-bottom:6px">Instalar en iPhone (iOS)</h3>
+      <p style="font-size:13px;color:#64748B;margin-bottom:16px;line-height:1.4">Tené la app en tu pantalla de inicio en 3 simples pasos desde Safari:</p>
+      
+      <div style="display:flex;flex-direction:column;gap:10px;text-align:left;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:#334259">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">1</span>
+          <span>Tocá el botón <strong>Compartir <i class="ph ph-share-network" style="font-size:16px;vertical-align:middle;color:#1E5FB4"></i></strong> en la barra inferior de Safari.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">2</span>
+          <span>Deslizá hacia abajo y elegí <strong>"Agregar a inicio" <i class="ph ph-plus-square" style="font-size:16px;vertical-align:middle;color:#1E5FB4"></i></strong>.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">3</span>
+          <span>Tocá <strong>"Agregar"</strong> arriba a la derecha. ¡Listo!</span>
+        </div>
+      </div>
+
+      <button onclick="document.getElementById('modal-pwa-ios').style.display='none'" style="width:100%;height:46px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-weight:800;font-size:14.5px;cursor:pointer">¡Entendido!</button>
+    </div>
+  </div>
 
 </div>
 </body>
@@ -671,6 +773,20 @@ router.get('/', (req, res) => {
       </div>
     </div>
 
+    <!-- Acceso Directo Instalar App en Celular -->
+    <div class="card card-touch" style="padding:14px 16px;margin-bottom:16px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 14px rgba(15,50,106,.2)" onclick="instalarPwa()">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
+          📲
+        </div>
+        <div>
+          <div style="font-size:14px;font-weight:800;line-height:1.2">Instalar App en el Celular</div>
+          <div style="font-size:11.5px;color:rgba(255,255,255,.85)">Acceso rápido sin abrir el navegador</div>
+        </div>
+      </div>
+      <button style="padding:6px 14px;border:none;border-radius:8px;background:#fff;color:#0F326A;font-weight:800;font-size:12.5px;cursor:pointer;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.15)">Instalar</button>
+    </div>
+
     <!-- Últimas Novedades del Edificio -->
     <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:13.5px;font-weight:800;color:#0F172A">Novedades del Consorcio</span>
@@ -688,6 +804,101 @@ router.get('/', (req, res) => {
   `;
 
   res.send(shellVecino('Inicio', 'inicio', content, v));
+});
+
+// Rutas PWA dentro del router del vecino
+router.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
+  res.type('application/manifest+json');
+  res.send(JSON.stringify({
+    name: 'Marcos IA · Portal Vecinos',
+    short_name: 'Mi Consorcio',
+    description: 'Portal de Vecinos, Portería Virtual, Amenities y Reclamos de tu Consorcio',
+    start_url: '/vecino',
+    scope: '/',
+    display: 'standalone',
+    background_color: '#F8FAFD',
+    theme_color: '#0F326A',
+    orientation: 'portrait-primary',
+    icons: [
+      {
+        src: '/admin/assets/logo.png',
+        sizes: '192x192',
+        type: 'image/png',
+        purpose: 'any maskable'
+      },
+      {
+        src: '/admin/assets/logo.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'any maskable'
+      }
+    ],
+    shortcuts: [
+      {
+        name: 'Portería & Timbre',
+        short_name: 'Portería',
+        url: '/vecino',
+        icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+      },
+      {
+        name: 'Reservar Amenities',
+        short_name: 'Amenities',
+        url: '/vecino/amenities',
+        icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+      },
+      {
+        name: 'Hablar con Marcos IA',
+        short_name: 'Marcos IA',
+        url: '/vecino/chat',
+        icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+      }
+    ]
+  }));
+});
+
+router.get('/sw.js', (req, res) => {
+  res.type('application/javascript');
+  res.send(`
+    const CACHE_NAME = 'marcos-pwa-v1';
+    const ASSETS = [
+      '/vecino',
+      '/admin/assets/logo.png',
+      'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap',
+      'https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css',
+      'https://unpkg.com/@phosphor-icons/web@2.0.3/src/fill/style.css'
+    ];
+
+    self.addEventListener('install', (e) => {
+      e.waitUntil(
+        caches.open(CACHE_NAME).then((cache) => {
+          return cache.addAll(ASSETS).catch(() => {});
+        })
+      );
+      self.skipWaiting();
+    });
+
+    self.addEventListener('activate', (e) => {
+      e.waitUntil(
+        caches.keys().then((keys) => {
+          return Promise.all(
+            keys.map((k) => {
+              if (k !== CACHE_NAME) return caches.delete(k);
+            })
+          );
+        })
+      );
+      self.clients.claim();
+    });
+
+    self.addEventListener('fetch', (e) => {
+      if (e.request.method !== 'GET') return;
+      e.respondWith(
+        fetch(e.request).catch(() => {
+          return caches.match(e.request);
+        })
+      );
+    });
+  `);
 });
 
 // -------------------------------------------------------------------

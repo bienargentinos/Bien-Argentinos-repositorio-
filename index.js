@@ -4618,6 +4618,101 @@ iniciarCronReportes();
 const dashboard = require('./dashboard');
 app.use('/admin', dashboard);
 
+// ── PWA MANIFEST & SERVICE WORKER EN RAÍZ ─────────────────────────────────
+app.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
+    res.type('application/manifest+json');
+    res.send(JSON.stringify({
+        name: 'Marcos IA · Portal Vecinos',
+        short_name: 'Mi Consorcio',
+        description: 'Portal de Vecinos, Portería Virtual, Amenities y Reclamos de tu Consorcio',
+        start_url: '/vecino',
+        scope: '/',
+        display: 'standalone',
+        background_color: '#F8FAFD',
+        theme_color: '#0F326A',
+        orientation: 'portrait-primary',
+        icons: [
+            {
+                src: '/admin/assets/logo.png',
+                sizes: '192x192',
+                type: 'image/png',
+                purpose: 'any maskable'
+            },
+            {
+                src: '/admin/assets/logo.png',
+                sizes: '512x512',
+                type: 'image/png',
+                purpose: 'any maskable'
+            }
+        ],
+        shortcuts: [
+            {
+                name: 'Portería & Timbre',
+                short_name: 'Portería',
+                url: '/vecino',
+                icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+            },
+            {
+                name: 'Reservar Amenities',
+                short_name: 'Amenities',
+                url: '/vecino/amenities',
+                icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+            },
+            {
+                name: 'Hablar con Marcos IA',
+                short_name: 'Marcos IA',
+                url: '/vecino/chat',
+                icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+            }
+        ]
+    }));
+});
+
+app.get('/sw.js', (req, res) => {
+    res.type('application/javascript');
+    res.send(`
+        const CACHE_NAME = 'marcos-pwa-v1';
+        const ASSETS = [
+            '/vecino',
+            '/admin/assets/logo.png',
+            'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap',
+            'https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css',
+            'https://unpkg.com/@phosphor-icons/web@2.0.3/src/fill/style.css'
+        ];
+
+        self.addEventListener('install', (e) => {
+            e.waitUntil(
+                caches.open(CACHE_NAME).then((cache) => {
+                    return cache.addAll(ASSETS).catch(() => {});
+                })
+            );
+            self.skipWaiting();
+        });
+
+        self.addEventListener('activate', (e) => {
+            e.waitUntil(
+                caches.keys().then((keys) => {
+                    return Promise.all(
+                        keys.map((k) => {
+                            if (k !== CACHE_NAME) return caches.delete(k);
+                        })
+                    );
+                })
+            );
+            self.clients.claim();
+        });
+
+        self.addEventListener('fetch', (e) => {
+            if (e.request.method !== 'GET') return;
+            e.respondWith(
+                fetch(e.request).catch(() => {
+                    return caches.match(e.request);
+                })
+            );
+        });
+    `);
+});
+
 // ── PORTAL DEL VECINO — APAGADO POR DEFECTO ─────────────────────────────────────────────
 //
 // El portal está como prototipo: `POST /vecino/auth` no valida la contraseña (entra cualquiera
