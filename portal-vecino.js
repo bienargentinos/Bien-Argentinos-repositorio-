@@ -1157,6 +1157,9 @@ router.get('/novedades', (req, res) => {
     </div>
   `;
 
+  res.send(shellVecino('Avisos', 'novedades', content, v));
+});
+
 // -------------------------------------------------------------------
 // 6. RESERVA DE AMENITIES Y SUM
 // -------------------------------------------------------------------
