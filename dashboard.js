@@ -897,9 +897,15 @@ function truncate(s, n) {
 function modalAltaEdificioHtml(eyebrow, clienteUsuario, planesList) {
   const list = (planesList && planesList.length) ? planesList : [
     { nombre: 'Plan Base', precio: '15000' },
-    { nombre: 'Plan Plus', precio: '35000' }
+    { nombre: 'Plan Plus', precio: '35000' },
+    { nombre: 'Plan Plus (Corporativo 5)', precio: '35000', edificios: '5' },
+    { nombre: 'Plan Premium (Corporativo 20)', precio: '60000', edificios: '20' }
   ];
-  const optionsHtml = list.map((p) => `<option value="${esc(p.nombre)}">${esc(p.nombre)}${Number(p.precio) > 0 ? ' ($' + Number(p.precio).toLocaleString('es-AR') + '/mes)' : ''}</option>`).join('');
+  const optionsHtml = list.map((p) => {
+    const isCorp = Number(p.edificios) > 1 || String(p.nombre).toLowerCase().includes('corporativo');
+    const labelExtra = isCorp ? ` · Paquete (${p.edificios || 5} edificios)` : (Number(p.precio) > 0 ? ' ($' + Number(p.precio).toLocaleString('es-AR') + '/mes)' : '');
+    return `<option value="${esc(p.nombre)}">${esc(p.nombre)}${labelExtra}</option>`;
+  }).join('');
 
   const campo = (id, labelTxt, placeholder, extra) => `
     <div${extra || ''}>
@@ -969,9 +975,11 @@ function modalPlanesAcHtml(planesList, propiosEdificios) {
     const servList = (p.servicios || '').split(/,|\n/).map((s) => s.trim()).filter(Boolean);
     const servHtml = servList.map((s) => `<div style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#334259;margin-bottom:5px"><span style="color:#22C55E">✓</span> ${esc(s)}</div>`).join('');
 
+    const pNorm = normEdificio(p.nombre);
     const yaTienePlan = (propiosEdificios || []).some((x) => {
-      const pName = String(x.plan || '').toLowerCase();
-      return pName.includes('corporativo') || (p.nombre && pName.includes(p.nombre.toLowerCase()));
+      const xNorm = normEdificio(x.plan);
+      if (!xNorm) return false;
+      return xNorm.includes(pNorm);
     });
 
     let btnTextCorp = `🏢 Solicitar Paquete Corporativo (${p.edificios} Edificios)`;
@@ -4361,23 +4369,24 @@ async function enviarSolicitudCorporativa(btn) {
     detalleMotivo += ' · Nota cliente: ' + motivoObs.trim();
   }
 
-  btn.disabled = true; var old = btn.textContent; btn.textContent = 'Enviando solicitud...';
+  btn.disabled = true; var old = btn.textContent; btn.textContent = 'Guardando cambios...';
   try {
-    var r = await fetch('/admin/api/solicitar-cambio', {
+    var r = await fetch('/admin/api/adherir-plan-corporativo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        campo: 'plan',
-        valorNuevo: _corpPlanNombre + ' (Paquete Corporativo)',
-        edificio: 'Paquete Corporativo (' + seleccionados.length + ' edificios)',
+        plan: _corpPlanNombre,
+        cupos: _corpLimiteCupos,
+        seleccionados: seleccionados,
+        excluidos: excluidos,
         motivo: detalleMotivo
       })
     });
     var j = await r.json();
-    if (!r.ok || j.error) throw new Error(j.error || 'Error al enviar solicitud');
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al procesar');
     cerrarModal('modal-solicitud-corporativa');
-    toast('¡Solicitud de Paquete Corporativo enviada con éxito!', 'ok');
-    setTimeout(function() { location.reload(); }, 1000);
+    toast(j.mensaje || '¡Paquete Corporativo actualizado con éxito!', 'ok');
+    setTimeout(function() { location.reload(); }, 900);
   } catch (e) {
     toast('Error: ' + e.message, 'err');
   } finally {
@@ -7767,7 +7776,7 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
-    const modalNuevoEdificio = modalAltaEdificioHtml('Nuevo edificio');
+    const modalNuevoEdificio = modalAltaEdificioHtml('Nuevo edificio', null, planesList);
 
     const contenido = `
       <div style="animation:mFade .3s ease both">
@@ -10407,9 +10416,20 @@ router.post('/api/edificio-nuevo', async (req, res) => {
 
     const adminHeader = edHeaders.find((h) => ['admin_nombre', 'administrador', 'admin'].includes(h)) || 'administrador';
 
+    let planAsignar = plan;
+    if (!planAsignar || planAsignar === 'Base' || planAsignar === 'Plan Base') {
+      const edExistentes = edRows.map(mapEdificio).filter((e) => (clienteObj?.edificios || []).some((p) => normEdificio(p) === normEdificio(e.nombre)));
+      const corpExistente = edExistentes.find((e) => String(e.plan || '').toLowerCase().includes('corporativo'));
+      if (corpExistente && corpExistente.plan) {
+        planAsignar = corpExistente.plan;
+      } else {
+        planAsignar = plan || 'Base';
+      }
+    }
+
     await appendRow(TAB_EDIFICIOS, {
       nombre: nombre, edificio: nombre, direccion: direccion || '', zona: zona || '',
-      unidades: unidades || '', encargado: encargado || '', plan: plan || 'Base',
+      unidades: unidades || '', encargado: encargado || '', plan: planAsignar,
       [adminHeader]: nombreAdmin
     });
 
@@ -10501,6 +10521,90 @@ router.post('/api/edificio-asignar-admin', async (req, res) => {
     } catch (_) {}
 
     res.json({ ok: true, edificio: edNombreReal, nuevo_admin: targetCli.nombre, nuevo_usuario: targetCli.usuario });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Adherir / gestionar edificios en el paquete corporativo contratado (cliente o dueño).
+router.post('/api/adherir-plan-corporativo', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { plan, cupos, seleccionados, excluidos, motivo } = req.body || {};
+    if (!plan) return res.status(400).json({ error: 'Falta el nombre del plan' });
+    if (!Array.isArray(seleccionados) || seleccionados.length === 0) {
+      return res.status(400).json({ error: 'Seleccioná al menos un edificio' });
+    }
+
+    const permitidos = edificiosPermitidos(req);
+    const dueno = esDueno(req);
+    const limiteCupos = Number(cupos) || 5;
+
+    if (seleccionados.length > limiteCupos) {
+      return res.status(400).json({ error: `El cupo máximo del plan es ${limiteCupos} edificios` });
+    }
+
+    const { rows: edRows } = await readTab(TAB_EDIFICIOS);
+    const planFormatted = plan.includes('Paquete Corporativo') ? plan : `${plan} (Paquete Corporativo)`;
+
+    // Verificar si el cliente ya tiene contratado este plan corporativo en sus edificios
+    const edificiosDelCliente = dueno ? edRows.map(mapEdificio) : edRows.map(mapEdificio).filter((e) => permitidos && permitidos.some((p) => normEdificio(p) === normEdificio(e.nombre)));
+    const yaTienePlanContratado = edificiosDelCliente.some((e) => String(e.plan || '').toLowerCase().includes(normEdificio(plan)) || String(e.plan || '').toLowerCase().includes('corporativo'));
+
+    // Si ya lo tiene contratado o es el dueño, se aplica DIRECTAMENTE sin esperar aprobación
+    if (yaTienePlanContratado || dueno) {
+      const colPlan = await findOrPlanColumn(TAB_EDIFICIOS, ['plan']);
+
+      for (const nombreEd of seleccionados) {
+        const edRow = edRows.map(mapEdificio).find((e) => normEdificio(e.nombre) === normEdificio(nombreEd));
+        if (edRow && colPlan) {
+          if (colPlan.create) await ensureHeader(TAB_EDIFICIOS, colPlan.col, 'plan', false);
+          await writeCell(TAB_EDIFICIOS, colPlan.col, edRow._row, planFormatted);
+          try {
+            await queryPg('UPDATE edificios SET plan = $1 WHERE marcos_norm(edificio) = marcos_norm($2)', [planFormatted, edRow.nombre]);
+          } catch (_) {}
+        }
+      }
+
+      if (Array.isArray(excluidos)) {
+        for (const nombreEd of excluidos) {
+          const edRow = edRows.map(mapEdificio).find((e) => normEdificio(e.nombre) === normEdificio(nombreEd));
+          if (edRow && colPlan && String(edRow.plan || '').toLowerCase().includes('corporativo')) {
+            await writeCell(TAB_EDIFICIOS, colPlan.col, edRow._row, 'Plan Base');
+            try {
+              await queryPg("UPDATE edificios SET plan = 'Plan Base' WHERE marcos_norm(edificio) = marcos_norm($1)", [edRow.nombre]);
+            } catch (_) {}
+          }
+        }
+      }
+
+      return res.json({
+        ok: true,
+        directo: true,
+        mensaje: `¡Se asignaron los ${seleccionados.length} edificios a tu ${plan} exitosamente!`
+      });
+    }
+
+    // Si no tiene el plan contratado todavía, se genera la solicitud para el administrador del sistema
+    const usuario = req.session.user;
+    const edDesc = `Paquete Corporativo (${seleccionados.length} edificios)`;
+    await appendRow(TAB_SOLICITUDES, {
+      fecha: new Date().toLocaleString('es-AR'),
+      usuario,
+      edificio: edDesc,
+      campo: 'plan',
+      valor_actual: '',
+      valor_nuevo: planFormatted,
+      motivo: motivo || `Solicitud de adhesión a ${planFormatted}`,
+      estado: 'pendiente',
+      motivo_rechazo: ''
+    });
+
+    res.json({
+      ok: true,
+      directo: false,
+      mensaje: '¡Solicitud de Paquete Corporativo enviada con éxito! Será activada a la brevedad.'
+    });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }

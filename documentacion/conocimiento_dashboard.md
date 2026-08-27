@@ -97,4 +97,16 @@ Es el centro de control operativo del consorcio.
 [Paso 3] ➡️ Guardá los cambios al final de la página.
 ```
 
+### 🏢 Tutorial 3: ¿Cómo agregar o adherir un edificio a tu Paquete Corporativo contratado (ej. Plan Plus 5)?
+```text
+[Paso 1] ➡️ Tocá el botón [ 💳 Plan: ... · Cambiar plan ↗ ] en el encabezado de la pantalla o en el bloque de Consumo.
+[Paso 2] ➡️ En el catálogo de planes, buscá tu paquete corporativo activo (ej. "Plan Plus (Corporativo 5)").
+[Paso 3] ➡️ Tocá el botón azul [ ⚙️ Gestionar / Adherir Edificios (5 Cupos) ].
+[Paso 4] ➡️ Tildá la casilla del nuevo edificio que querés incorporar a tu paquete.
+[Paso 5] ➡️ Tocá en [ 🚀 Guardar / Enviar Solicitud de Paquete ].
+
+💡 ¡Listo! El consorcio queda inmediatamente incorporado dentro de los cupos de tu paquete corporativo contratado.
+```
+
 ---
+
