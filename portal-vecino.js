@@ -84,11 +84,11 @@ button,input,textarea{font-family:inherit}
 .card-touch:active{transform:scale(.985);transition:transform .1s ease}
 
 /* Shell Contenedor de la App */
-.app-shell{min-height:100vh;display:flex;flex-direction:column;width:100%;max-width:540px;margin:0 auto;background:#F8FAFD}
+.app-shell{min-height:100vh;display:flex;flex-direction:column;width:100%;margin:0 auto;background:#F8FAFD}
 
 /* Barra de Navegacion Inferior para Celulares */
 .v-bottom-nav{
-  position:fixed;bottom:0;left:0;right:0;height:64px;background:#ffffff;
+  position:fixed;bottom:0;left:0;right:0;width:100%;height:64px;background:#ffffff;
   border-top:1px solid #E2E8F0;display:flex;justify-content:space-around;align-items:center;
   z-index:50;box-shadow:0 -4px 20px rgba(16,35,59,.08);padding:0 6px;
 }
@@ -99,14 +99,16 @@ button,input,textarea{font-family:inherit}
 .v-bottom-nav a.active{color:#1E5FB4}
 .v-bottom-nav a .nav-icon{font-size:20px;line-height:1}
 
-@media (min-width: 601px){
-  body{background:#EEF1F6}
-  .app-shell{box-shadow:0 0 40px rgba(0,0,0,.08)}
-  .v-bottom-nav{left:50%;transform:translateX(-50%);max-width:540px;border-left:1px solid #E2E8F0;border-right:1px solid #E2E8F0}
+@media (min-width: 768px){
+  body{background:#0A192F;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px 0}
+  .app-shell{max-width:440px;box-shadow:0 25px 60px rgba(0,0,0,.4);border-radius:28px;overflow:hidden;min-height:860px;max-height:92vh;border:1px solid rgba(255,255,255,.1)}
+  .v-bottom-nav{left:auto;right:auto;width:100%;max-width:440px;border-radius:0 0 28px 28px}
 }
-@media (max-width: 600px){
-  .app-shell{max-width:100%!important;width:100%!important}
-  main{padding:14px 14px 85px!important}
+@media (max-width: 767px){
+  html,body{background:#F8FAFD!important;width:100%!important;max-width:100%!important}
+  .app-shell{width:100%!important;max-width:100%!important;margin:0!important;border-radius:0!important;box-shadow:none!important}
+  main{width:100%!important;padding:16px 16px 95px!important}
+  .v-bottom-nav{left:0!important;right:0!important;width:100%!important;transform:none!important}
 }
 
 /* Burbujas de Chat con Marcos IA */
