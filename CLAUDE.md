@@ -811,6 +811,25 @@ Prueba: `node pruebas-contacto-ingreso.js`.
 - Cuando llega una factura y no se sabe de qué trabajo es, la lista de casos recientes se muestra
   **por dirección**, no por alias.
 
+### El contacto de ingreso se da si lo piden, no porque esté a mano
+
+El técnico escribió *"perdón, es del caso 1003, no del 1001"* y Marcos contestó *"para el CASO-1001
+en San Patricio 159, quien le abrirá es Natalia Zeballos"*. Ni siquiera con el caso bien elegido eso
+tendría sentido: **le ofreció el contacto de ingreso a alguien que no preguntó nada de eso**.
+
+El mecanismo está en el prompt de `generarRespuestaTecnicoLibre`: los datos de acceso van en **cada**
+llamada, y hay una regla en mayúsculas con 🚨 que ordena entregarlos. Ante un mensaje que el modelo
+no sabe clasificar, se agarra de lo más enfatizado que tiene.
+
+- El contacto de ingreso **solo si lo pide** o si dice que llegó y no le abren.
+- Una **corrección** se contesta reconociéndola y arreglando lo que señaló — sin agregar nada más.
+- Si ya dijo que tiene llave, no se le explica quién le abre.
+- Y el default de `accesoInfo` dejó de afirmar *"el acceso ya fue coordinado con X, que lo está
+  esperando"*: eso puede ser falso, y el técnico organiza su viaje con esa frase.
+
+> Esto son reglas de prompt, no código: **ninguna prueba automática las cubre**. Se verifican
+> leyendo lo que Marcos contesta de verdad.
+
 ### Otros dos arreglos del mismo episodio
 
 - **Marcos le decía al técnico "el vecino no ha provisto detalles adicionales ni material

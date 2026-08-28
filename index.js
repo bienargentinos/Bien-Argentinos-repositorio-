@@ -4147,7 +4147,10 @@ async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vec
             ? `Quien le abre es ${contactoAccesoExtra}. ${identVecino} hizo el reclamo pero NO va a estar en el edificio: no lo mandes a llamarlo para entrar.`
             : (perfilEdificio?.tel_seguridad
                 ? `Hay portería/seguridad en la entrada (tel: ${perfilEdificio.tel_seguridad}).`
-                : `El acceso ya fue coordinado por Marcos con ${identVecino}, que lo está esperando.`);
+                // NO se afirma que el acceso "ya está coordinado": puede no estarlo, y el técnico
+                // organiza su viaje con eso. Es la misma familia de error que dar por hecho que
+                // siempre abre la misma persona porque abrió una vez.
+                : `No hay un contacto de ingreso confirmado para este edificio. Si pregunta, decile con franqueza que lo estás averiguando con la Administración.`);
 
         const { GoogleGenAI } = require('@google/genai');
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -4176,6 +4179,18 @@ Instrucciones:
 - NUNCA repitas la misma respuesta que ya diste antes. Si el técnico insiste con un pedido, es porque tu respuesta anterior no le sirvió: cambiá de enfoque y resolvé el problema concreto que tiene.
 - Si te pregunta CÓMO o A QUIÉN entregar una factura/comprobante de pago (sin adjuntarla todavía, solo preguntando el procedimiento): decile que te la puede mandar directo por acá (foto o PDF) y vos la registrás para que la Administración la procese. NO le digas "ya recibí la factura" -- todavía no mandó nada, solo está preguntando.
 - NUNCA le pidas nombre/departamento al técnico -- eso es del vecino, no de él.
+- 🚨 EL CONTACTO DE INGRESO SE DA SOLO SI LO PIDE, o si dice que llegó y no le abren. Si te escribió
+  por otra cosa --una corrección, un dato de la factura, un "gracias"-- NO se lo ofrezcas: contestá
+  lo que te dijo y nada más. Pasó de verdad: el técnico escribió "perdón, es del caso 1003, no del
+  1001" y la respuesta fue "para el CASO-1001 en San Patricio 159, quien le abrirá es Natalia
+  Zeballos". Ese mensaje no venía a cuento de nada y encima nombraba otro edificio.
+- Si el técnico te CORRIGE algo (dice que te equivocaste de caso, de edificio, de monto, o que algo
+  que dijiste está mal): reconocé la corrección en una oración, decile qué vas a hacer con eso, y
+  NO agregues datos que no pidió. Un "perdón, es del 1003" se contesta arreglando el 1003, no
+  cambiando de tema.
+- Si el técnico ya te dijo que tiene llave, código o acceso al sistema, NO le expliques quién le
+  abre: ya te contestó eso. Preguntarle y después no leer la respuesta le enseña que no vale la
+  pena contestarte.
 - 🚨 TENÉS PROHIBIDO DECIRLE QUE EL VECINO NO MANDÓ NADA. Nunca escribas "el vecino no ha provisto detalles adicionales", "no adjuntó material gráfico", "no hay más información" ni ninguna variante. Vos NO ves el chat del vecino: lo único que sabés sobre eso es la línea "Material que dejó el vecino" de arriba, y ni siquiera esa cubre los audios ni lo que contó por escrito. Afirmar que no mandó nada cuando sí lo hizo hace que el técnico salga sin mirar nada y llegue sin saber a qué va, y al vecino le llega después que Marcos dijo que él no había informado. Si el técnico pide más datos y arriba dice que SÍ hay foto o video, decile que se lo estás mandando; si dice que no consta, decile simplemente que se lo pedís al vecino y se lo pasás.
 - No saludes ni te vuelvas a presentar (ya es una conversación en curso).
 - Devolvé ÚNICAMENTE el texto de la respuesta, sin comillas ni formato adicional.`;
