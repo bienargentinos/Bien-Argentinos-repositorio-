@@ -119,6 +119,16 @@ button,input,textarea{font-family:inherit}
 .typing-dot:nth-child(1){animation-delay:-0.32s}
 .typing-dot:nth-child(2){animation-delay:-0.16s}
 
+/* Soporte Horizontal (Landscape) */
+@media (orientation: landscape) {
+  .app-shell { width: 100% !important; max-width: 1000px !important; margin: 0 auto !important; }
+  main { padding: 12px 20px 65px !important; }
+  .v-bottom-nav { height: 50px !important; padding: 0 16px !important; }
+  .v-bottom-nav a { font-size: 10px !important; gap: 2px !important; }
+  .v-bottom-nav a .nav-icon { font-size: 16px !important; }
+  #box-timbre-sonando, #box-llamada-voz-activa { max-width: 600px !important; }
+}
+
 /* Modo Oscuro */
 .dark-theme{background:#0B132B!important;color:#F1F5F9!important}
 .dark-theme .app-shell{background:#0B132B!important}
@@ -1027,7 +1037,7 @@ router.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
     display: 'standalone',
     background_color: '#F8FAFD',
     theme_color: '#0F326A',
-    orientation: 'portrait-primary',
+    orientation: 'any',
     icons: [
       {
         src: '/admin/assets/logo.png',
