@@ -4617,17 +4617,20 @@ iniciarCronReportes();
 
 const dashboard = require('./dashboard');
 app.use('/admin', dashboard);
+app.use('/assets', express.static(path.join(__dirname, 'design', 'assets'), { maxAge: '7d' }));
 
 // ── PWA MANIFEST & SERVICE WORKER EN RAÍZ ─────────────────────────────────
 app.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
     res.type('application/manifest+json');
     res.send(JSON.stringify({
-        name: 'Marcos IA · Portal Vecinos',
+        id: '/vecino',
+        name: 'Marcos IA · Mi Consorcio',
         short_name: 'Mi Consorcio',
         description: 'Portal de Vecinos, Portería Virtual, Amenities y Reclamos de tu Consorcio',
         start_url: '/vecino',
         scope: '/',
         display: 'standalone',
+        display_override: ['standalone', 'window-controls-overlay', 'minimal-ui'],
         background_color: '#F8FAFD',
         theme_color: '#0F326A',
         orientation: 'portrait-primary',
@@ -4636,13 +4639,25 @@ app.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
                 src: '/admin/assets/logo.png',
                 sizes: '192x192',
                 type: 'image/png',
-                purpose: 'any maskable'
+                purpose: 'any'
+            },
+            {
+                src: '/admin/assets/logo.png',
+                sizes: '192x192',
+                type: 'image/png',
+                purpose: 'maskable'
             },
             {
                 src: '/admin/assets/logo.png',
                 sizes: '512x512',
                 type: 'image/png',
-                purpose: 'any maskable'
+                purpose: 'any'
+            },
+            {
+                src: '/admin/assets/logo.png',
+                sizes: '512x512',
+                type: 'image/png',
+                purpose: 'maskable'
             }
         ],
         shortcuts: [
@@ -4656,12 +4671,6 @@ app.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
                 name: 'Reservar Amenities',
                 short_name: 'Amenities',
                 url: '/vecino/amenities',
-                icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
-            },
-            {
-                name: 'Hablar con Marcos IA',
-                short_name: 'Marcos IA',
-                url: '/vecino/chat',
                 icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
             }
         ]

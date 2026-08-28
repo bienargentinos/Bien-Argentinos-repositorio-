@@ -177,6 +177,16 @@ function shellVecino(title, activeTab, content, vecinoData) {
     const isDark = document.documentElement.classList.toggle('dark-theme');
     localStorage.setItem('marcos_theme', isDark ? 'dark' : 'light');
   }
+  window._deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    window._deferredPrompt = e;
+    var isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+    if (!isStandalone && !localStorage.getItem('pwa_banner_closed')) {
+      var b = document.getElementById('pwa-install-banner');
+      if (b) b.style.display = 'flex';
+    }
+  });
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
       navigator.serviceWorker.register('/sw.js').catch(function(e){ console.warn('SW:', e); });
@@ -548,17 +558,18 @@ function shellVecino(title, activeTab, content, vecinoData) {
         return;
       }
 
-      if (_deferredPrompt) {
-        _deferredPrompt.prompt();
-        _deferredPrompt.userChoice.then(function(choice) {
+      if (window._deferredPrompt) {
+        window._deferredPrompt.prompt();
+        window._deferredPrompt.userChoice.then(function(choice) {
           if (choice && choice.outcome === 'accepted') {
             var b = document.getElementById('pwa-install-banner');
             if (b) b.style.display = 'none';
           }
-          _deferredPrompt = null;
+          window._deferredPrompt = null;
         });
       } else {
-        alert('Para instalar la aplicación, tocá el menú de opciones de tu navegador (⋮) y seleccioná "Instalar aplicación" o "Agregar a la pantalla principal".');
+        var mAnd = document.getElementById('modal-pwa-android');
+        if (mAnd) mAnd.style.display = 'flex';
       }
     };
 
@@ -577,7 +588,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
 
   <!-- MODAL GUÍA DE INSTALACIÓN IOS / SAFARI -->
   <div id="modal-pwa-ios" style="position:fixed;inset:0;background:rgba(10,31,68,.85);backdrop-filter:blur(8px);z-index:99999;display:none;align-items:flex-end;justify-content:center;padding:16px">
-    <div style="background:#fff;border-radius:22px 22px 18px 18px;width:100%;max-width:480px;padding:24px 20px;text-align:center;box-shadow:0 -10px 40px rgba(0,0,0,.25);animation:fadeIn .25s ease both">
+    <div style="background:#fff;border-radius:22px 22px 18px 18px;width:100%;max-width:480px;padding:24px 20px;text-align:center;box-shadow:0 -10px 40px rgba(0,0,0,.25);animation:fadeIn .25s ease both;color:#16233B">
       <div style="width:52px;height:52px;border-radius:14px;background:#EBF3FC;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 12px">
         📲
       </div>
@@ -600,6 +611,30 @@ function shellVecino(title, activeTab, content, vecinoData) {
       </div>
 
       <button onclick="document.getElementById('modal-pwa-ios').style.display='none'" style="width:100%;height:46px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-weight:800;font-size:14.5px;cursor:pointer">¡Entendido!</button>
+    </div>
+  </div>
+
+  <!-- MODAL GUÍA DE INSTALACIÓN ANDROID / CHROME -->
+  <div id="modal-pwa-android" style="position:fixed;inset:0;background:rgba(10,31,68,.85);backdrop-filter:blur(8px);z-index:99999;display:none;align-items:flex-end;justify-content:center;padding:16px">
+    <div style="background:#fff;border-radius:22px 22px 18px 18px;width:100%;max-width:480px;padding:24px 20px;text-align:center;box-shadow:0 -10px 40px rgba(0,0,0,.25);animation:fadeIn .25s ease both;color:#16233B">
+      <div style="width:52px;height:52px;border-radius:14px;background:#EBF3FC;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 12px">
+        📲
+      </div>
+      <h3 style="font-size:18px;font-weight:800;color:#0F326A;margin-bottom:6px">Instalar en Android (Chrome / Edge)</h3>
+      <p style="font-size:13px;color:#64748B;margin-bottom:16px;line-height:1.4">Seguí estos 2 simples pasos en tu navegador:</p>
+      
+      <div style="display:flex;flex-direction:column;gap:10px;text-align:left;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:#334259">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">1</span>
+          <span>Tocá el menú de <strong>3 puntos (⋮)</strong> arriba a la derecha en Chrome.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">2</span>
+          <span>Seleccioná <strong>"Instalar aplicación"</strong> o <strong>"Agregar a la pantalla principal"</strong>.</span>
+        </div>
+      </div>
+
+      <button onclick="document.getElementById('modal-pwa-android').style.display='none'" style="width:100%;height:46px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-weight:800;font-size:14.5px;cursor:pointer">¡Entendido!</button>
     </div>
   </div>
 
@@ -728,14 +763,39 @@ body{background:#0F326A;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 45%
       return;
     }
 
-    if (_deferredPromptLogin) {
-      _deferredPromptLogin.prompt();
-      _deferredPromptLogin = null;
+    if (window._deferredPromptLogin) {
+      window._deferredPromptLogin.prompt();
+      window._deferredPromptLogin = null;
     } else {
-      alert('Para instalar la aplicación, tocá el menú de opciones de tu navegador (⋮) y seleccioná "Instalar aplicación" o "Agregar a la pantalla principal".');
+      var mAnd = document.getElementById('modal-pwa-android-login');
+      if (mAnd) mAnd.style.display = 'flex';
     }
   }
 </script>
+
+<!-- MODAL GUÍA DE INSTALACIÓN ANDROID / CHROME -->
+<div id="modal-pwa-android-login" style="position:fixed;inset:0;background:rgba(10,31,68,.85);backdrop-filter:blur(8px);z-index:99999;display:none;align-items:flex-end;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:22px 22px 18px 18px;width:100%;max-width:480px;padding:24px 20px;text-align:center;box-shadow:0 -10px 40px rgba(0,0,0,.25);animation:fadeIn .25s ease both;color:#16233B">
+    <div style="width:52px;height:52px;border-radius:14px;background:#EBF3FC;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 12px">
+      📲
+    </div>
+    <h3 style="font-size:18px;font-weight:800;color:#0F326A;margin-bottom:6px">Instalar en Android (Chrome / Edge)</h3>
+    <p style="font-size:13px;color:#64748B;margin-bottom:16px;line-height:1.4">Seguí estos 2 simples pasos en tu navegador:</p>
+    
+    <div style="display:flex;flex-direction:column;gap:10px;text-align:left;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:#334259">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">1</span>
+        <span>Tocá el menú de <strong>3 puntos (⋮)</strong> arriba a la derecha en Chrome.</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">2</span>
+        <span>Seleccioná <strong>"Instalar aplicación"</strong> o <strong>"Agregar a la pantalla principal"</strong>.</span>
+      </div>
+    </div>
+
+    <button onclick="document.getElementById('modal-pwa-android-login').style.display='none'" style="width:100%;height:46px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-weight:800;font-size:14.5px;cursor:pointer">¡Entendido!</button>
+  </div>
+</div>
 </body>
 </html>`);
 });
