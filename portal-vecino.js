@@ -131,6 +131,11 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   #box-timbre-sonando, #box-llamada-voz-activa { max-width: 600px !important; }
 }
 
+/* Modo Instalado (PWA Standalone) */
+@media (display-mode: standalone) {
+  #card-instalar-pwa { display: none !important; }
+}
+
 /* Modo Oscuro */
 .dark-theme{background:#0B132B!important;color:#F1F5F9!important}
 .dark-theme .app-shell{background:#0B132B!important}
@@ -193,11 +198,30 @@ function shellVecino(title, activeTab, content, vecinoData) {
     const isDark = document.documentElement.classList.toggle('dark-theme');
     localStorage.setItem('marcos_theme', isDark ? 'dark' : 'light');
   }
+  window._deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    window._deferredPrompt = e;
+  });
+  window.addEventListener('appinstalled', function() {
+    localStorage.setItem('pwa_installed', 'true');
+    var b = document.getElementById('card-instalar-pwa');
+    if (b) b.style.display = 'none';
+    window._deferredPrompt = null;
+  });
+  document.addEventListener('DOMContentLoaded', function() {
+    var isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches || localStorage.getItem('pwa_installed') === 'true';
+    if (isStandalone) {
+      var b = document.getElementById('card-instalar-pwa');
+      if (b) b.style.display = 'none';
+    }
+  });
   window.instalarPwa = function() {
     if (window._deferredPrompt) {
       window._deferredPrompt.prompt();
       window._deferredPrompt.userChoice.then(function(choiceResult) {
         if (choiceResult.outcome === 'accepted') {
+          localStorage.setItem('pwa_installed', 'true');
           var b = document.getElementById('card-instalar-pwa');
           if (b) b.style.display = 'none';
         }
