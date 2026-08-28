@@ -618,6 +618,13 @@ router.get('/login', (req, res) => {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0F326A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mi Consorcio">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/admin/assets/logo.png">
+<link rel="icon" type="image/png" href="/admin/assets/logo.png">
 <title>Marcos IA · Portal de Vecinos</title>
 <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css"/>
@@ -628,24 +635,37 @@ body{background:#0F326A;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 45%
 .inp{width:100%;height:48px;border:1.5px solid #DDE3EE;border-radius:12px;padding:0 14px;font-size:15px;color:#16233B;background:#F8FAFD;outline:none;margin-bottom:14px}
 .inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.12)}
 .btn-login{width:100%;height:48px;border:none;border-radius:12px;background:linear-gradient(135deg,#17408B,#2E6FC0);color:#fff;font-size:15.5px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 14px rgba(23,64,139,.35)}
+.btn-pwa{width:100%;height:44px;border:1.5px solid #BFDBFE;border-radius:12px;background:#EFF6FF;color:#1E5FB4;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:16px;box-shadow:0 2px 8px rgba(30,95,180,.1)}
 </style>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('/sw.js').catch(function(e){ console.warn('SW:', e); });
+    });
+  }
+</script>
 </head>
 <body>
 <div class="login-card">
-  <div style="text-align:center;margin-bottom:24px">
+  <div style="text-align:center;margin-bottom:20px">
     <div style="width:58px;height:58px;border-radius:16px;background:linear-gradient(135deg,#0F326A,#2E6FC0);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:28px;margin-bottom:12px;box-shadow:0 8px 20px rgba(15,50,106,.25)">
       🏢
     </div>
     <h1 style="font-size:22px;font-weight:800;letter-spacing:-.02em;margin-bottom:4px;color:#0F326A">Portal del Vecino</h1>
-    <p style="font-size:13.5px;color:#64748B">Ingresá con tus credenciales de consorcio</p>
+    <p style="font-size:13.5px;color:#64748B">Ingresá a tu edificio o instalá la app</p>
   </div>
+
+  <!-- Botón Instalar PWA directo en Login -->
+  <button type="button" class="btn-pwa" onclick="instalarPwaLogin()">
+    <span>📲 Instalar App en mi Celular</span>
+  </button>
 
   <form action="/vecino/auth" method="POST">
     <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:6px">Email o Teléfono WhatsApp</div>
-    <input name="identificador" class="inp" type="text" placeholder="ejemplo@correo.com o +54 9 11..." required>
+    <input name="identificador" class="inp" type="text" placeholder="ejemplo@correo.com o +54 9 11..." value="demo@edificio.com" required>
 
     <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:6px">Contraseña o Código de Unidad</div>
-    <input name="password" class="inp" type="password" placeholder="Tu contraseña" required>
+    <input name="password" class="inp" type="password" placeholder="Tu contraseña" value="123456" required>
 
     <button type="submit" class="btn-login">
       <span>Ingresar a mi Edificio</span>
@@ -654,9 +674,68 @@ body{background:#0F326A;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 45%
   </form>
 
   <div style="margin-top:20px;text-align:center;font-size:12.5px;color:#64748B">
-    ¿Primer ingreso? Solicitale tu acceso al administrador.
+    ¿Primer ingreso? Podés tocar <strong>Ingresar a mi Edificio</strong> para acceder en modo demo.
   </div>
 </div>
+
+<!-- MODAL GUÍA DE INSTALACIÓN IOS / SAFARI -->
+<div id="modal-pwa-ios" style="position:fixed;inset:0;background:rgba(10,31,68,.85);backdrop-filter:blur(8px);z-index:99999;display:none;align-items:flex-end;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:22px 22px 18px 18px;width:100%;max-width:480px;padding:24px 20px;text-align:center;box-shadow:0 -10px 40px rgba(0,0,0,.25);animation:fadeIn .25s ease both;color:#16233B">
+    <div style="width:52px;height:52px;border-radius:14px;background:#EBF3FC;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 12px">
+      📲
+    </div>
+    <h3 style="font-size:18px;font-weight:800;color:#0F326A;margin-bottom:6px">Instalar en iPhone (iOS)</h3>
+    <p style="font-size:13px;color:#64748B;margin-bottom:16px;line-height:1.4">Tené la app en tu pantalla de inicio en 3 simples pasos desde Safari:</p>
+    
+    <div style="display:flex;flex-direction:column;gap:10px;text-align:left;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:#334259">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">1</span>
+        <span>Tocá el botón <strong>Compartir <i class="ph ph-share-network" style="font-size:16px;vertical-align:middle;color:#1E5FB4"></i></strong> en la barra inferior de Safari.</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">2</span>
+        <span>Deslizá hacia abajo y elegí <strong>"Agregar a inicio" <i class="ph ph-plus-square" style="font-size:16px;vertical-align:middle;color:#1E5FB4"></i></strong>.</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">3</span>
+        <span>Tocá <strong>"Agregar"</strong> arriba a la derecha. ¡Listo!</span>
+      </div>
+    </div>
+
+    <button onclick="document.getElementById('modal-pwa-ios').style.display='none'" style="width:100%;height:46px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-weight:800;font-size:14.5px;cursor:pointer">¡Entendido!</button>
+  </div>
+</div>
+
+<script>
+  var _deferredPromptLogin = null;
+  window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    _deferredPromptLogin = e;
+  });
+
+  function instalarPwaLogin() {
+    var isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+    var isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+    
+    if (isStandalone) {
+      alert('¡La aplicación ya está instalada en tu teléfono!');
+      return;
+    }
+
+    if (isIos) {
+      var m = document.getElementById('modal-pwa-ios');
+      if (m) m.style.display = 'flex';
+      return;
+    }
+
+    if (_deferredPromptLogin) {
+      _deferredPromptLogin.prompt();
+      _deferredPromptLogin = null;
+    } else {
+      alert('Para instalar la aplicación, tocá el menú de opciones de tu navegador (⋮) y seleccioná "Instalar aplicación" o "Agregar a la pantalla principal".');
+    }
+  }
+</script>
 </body>
 </html>`);
 });
