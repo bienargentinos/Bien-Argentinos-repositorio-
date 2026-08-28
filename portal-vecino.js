@@ -99,18 +99,6 @@ button,input,textarea{font-family:inherit}
 .v-bottom-nav a.active{color:#1E5FB4}
 .v-bottom-nav a .nav-icon{font-size:20px;line-height:1}
 
-@media (min-width: 768px){
-  body{background:#0A192F;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px 0}
-  .app-shell{max-width:440px;box-shadow:0 25px 60px rgba(0,0,0,.4);border-radius:28px;overflow:hidden;min-height:860px;max-height:92vh;border:1px solid rgba(255,255,255,.1)}
-  .v-bottom-nav{left:auto;right:auto;width:100%;max-width:440px;border-radius:0 0 28px 28px}
-}
-@media (max-width: 767px){
-  html,body{background:#F8FAFD!important;width:100%!important;max-width:100%!important}
-  .app-shell{width:100%!important;max-width:100%!important;margin:0!important;border-radius:0!important;box-shadow:none!important}
-  main{width:100%!important;padding:16px 16px 95px!important}
-  .v-bottom-nav{left:0!important;right:0!important;width:100%!important;transform:none!important}
-}
-
 /* Burbujas de Chat con Marcos IA */
 .chat-bubble-marcos{
   background:#ffffff;border:1px solid #E2E8F0;border-radius:16px 16px 16px 4px;
@@ -261,65 +249,77 @@ function shellVecino(title, activeTab, content, vecinoData) {
     </a>
   </nav>
 
-  <!-- MODAL LLAMADA ENTRANTE DE PORTERÍA (TIMBRE VIRTUAL & VOZ WEBRTC) -->
+  <!-- MODAL LLAMADA ENTRANTE DE PORTERÍA (TIMBRE VIRTUAL & VOZ WEBRTC FULLSCREEN) -->
   <audio id="audio-webrtc-vecino" autoplay playsinline style="display:none"></audio>
-  <div id="modal-llamada-timbre" style="position:fixed;inset:0;background:rgba(10,31,68,.96);backdrop-filter:blur(12px);z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:#fff;text-align:center">
+  <div id="modal-llamada-timbre" style="position:fixed;inset:0;width:100vw;height:100vh;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 50%,#1E5FB4 100%);z-index:99999;display:none;flex-direction:column;align-items:center;justify-content:space-between;padding:36px 20px 24px;color:#fff;text-align:center;box-sizing:border-box;overflow-y:auto">
     
     <!-- 1. Estado: Sonando Timbre -->
-    <div id="box-timbre-sonando" style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:340px">
-      <div style="width:90px;height:90px;border-radius:50%;background:linear-gradient(135deg,#1E5FB4,#38BDF8);display:flex;align-items:center;justify-content:center;font-size:44px;margin-bottom:18px;box-shadow:0 0 40px rgba(56,189,248,.6);animation:pulseRing 1.2s infinite">
+    <div id="box-timbre-sonando" style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:440px;margin:auto 0">
+      <div style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#2563EB,#38BDF8);display:flex;align-items:center;justify-content:center;font-size:48px;margin-bottom:16px;box-shadow:0 0 50px rgba(56,189,248,.6);animation:pulseRing 1.2s infinite">
         🔔
       </div>
-      <div style="font-size:12.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#38BDF8;margin-bottom:4px">Llamada de Portería</div>
-      <h2 style="font-size:22px;font-weight:900;margin-bottom:4px" id="llamada-timbre-visita">🛵 Delivery en Puerta</h2>
-      <p style="font-size:13.5px;color:#CBD5E1;margin-bottom:20px">Tocando timbre para tu unidad (${v.departamento})</p>
+      <div style="font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#38BDF8;margin-bottom:6px">TIMBRE ENTRANTE EN PORTERÍA</div>
+      <h2 style="font-size:24px;font-weight:900;margin-bottom:4px" id="llamada-timbre-visita">🛵 Delivery en Puerta</h2>
+      <p style="font-size:15px;color:#E2E8F0;margin-bottom:24px">${v.edificio} · Depto ${v.departamento}</p>
 
       <!-- Botón Hablar en Vivo -->
-      <button onclick="iniciarLlamadaVozVecino()" style="width:100%;height:52px;border:none;border-radius:14px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 4px 18px rgba(22,163,74,.45);margin-bottom:14px">
-        <i class="ph ph-phone-call-fill" style="font-size:22px"></i>
+      <button onclick="iniciarLlamadaVozVecino()" style="width:100%;height:56px;border:none;border-radius:16px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:17px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 6px 22px rgba(22,163,74,.5);margin-bottom:18px">
+        <i class="ph ph-phone-call-fill" style="font-size:24px"></i>
         <span>HABLAR EN VIVO (Llamada)</span>
       </button>
 
-      <div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">O responder con 1 toque:</div>
+      <div style="font-size:12px;font-weight:800;color:#94A3B8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">O responder con texto rápido:</div>
 
       <!-- Respuestas Rápidas de Texto -->
-      <div style="display:flex;flex-direction:column;gap:8px;width:100%;margin-bottom:16px">
-        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="width:100%;height:44px;border:1.5px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(255,255,255,.1);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;margin-bottom:12px">
+        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="height:44px;border:1.5px solid rgba(255,255,255,.25);border-radius:12px;background:rgba(255,255,255,.12);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
           <span>🏃 ¡Ya bajo!</span>
         </button>
-        <button onclick="responderTimbreVecino('Dejalo en el hall / puerta')" style="width:100%;height:44px;border:1.5px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(255,255,255,.1);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
-          <span>🚪 Dejalo en el hall</span>
+        <button onclick="responderTimbreVecino('Dejalo en el hall / puerta')" style="height:44px;border:1.5px solid rgba(255,255,255,.25);border-radius:12px;background:rgba(255,255,255,.12);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>🚪 En el hall</span>
         </button>
-        <button onclick="responderTimbreVecino('Dejar con el encargado')" style="width:100%;height:44px;border:1.5px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(255,255,255,.1);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
-          <span>📬 Dejar con el encargado</span>
+        <button onclick="responderTimbreVecino('Dejar con el encargado')" style="height:44px;border:1.5px solid rgba(255,255,255,.25);border-radius:12px;background:rgba(255,255,255,.12);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>📬 Encargado</span>
+        </button>
+        <button onclick="responderTimbreVecino('No estoy en el departamento')" style="height:44px;border:1.5px solid rgba(255,255,255,.25);border-radius:12px;background:rgba(255,255,255,.12);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>🚫 No estoy</span>
         </button>
       </div>
 
-      <button onclick="silenciarTimbreVecino()" style="background:transparent;border:none;color:#94A3B8;font-size:13px;font-weight:700;cursor:pointer;padding:6px 12px">
-        ✕ Silenciar timbre
+      <!-- Campo de Respuesta Personalizada Libre -->
+      <div style="display:flex;gap:8px;width:100%;margin-bottom:18px">
+        <input id="input-resp-personalizada" type="text" placeholder="Escribir mensaje personalizado..." style="flex:1;height:46px;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);border-radius:12px;padding:0 14px;color:#fff;font-size:14px;outline:none" onkeydown="if(event.key==='Enter')enviarTextoLibreVecino()">
+        <button onclick="enviarTextoLibreVecino()" style="padding:0 16px;height:46px;background:#2563EB;border:none;border-radius:12px;color:#fff;font-weight:800;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px">
+          <span>Enviar</span>
+          <i class="ph ph-paper-plane-right-fill" style="font-size:16px"></i>
+        </button>
+      </div>
+
+      <button onclick="silenciarTimbreVecino()" style="background:transparent;border:none;color:#94A3B8;font-size:13px;font-weight:700;cursor:pointer;padding:8px 16px">
+        ✕ Silenciar / Rechazar
       </button>
     </div>
 
     <!-- 2. Estado: En Llamada de Voz Activa -->
-    <div id="box-llamada-voz-activa" style="display:none;flex-direction:column;align-items:center;width:100%;max-width:340px">
-      <div style="width:84px;height:84px;border-radius:50%;background:linear-gradient(135deg,#15803D,#16A34A);display:flex;align-items:center;justify-content:center;font-size:38px;margin-bottom:16px;box-shadow:0 0 35px rgba(22,163,74,.5)">
+    <div id="box-llamada-voz-activa" style="display:none;flex-direction:column;align-items:center;width:100%;max-width:440px;margin:auto 0">
+      <div style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#15803D,#16A34A);display:flex;align-items:center;justify-content:center;font-size:44px;margin-bottom:16px;box-shadow:0 0 45px rgba(22,163,74,.6)">
         🎙️
       </div>
-      <div style="font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#86EFAC;margin-bottom:2px">Llamada de Voz Conectada</div>
-      <h2 style="font-size:20px;font-weight:900;margin-bottom:4px">Puerta de Calle</h2>
-      <div id="voz-timer" style="font-size:18px;font-family:monospace;font-weight:700;color:#38BDF8;margin-bottom:20px">00:00</div>
+      <div style="font-size:13px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#86EFAC;margin-bottom:4px">LLAMADA ENTRANTE EN VIVO</div>
+      <h2 style="font-size:22px;font-weight:900;margin-bottom:4px">Frente de Calle</h2>
+      <div id="voz-timer" style="font-size:20px;font-family:monospace;font-weight:800;color:#38BDF8;margin-bottom:24px">00:00</div>
 
       <div style="display:flex;gap:12px;margin-bottom:20px;width:100%">
-        <button id="btn-mute-voz" onclick="toggleMuteVoz()" style="flex:1;height:48px;border-radius:12px;border:1.5px solid rgba(255,255,255,.25);background:rgba(255,255,255,.1);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <button id="btn-mute-voz" onclick="toggleMuteVoz()" style="flex:1;height:50px;border-radius:14px;border:1.5px solid rgba(255,255,255,.3);background:rgba(255,255,255,.15);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
           <span>🎙️ Silenciar Mic</span>
         </button>
-        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="flex:1;height:48px;border-radius:12px;border:none;background:#2563EB;color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="flex:1;height:50px;border-radius:14px;border:none;background:#2563EB;color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
           <span>🏃 ¡Ya bajo!</span>
         </button>
       </div>
 
-      <button onclick="cortarLlamadaVoz()" style="width:100%;height:50px;border:none;border-radius:14px;background:#DC2626;color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 15px rgba(220,38,38,.4)">
-        <i class="ph ph-phone-disconnect-fill" style="font-size:20px"></i>
+      <button onclick="cortarLlamadaVoz()" style="width:100%;height:54px;border:none;border-radius:16px;background:#DC2626;color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 20px rgba(220,38,38,.5)">
+        <i class="ph ph-phone-disconnect-fill" style="font-size:22px"></i>
         <span>FINALIZAR LLAMADA</span>
       </button>
     </div>
@@ -400,6 +400,14 @@ function shellVecino(title, activeTab, content, vecinoData) {
           body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, respuesta: resp })
         });
       } catch(_) {}
+    };
+
+    window.enviarTextoLibreVecino = function() {
+      var inp = document.getElementById('input-resp-personalizada');
+      var txt = inp ? inp.value.trim() : '';
+      if (!txt) txt = '¡Ya bajo!';
+      responderTimbreVecino(txt);
+      if (inp) inp.value = '';
     };
 
     window.silenciarTimbreVecino = function() {

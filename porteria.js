@@ -367,14 +367,18 @@ async function ejecutarTimbre(){
         if (sData) {
           if (sData.estado === 'atendido' && sData.respuesta) {
             clearInterval(_checkInterval);
+            clearInterval(_autoResetInterval);
             fb.style.background = '#DCFCE7';
             fb.style.color = '#15803D';
             fb.style.borderColor = '#86EFAC';
-            fb.innerHTML = '<div style="font-size:14.5px;font-weight:800;margin-bottom:4px">🟢 El vecino respondió:</div>' +
-              '<div style="font-size:15px;font-weight:900;color:#15803D;margin-bottom:10px">"' + (sData.respuesta || '') + '"</div>' +
-              '<button onclick="restablecerPorteria()" style="width:100%;height:40px;border:1px solid #86EFAC;border-radius:10px;background:#fff;color:#15803D;font-weight:700;font-size:13px;cursor:pointer">' +
-                '<span>🔄 Llamar a otro depto</span>' +
-              '</button>';
+            fb.innerHTML = '<div style="padding:14px 10px;text-align:center">' +
+              '<div style="width:52px;height:52px;border-radius:50%;background:#16A34A;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:10px;box-shadow:0 4px 12px rgba(22,163,74,.35)">💬</div>' +
+              '<div style="font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#15803D;margin-bottom:6px">Mensaje del Vecino (' + (_deptoActivo || '1° A') + '):</div>' +
+              '<div style="font-size:22px;font-weight:900;color:#0F172A;background:#ffffff;border:2px solid #86EFAC;border-radius:14px;padding:16px 14px;margin-bottom:16px;line-height:1.35;word-break:break-word;box-shadow:0 2px 8px rgba(0,0,0,.04)">"' + String(sData.respuesta) + '"</div>' +
+              '<button onclick="restablecerPorteria()" style="width:100%;height:46px;border:none;border-radius:12px;background:#15803D;color:#fff;font-weight:800;font-size:15px;cursor:pointer;box-shadow:0 4px 14px rgba(21,128,61,.3);display:flex;align-items:center;justify-content:center;gap:6px">' +
+                '<span>✅ Entendido / Cerrar</span>' +
+              '</button>' +
+            '</div>';
             sonarChime();
           } else if (sData.estado === 'voz_iniciada') {
             clearInterval(_checkInterval);
