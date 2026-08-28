@@ -68,8 +68,8 @@ function escJs(s) {
 // Estilos visuales oficiales de Marcos IA (Tokens exactos)
 const CSS_VECINO = `
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{margin:0;padding:0;min-height:100vh}
-body{background:#EEF1F6;color:#16233B;font-family:'Hanken Grotesk',system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+html,body{margin:0;padding:0;width:100%;min-height:100vh;background:#F8FAFD}
+body{color:#16233B;font-family:'Hanken Grotesk',system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
 button,input,textarea{font-family:inherit}
 ::-webkit-scrollbar{width:6px;height:6px}
@@ -83,6 +83,9 @@ button,input,textarea{font-family:inherit}
 .card{background:#fff;border:1px solid #E4E9F1;border-radius:16px;box-shadow:0 1px 3px rgba(16,35,59,.04)}
 .card-touch:active{transform:scale(.985);transition:transform .1s ease}
 
+/* Shell Contenedor de la App */
+.app-shell{min-height:100vh;display:flex;flex-direction:column;width:100%;max-width:540px;margin:0 auto;background:#F8FAFD}
+
 /* Barra de Navegacion Inferior para Celulares */
 .v-bottom-nav{
   position:fixed;bottom:0;left:0;right:0;height:64px;background:#ffffff;
@@ -95,6 +98,16 @@ button,input,textarea{font-family:inherit}
 }
 .v-bottom-nav a.active{color:#1E5FB4}
 .v-bottom-nav a .nav-icon{font-size:20px;line-height:1}
+
+@media (min-width: 601px){
+  body{background:#EEF1F6}
+  .app-shell{box-shadow:0 0 40px rgba(0,0,0,.08)}
+  .v-bottom-nav{left:50%;transform:translateX(-50%);max-width:540px;border-left:1px solid #E2E8F0;border-right:1px solid #E2E8F0}
+}
+@media (max-width: 600px){
+  .app-shell{max-width:100%!important;width:100%!important}
+  main{padding:14px 14px 85px!important}
+}
 
 /* Burbujas de Chat con Marcos IA */
 .chat-bubble-marcos{
@@ -118,6 +131,7 @@ button,input,textarea{font-family:inherit}
 
 /* Modo Oscuro */
 .dark-theme{background:#0B132B!important;color:#F1F5F9!important}
+.dark-theme .app-shell{background:#0B132B!important}
 .dark-theme .card{background:#151F38!important;border-color:#2A3A5E!important}
 .dark-theme .v-bottom-nav{background:#151F38!important;border-top-color:#2A3A5E!important}
 .dark-theme .v-bottom-nav a{color:#94A3B8!important}
@@ -151,7 +165,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
 <html lang="es-AR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0F326A">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -195,7 +209,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
 </script>
 </head>
 <body>
-<div style="min-height:100vh;display:flex;flex-direction:column;max-width:540px;margin:0 auto;background:#F8FAFD;box-shadow:0 0 40px rgba(0,0,0,.06)">
+<div class="app-shell">
   
   <!-- TOPBAR VECINO -->
   <header style="height:60px;background:#ffffff;border-bottom:1px solid #E2E8F0;display:flex;align-items:center;justify-content:space-between;padding:0 16px;position:sticky;top:0;z-index:40">
