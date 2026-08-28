@@ -113,6 +113,17 @@ privateKey: require('fs').readFileSync(process.env.USERPROFILE + '\\.ssh\\marcos
   **horario del encargado** con selectores de hora (relojito): 2 rangos Lun-Vie + 1 Sábados, se serializa a
   JSON `{lv1:[hh,hh],lv2:[...],sab:[...]}` en la celda `encargado_horario`. Aparece solo si está activo.
   Endpoint `POST /api/mi-edificio`.
+
+  > [!CAUTION]
+  > **Los bloques Lun-Vie + Sábado no alcanzan, y no hay que arreglarlos: hay que reemplazarlos.**
+  > En producción salió `L-V 08:00-12:00 | L-V 01:00-11:00 · Sáb 12:00-08:00` — un sábado de 12 a 8
+  > no existe. Pero el problema no es cómo se muestra: es que la estructura no puede representar lo
+  > que pasa de verdad. Daniel: *"hay edificios que solo va uno de limpieza 3 días a la semana en un
+  > horario muy raro y no se puede cargar en este estilo de bloques"*.
+  >
+  > Va a pasar a **calendario o texto libre**, y que Marcos lo interprete —que es justo lo que sabe
+  > hacer. Hasta entonces **no maquillar el renderizado**: dejarlo feo es lo que mantiene visible
+  > que la estructura está mal. Decisión de Daniel, 28/08.
 - **Proveedores (flujo de 2 pasos, para no recargar 27 veces)**: (1) el cliente carga su **lista maestra**
   una vez (modal "Mi lista de proveedores") → `POST /api/proveedor`; (2) en cada edificio **asigna** desde un
   desplegable de su lista + prioridad → `POST /api/proveedor-asignar`. Quitar: `/api/proveedor-quitar` (de la
@@ -935,5 +946,7 @@ Prueba: `node pruebas-unidad-vecino.js`.
 - [ ] Consumos / facturación por excedente: derivar uso de los logs de Marcos, definir precios
 - [ ] Notificaciones con contador real (hoy la campana es solo visual)
 - [ ] Impersonación ("Ver como cliente") para el dueño
+- [ ] Horario del encargado: reemplazar los bloques Lun-Vie + Sábado por calendario o texto libre
+      que interprete Marcos (hay edificios con limpieza 3 días a la semana en horarios raros)
 - [ ] Twilio + chip Movistar: agregar `VAPI_API_KEY`, `TWILIO_*` al `.env`
 - [ ] Test end-to-end WhatsApp + llamadas
