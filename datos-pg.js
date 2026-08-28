@@ -535,8 +535,10 @@ async function buscarVecinoDeCasoAbierto({ edificio, nombreTecnico }) {
     const edifBuscado = String(edificio || '').toLowerCase().trim();
     const techBuscado = String(nombreTecnico || '').toLowerCase().trim();
 
-    // De atrás hacia adelante: interesa el caso más reciente.
-    const row = [...rows].reverse().find(r => {
+    // El caso más reciente de verdad, no el que PostgreSQL devolvió último: acá se decide a qué
+    // VECINO se le escribe, así que agarrar el caso equivocado es escribirle a otra persona.
+    const { elegirCasoMasReciente } = require('./caso-reciente');
+    const row = elegirCasoMasReciente(rows.filter(r => {
         const rEst = String(r.get('estado') || '').toLowerCase().trim();
         if (CERRADOS.has(rEst)) return false;
 
@@ -548,7 +550,7 @@ async function buscarVecinoDeCasoAbierto({ edificio, nombreTecnico }) {
         const matchTech = techBuscado && rTech.includes(techBuscado);
 
         return rTel.length >= 6 && (matchEdif || matchTech);
-    });
+    }), (f, campo) => f.get(campo));
 
     if (!row) return null;
 
@@ -567,6 +569,10 @@ async function buscarUltimoVecinoDeEdificio(edificio) {
     const rows = await filas('vecinos');
     const edifBuscado = String(edificio).toLowerCase().trim();
 
+    // Acá sí se toma el último que vino, y es lo mejor que hay: `vecinos` no tiene ninguna
+    // secuencia ni fecha con qué ordenar. Vale la misma advertencia que en los casos --el orden
+    // físico de PostgreSQL no es el de alta-- pero este es el último recurso de todos y el costo de
+    // equivocarse es bajo: se usa solo cuando no hay ningún vecino mejor a mano.
     const row = [...rows].reverse().find(r => {
         const edif = String(r.get('edificio') || '').toLowerCase().trim();
         const tel = String(r.get('telefono') || '').replace(/\D/g, '');
@@ -712,7 +718,19 @@ async function buscarCasosRecientesPorTecnico(nombreTecnico, telefonoTecnico = '
         return Boolean(rTech) && (rTech.includes(techBuscado) || techBuscado.includes(rTech));
     });
 
-    return rows.reverse().map(row => {
+    // Ordenado de verdad, no por el orden en que PostgreSQL devolvió las filas: esta lista es la
+    // que se le muestra al técnico para preguntarle de qué obra es una factura, y el primero tiene
+    // que ser el trabajo más reciente.
+    const { elegirCasoMasReciente: _elegir } = require('./caso-reciente');
+    const ordenadas = [];
+    const pendientes = [...rows];
+    while (pendientes.length) {
+        const siguiente = _elegir(pendientes, (f, campo) => f.get(campo));
+        ordenadas.push(siguiente);
+        pendientes.splice(pendientes.indexOf(siguiente), 1);
+    }
+
+    return ordenadas.map(row => {
         const estado = String(row.get('estado') || '').toLowerCase().trim();
         return {
             id_evento: row.get('codigo_caso') || row.get('id_evento') || '',
@@ -736,10 +754,17 @@ async function buscarCasoAbiertoPorTecnico(nombreTecnico, telefonoTecnico = '') 
     const rows = await filas('reportes');
     const abiertos = rows.filter(r => !CERRADOS.has(String(r.get('estado') || '').toLowerCase().trim()));
 
-    let row = techBuscado ? [...abiertos].reverse().find(r => {
+    // NO se usa `.reverse().find(...)`: `SELECT * FROM reportes` no garantiza ningún orden, y en
+    // PostgreSQL una fila ACTUALIZADA se mueve al final del heap. El CASO-1001 recibía líneas de
+    // chat todo el tiempo, así que cada UPDATE lo empujaba al final y terminaba siendo "la última
+    // fila" aunque fuera el caso más viejo. Con eso, la foto y la factura del CASO-1003 se fueron
+    // al 1001, y el 1001 se cerró solo.
+    const { elegirCasoMasReciente } = require('./caso-reciente');
+
+    let row = techBuscado ? elegirCasoMasReciente(abiertos.filter(r => {
         const rTech = String(r.get('tecnico') || '').toLowerCase().trim();
         return rTech && (rTech.includes(techBuscado) || techBuscado.includes(rTech));
-    }) : null;
+    }), (f, campo) => f.get(campo)) : null;
 
     // Buscar por nombre no alcanza: el caso guarda el nombre que trae la ASIGNACIÓN y el técnico
     // que escribe se identifica con el de la LISTA MAESTRA, y no tienen por qué coincidir. Visto en
@@ -759,14 +784,19 @@ async function buscarCasoAbiertoPorTecnico(nombreTecnico, telefonoTecnico = '') 
         );
 
         if (edificiosDelTecnico.size) {
-            row = [...abiertos].reverse().find(r =>
-                edificiosDelTecnico.has(String(r.get('edificio') || '').toLowerCase().trim())
+            row = elegirCasoMasReciente(
+                abiertos.filter(r => edificiosDelTecnico.has(String(r.get('edificio') || '').toLowerCase().trim())),
+                (f, campo) => f.get(campo)
             );
             if (row) console.log(`🔎 Caso del técnico resuelto por teléfono (${telTecnico}), no por nombre: el caso figura a nombre de "${row.get('tecnico') || '—'}".`);
         }
     }
 
     if (!row) return null;
+    if (abiertos.length > 1) {
+        console.log(`🔎 ${nombreTecnico || telTecnico} tiene ${abiertos.length} caso(s) abierto(s); ` +
+                    `se toma el más reciente: [${row.get('codigo_caso') || row.get('id_evento') || '?'}] de ${row.get('edificio') || '—'}.`);
+    }
     return {
         id_evento: row.get('codigo_caso') || row.get('id_evento') || '',
         edificio:  row.get('edificio') || '',
@@ -889,12 +919,13 @@ async function buscarConfirmacionTecnicoDeVecino(telefono) {
     const tel = String(telefono || '').replace(/\D/g, '');
     if (!tel) return null;
 
+    const { elegirCasoMasReciente } = require('./caso-reciente');
     const rows = await filas('reportes');
-    return confirmacionDeFila([...rows].reverse().find(r => {
+    return confirmacionDeFila(elegirCasoMasReciente(rows.filter(r => {
         if (!tieneConfirmacionVigente(r)) return false;
         const rTel = String(r.get('telefono') || '').replace(/\D/g, '');
         return rTel && (rTel === tel || rTel.endsWith(tel.slice(-8)));
-    }));
+    }), (f, campo) => f.get(campo)));
 }
 
 /**
@@ -911,12 +942,13 @@ async function buscarConfirmacionTecnicoDeEdificio(edificio) {
     const buscado = String(edificio || '').toLowerCase().trim();
     if (!buscado) return null;
 
+    const { elegirCasoMasReciente } = require('./caso-reciente');
     const rows = await filas('reportes');
-    return confirmacionDeFila([...rows].reverse().find(r => {
+    return confirmacionDeFila(elegirCasoMasReciente(rows.filter(r => {
         if (!tieneConfirmacionVigente(r)) return false;
         const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
         return rEdif && (rEdif === buscado || rEdif.includes(buscado) || buscado.includes(rEdif));
-    }));
+    }), (f, campo) => f.get(campo)));
 }
 
 // ── ACCESOS ─────────────────────────────────────────────────────────────────

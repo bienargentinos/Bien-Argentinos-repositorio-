@@ -397,6 +397,35 @@ gasto — es exactamente lo que el administrador tenía antes en su propio Whats
 El evento guarda la conversación completa (la pregunta de Marcos y lo que contestó el técnico), el
 número de factura, el monto y el teléfono del proveedor.
 
+### "El último caso" no es el que PostgreSQL devuelve último
+
+> [!CAUTION]
+> **`SELECT * FROM reportes` sin `ORDER BY` no promete ningún orden.** Y en PostgreSQL una fila
+> **actualizada se mueve al final del heap**, así que "la última fila" es la que se tocó hace
+> menos, no la más nueva.
+
+Caso real: Daniel tenía abiertos el **CASO-1001** (de días atrás, en `san patricio casa`) y el
+**CASO-1003** (de esa tarde, en `san patricio 270`). Mandó la foto y la factura del 1003, y Marcos:
+
+1. cerró el **1001** con un "✅ RECLAMO SOLUCIONADO" que hablaba de otra reparación,
+2. archivó la factura contra el **1001**,
+3. y al corregirlo le contestó con el contacto de ingreso del edificio del 1001.
+
+Los tres salen de `[...abiertos].reverse().find(...)`. El 1001 venía recibiendo líneas de chat todo
+el tiempo, y cada `UPDATE` lo empujaba al final del heap hasta quedar "último".
+
+`caso-reciente.js` (`elegirCasoMasReciente`) ordena explícito: **primero el número de caso**
+(`CASO-1003 > CASO-1001`, que es una secuencia nuestra) y, sin número, la fecha — leída con el
+formato argentino `27/08/2026, 19:38:21`, que `new Date()` interpreta al revés o no lee.
+
+> Ojo: el número se compara **como número**. Como texto, `"CASO-999" > "CASO-1003"`.
+
+Cuando hay más de un caso abierto, el log dice cuál eligió y por qué. Con dos casos abiertos, saber
+a cuál se le imputó todo es la diferencia entre encontrar esto en cinco minutos o en una semana.
+
+Prueba: `node pruebas-caso-reciente.js`, con un candado que prohíbe volver a decidir por el orden
+físico en cualquier función que lea `reportes`.
+
 ### A qué caso se le imputa una factura
 
 > [!CAUTION]
