@@ -449,6 +449,7 @@ async function iniciarVozVisita() {
       var remoteAudio = document.getElementById('audio-webrtc-visita');
       if (remoteAudio && event.streams[0]) {
         remoteAudio.srcObject = event.streams[0];
+        remoteAudio.play().catch(function(e){ console.warn('Audio play:', e); });
       }
     };
 

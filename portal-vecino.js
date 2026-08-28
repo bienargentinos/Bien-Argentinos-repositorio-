@@ -441,6 +441,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
           var remoteAudio = document.getElementById('audio-webrtc-vecino');
           if (remoteAudio && event.streams[0]) {
             remoteAudio.srcObject = event.streams[0];
+            remoteAudio.play().catch(function(e){ console.warn('Audio play:', e); });
           }
         };
 
@@ -645,6 +646,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
     </div>
   </div>
 
+  <audio id="audio-webrtc-vecino" autoplay playsinline style="display:none"></audio>
 </div>
 </body>
 </html>`;
