@@ -193,6 +193,16 @@ async function buscarMemoriaVecino(telefono) {
 async function buscarAccesosEdificio(edificio) {
     return leer('buscarAccesosEdificio', [edificio], 'buscarAccesosEdificio', 'buscarAccesosEdificio');
 }
+async function buscarAmenitiesEdificio(edificio) {
+    if (LECTURA_PG) {
+        try {
+            return await require('./datos-pg').buscarAmenitiesEdificio(edificio);
+        } catch (err) {
+            console.error(`↩️ buscarAmenitiesEdificio error: ${err.message}`);
+        }
+    }
+    return [];
+}
 
 // El rol nunca "no está": alguien desconocido es un vecino. Por eso su respaldo no se activa por
 // respuesta vacía sino solo ante un error: si Postgres dice "vecino", esa es la respuesta buena y
@@ -594,6 +604,7 @@ module.exports = {
     buscarMemoriaVecino,
     buscarRolPorTelefono,
     buscarAccesosEdificio,
+    buscarAmenitiesEdificio,
     buscarTecnicoAsignado,
     buscarTecnicoSuplente,
     buscarCliente,

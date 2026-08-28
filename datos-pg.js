@@ -112,6 +112,7 @@ async function buscarPerfilEdificio(nombreEdificio) {
         // Ver la nota en sheets.js: sirve para no pedirle el departamento a quien vive en una casa.
         tipo:              row.get('tipo')            || '',
         unidades:          row.get('unidades')        || '',
+        amenities:         await buscarAmenitiesEdificio(row.get('nombre') || row.get('direccion') || nombreEdificio),
     };
 }
 
@@ -939,6 +940,32 @@ async function buscarAccesosEdificio(nombreEdificio) {
         }));
 }
 
+// ── AMENITIES Y REGLAMENTOS DE ESPACIOS COMUNES ──────────────────────────────
+
+async function buscarAmenitiesEdificio(nombreEdificio) {
+    if (!nombreEdificio) return [];
+    try {
+        const res = await pool.query(
+            `SELECT * FROM edificio_amenities 
+             WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) 
+             AND activo = TRUE ORDER BY id ASC`,
+            [nombreEdificio, '%' + nombreEdificio + '%']
+        );
+        return (res.rows || []).map(r => ({
+            id:           r.id,
+            nombre:       r.nombre,
+            icono:        r.icono || '🎉',
+            descripcion:  r.descripcion || '',
+            reglamento:   r.reglamento || '',
+            capacidad:    r.capacidad || 20,
+            horaApertura: r.hora_apertura || '08:00',
+            horaCierre:   r.hora_cierre || '23:00'
+        }));
+    } catch (_) {
+        return [];
+    }
+}
+
 module.exports = {
     buscarVecinosPorTelefono,
     buscarVecinoPorTelefono,
@@ -948,6 +975,7 @@ module.exports = {
     buscarMemoriaVecino,
     buscarRolPorTelefono,
     buscarAccesosEdificio,
+    buscarAmenitiesEdificio,
     buscarTecnicoAsignado,
     buscarTecnicoSuplente,
     buscarCliente,

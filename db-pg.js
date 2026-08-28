@@ -211,6 +211,41 @@ async function _initPgSchema() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS edificio_amenities (
+                id SERIAL PRIMARY KEY,
+                edificio VARCHAR(150),
+                nombre VARCHAR(100),
+                icono VARCHAR(20) DEFAULT '🎉',
+                descripcion TEXT,
+                reglamento TEXT,
+                capacidad INT DEFAULT 20,
+                hora_apertura VARCHAR(10) DEFAULT '08:00',
+                hora_cierre VARCHAR(10) DEFAULT '23:00',
+                activo BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            ALTER TABLE edificio_amenities ADD COLUMN IF NOT EXISTS reglamento TEXT;
+
+            CREATE TABLE IF NOT EXISTS reservas_amenities (
+                id SERIAL PRIMARY KEY,
+                edificio VARCHAR(150),
+                amenity VARCHAR(100),
+                fecha VARCHAR(50),
+                hora_desde VARCHAR(10),
+                hora_hasta VARCHAR(10),
+                turno VARCHAR(100),
+                departamento VARCHAR(50),
+                nombre_vecino VARCHAR(150),
+                telefono VARCHAR(50),
+                estado VARCHAR(50) DEFAULT 'confirmada',
+                notas TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS hora_desde VARCHAR(10);
+            ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS hora_hasta VARCHAR(10);
+
             CREATE TABLE IF NOT EXISTS sugerencias (
                 id SERIAL PRIMARY KEY,
                 fecha VARCHAR(100),
