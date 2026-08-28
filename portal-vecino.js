@@ -193,16 +193,27 @@ function shellVecino(title, activeTab, content, vecinoData) {
     const isDark = document.documentElement.classList.toggle('dark-theme');
     localStorage.setItem('marcos_theme', isDark ? 'dark' : 'light');
   }
-  window._deferredPrompt = null;
-  window.addEventListener('beforeinstallprompt', function(e) {
-    e.preventDefault();
-    window._deferredPrompt = e;
-    var isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
-    if (!isStandalone && !localStorage.getItem('pwa_banner_closed')) {
-      var b = document.getElementById('pwa-install-banner');
-      if (b) b.style.display = 'flex';
+  window.instalarPwa = function() {
+    if (window._deferredPrompt) {
+      window._deferredPrompt.prompt();
+      window._deferredPrompt.userChoice.then(function(choiceResult) {
+        if (choiceResult.outcome === 'accepted') {
+          var b = document.getElementById('card-instalar-pwa');
+          if (b) b.style.display = 'none';
+        }
+        window._deferredPrompt = null;
+      });
+    } else {
+      var ua = navigator.userAgent.toLowerCase();
+      if (ua.includes('firefox')) {
+        alert('🦊 Para instalar en Firefox:\\n\\n1. Tocá el menú de 3 puntos (⋮) arriba a la derecha en Firefox.\\n2. Seleccioná "Instalar" (o el icono de casa con + en la barra).');
+      } else if (/iphone|ipad|ipod/.test(ua)) {
+        alert('🍏 Para instalar en iPhone / Safari:\\n\\n1. Tocá el botón Compartir (el cuadrado con la flecha hacia arriba).\\n2. Elegí "Agregar a la pantalla de inicio".');
+      } else {
+        alert('📲 Para instalar la app:\\n\\n1. Tocá el menú de 3 puntos (⋮) de tu navegador.\\n2. Seleccioná "Instalar aplicación" o "Agregar a pantalla principal".');
+      }
     }
-  });
+  };
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
       navigator.serviceWorker.register('/sw.js').catch(function(e){ console.warn('SW:', e); });
@@ -978,6 +989,20 @@ router.get('/', (req, res) => {
         </a>
 
       </div>
+    </div>
+
+    <!-- Tarjeta Instalar App en el Celular -->
+    <div id="card-instalar-pwa" class="card card-touch" style="padding:14px 16px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;box-shadow:0 4px 14px rgba(15,50,106,.2);border-radius:18px" onclick="instalarPwa()">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">
+          📲
+        </div>
+        <div>
+          <div style="font-size:13.5px;font-weight:900;line-height:1.2">Instalar App en tu Celular</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.85)">Acceso rápido directo en tu pantalla</div>
+        </div>
+      </div>
+      <button style="padding:6px 14px;border:none;border-radius:8px;background:#ffffff;color:#0F326A;font-weight:900;font-size:12px;cursor:pointer;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.15)">Instalar</button>
     </div>
 
     <!-- Banner Inteligente Marcos IA (Estilo Créditos Mercado Pago) -->
