@@ -2,6 +2,7 @@ const { GoogleGenAI } = require('@google/genai');
 const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
+const { rubroDelCaso } = require('../rubros');
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -474,7 +475,16 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
             edificio: vecino?.edificio || direccionExacta,
             tecnico: tecnicoAsignado.nombre || '',
             tel_tecnico: tecnicoAsignado.telefono || '',
-            rubro_tecnico: tecnicoAsignado.especialidad || decisionCaso.tipo_problema || '',
+            // `tipo_problema` cae en 'otro' cuando el modelo no pudo decidir, y "otro" NO es un
+            // oficio: escrito como rubro, `coincideRubro` lo compara contra oficios de verdad y
+            // decide mal en las dos direcciones -- separa un reclamo que es el mismo, y junta dos
+            // casos distintos solo porque los dos quedaron en "otro". Es el mismo problema que
+            // "Proveedor", que ya se sacó del lado del técnico.
+            //
+            // Y el orden importa: manda lo que el vecino CONTÓ, no el oficio de quien va a ir. El
+            // rubro es del trabajo, no de la persona.
+            rubro_tecnico: rubroDelCaso(decisionCaso?.resumen_problema || decisionCaso?.problema || '',
+                                        tecnicoAsignado.especialidad || decisionCaso.tipo_problema || ''),
             historial_chat: JSON.stringify([resumenNotifProveedor])
         });
     } catch (e) {
