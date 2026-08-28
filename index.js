@@ -3061,6 +3061,18 @@ function validarYSanitizarNombre(nombre) {
                         colaAviso.rubroActivo = rubroAviso || colaAviso.rubroActivo;
                     }
 
+                    // Lo mismo si lo dijo de una: "me llamaron, voy en 3hs, tengo llave".
+                    if (idAviso) {
+                        try {
+                            const { tieneAccesoPropio } = require('./contacto-ingreso');
+                            if (tieneAccesoPropio(msgBodyParaRegistro)) {
+                                const { marcarContactoAccesoAvisado } = require('./datos');
+                                await marcarContactoAccesoAvisado(idAviso);
+                                console.log(`🔑 ${datosEmisor.nombre} tiene acceso propio a ${nombreEdifAviso}: no se le manda el contacto de ingreso del [${idAviso}].`);
+                            }
+                        } catch (e) { console.error('No se pudo marcar que el técnico entra solo:', e.message); }
+                    }
+
                     // Y se agenda el control. Sin esto el caso queda ABIERTO y nadie vuelve a
                     // preguntar nunca: se queda colgado en silencio, que es justo lo que el
                     // seguimiento existe para evitar.
@@ -3158,8 +3170,27 @@ function validarYSanitizarNombre(nombre) {
                         colaConf.edificioActivo = casoPendiente.edificio;
                     }
 
+                    // SI DIJO QUE ENTRA SOLO, NO SE LE EXPLICA QUIÉN LE ABRE.
+                    //
+                    // Marcos preguntó "¿necesitás que gestione algo para entrar?" y Daniel contestó
+                    // "no, tengo llave y acceso al sistema" -- y Marcos le mandó igual el contacto
+                    // del encargado. Preguntar y después no escuchar la respuesta es peor que no
+                    // preguntar: le enseña al técnico que a Marcos se le puede contestar cualquier
+                    // cosa porque no lo lee, y a partir de ahí deja de contestarle.
+                    const { tieneAccesoPropio } = require('./contacto-ingreso');
+                    const entraSolo = tieneAccesoPropio(msgBodyParaRegistro);
+                    if (entraSolo) {
+                        try {
+                            const { marcarContactoAccesoAvisado } = require('./datos');
+                            await marcarContactoAccesoAvisado(casoPendiente.id_evento);
+                            console.log(`🔑 ${datosEmisor.nombre} tiene acceso propio a ${casoPendiente.edificio}: no se le manda el contacto de ingreso del [${casoPendiente.id_evento}].`);
+                        } catch (e) { console.error('No se pudo marcar que el técnico entra solo:', e.message); }
+                    }
+
                     const respConf = `Listo ${datosEmisor.nombre}, lo anoté en el *${casoPendiente.id_evento}* de ${dirPend} y le aviso a la Administración.` +
-                        ` Si necesitás que te esperen o que te consiga alguna llave, decime y lo gestiono.` +
+                        (entraSolo
+                            ? ` Perfecto que tengas acceso, entonces no te gestiono nada para entrar.`
+                            : ` Si necesitás que te esperen o que te consiga alguna llave, decime y lo gestiono.`) +
                         ` Cuando termines, contame qué hiciste y mandame la factura por acá.`;
                     await despacharRespuesta(recipient, respConf, msgTypeRespuesta);
                     historial.push(`Marcos: ${respConf}`);

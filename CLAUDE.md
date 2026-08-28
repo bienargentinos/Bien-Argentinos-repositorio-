@@ -744,6 +744,17 @@ administrador y que sugiera quizás a Natalia — pero lo dio por hecho"*.
   cuente con eso**, y se le pregunta a la Administración quién abre.
 - Sin nada, no se inventa: *"todavía no tengo confirmado quién te abre, ya lo estoy averiguando"*.
 
+**Y si el técnico ya dijo que entra solo, no se le explica quién le abre.** Marcos preguntó
+*"¿necesitás que gestione algo para entrar?"*, Daniel contestó *"no, tengo llave y acceso al
+sistema"* — y Marcos le mandó igual el contacto del encargado. Preguntar y después no leer la
+respuesta le enseña al técnico que a Marcos no vale la pena contestarle, y a partir de ahí deja de
+hacerlo. `tieneAccesoPropio()` lo detecta y marca el ingreso como resuelto en el caso.
+
+> Ojo con la negación: **"NO tengo llave" contiene "tengo llave"**. Ese error es el caro — deja al
+> técnico parado en la puerta sin que nadie le abra — así que ante cualquier negación de tener
+> algo se sale por lo seguro y se manda el contacto igual. Un mensaje de más no le hace daño a
+> nadie.
+
 Prueba: `node pruebas-contacto-ingreso.js`.
 
 ### Cómo se le habla al técnico: dirección y número de caso, siempre

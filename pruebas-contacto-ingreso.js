@@ -18,7 +18,7 @@
 // Administración" es la diferencia entre un dato y una suposición. El técnico organiza su día con
 // eso: si nadie le abre, perdió el viaje.
 
-const { contactoParaElIngreso, mensajeDeIngreso } = require('./contacto-ingreso');
+const { contactoParaElIngreso, mensajeDeIngreso, tieneAccesoPropio } = require('./contacto-ingreso');
 
 let fallos = 0;
 function verificar(titulo, real, esperado) {
@@ -140,6 +140,40 @@ console.log('\n── EL ORDEN COMPLETO ──');
     verificar('3º seguridad', contactoParaElIngreso({ ...todo, perfil: { telSeguridad: '3333' } }).telefono, '3333');
     verificar('4º accesos del edificio', contactoParaElIngreso({ ...todo, perfil: {} }).telefono, '4444');
     verificar('5º lo de la otra vez', contactoParaElIngreso({ ...todo, perfil: {}, accesos: [] }).firme, false);
+}
+
+console.log('\n── SI DIJO QUE ENTRA SOLO, NO SE LE EXPLICA QUIÉN LE ABRE ──');
+{
+    // Marcos preguntó "¿necesitás que gestione algo para entrar?", Daniel contestó "no, tengo
+    // llave y acceso al sistema" -- y Marcos le mandó igual el contacto del encargado.
+    // Preguntar y después no leer la respuesta le enseña al técnico que a Marcos no vale la pena
+    // contestarle.
+    const entraSolo = [
+        'si, voy en 3 horas. no necesito nada para ingresar, tengo llave y acceso al sistema',
+        'dale, tengo llave',
+        'tengo el codigo de la puerta',
+        'tengo acceso al sistema de camaras',
+        'no hace falta que gestiones nada para entrar',
+        'entro solo, no te preocupes',
+        'tengo tarjeta de acceso',
+    ];
+    for (const t of entraSolo) verificar(`"${t.slice(0, 50)}…"`, tieneAccesoPropio(t), true);
+
+    // Y lo que NO dice eso. Marcar de más es peor: el técnico llega y no le abre nadie porque
+    // Marcos dio por hecho que tenía llave.
+    const noDice = [
+        'si, voy en 3 horas',
+        'necesito que alguien me abra',
+        // Este es el peligroso: "NO tengo llave" contiene "tengo llave". Marcarlo dejaría al
+        // técnico parado en la puerta sin que nadie le abra.
+        'no tengo llave, avisá al encargado',
+        'todavía no tengo el código, me lo pasás?',
+        'no tengo acceso al sistema todavía',
+        'no necesito el plano, ya lo tengo',
+        'gracias, saludos',
+        '',
+    ];
+    for (const t of noDice) verificar(`"${t || '(vacío)'}" NO da acceso propio por hecho`, tieneAccesoPropio(t), false);
 }
 
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);

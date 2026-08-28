@@ -138,4 +138,40 @@ function mensajeDeIngreso({ contacto, idEvento, direccion, nombreTecnico = '' })
         `Ya le pregunté a la Administración quién te abre y te confirmo antes de que vayas.`;
 }
 
-module.exports = { contactoParaElIngreso, mensajeDeIngreso };
+/**
+ * Si el técnico ya dijo que entra solo.
+ *
+ * > **Preguntar y después no escuchar la respuesta es peor que no preguntar.**
+ *
+ * Marcos le preguntó "¿necesitás que gestione algo para entrar?", Daniel contestó *"no, tengo
+ * llave y acceso al sistema"* -- y Marcos le mandó igual el contacto del encargado. Un humano no
+ * hace eso: si le dicen que tiene llave, no le explica quién le abre.
+ *
+ * Y no es solo cortesía: cada mensaje de más le enseña al técnico que a Marcos se le puede
+ * contestar cualquier cosa porque no lo escucha, y a partir de ahí deja de contestarle.
+ */
+function tieneAccesoPropio(texto) {
+    const t = String(texto || '').toLowerCase();
+    if (!t.trim()) return false;
+
+    // PRIMERO LA NEGACIÓN, porque "NO tengo llave" contiene "tengo llave".
+    //
+    // Equivocarse para este lado es el error caro: marcar que entra solo a alguien que acaba de
+    // decir que no tiene llave lo deja parado en la puerta sin que nadie le abra. Al revés, lo
+    // peor que pasa es un mensaje de más. Por eso ante cualquier negación de tener algo, se sale.
+    if (/\bno\s+(tengo|cuento con|dispongo|tenemos)\b/.test(t)) return false;
+
+    // Tiene con qué entrar por su cuenta.
+    if (/\btengo\b[^.]{0,25}\b(llave|llaves|acceso|c[oó]digo|tarjeta|control|mando|permiso)/.test(t)) return true;
+    if (/\b(tengo|manejo|conozco)\b[^.]{0,25}\b(el sistema|la clave|la contrase[nñ]a)/.test(t)) return true;
+    if (/\b(entro|ingreso|paso)\b[^.]{0,15}\b(solo|sola|por mi cuenta|sin problema|directo)/.test(t)) return true;
+
+    // O directamente dijo que no necesita nada. Ojo con el "no necesito" a secas: tiene que estar
+    // hablando de entrar, no de otra cosa.
+    if (/\bno\s+(necesito|hace falta|preciso|requiero)\b/.test(t)
+        && /\b(nada|entrar|ingres|acceso|llave|abr|gestion)/.test(t)) return true;
+
+    return false;
+}
+
+module.exports = { contactoParaElIngreso, mensajeDeIngreso, tieneAccesoPropio };
