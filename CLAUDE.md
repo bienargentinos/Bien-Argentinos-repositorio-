@@ -297,6 +297,26 @@ Daniel lo confirmó y está implementado: se identifica por la terna **teléfono
 
 Prueba: `node pruebas-tecnico-por-rubro.js` (15 casos, con Julio y Dario en la misma línea).
 
+### Pero el caso ya decidió con quién habla, y eso manda sobre el rubro
+
+> [!CAUTION]
+> **Cambiar de nombre a mitad de una conversación es peor que haber elegido cualquiera de los dos.**
+
+Visto en producción: el caso se abrió con *"Quién: a dario juju (Electricista)"* —lo abrió el propio
+Dario avisando— el trabajo era una **pérdida de agua**, y dos minutos después Marcos le escribió
+**"Gracias, Julio"**. La regla del rubro hizo exactamente lo que le pedimos (plomería → el plomero
+de esa línea es Julio) y quedó mal igual.
+
+Para el técnico, que le digan Dario en un mensaje y Julio en el siguiente es Marcos mostrándole que
+no sabe con quién está hablando. Y no es un caso raro: **un técnico hace trabajos de rubros
+distintos**, así que el rubro del caso nunca va a ser una identidad confiable.
+
+El orden queda:
+
+1. **Quién está anotado como técnico del caso** (`stProv.tecnicoDelCaso`) — el caso ya decidió una vez.
+2. El rubro, solo si el caso todavía no anotó a nadie.
+3. Sin nada, `nombreIncierto`: no se lo llama por su nombre.
+
 ## Datos de cobro del proveedor (CBU / alias)
 
 Marcos toma el CBU o el alias cuando el técnico se lo manda por WhatsApp, para que el

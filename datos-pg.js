@@ -805,6 +805,10 @@ async function buscarCasoAbiertoPorTecnico(nombreTecnico, telefonoTecnico = '') 
         // El rubro del caso es lo que permite saber CUÁL de los técnicos que comparten una línea
         // está escribiendo. Ver `proveedoresPorTelefono`.
         rubro:     row.get('rubro_tecnico') || '',
+        // Y quién quedó anotado como el técnico del caso. Es MEJOR evidencia que el rubro: el
+        // caso ya decidió una vez con quién está hablando, y cambiar de nombre a mitad de la
+        // conversación es peor que haber elegido cualquiera de los dos.
+        tecnico:   row.get('tecnico') || '',
     };
 }
 

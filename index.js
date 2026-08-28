@@ -1214,6 +1214,9 @@ function validarYSanitizarNombre(nombre) {
                     // El rubro del caso es lo que después permite saber cuál de los técnicos que
                     // comparten esta línea está escribiendo.
                     if (!stProv.rubroActivo && casoAbierto.rubro) stProv.rubroActivo = casoAbierto.rubro;
+                    // Quién quedó anotado como el técnico del caso: es con quien Marcos ya viene
+                    // hablando, y manda sobre cualquier deducción por rubro.
+                    if (!stProv.tecnicoDelCaso && casoAbierto.tecnico) stProv.tecnicoDelCaso = casoAbierto.tecnico;
                     if (!stProv.vecinoActivo?.telefono && casoAbierto.telefono) {
                         stProv.vecinoActivo = {
                             telefono:  casoAbierto.telefono,
@@ -1273,7 +1276,33 @@ function validarYSanitizarNombre(nombre) {
                 const rubroActivoDelCaso = String(stProv.rubroActivo || '').trim();
                 const nombres = enEsaLinea.map(p => `${p.nombre} (${p.rubro || 'sin rubro'})`).join(', ');
 
-                if (rubroActivoDelCaso) {
+                // EL CASO YA DECIDIÓ CON QUIÉN ESTÁ HABLANDO. Eso manda sobre el rubro.
+                //
+                // Pasó en producción: el caso se abrió con "a dario juju (Electricista)", el
+                // trabajo era una pérdida de agua, y dos minutos después Marcos le escribió
+                // "Gracias, Julio" -- porque el rubro del caso era plomería y en esa línea el
+                // plomero es Julio. La regla del rubro hizo lo que le pedimos y quedó mal igual.
+                //
+                // Cambiar de nombre a mitad de una conversación es Marcos mostrándole al técnico
+                // que no sabe con quién habla, y eso es PEOR que haberse quedado con cualquiera de
+                // los dos nombres. La consistencia vale más que la deducción: el rubro solo
+                // desempata cuando el caso todavía no anotó a nadie.
+                const yaAnotado = String(stProv.tecnicoDelCaso || '').trim();
+                const enLaLinea = yaAnotado
+                    ? enEsaLinea.find(p => {
+                        const a = String(p.nombre || '').toLowerCase().trim();
+                        const b = yaAnotado.toLowerCase();
+                        return a && (a.includes(b) || b.includes(a));
+                    })
+                    : null;
+
+                if (enLaLinea) {
+                    if (enLaLinea.nombre !== datosEmisor.nombre) {
+                        console.log(`🎯 En ${from} hay ${enEsaLinea.length} técnicos [${nombres}]. El caso ya está a nombre de ${enLaLinea.nombre}: se le sigue hablando a él.`);
+                    }
+                    datosEmisor.nombre = enLaLinea.nombre;
+                    datosEmisor.especialidad = enLaLinea.rubro || datosEmisor.especialidad;
+                } else if (rubroActivoDelCaso) {
                     const elCorrecto = enEsaLinea.find(p => atiendeRubro(p.rubro, rubroActivoDelCaso));
                     if (elCorrecto && elCorrecto.nombre !== datosEmisor.nombre) {
                         console.log(`🎯 En ${from} hay ${enEsaLinea.length} técnicos [${nombres}]. El caso es de "${rubroActivoDelCaso}", así que quien escribe es ${elCorrecto.nombre}, no ${datosEmisor.nombre}.`);
@@ -3059,6 +3088,9 @@ function validarYSanitizarNombre(nombre) {
                         colaAviso.eventoActivoId = idAviso;
                         colaAviso.edificioActivo = nombreEdifAviso;
                         colaAviso.rubroActivo = rubroAviso || colaAviso.rubroActivo;
+                        // A nombre de quién quedó el caso: desde acá en adelante se le habla a él
+                        // y no se vuelve a deducir por rubro.
+                        colaAviso.tecnicoDelCaso = datosEmisor.nombre || colaAviso.tecnicoDelCaso;
                     }
 
                     // Lo mismo si lo dijo de una: "me llamaron, voy en 3hs, tengo llave".
