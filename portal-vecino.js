@@ -131,6 +131,11 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   #box-timbre-sonando, #box-llamada-voz-activa { max-width: 600px !important; }
 }
 
+/* Modo Instalado (PWA Standalone) */
+@media (display-mode: standalone) {
+  #card-instalar-pwa { display: none !important; }
+}
+
 /* Modo Oscuro */
 .dark-theme{background:#0B132B!important;color:#F1F5F9!important}
 .dark-theme .app-shell{background:#0B132B!important}
@@ -197,12 +202,42 @@ function shellVecino(title, activeTab, content, vecinoData) {
   window.addEventListener('beforeinstallprompt', function(e) {
     e.preventDefault();
     window._deferredPrompt = e;
-    var isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
-    if (!isStandalone && !localStorage.getItem('pwa_banner_closed')) {
-      var b = document.getElementById('pwa-install-banner');
-      if (b) b.style.display = 'flex';
+  });
+  window.addEventListener('appinstalled', function() {
+    localStorage.setItem('pwa_installed', 'true');
+    var b = document.getElementById('card-instalar-pwa');
+    if (b) b.style.display = 'none';
+    window._deferredPrompt = null;
+  });
+  document.addEventListener('DOMContentLoaded', function() {
+    var isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches || localStorage.getItem('pwa_installed') === 'true';
+    if (isStandalone) {
+      var b = document.getElementById('card-instalar-pwa');
+      if (b) b.style.display = 'none';
     }
   });
+  window.instalarPwa = function() {
+    if (window._deferredPrompt) {
+      window._deferredPrompt.prompt();
+      window._deferredPrompt.userChoice.then(function(choiceResult) {
+        if (choiceResult.outcome === 'accepted') {
+          localStorage.setItem('pwa_installed', 'true');
+          var b = document.getElementById('card-instalar-pwa');
+          if (b) b.style.display = 'none';
+        }
+        window._deferredPrompt = null;
+      });
+    } else {
+      var ua = navigator.userAgent.toLowerCase();
+      if (ua.includes('firefox')) {
+        alert('🦊 Para instalar en Firefox:\\n\\n1. Tocá el menú de 3 puntos (⋮) arriba a la derecha en Firefox.\\n2. Seleccioná "Instalar" (o el icono de casa con + en la barra).');
+      } else if (/iphone|ipad|ipod/.test(ua)) {
+        alert('🍏 Para instalar en iPhone / Safari:\\n\\n1. Tocá el botón Compartir (el cuadrado con la flecha hacia arriba).\\n2. Elegí "Agregar a la pantalla de inicio".');
+      } else {
+        alert('📲 Para instalar la app:\\n\\n1. Tocá el menú de 3 puntos (⋮) de tu navegador.\\n2. Seleccioná "Instalar aplicación" o "Agregar a pantalla principal".');
+      }
+    }
+  };
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
       navigator.serviceWorker.register('/sw.js').catch(function(e){ console.warn('SW:', e); });
@@ -500,6 +535,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
 
         // Polling de señales de respuesta desde la visita
         var lastSince = Date.now() - 5000;
+        var _pendingAnsCandidates = [];
         var sigInterval = setInterval(async function(){
           if (!_peerConn) { clearInterval(sigInterval); return; }
           try {
@@ -509,15 +545,23 @@ function shellVecino(title, activeTab, content, vecinoData) {
               for (var i = 0; i < sData.signals.length; i++) {
                 var sigObj = sData.signals[i].signal;
                 lastSince = Math.max(lastSince, sData.signals[i].timestamp);
-                if (sigObj.type === 'answer' && _peerConn.signalingState !== 'stable') {
+                if (sigObj.type === 'answer' && _peerConn.signalingState === 'have-local-offer') {
                   await _peerConn.setRemoteDescription(new RTCSessionDescription(sigObj.sdp));
+                  while (_pendingAnsCandidates.length > 0) {
+                    var c = _pendingAnsCandidates.shift();
+                    await _peerConn.addIceCandidate(new RTCIceCandidate(c)).catch(function(){});
+                  }
                 } else if (sigObj.type === 'candidate' && sigObj.candidate) {
-                  await _peerConn.addIceCandidate(new RTCIceCandidate(sigObj.candidate));
+                  if (_peerConn.remoteDescription && _peerConn.remoteDescription.type) {
+                    await _peerConn.addIceCandidate(new RTCIceCandidate(sigObj.candidate)).catch(function(){});
+                  } else {
+                    _pendingAnsCandidates.push(sigObj.candidate);
+                  }
                 }
               }
             }
           } catch(_) {}
-        }, 1000);
+        }, 800);
 
       } catch(err) {
         console.warn('Voz WebRTC:', err.message);
@@ -980,6 +1024,20 @@ router.get('/', (req, res) => {
       </div>
     </div>
 
+    <!-- Tarjeta Instalar App en el Celular -->
+    <div id="card-instalar-pwa" class="card card-touch" style="padding:14px 16px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;box-shadow:0 4px 14px rgba(15,50,106,.2);border-radius:18px" onclick="instalarPwa()">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">
+          📲
+        </div>
+        <div>
+          <div style="font-size:13.5px;font-weight:900;line-height:1.2">Instalar App en tu Celular</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.85)">Acceso rápido directo en tu pantalla</div>
+        </div>
+      </div>
+      <button style="padding:6px 14px;border:none;border-radius:8px;background:#ffffff;color:#0F326A;font-weight:900;font-size:12px;cursor:pointer;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.15)">Instalar</button>
+    </div>
+
     <!-- Banner Inteligente Marcos IA (Estilo Créditos Mercado Pago) -->
     <div class="card card-touch" style="padding:16px;background:#ffffff;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;border-left:4px solid #1E5FB4" onclick="location.href='/vecino/chat'">
       <div style="display:flex;align-items:center;gap:12px">
@@ -1088,21 +1146,8 @@ router.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
 router.get('/sw.js', (req, res) => {
   res.type('application/javascript');
   res.send(`
-    const CACHE_NAME = 'marcos-pwa-v1';
-    const ASSETS = [
-      '/vecino',
-      '/admin/assets/logo.png',
-      'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap',
-      'https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css',
-      'https://unpkg.com/@phosphor-icons/web@2.0.3/src/fill/style.css'
-    ];
-
+    const CACHE_NAME = 'marcos-pwa-v4';
     self.addEventListener('install', (e) => {
-      e.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-          return cache.addAll(ASSETS).catch(() => {});
-        })
-      );
       self.skipWaiting();
     });
 
@@ -1110,21 +1155,16 @@ router.get('/sw.js', (req, res) => {
       e.waitUntil(
         caches.keys().then((keys) => {
           return Promise.all(
-            keys.map((k) => {
-              if (k !== CACHE_NAME) return caches.delete(k);
-            })
+            keys.map((k) => caches.delete(k))
           );
-        })
+        }).then(() => self.clients.claim())
       );
-      self.clients.claim();
     });
 
     self.addEventListener('fetch', (e) => {
       if (e.request.method !== 'GET') return;
       e.respondWith(
-        fetch(e.request).catch(() => {
-          return caches.match(e.request);
-        })
+        fetch(e.request).catch(() => caches.match(e.request))
       );
     });
   `);
