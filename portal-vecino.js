@@ -147,8 +147,8 @@ function getVecinoSession(req) {
   return {
     nombre: 'Daniel Morales',
     telefono: '+54 9 11 5555-4321',
-    edificio: 'Torre Norte Edifica',
-    departamento: '4° B',
+    edificio: 'San Patricio 159',
+    departamento: '1° A',
     saldoExpensa: '$120.000,00',
     estadoExpensa: 'Al día',
   };
@@ -157,8 +157,8 @@ function getVecinoSession(req) {
 function shellVecino(title, activeTab, content, vecinoData) {
   const v = vecinoData || {
     nombre: 'Daniel Morales',
-    edificio: 'Torre Norte Edifica',
-    departamento: '4° B',
+    edificio: 'San Patricio 159',
+    departamento: '1° A',
   };
 
   return `<!DOCTYPE html>
@@ -232,23 +232,6 @@ function shellVecino(title, activeTab, content, vecinoData) {
 
   <!-- CONTENIDO PRINCIPAL -->
   <main style="flex:1;padding:16px 16px 85px" class="anim-fade">
-    <!-- PWA INSTALL BANNER DISCRETO -->
-    <div id="pwa-install-banner" style="display:none;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:14px;box-shadow:0 4px 14px rgba(15,50,106,.22);align-items:center;justify-content:space-between;gap:10px">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">
-          📲
-        </div>
-        <div>
-          <div style="font-size:13px;font-weight:800;line-height:1.2">Instalar App del Edificio</div>
-          <div style="font-size:11px;color:rgba(255,255,255,.8)">Acceso directo y llamadas de timbre</div>
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px">
-        <button onclick="instalarPwa()" style="padding:6px 12px;border:none;border-radius:8px;background:#fff;color:#0F326A;font-weight:800;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.1)">Instalar</button>
-        <button onclick="cerrarBannerPwa()" style="background:none;border:none;color:rgba(255,255,255,.7);font-size:16px;cursor:pointer;padding:4px">✕</button>
-      </div>
-    </div>
-
     ${content}
   </main>
 
@@ -354,7 +337,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
     var _timerSecs = 0;
     var _isMuted = false;
 
-    function sonarRingtone() {
+    function unlockAudio() {
       try {
         if (!_audioCtx) {
           _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -362,20 +345,30 @@ function shellVecino(title, activeTab, content, vecinoData) {
         if (_audioCtx.state === 'suspended') {
           _audioCtx.resume();
         }
-        var osc = _audioCtx.createOscillator();
-        var gain = _audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, _audioCtx.currentTime);
-        osc.frequency.setValueAtTime(659.25, _audioCtx.currentTime + 0.15);
-        gain.gain.setValueAtTime(0.4, _audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, _audioCtx.currentTime + 0.6);
-        osc.connect(gain);
-        gain.connect(_audioCtx.destination);
-        osc.start();
-        osc.stop(_audioCtx.currentTime + 0.6);
+      } catch(_) {}
+    }
+    document.addEventListener('click', unlockAudio, { passive: true });
+    document.addEventListener('touchstart', unlockAudio, { passive: true });
+
+    function sonarRingtone() {
+      try {
+        unlockAudio();
+        if (_audioCtx) {
+          var osc = _audioCtx.createOscillator();
+          var gain = _audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, _audioCtx.currentTime);
+          osc.frequency.setValueAtTime(659.25, _audioCtx.currentTime + 0.15);
+          gain.gain.setValueAtTime(0.5, _audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, _audioCtx.currentTime + 0.6);
+          osc.connect(gain);
+          gain.connect(_audioCtx.destination);
+          osc.start();
+          osc.stop(_audioCtx.currentTime + 0.6);
+        }
 
         if (navigator.vibrate) {
-          navigator.vibrate([300, 150, 300, 150, 500]);
+          navigator.vibrate([400, 200, 400, 200, 800]);
         }
       } catch(_) {}
     }
@@ -448,6 +441,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
           var remoteAudio = document.getElementById('audio-webrtc-vecino');
           if (remoteAudio && event.streams[0]) {
             remoteAudio.srcObject = event.streams[0];
+            remoteAudio.play().catch(function(e){ console.warn('Audio play:', e); });
           }
         };
 
@@ -652,6 +646,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
     </div>
   </div>
 
+  <audio id="audio-webrtc-vecino" autoplay playsinline style="display:none"></audio>
 </div>
 </body>
 </html>`;
@@ -862,9 +857,9 @@ router.post('/auth', async (req, res) => {
       };
     } else {
       req.session.vecino = {
-        nombre: limpio.includes('@') ? limpio.split('@')[0] : (limpio || 'Vecino'),
+        nombre: limpio.includes('@') ? limpio.split('@')[0] : (limpio || 'Daniel Morales'),
         telefono: telLimpio || '+54 9 11 5555-4321',
-        edificio: 'Consorcio Demo',
+        edificio: 'San Patricio 159',
         departamento: '1° A',
         saldoExpensa: '$120.000,00',
         estadoExpensa: 'Al día',

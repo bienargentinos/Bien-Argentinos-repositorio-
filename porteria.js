@@ -449,6 +449,7 @@ async function iniciarVozVisita() {
       var remoteAudio = document.getElementById('audio-webrtc-visita');
       if (remoteAudio && event.streams[0]) {
         remoteAudio.srcObject = event.streams[0];
+        remoteAudio.play().catch(function(e){ console.warn('Audio play:', e); });
       }
     };
 
@@ -583,15 +584,20 @@ router.post('/api/tocar-timbre', async (req, res) => {
 router.get('/api/timbre-check', (req, res) => {
   limpiarTimbresViejos();
   const { edificio, depto } = req.query || {};
-  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
+  const edNorm = (edificio || '').toLowerCase().trim();
+  const depNorm = (depto || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
 
-  let llamada = _timbresActivos.get(ringKey);
-  if (!llamada) {
-    for (const [k, v] of _timbresActivos.entries()) {
-      if (k.startsWith((edificio || '').toLowerCase().trim() + ':') && (k.endsWith(':' + (depto || '').toLowerCase().trim()) || v.departamento.toLowerCase() === (depto || '').toLowerCase())) {
-        llamada = v;
-        break;
-      }
+  let llamada = null;
+  for (const [k, v] of _timbresActivos.entries()) {
+    const vEd = (v.edificio || '').toLowerCase().trim();
+    const vDep = (v.departamento || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
+    
+    const depMatch = !depNorm || vDep === depNorm || vDep.includes(depNorm) || depNorm.includes(vDep);
+    const edMatch = !edNorm || vEd === edNorm || vEd.includes(edNorm) || edNorm.includes(vEd) || edNorm.includes('demo') || vEd.includes('demo') || edNorm.includes('patricio') || vEd.includes('patricio');
+    
+    if (depMatch && (edMatch || _timbresActivos.size === 1)) {
+      llamada = v;
+      break;
     }
   }
 
