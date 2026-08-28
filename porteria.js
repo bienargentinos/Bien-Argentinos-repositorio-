@@ -583,15 +583,16 @@ router.post('/api/tocar-timbre', async (req, res) => {
 router.get('/api/timbre-check', (req, res) => {
   limpiarTimbresViejos();
   const { edificio, depto } = req.query || {};
-  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
+  const edNorm = (edificio || '').toLowerCase().trim();
+  const depNorm = (depto || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
 
-  let llamada = _timbresActivos.get(ringKey);
-  if (!llamada) {
-    for (const [k, v] of _timbresActivos.entries()) {
-      if (k.startsWith((edificio || '').toLowerCase().trim() + ':') && (k.endsWith(':' + (depto || '').toLowerCase().trim()) || v.departamento.toLowerCase() === (depto || '').toLowerCase())) {
-        llamada = v;
-        break;
-      }
+  let llamada = null;
+  for (const [k, v] of _timbresActivos.entries()) {
+    const vEd = (v.edificio || '').toLowerCase().trim();
+    const vDep = (v.departamento || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
+    if ((vEd === edNorm || vEd.includes(edNorm) || edNorm.includes(vEd)) && (vDep === depNorm || vDep.includes(depNorm) || depNorm.includes(vDep))) {
+      llamada = v;
+      break;
     }
   }
 

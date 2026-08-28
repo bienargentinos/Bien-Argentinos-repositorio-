@@ -147,8 +147,8 @@ function getVecinoSession(req) {
   return {
     nombre: 'Daniel Morales',
     telefono: '+54 9 11 5555-4321',
-    edificio: 'Torre Norte Edifica',
-    departamento: '4° B',
+    edificio: 'San Patricio 159',
+    departamento: '1° A',
     saldoExpensa: '$120.000,00',
     estadoExpensa: 'Al día',
   };
@@ -157,8 +157,8 @@ function getVecinoSession(req) {
 function shellVecino(title, activeTab, content, vecinoData) {
   const v = vecinoData || {
     nombre: 'Daniel Morales',
-    edificio: 'Torre Norte Edifica',
-    departamento: '4° B',
+    edificio: 'San Patricio 159',
+    departamento: '1° A',
   };
 
   return `<!DOCTYPE html>
@@ -862,9 +862,9 @@ router.post('/auth', async (req, res) => {
       };
     } else {
       req.session.vecino = {
-        nombre: limpio.includes('@') ? limpio.split('@')[0] : (limpio || 'Vecino'),
+        nombre: limpio.includes('@') ? limpio.split('@')[0] : (limpio || 'Daniel Morales'),
         telefono: telLimpio || '+54 9 11 5555-4321',
-        edificio: 'Consorcio Demo',
+        edificio: 'San Patricio 159',
         departamento: '1° A',
         saldoExpensa: '$120.000,00',
         estadoExpensa: 'Al día',
