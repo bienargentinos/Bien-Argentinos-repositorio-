@@ -935,9 +935,60 @@ router.get('/', (req, res) => {
       <button style="padding:6px 14px;border:none;border-radius:8px;background:#fff;color:#0F326A;font-weight:800;font-size:12.5px;cursor:pointer;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.15)">Instalar</button>
     </div>
 
+    <!-- Accesos Rápidos en Cuadrícula -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <a href="/vecino/amenities" class="card card-touch" style="padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:#fff;border-left:4px solid #10B981">
+        <div style="font-size:24px">🏊</div>
+        <div>
+          <div style="font-size:14px;font-weight:800;color:#0F172A">Amenities</div>
+          <div style="font-size:11.5px;color:#64748B">Reservas SUM, pileta</div>
+        </div>
+      </a>
+      <a href="/porteria/San%20Patricio%20159" class="card card-touch" style="padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:#fff;border-left:4px solid #F59E0B">
+        <div style="font-size:24px">🔔</div>
+        <div>
+          <div style="font-size:14px;font-weight:800;color:#0F172A">Portería</div>
+          <div style="font-size:11.5px;color:#64748B">Timbre virtual QR</div>
+        </div>
+      </a>
+      <a href="/vecino/expensas" class="card card-touch" style="padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:#fff;border-left:4px solid #6366F1">
+        <div style="font-size:24px">📑</div>
+        <div>
+          <div style="font-size:14px;font-weight:800;color:#0F172A">Expensas</div>
+          <div style="font-size:11.5px;color:#64748B">Recibos y saldo</div>
+        </div>
+      </a>
+      <a href="/vecino/chat" class="card card-touch" style="padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:#fff;border-left:4px solid #2E6FC0">
+        <div style="font-size:24px">🛠️</div>
+        <div>
+          <div style="font-size:14px;font-weight:800;color:#0F172A">Reclamos</div>
+          <div style="font-size:11.5px;color:#64748B">Marcos IA 24 hs</div>
+        </div>
+      </a>
+    </div>
+
+    <!-- Estado de Servicios del Edificio -->
+    <div class="card" style="padding:16px 18px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:800;color:#64748B;text-transform:uppercase;margin-bottom:12px">Estado de Servicios · Edificio</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
+          <span style="display:flex;align-items:center;gap:8px">🛗 Ascensor Principal</span>
+          <span style="font-size:11.5px;font-weight:700;color:#15803D;background:#DCFCE7;padding:2px 8px;border-radius:999px">✓ Normal</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
+          <span style="display:flex;align-items:center;gap:8px">💧 Bombas de Agua</span>
+          <span style="font-size:11.5px;font-weight:700;color:#15803D;background:#DCFCE7;padding:2px 8px;border-radius:999px">✓ Operativo</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
+          <span style="display:flex;align-items:center;gap:8px">🚗 Portón Cochera</span>
+          <span style="font-size:11.5px;font-weight:700;color:#15803D;background:#DCFCE7;padding:2px 8px;border-radius:999px">✓ Automático</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Últimas Novedades del Edificio -->
     <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:13.5px;font-weight:800;color:#0F172A">Novedades del Consorcio</span>
+      <span style="font-size:14px;font-weight:800;color:#0F172A">Novedades del Consorcio</span>
       <a href="/vecino/novedades" style="font-size:12.5px;font-weight:700;color:#1E5FB4">Ver todas</a>
     </div>
 

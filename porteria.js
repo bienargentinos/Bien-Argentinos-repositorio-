@@ -583,26 +583,36 @@ router.post('/api/tocar-timbre', async (req, res) => {
   }
 });
 
-// Endpoint para que la Web App del vecino verifique llamadas entrantes en su celular
-router.get('/api/timbre-check', (req, res) => {
-  limpiarTimbresViejos();
-  const { edificio, depto } = req.query || {};
+// Helper para encontrar llamadas activas con tolerancia de formato
+function encontrarLlamadaActiva(callId, edificio, depto) {
+  if (callId) {
+    for (const v of _timbresActivos.values()) {
+      if (v.id === callId) return v;
+    }
+  }
   const edNorm = (edificio || '').toLowerCase().trim();
   const depNorm = (depto || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
 
-  let llamada = null;
-  for (const [k, v] of _timbresActivos.entries()) {
+  for (const v of _timbresActivos.values()) {
     const vEd = (v.edificio || '').toLowerCase().trim();
     const vDep = (v.departamento || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
-    
     const depMatch = !depNorm || vDep === depNorm || vDep.includes(depNorm) || depNorm.includes(vDep);
     const edMatch = !edNorm || vEd === edNorm || vEd.includes(edNorm) || edNorm.includes(vEd) || edNorm.includes('demo') || vEd.includes('demo') || edNorm.includes('patricio') || vEd.includes('patricio');
-    
     if (depMatch && (edMatch || _timbresActivos.size === 1)) {
-      llamada = v;
-      break;
+      return v;
     }
   }
+  if (_timbresActivos.size === 1) {
+    return _timbresActivos.values().next().value;
+  }
+  return null;
+}
+
+// Endpoint para que la Web App del vecino verifique llamadas entrantes en su celular
+router.get('/api/timbre-check', (req, res) => {
+  limpiarTimbresViejos();
+  const { edificio, depto, callId } = req.query || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
 
   if (llamada && (llamada.estado === 'llamando' || llamada.estado === 'voz_iniciada')) {
     return res.json({ ok: true, timbreActivo: true, llamada });
@@ -612,10 +622,8 @@ router.get('/api/timbre-check', (req, res) => {
 
 // Endpoint para que el vecino conteste a la visita (texto o iniciar llamada de voz)
 router.post('/api/timbre-responder', (req, res) => {
-  const { edificio, depto, respuesta, modoVoz } = req.body || {};
-  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
-
-  const llamada = _timbresActivos.get(ringKey);
+  const { edificio, depto, respuesta, modoVoz, callId } = req.body || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
   if (llamada) {
     if (modoVoz) {
       llamada.estado = 'voz_iniciada';
@@ -624,17 +632,15 @@ router.post('/api/timbre-responder', (req, res) => {
     }
     llamada.estado = 'atendido';
     llamada.respuesta = respuesta || '¡Ya bajo!';
-    return res.json({ ok: true, mensaje: 'Respuesta enviada a la puerta' });
+    return res.json({ ok: true, mensaje: 'Respuesta enviada a la puerta', respuesta: llamada.respuesta });
   }
   res.json({ ok: true });
 });
 
 // Endpoint para intercambiar señalización WebRTC (SDP / ICE candidates)
 router.post('/api/webrtc-signal', (req, res) => {
-  const { edificio, depto, from, signal } = req.body || {};
-  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
-
-  const llamada = _timbresActivos.get(ringKey);
+  const { edificio, depto, from, signal, callId } = req.body || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
   if (llamada) {
     if (!llamada.signals) llamada.signals = [];
     llamada.signals.push({ from: from || 'anon', signal, timestamp: Date.now() });
@@ -645,10 +651,8 @@ router.post('/api/webrtc-signal', (req, res) => {
 
 // Endpoint para obtener señales WebRTC pendientes para el otro extremo
 router.get('/api/webrtc-signal', (req, res) => {
-  const { edificio, depto, forRole, since } = req.query || {};
-  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
-
-  const llamada = _timbresActivos.get(ringKey);
+  const { edificio, depto, forRole, since, callId } = req.query || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
   if (llamada && llamada.signals) {
     const sinceTime = Number(since || 0);
     const nuevas = llamada.signals.filter(s => s.from !== forRole && s.timestamp > sinceTime);
@@ -660,10 +664,8 @@ router.get('/api/webrtc-signal', (req, res) => {
 // Endpoint para que el visitante en la calle vea el estado
 router.get('/api/timbre-visita-status', (req, res) => {
   const { callId, edificio, depto } = req.query || {};
-  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
-
-  const llamada = _timbresActivos.get(ringKey);
-  if (llamada && (llamada.id === callId || !callId)) {
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
+  if (llamada) {
     return res.json({ ok: true, estado: llamada.estado, respuesta: llamada.respuesta });
   }
   res.json({ ok: true, estado: 'finalizado' });
