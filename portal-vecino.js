@@ -68,46 +68,38 @@ function escJs(s) {
 // Estilos visuales oficiales de Marcos IA (Tokens exactos)
 const CSS_VECINO = `
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{margin:0;padding:0;width:100%;min-height:100vh;background:#F8FAFD}
-body{color:#16233B;font-family:'Hanken Grotesk',system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+html,body{margin:0;padding:0;width:100%;min-height:100vh;background:#F1F5F9;color:#0F172A;font-family:'Hanken Grotesk',system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased;overscroll-behavior-y:contain;-webkit-tap-highlight-color:transparent}
 a{color:inherit;text-decoration:none}
 button,input,textarea{font-family:inherit}
-::-webkit-scrollbar{width:6px;height:6px}
-::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:10px}
 
 /* Animaciones */
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 @keyframes typingDot{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
+@keyframes pulseRing{0%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(56,189,248,0.7)}70%{transform:scale(1.05);box-shadow:0 0 0 25px rgba(56,189,248,0)}100%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(56,189,248,0)}}
 
-.anim-fade{animation:fadeIn .25s ease both}
-.card{background:#fff;border:1px solid #E4E9F1;border-radius:16px;box-shadow:0 1px 3px rgba(16,35,59,.04)}
-.card-touch:active{transform:scale(.985);transition:transform .1s ease}
+.anim-fade{animation:fadeIn .2s ease both}
+.card{background:#ffffff;border:1px solid #E2E8F0;border-radius:18px;box-shadow:0 2px 8px rgba(15,23,42,.04)}
+.card-touch:active{transform:scale(.98);transition:transform .08s ease}
 
 /* Shell Contenedor de la App */
-.app-shell{min-height:100vh;display:flex;flex-direction:column;width:100%;max-width:540px;margin:0 auto;background:#F8FAFD}
+.app-shell{min-height:100vh;display:flex;flex-direction:column;width:100%;margin:0 auto;background:#F1F5F9}
+main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12px}
 
-/* Barra de Navegacion Inferior para Celulares */
+/* Barra de Navegacion Inferior para Celulares (Estilo App Nativa) */
 .v-bottom-nav{
-  position:fixed;bottom:0;left:0;right:0;height:64px;background:#ffffff;
+  position:fixed;bottom:0;left:0;right:0;width:100%;height:62px;background:#ffffff;
   border-top:1px solid #E2E8F0;display:flex;justify-content:space-around;align-items:center;
-  z-index:50;box-shadow:0 -4px 20px rgba(16,35,59,.08);padding:0 6px;
+  z-index:50;box-shadow:0 -4px 16px rgba(15,23,42,.06);padding:0 2px;
+  padding-bottom:env(safe-area-inset-bottom, 0px);
 }
 .v-bottom-nav a{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  flex:1;height:100%;color:#64748B;font-size:11px;font-weight:700;gap:3px;
+  flex:1;height:100%;color:#64748B;font-size:11.5px;font-weight:700;gap:3px;
+  transition:all .12s ease;user-select:none;
 }
-.v-bottom-nav a.active{color:#1E5FB4}
-.v-bottom-nav a .nav-icon{font-size:20px;line-height:1}
-
-@media (min-width: 601px){
-  body{background:#EEF1F6}
-  .app-shell{box-shadow:0 0 40px rgba(0,0,0,.08)}
-  .v-bottom-nav{left:50%;transform:translateX(-50%);max-width:540px;border-left:1px solid #E2E8F0;border-right:1px solid #E2E8F0}
-}
-@media (max-width: 600px){
-  .app-shell{max-width:100%!important;width:100%!important}
-  main{padding:14px 14px 85px!important}
-}
+.v-bottom-nav a.active{color:#0F326A;font-weight:900}
+.v-bottom-nav a.active .nav-icon{transform:scale(1.1);color:#1E5FB4}
+.v-bottom-nav a .nav-icon{font-size:24px;line-height:1;transition:transform .12s ease}
 
 /* Burbujas de Chat con Marcos IA */
 .chat-bubble-marcos{
@@ -129,6 +121,16 @@ button,input,textarea{font-family:inherit}
 .typing-dot:nth-child(1){animation-delay:-0.32s}
 .typing-dot:nth-child(2){animation-delay:-0.16s}
 
+/* Soporte Horizontal (Landscape) */
+@media (orientation: landscape) {
+  .app-shell { width: 100% !important; max-width: 1000px !important; margin: 0 auto !important; }
+  main { padding: 12px 20px 65px !important; }
+  .v-bottom-nav { height: 50px !important; padding: 0 16px !important; }
+  .v-bottom-nav a { font-size: 10px !important; gap: 2px !important; }
+  .v-bottom-nav a .nav-icon { font-size: 18px !important; }
+  #box-timbre-sonando, #box-llamada-voz-activa { max-width: 600px !important; }
+}
+
 /* Modo Oscuro */
 .dark-theme{background:#0B132B!important;color:#F1F5F9!important}
 .dark-theme .app-shell{background:#0B132B!important}
@@ -146,7 +148,7 @@ function getVecinoSession(req) {
   // Default de prueba
   return {
     nombre: 'Daniel Morales',
-    telefono: '+54 9 11 5555-4321',
+    telefono: '+5491150542005',
     edificio: 'San Patricio 159',
     departamento: '1° A',
     saldoExpensa: '$120.000,00',
@@ -177,7 +179,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
 <title>Marcos IA · ${title}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css"/>
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/fill/style.css"/>
 <style>${CSS_VECINO}</style>
@@ -211,31 +213,38 @@ function shellVecino(title, activeTab, content, vecinoData) {
 <body>
 <div class="app-shell">
   
-  <!-- TOPBAR VECINO -->
-  <header style="height:60px;background:#ffffff;border-bottom:1px solid #E2E8F0;display:flex;align-items:center;justify-content:space-between;padding:0 16px;position:sticky;top:0;z-index:40">
-    <div style="display:flex;align-items:center;gap:10px">
-      <img src="/admin/assets/logo.png" alt="Marcos IA" style="width:32px;height:32px;border-radius:8px;object-fit:cover" onerror="this.style.display='none'">
-      <div>
-        <div style="font-size:15px;font-weight:800;color:#0F326A;line-height:1.1">Marcos IA</div>
-        <div style="font-size:11px;font-weight:700;color:#64748B">${v.edificio} · ${v.departamento}</div>
+  <!-- TOPBAR VECINO (Estilo Mercado Pago con Cabecera Azul Consorcio) -->
+  <header style="background:linear-gradient(180deg,#0F326A 0%,#1A4A8F 100%);color:#ffffff;padding:16px 16px 20px;position:sticky;top:0;z-index:40;box-shadow:0 4px 15px rgba(15,50,106,.2)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.4);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff">
+          ${v.nombre.split(' ').map(n=>n[0]).slice(0,2).join('')}
+        </div>
+        <div>
+          <div style="font-size:17px;font-weight:900;line-height:1.2;letter-spacing:-.01em">Hola, ${v.nombre.split(' ')[0]} 👋</div>
+          <div style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:rgba(255,255,255,.85);margin-top:2px">
+            <span>${v.edificio}</span> · <span style="background:rgba(255,255,255,.2);padding:1px 6px;border-radius:6px">Depto ${v.departamento}</span>
+          </div>
+        </div>
       </div>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px">
-      <button onclick="toggleTheme()" style="width:36px;height:36px;border-radius:10px;border:1px solid #E2E8F0;background:#F8FAFD;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#64748B">
-        <i class="ph ph-moon" style="font-size:18px"></i>
-      </button>
-      <a href="/vecino/login" title="Cerrar sesión" style="width:36px;height:36px;border-radius:10px;border:1px solid #E2E8F0;background:#F1F5FB;display:flex;align-items:center;justify-content:center;color:#1E5FB4;font-weight:800;font-size:13px">
-        ${v.nombre.split(' ').map(n=>n[0]).slice(0,2).join('')}
-      </a>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="toggleTheme()" style="width:36px;height:36px;border-radius:50%;border:none;background:rgba(255,255,255,.15);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff">
+          <i class="ph ph-moon" style="font-size:18px"></i>
+        </button>
+        <a href="/vecino/novedades" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;color:#fff;position:relative">
+          <i class="ph ph-bell-simple" style="font-size:19px"></i>
+          <span style="position:absolute;top:7px;right:7px;width:7px;height:7px;background:#EF4444;border-radius:50%"></span>
+        </a>
+      </div>
     </div>
   </header>
 
   <!-- CONTENIDO PRINCIPAL -->
-  <main style="flex:1;padding:16px 16px 85px" class="anim-fade">
+  <main style="flex:1" class="anim-fade">
     ${content}
   </main>
 
-  <!-- BARRA DE NAVEGACION INFERIOR -->
+  <!-- BARRA DE NAVEGACION INFERIOR (Estilo Mercado Pago con Botón QR Central) -->
   <nav class="v-bottom-nav">
     <a href="/vecino" class="${activeTab === 'inicio' ? 'active' : ''}">
       <span class="nav-icon"><i class="ph ph-house${activeTab === 'inicio' ? '-fill' : ''}"></i></span>
@@ -245,6 +254,15 @@ function shellVecino(title, activeTab, content, vecinoData) {
       <span class="nav-icon"><i class="ph ph-chat-circle-dots${activeTab === 'chat' ? '-fill' : ''}"></i></span>
       <span>Marcos IA</span>
     </a>
+    
+    <!-- Botón Central QR Portería -->
+    <a href="/porteria/San%20Patricio%20159" style="position:relative;top:-10px;text-decoration:none">
+      <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(15,50,106,.35);border:3px solid #fff">
+        <i class="ph ph-qr-code" style="font-size:26px"></i>
+      </div>
+      <span style="font-size:10.5px;font-weight:800;color:#0F326A;margin-top:2px">Portería</span>
+    </a>
+
     <a href="/vecino/amenities" class="${activeTab === 'amenities' ? 'active' : ''}">
       <span class="nav-icon"><i class="ph ph-calendar-check${activeTab === 'amenities' ? '-fill' : ''}"></i></span>
       <span>Amenities</span>
@@ -253,71 +271,79 @@ function shellVecino(title, activeTab, content, vecinoData) {
       <span class="nav-icon"><i class="ph ph-receipt${activeTab === 'expensas' ? '-fill' : ''}"></i></span>
       <span>Expensas</span>
     </a>
-    <a href="/vecino/novedades" class="${activeTab === 'novedades' ? 'active' : ''}">
-      <span class="nav-icon"><i class="ph ph-bell${activeTab === 'novedades' ? '-fill' : ''}"></i></span>
-      <span>Avisos</span>
-    </a>
   </nav>
 
-  <!-- MODAL LLAMADA ENTRANTE DE PORTERÍA (TIMBRE VIRTUAL & VOZ WEBRTC) -->
+  <!-- MODAL LLAMADA ENTRANTE DE PORTERÍA (TIMBRE VIRTUAL & VOZ WEBRTC FULLSCREEN) -->
   <audio id="audio-webrtc-vecino" autoplay playsinline style="display:none"></audio>
-  <div id="modal-llamada-timbre" style="position:fixed;inset:0;background:rgba(10,31,68,.96);backdrop-filter:blur(12px);z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:#fff;text-align:center">
+  <div id="modal-llamada-timbre" style="position:fixed;inset:0;width:100vw;height:100vh;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 50%,#1E5FB4 100%);z-index:99999;display:none;flex-direction:column;align-items:center;justify-content:space-between;padding:36px 20px 24px;color:#fff;text-align:center;box-sizing:border-box;overflow-y:auto">
     
     <!-- 1. Estado: Sonando Timbre -->
-    <div id="box-timbre-sonando" style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:340px">
-      <div style="width:90px;height:90px;border-radius:50%;background:linear-gradient(135deg,#1E5FB4,#38BDF8);display:flex;align-items:center;justify-content:center;font-size:44px;margin-bottom:18px;box-shadow:0 0 40px rgba(56,189,248,.6);animation:pulseRing 1.2s infinite">
+    <div id="box-timbre-sonando" style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:440px;margin:auto 0">
+      <div style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#2563EB,#38BDF8);display:flex;align-items:center;justify-content:center;font-size:48px;margin-bottom:16px;box-shadow:0 0 50px rgba(56,189,248,.6);animation:pulseRing 1.2s infinite">
         🔔
       </div>
-      <div style="font-size:12.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#38BDF8;margin-bottom:4px">Llamada de Portería</div>
-      <h2 style="font-size:22px;font-weight:900;margin-bottom:4px" id="llamada-timbre-visita">🛵 Delivery en Puerta</h2>
-      <p style="font-size:13.5px;color:#CBD5E1;margin-bottom:20px">Tocando timbre para tu unidad (${v.departamento})</p>
+      <div style="font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#38BDF8;margin-bottom:6px">TIMBRE ENTRANTE EN PORTERÍA</div>
+      <h2 style="font-size:24px;font-weight:900;margin-bottom:4px" id="llamada-timbre-visita">🛵 Delivery en Puerta</h2>
+      <p style="font-size:15px;color:#E2E8F0;margin-bottom:24px">${v.edificio} · Depto ${v.departamento}</p>
 
       <!-- Botón Hablar en Vivo -->
-      <button onclick="iniciarLlamadaVozVecino()" style="width:100%;height:52px;border:none;border-radius:14px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 4px 18px rgba(22,163,74,.45);margin-bottom:14px">
-        <i class="ph ph-phone-call-fill" style="font-size:22px"></i>
+      <button onclick="iniciarLlamadaVozVecino()" style="width:100%;height:56px;border:none;border-radius:16px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:17px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 6px 22px rgba(22,163,74,.5);margin-bottom:18px">
+        <i class="ph ph-phone-call-fill" style="font-size:24px"></i>
         <span>HABLAR EN VIVO (Llamada)</span>
       </button>
 
-      <div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">O responder con 1 toque:</div>
+      <div style="font-size:12px;font-weight:800;color:#94A3B8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">O responder con texto rápido:</div>
 
       <!-- Respuestas Rápidas de Texto -->
-      <div style="display:flex;flex-direction:column;gap:8px;width:100%;margin-bottom:16px">
-        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="width:100%;height:44px;border:1.5px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(255,255,255,.1);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;margin-bottom:12px">
+        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="height:44px;border:1.5px solid rgba(255,255,255,.25);border-radius:12px;background:rgba(255,255,255,.12);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
           <span>🏃 ¡Ya bajo!</span>
         </button>
-        <button onclick="responderTimbreVecino('Dejalo en el hall / puerta')" style="width:100%;height:44px;border:1.5px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(255,255,255,.1);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
-          <span>🚪 Dejalo en el hall</span>
+        <button onclick="responderTimbreVecino('Dejalo en el hall / puerta')" style="height:44px;border:1.5px solid rgba(255,255,255,.25);border-radius:12px;background:rgba(255,255,255,.12);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>🚪 En el hall</span>
         </button>
-        <button onclick="responderTimbreVecino('Dejar con el encargado')" style="width:100%;height:44px;border:1.5px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(255,255,255,.1);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
-          <span>📬 Dejar con el encargado</span>
+        <button onclick="responderTimbreVecino('Dejar con el encargado')" style="height:44px;border:1.5px solid rgba(255,255,255,.25);border-radius:12px;background:rgba(255,255,255,.12);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>📬 Encargado</span>
+        </button>
+        <button onclick="responderTimbreVecino('No estoy en el departamento')" style="height:44px;border:1.5px solid rgba(255,255,255,.25);border-radius:12px;background:rgba(255,255,255,.12);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>🚫 No estoy</span>
         </button>
       </div>
 
-      <button onclick="silenciarTimbreVecino()" style="background:transparent;border:none;color:#94A3B8;font-size:13px;font-weight:700;cursor:pointer;padding:6px 12px">
-        ✕ Silenciar timbre
+      <!-- Campo de Respuesta Personalizada Libre -->
+      <div style="display:flex;gap:8px;width:100%;margin-bottom:18px">
+        <input id="input-resp-personalizada" type="text" placeholder="Escribir mensaje personalizado..." style="flex:1;height:46px;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);border-radius:12px;padding:0 14px;color:#fff;font-size:14px;outline:none" onkeydown="if(event.key==='Enter')enviarTextoLibreVecino()">
+        <button onclick="enviarTextoLibreVecino()" style="padding:0 16px;height:46px;background:#2563EB;border:none;border-radius:12px;color:#fff;font-weight:800;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px">
+          <span>Enviar</span>
+          <i class="ph ph-paper-plane-right-fill" style="font-size:16px"></i>
+        </button>
+      </div>
+
+      <button onclick="silenciarTimbreVecino()" style="background:transparent;border:none;color:#94A3B8;font-size:13px;font-weight:700;cursor:pointer;padding:8px 16px">
+        ✕ Silenciar / Rechazar
       </button>
     </div>
 
     <!-- 2. Estado: En Llamada de Voz Activa -->
-    <div id="box-llamada-voz-activa" style="display:none;flex-direction:column;align-items:center;width:100%;max-width:340px">
-      <div style="width:84px;height:84px;border-radius:50%;background:linear-gradient(135deg,#15803D,#16A34A);display:flex;align-items:center;justify-content:center;font-size:38px;margin-bottom:16px;box-shadow:0 0 35px rgba(22,163,74,.5)">
+    <div id="box-llamada-voz-activa" style="display:none;flex-direction:column;align-items:center;width:100%;max-width:440px;margin:auto 0">
+      <div style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#15803D,#16A34A);display:flex;align-items:center;justify-content:center;font-size:44px;margin-bottom:16px;box-shadow:0 0 45px rgba(22,163,74,.6)">
         🎙️
       </div>
-      <div style="font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#86EFAC;margin-bottom:2px">Llamada de Voz Conectada</div>
-      <h2 style="font-size:20px;font-weight:900;margin-bottom:4px">Puerta de Calle</h2>
-      <div id="voz-timer" style="font-size:18px;font-family:monospace;font-weight:700;color:#38BDF8;margin-bottom:20px">00:00</div>
+      <div style="font-size:13px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#86EFAC;margin-bottom:4px">LLAMADA ENTRANTE EN VIVO</div>
+      <h2 style="font-size:22px;font-weight:900;margin-bottom:4px">Frente de Calle</h2>
+      <div id="voz-timer" style="font-size:20px;font-family:monospace;font-weight:800;color:#38BDF8;margin-bottom:24px">00:00</div>
 
       <div style="display:flex;gap:12px;margin-bottom:20px;width:100%">
-        <button id="btn-mute-voz" onclick="toggleMuteVoz()" style="flex:1;height:48px;border-radius:12px;border:1.5px solid rgba(255,255,255,.25);background:rgba(255,255,255,.1);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <button id="btn-mute-voz" onclick="toggleMuteVoz()" style="flex:1;height:50px;border-radius:14px;border:1.5px solid rgba(255,255,255,.3);background:rgba(255,255,255,.15);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
           <span>🎙️ Silenciar Mic</span>
         </button>
-        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="flex:1;height:48px;border-radius:12px;border:none;background:#2563EB;color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="flex:1;height:50px;border-radius:14px;border:none;background:#2563EB;color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
           <span>🏃 ¡Ya bajo!</span>
         </button>
       </div>
 
-      <button onclick="cortarLlamadaVoz()" style="width:100%;height:50px;border:none;border-radius:14px;background:#DC2626;color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 15px rgba(220,38,38,.4)">
-        <i class="ph ph-phone-disconnect-fill" style="font-size:20px"></i>
+      <button onclick="cortarLlamadaVoz()" style="width:100%;height:54px;border:none;border-radius:16px;background:#DC2626;color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 20px rgba(220,38,38,.5)">
+        <i class="ph ph-phone-disconnect-fill" style="font-size:22px"></i>
         <span>FINALIZAR LLAMADA</span>
       </button>
     </div>
@@ -398,6 +424,14 @@ function shellVecino(title, activeTab, content, vecinoData) {
           body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, respuesta: resp })
         });
       } catch(_) {}
+    };
+
+    window.enviarTextoLibreVecino = function() {
+      var inp = document.getElementById('input-resp-personalizada');
+      var txt = inp ? inp.value.trim() : '';
+      if (!txt) txt = '¡Ya bajo!';
+      responderTimbreVecino(txt);
+      if (inp) inp.value = '';
     };
 
     window.silenciarTimbreVecino = function() {
@@ -858,7 +892,7 @@ router.post('/auth', async (req, res) => {
     } else {
       req.session.vecino = {
         nombre: limpio.includes('@') ? limpio.split('@')[0] : (limpio || 'Daniel Morales'),
-        telefono: telLimpio || '+54 9 11 5555-4321',
+        telefono: telLimpio || '+5491150542005',
         edificio: 'San Patricio 159',
         departamento: '1° A',
         saldoExpensa: '$120.000,00',
@@ -876,78 +910,125 @@ router.get('/', (req, res) => {
   const v = getVecinoSession(req);
 
   const content = `
-    <!-- Tarjeta de Bienvenida -->
-    <div class="card" style="padding:18px 20px;margin-bottom:16px;background:linear-gradient(145deg,#0F326A,#1E5FB4);color:#fff;border:none">
-      <div>
-        <span style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.7)">CONSORCIO DIGITAL</span>
-        <h2 style="font-size:20px;font-weight:800;margin:2px 0 4px">Hola, ${v.nombre.split(' ')[0]} 👋</h2>
-        <p style="font-size:13px;color:rgba(255,255,255,.85)">${v.edificio} · Depto ${v.departamento}</p>
-      </div>
-    </div>
-
-    <!-- Estado de Expensas Destacado -->
-    <div class="card" style="padding:18px 20px;margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <span style="font-size:12px;font-weight:800;color:#64748B;text-transform:uppercase">Expensa del Mes (Agosto)</span>
-        <span style="font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:999px;background:#DCFCE7;color:#15803D;border:1px solid #86EFAC">
+    <!-- Tarjeta Principal de Expensas (Estilo Saldo Mercado Pago) -->
+    <div class="card" style="padding:18px;background:#ffffff;margin-bottom:14px;box-shadow:0 4px 18px rgba(15,23,42,.06);border-radius:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #F1F5F9;padding-bottom:10px">
+        <div style="display:flex;gap:16px;font-size:13px;font-weight:800">
+          <span style="color:#0F326A;border-bottom:2px solid #0F326A;padding-bottom:8px">Expensas</span>
+          <span style="color:#94A3B8;cursor:pointer" onclick="location.href='/vecino/amenities'">Reservas</span>
+          <span style="color:#94A3B8;cursor:pointer" onclick="location.href='/vecino/chat'">Reclamos</span>
+        </div>
+        <span style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:#DCFCE7;color:#15803D;border:1px solid #86EFAC">
           ✓ ${v.estadoExpensa}
         </span>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">
-        <div>
-          <div style="font-size:26px;font-weight:800;color:#0F172A;letter-spacing:-.02em">${v.saldoExpensa}</div>
-          <div style="font-size:12px;color:#64748B">Vencimiento: 10 de Agosto · Acreditado</div>
+
+      <div style="margin-bottom:16px">
+        <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em">Total a Pagar (Mes de Agosto)</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
+          <div style="font-size:32px;font-weight:900;color:#0F172A;letter-spacing:-.03em">${v.saldoExpensa}</div>
         </div>
+        <div style="font-size:12px;color:#64748B;margin-top:2px">Vencimiento: 10 de Agosto · Acreditado</div>
       </div>
-      <div style="display:flex;gap:8px">
-        <a href="/vecino/expensas" style="flex:1;height:40px;border-radius:10px;background:#F1F5FB;color:#1E5FB4;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px">
-          <i class="ph ph-receipt" style="font-size:16px"></i>
-          <span>Ver Recibo</span>
+
+      <!-- Acciones de la Expensa -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:#0F326A;color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(15,50,106,.25)">
+          <i class="ph ph-credit-card" style="font-size:18px"></i>
+          <span>Pagar Expensa</span>
+        </a>
+        <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:#F1F5F9;color:#0F326A;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid #E2E8F0">
+          <i class="ph ph-receipt" style="font-size:18px"></i>
+          <span>Ver Recibo PDF</span>
         </a>
       </div>
     </div>
 
-    <!-- Acceso Rápido al Asistente Marcos IA -->
-    <div class="card card-touch" style="padding:16px 18px;margin-bottom:16px;background:#ffffff;border-left:4px solid #2E6FC0;cursor:pointer" onclick="location.href='/vecino/chat'">
-      <div style="display:flex;align-items:center;gap:14px">
-        <div style="width:44px;height:44px;border-radius:12px;background:#EBF3FC;display:flex;align-items:center;justify-content:center;font-size:22px;color:#1E5FB4;flex-shrink:0">
+    <!-- Servicios Rápidos en Fila (Estilo Mercado Pago Icons) -->
+    <div style="margin-bottom:14px">
+      <div style="font-size:13.5px;font-weight:800;color:#0F172A;margin-bottom:10px">Accesos Directos</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        
+        <a href="/porteria/San%20Patricio%20159" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
+          <div style="width:44px;height:44px;border-radius:14px;background:#FEF3C7;color:#D97706;display:flex;align-items:center;justify-content:center;font-size:22px">
+            <i class="ph ph-qr-code"></i>
+          </div>
+          <span style="font-size:11.5px;font-weight:800;color:#1E293B">Portería QR</span>
+        </a>
+
+        <a href="/vecino/amenities" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
+          <div style="width:44px;height:44px;border-radius:14px;background:#DCFCE7;color:#15803D;display:flex;align-items:center;justify-content:center;font-size:22px">
+            <i class="ph ph-swimming-pool"></i>
+          </div>
+          <span style="font-size:11.5px;font-weight:800;color:#1E293B">Amenities</span>
+        </a>
+
+        <a href="/vecino/chat" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
+          <div style="width:44px;height:44px;border-radius:14px;background:#EBF3FC;color:#1E5FB4;display:flex;align-items:center;justify-content:center;font-size:22px">
+            <i class="ph ph-wrench"></i>
+          </div>
+          <span style="font-size:11.5px;font-weight:800;color:#1E293B">Reclamos</span>
+        </a>
+
+        <a href="/vecino/novedades" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
+          <div style="width:44px;height:44px;border-radius:14px;background:#F3E8FF;color:#7E22CE;display:flex;align-items:center;justify-content:center;font-size:22px">
+            <i class="ph ph-bell-ringing"></i>
+          </div>
+          <span style="font-size:11.5px;font-weight:800;color:#1E293B">Avisos</span>
+        </a>
+
+      </div>
+    </div>
+
+    <!-- Banner Inteligente Marcos IA (Estilo Créditos Mercado Pago) -->
+    <div class="card card-touch" style="padding:16px;background:#ffffff;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;border-left:4px solid #1E5FB4" onclick="location.href='/vecino/chat'">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:42px;height:42px;border-radius:12px;background:#0F326A;color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
           🤖
         </div>
-        <div style="flex:1">
-          <div style="font-size:15px;font-weight:800;color:#0F326A">Asistente Marcos IA (24/7)</div>
-          <div style="font-size:12.5px;color:#64748B">Reportá reclamos, pedí plomero o consultá reglamentos.</div>
-        </div>
-        <i class="ph ph-caret-right" style="font-size:18px;color:#94A3B8"></i>
-      </div>
-    </div>
-
-    <!-- Acceso Directo Instalar App en Celular -->
-    <div class="card card-touch" style="padding:14px 16px;margin-bottom:16px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 14px rgba(15,50,106,.2)" onclick="instalarPwa()">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
-          📲
-        </div>
         <div>
-          <div style="font-size:14px;font-weight:800;line-height:1.2">Instalar App en el Celular</div>
-          <div style="font-size:11.5px;color:rgba(255,255,255,.85)">Acceso rápido sin abrir el navegador</div>
+          <div style="font-size:14.5px;font-weight:900;color:#0F172A">Asistente Consorcio 24/7</div>
+          <div style="font-size:12px;color:#64748B;line-height:1.3">Reportá urgencias, pedí cerrajero o consultá reglamentos.</div>
         </div>
       </div>
-      <button style="padding:6px 14px;border:none;border-radius:8px;background:#fff;color:#0F326A;font-weight:800;font-size:12.5px;cursor:pointer;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.15)">Instalar</button>
+      <button style="padding:7px 14px;border:none;border-radius:10px;background:#0F326A;color:#fff;font-size:12.5px;font-weight:800;cursor:pointer;flex-shrink:0">Chatear</button>
     </div>
 
-    <!-- Últimas Novedades del Edificio -->
-    <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:13.5px;font-weight:800;color:#0F172A">Novedades del Consorcio</span>
-      <a href="/vecino/novedades" style="font-size:12.5px;font-weight:700;color:#1E5FB4">Ver todas</a>
+    <!-- Estado de Servicios del Edificio -->
+    <div class="card" style="padding:16px;background:#fff;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span style="font-size:13px;font-weight:800;color:#64748B;text-transform:uppercase">Servicios · San Patricio 159</span>
+        <span style="font-size:11px;font-weight:800;color:#15803D;background:#DCFCE7;padding:2px 8px;border-radius:999px">Operativo</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
+          <span style="display:flex;align-items:center;gap:8px;font-weight:700">🛗 Ascensor Principal</span>
+          <span style="font-size:11.5px;font-weight:700;color:#15803D">En servicio normal</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
+          <span style="display:flex;align-items:center;gap:8px;font-weight:700">💧 Bombas de Agua</span>
+          <span style="font-size:11.5px;font-weight:700;color:#15803D">Presión estándar</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
+          <span style="display:flex;align-items:center;gap:8px;font-weight:700">🚗 Portón Cochera</span>
+          <span style="font-size:11.5px;font-weight:700;color:#15803D">Apertura automática</span>
+        </div>
+      </div>
     </div>
 
-    <div class="card" style="padding:15px 18px;margin-bottom:10px">
+    <!-- Novedades del Consorcio -->
+    <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:13.5px;font-weight:900;color:#0F172A">Novedades del Consorcio</span>
+      <a href="/vecino/novedades" style="font-size:12.5px;font-weight:800;color:#1E5FB4">Ver todas</a>
+    </div>
+
+    <div class="card" style="padding:15px;background:#fff;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:#FEF3C7;color:#92400E">Mantenimiento</span>
+        <span style="font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:#FEF3C7;color:#92400E">Mantenimiento</span>
         <span style="font-size:11.5px;color:#94A3B8">Hoy · 09:30 hs</span>
       </div>
-      <div style="font-size:14.5px;font-weight:700;color:#0F172A;margin-bottom:4px">Limpieza de tanques de agua</div>
-      <div style="font-size:13px;color:#64748B;line-height:1.4">Se realizará el jueves de 08:00 a 14:00 hs. Habrá baja presión de agua.</div>
+      <div style="font-size:14px;font-weight:800;color:#0F172A;margin-bottom:4px">Limpieza programada de tanques</div>
+      <div style="font-size:12.5px;color:#64748B;line-height:1.4">Se realizará el jueves de 08:00 a 14:00 hs. Habrá baja presión momentánea.</div>
     </div>
   `;
 
@@ -966,7 +1047,7 @@ router.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
     display: 'standalone',
     background_color: '#F8FAFD',
     theme_color: '#0F326A',
-    orientation: 'portrait-primary',
+    orientation: 'any',
     icons: [
       {
         src: '/admin/assets/logo.png',

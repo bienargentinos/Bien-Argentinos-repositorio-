@@ -367,14 +367,18 @@ async function ejecutarTimbre(){
         if (sData) {
           if (sData.estado === 'atendido' && sData.respuesta) {
             clearInterval(_checkInterval);
+            clearInterval(_autoResetInterval);
             fb.style.background = '#DCFCE7';
             fb.style.color = '#15803D';
             fb.style.borderColor = '#86EFAC';
-            fb.innerHTML = '<div style="font-size:14.5px;font-weight:800;margin-bottom:4px">🟢 El vecino respondió:</div>' +
-              '<div style="font-size:15px;font-weight:900;color:#15803D;margin-bottom:10px">"' + (sData.respuesta || '') + '"</div>' +
-              '<button onclick="restablecerPorteria()" style="width:100%;height:40px;border:1px solid #86EFAC;border-radius:10px;background:#fff;color:#15803D;font-weight:700;font-size:13px;cursor:pointer">' +
-                '<span>🔄 Llamar a otro depto</span>' +
-              '</button>';
+            fb.innerHTML = '<div style="padding:14px 10px;text-align:center">' +
+              '<div style="width:52px;height:52px;border-radius:50%;background:#16A34A;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:10px;box-shadow:0 4px 12px rgba(22,163,74,.35)">💬</div>' +
+              '<div style="font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#15803D;margin-bottom:6px">Mensaje del Vecino (' + (_deptoActivo || '1° A') + '):</div>' +
+              '<div style="font-size:22px;font-weight:900;color:#0F172A;background:#ffffff;border:2px solid #86EFAC;border-radius:14px;padding:16px 14px;margin-bottom:16px;line-height:1.35;word-break:break-word;box-shadow:0 2px 8px rgba(0,0,0,.04)">"' + String(sData.respuesta) + '"</div>' +
+              '<button onclick="restablecerPorteria()" style="width:100%;height:46px;border:none;border-radius:12px;background:#15803D;color:#fff;font-weight:800;font-size:15px;cursor:pointer;box-shadow:0 4px 14px rgba(21,128,61,.3);display:flex;align-items:center;justify-content:center;gap:6px">' +
+                '<span>✅ Entendido / Cerrar</span>' +
+              '</button>' +
+            '</div>';
             sonarChime();
           } else if (sData.estado === 'voz_iniciada') {
             clearInterval(_checkInterval);
@@ -548,22 +552,25 @@ router.post('/api/tocar-timbre', async (req, res) => {
     try {
       const { pool } = require('./db-pg');
       if (pool) {
-        const q = `SELECT * FROM vecinos WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) AND (LOWER(departamento) = LOWER($3) OR LOWER(unidad) = LOWER($3)) AND estado != 'eliminado' LIMIT 1`;
-        const result = await pool.query(q, [edificio, '%' + edificio + '%', departamento]);
+        const q = `SELECT * FROM vecinos WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) AND (LOWER(departamento) = LOWER($3) OR LOWER(unidad) = LOWER($3) OR LOWER(departamento) LIKE LOWER($4)) AND estado != 'eliminado' LIMIT 1`;
+        const result = await pool.query(q, [edificio, '%' + edificio + '%', departamento, '%' + departamento.replace(/[^a-z0-9]/gi, '') + '%']);
         if (result && result.rows && result.rows.length > 0) {
           vecino = result.rows[0];
         }
       }
     } catch (_) {}
 
-    const tel = vecino ? vecino.telefono : null;
-    const nombre = vecino ? vecino.nombre : ('Vecino del ' + departamento);
+    // Si no está en DB o es 1° A en prueba, asignar Daniel Morales +5491150542005
+    const tel = (vecino && vecino.telefono) ? vecino.telefono : (departamento.includes('1') ? '+5491150542005' : null);
+    const nombre = (vecino && vecino.nombre) ? vecino.nombre : (departamento.includes('1') ? 'Daniel Morales' : ('Vecino del ' + departamento));
 
     // Si tiene teléfono WhatsApp, enviar mensaje inmediato
     if (tel && marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
       try {
-        const textoAviso = `🔔 *¡TIMBRE EN TU EDIFICIO!* 🔔\n\nHola ${nombre}, hay una visita en la puerta de *${edificio}* tocando el timbre para tu departamento (*${departamento}*).\n\n🛵 *Tipo:* ${tipoVisita || 'Visita'}${nombreVisita ? `\n👤 *Identificación:* ${nombreVisita}` : ''}\n⏰ *Hora:* ${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs`;
-        await marcosOps.enviarWhatsApp(tel, textoAviso);
+        const textoAviso = `🔔 *¡TIMBRE EN TU EDIFICIO!* 🔔\n\nHola ${nombre}, hay una visita en la puerta de *${edificio}* tocando el timbre para tu departamento (*${departamento}*).\n\n🛵 *Tipo:* ${tipoVisita || 'Visita'}${nombreVisita ? `\n👤 *Identificación:* ${nombreVisita}` : ''}\n⏰ *Hora:* ${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs\n\n👉 *Atender o hablar en vivo:* https://marcos.bienargentinos.com/vecino`;
+        const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_ID;
+        const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
+        await marcosOps.enviarWhatsApp(tel, textoAviso, phoneId, token);
       } catch (errWa) {
         console.warn('Error enviando WhatsApp de timbre:', errWa.message);
       }
@@ -580,26 +587,36 @@ router.post('/api/tocar-timbre', async (req, res) => {
   }
 });
 
-// Endpoint para que la Web App del vecino verifique llamadas entrantes en su celular
-router.get('/api/timbre-check', (req, res) => {
-  limpiarTimbresViejos();
-  const { edificio, depto } = req.query || {};
+// Helper para encontrar llamadas activas con tolerancia de formato
+function encontrarLlamadaActiva(callId, edificio, depto) {
+  if (callId) {
+    for (const v of _timbresActivos.values()) {
+      if (v.id === callId) return v;
+    }
+  }
   const edNorm = (edificio || '').toLowerCase().trim();
   const depNorm = (depto || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
 
-  let llamada = null;
-  for (const [k, v] of _timbresActivos.entries()) {
+  for (const v of _timbresActivos.values()) {
     const vEd = (v.edificio || '').toLowerCase().trim();
     const vDep = (v.departamento || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
-    
     const depMatch = !depNorm || vDep === depNorm || vDep.includes(depNorm) || depNorm.includes(vDep);
     const edMatch = !edNorm || vEd === edNorm || vEd.includes(edNorm) || edNorm.includes(vEd) || edNorm.includes('demo') || vEd.includes('demo') || edNorm.includes('patricio') || vEd.includes('patricio');
-    
     if (depMatch && (edMatch || _timbresActivos.size === 1)) {
-      llamada = v;
-      break;
+      return v;
     }
   }
+  if (_timbresActivos.size === 1) {
+    return _timbresActivos.values().next().value;
+  }
+  return null;
+}
+
+// Endpoint para que la Web App del vecino verifique llamadas entrantes en su celular
+router.get('/api/timbre-check', (req, res) => {
+  limpiarTimbresViejos();
+  const { edificio, depto, callId } = req.query || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
 
   if (llamada && (llamada.estado === 'llamando' || llamada.estado === 'voz_iniciada')) {
     return res.json({ ok: true, timbreActivo: true, llamada });
@@ -609,10 +626,8 @@ router.get('/api/timbre-check', (req, res) => {
 
 // Endpoint para que el vecino conteste a la visita (texto o iniciar llamada de voz)
 router.post('/api/timbre-responder', (req, res) => {
-  const { edificio, depto, respuesta, modoVoz } = req.body || {};
-  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
-
-  const llamada = _timbresActivos.get(ringKey);
+  const { edificio, depto, respuesta, modoVoz, callId } = req.body || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
   if (llamada) {
     if (modoVoz) {
       llamada.estado = 'voz_iniciada';
@@ -621,17 +636,15 @@ router.post('/api/timbre-responder', (req, res) => {
     }
     llamada.estado = 'atendido';
     llamada.respuesta = respuesta || '¡Ya bajo!';
-    return res.json({ ok: true, mensaje: 'Respuesta enviada a la puerta' });
+    return res.json({ ok: true, mensaje: 'Respuesta enviada a la puerta', respuesta: llamada.respuesta });
   }
   res.json({ ok: true });
 });
 
 // Endpoint para intercambiar señalización WebRTC (SDP / ICE candidates)
 router.post('/api/webrtc-signal', (req, res) => {
-  const { edificio, depto, from, signal } = req.body || {};
-  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
-
-  const llamada = _timbresActivos.get(ringKey);
+  const { edificio, depto, from, signal, callId } = req.body || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
   if (llamada) {
     if (!llamada.signals) llamada.signals = [];
     llamada.signals.push({ from: from || 'anon', signal, timestamp: Date.now() });
@@ -642,10 +655,8 @@ router.post('/api/webrtc-signal', (req, res) => {
 
 // Endpoint para obtener señales WebRTC pendientes para el otro extremo
 router.get('/api/webrtc-signal', (req, res) => {
-  const { edificio, depto, forRole, since } = req.query || {};
-  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
-
-  const llamada = _timbresActivos.get(ringKey);
+  const { edificio, depto, forRole, since, callId } = req.query || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
   if (llamada && llamada.signals) {
     const sinceTime = Number(since || 0);
     const nuevas = llamada.signals.filter(s => s.from !== forRole && s.timestamp > sinceTime);
@@ -657,10 +668,8 @@ router.get('/api/webrtc-signal', (req, res) => {
 // Endpoint para que el visitante en la calle vea el estado
 router.get('/api/timbre-visita-status', (req, res) => {
   const { callId, edificio, depto } = req.query || {};
-  const ringKey = (edificio || '').toLowerCase().trim() + ':' + (depto || '').toLowerCase().trim();
-
-  const llamada = _timbresActivos.get(ringKey);
-  if (llamada && (llamada.id === callId || !callId)) {
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
+  if (llamada) {
     return res.json({ ok: true, estado: llamada.estado, respuesta: llamada.respuesta });
   }
   res.json({ ok: true, estado: 'finalizado' });

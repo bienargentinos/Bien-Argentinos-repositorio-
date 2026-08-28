@@ -4664,7 +4664,7 @@ app.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
         display_override: ['standalone', 'window-controls-overlay', 'minimal-ui'],
         background_color: '#F8FAFD',
         theme_color: '#0F326A',
-        orientation: 'portrait-primary',
+        orientation: 'any',
         icons: [
             {
                 src: '/admin/assets/logo.png',
