@@ -535,6 +535,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
 
         // Polling de señales de respuesta desde la visita
         var lastSince = Date.now() - 5000;
+        var _pendingAnsCandidates = [];
         var sigInterval = setInterval(async function(){
           if (!_peerConn) { clearInterval(sigInterval); return; }
           try {
@@ -544,15 +545,23 @@ function shellVecino(title, activeTab, content, vecinoData) {
               for (var i = 0; i < sData.signals.length; i++) {
                 var sigObj = sData.signals[i].signal;
                 lastSince = Math.max(lastSince, sData.signals[i].timestamp);
-                if (sigObj.type === 'answer' && _peerConn.signalingState !== 'stable') {
+                if (sigObj.type === 'answer' && _peerConn.signalingState === 'have-local-offer') {
                   await _peerConn.setRemoteDescription(new RTCSessionDescription(sigObj.sdp));
+                  while (_pendingAnsCandidates.length > 0) {
+                    var c = _pendingAnsCandidates.shift();
+                    await _peerConn.addIceCandidate(new RTCIceCandidate(c)).catch(function(){});
+                  }
                 } else if (sigObj.type === 'candidate' && sigObj.candidate) {
-                  await _peerConn.addIceCandidate(new RTCIceCandidate(sigObj.candidate));
+                  if (_peerConn.remoteDescription && _peerConn.remoteDescription.type) {
+                    await _peerConn.addIceCandidate(new RTCIceCandidate(sigObj.candidate)).catch(function(){});
+                  } else {
+                    _pendingAnsCandidates.push(sigObj.candidate);
+                  }
                 }
               }
             }
           } catch(_) {}
-        }, 1000);
+        }, 800);
 
       } catch(err) {
         console.warn('Voz WebRTC:', err.message);

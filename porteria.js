@@ -109,6 +109,69 @@ body{background:#0F326A;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 45%
 });
 
 // -------------------------------------------------------------------
+// 1.1 CARTEL IMPRIMIBLE CON CÓDIGO QR PARA LA ENTRADA
+// -------------------------------------------------------------------
+router.get('/:edificio/qr', (req, res) => {
+  const nombreEdificio = req.params.edificio || 'Consorcio';
+  const urlPorteria = 'https://marcos.bienargentinos.com/porteria/' + encodeURIComponent(nombreEdificio);
+  const qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=' + encodeURIComponent(urlPorteria);
+
+  res.send(`<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cartel QR Portería · ${esc(nombreEdificio)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hanken Grotesk',sans-serif;background:#F1F5F9;color:#0F172A;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+.poster{background:#ffffff;border:3px solid #0F326A;border-radius:24px;width:100%;max-width:480px;padding:36px 28px;text-align:center;box-shadow:0 15px 40px rgba(15,50,106,.15);position:relative}
+.badge-header{background:#0F326A;color:#ffffff;padding:8px 18px;border-radius:999px;font-size:13px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;display:inline-block;margin-bottom:16px}
+.qr-box{background:#ffffff;padding:16px;border:2px solid #E2E8F0;border-radius:20px;display:inline-block;margin:18px 0;box-shadow:0 4px 16px rgba(0,0,0,.06)}
+.qr-box img{width:240px;height:240px;display:block}
+.btn-print{margin-top:20px;padding:12px 28px;border:none;border-radius:12px;background:#0F326A;color:#fff;font-size:15px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:8px;box-shadow:0 4px 14px rgba(15,50,106,.3)}
+@media print{
+  body{background:#fff;padding:0}
+  .poster{border:2px solid #000;box-shadow:none;max-width:100%;border-radius:0}
+  .btn-print{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="poster">
+  <div class="badge-header">🔔 Portería Digital Inteligente</div>
+  <h1 style="font-size:26px;font-weight:900;color:#0F326A;margin-bottom:4px">${esc(nombreEdificio)}</h1>
+  <p style="font-size:15px;color:#64748B;font-weight:600">Escaneá el código QR con tu celular para tocar timbre</p>
+
+  <div class="qr-box">
+    <img src="${qrImg}" alt="Código QR de Portería">
+  </div>
+
+  <div style="font-size:13.5px;color:#334155;line-height:1.5;margin-bottom:16px">
+    <strong>¿Sos repartidor, visita o servicio?</strong><br>
+    Abrí la cámara de tu celular, apuntá al QR y elegí el depto.
+  </div>
+
+  <div style="display:flex;justify-content:center;gap:12px;font-size:20px;margin-bottom:10px">
+    🛵 📦 🚪 🔔 ⚡
+  </div>
+
+  <div style="font-size:11px;color:#94A3B8">
+    Tecnología <strong>Marcos IA</strong> · Consorcio Conectado 24/7
+  </div>
+</div>
+
+<button class="btn-print" onclick="window.print()">
+  <span>🖨️ Imprimir Cartel para la Puerta</span>
+</button>
+
+</body>
+</html>`);
+});
+
+// -------------------------------------------------------------------
 // 2. TIMBRE DIGITAL DEL EDIFICIO (INTERCOMUNICADOR MOBILE)
 // -------------------------------------------------------------------
 router.get('/:edificio', async (req, res) => {
@@ -184,7 +247,10 @@ body{background:#F0F4F9;color:#16233B;font-family:'Hanken Grotesk',sans-serif;mi
       🔔
     </div>
     <h1 style="font-size:20px;font-weight:800;letter-spacing:-.02em;margin-bottom:2px">${esc(nombreEdificio)}</h1>
-    <p style="font-size:12.5px;opacity:.85">Portería Virtual & Intercomunicador</p>
+    <p style="font-size:12.5px;opacity:.85;margin-bottom:12px">Portería Virtual & Intercomunicador</p>
+    <a href="/porteria/${encodeURIComponent(nombreEdificio)}/qr" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.2);color:#fff;padding:5px 14px;border-radius:999px;font-size:12px;font-weight:800;text-decoration:none;border:1px solid rgba(255,255,255,.3)">
+      <span>🖨️ Ver / Imprimir Cartel QR</span>
+    </a>
   </div>
 
   <!-- Buscador de Depto -->
@@ -469,6 +535,9 @@ async function iniciarVozVisita() {
 
     // Polling de oferta de vecino
     var lastSince = Date.now() - 6000;
+    var _offerProcesada = false;
+    var _pendingCandidates = [];
+
     _sigInterval = setInterval(async function(){
       if (!_visitaPeerConn) { clearInterval(_sigInterval); return; }
       try {
@@ -478,7 +547,8 @@ async function iniciarVozVisita() {
           for (var i = 0; i < sData.signals.length; i++) {
             var sigObj = sData.signals[i].signal;
             lastSince = Math.max(lastSince, sData.signals[i].timestamp);
-            if (sigObj.type === 'offer' && _visitaPeerConn.signalingState !== 'stable') {
+            if (sigObj.type === 'offer' && !_offerProcesada) {
+              _offerProcesada = true;
               await _visitaPeerConn.setRemoteDescription(new RTCSessionDescription(sigObj.sdp));
               var answer = await _visitaPeerConn.createAnswer();
               await _visitaPeerConn.setLocalDescription(answer);
@@ -487,13 +557,22 @@ async function iniciarVozVisita() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ edificio: _edificio, depto: _deptoActivo, from: 'visita', signal: { type: 'answer', sdp: answer } })
               });
+              // Procesar candidatos acumulados
+              while (_pendingCandidates.length > 0) {
+                var cand = _pendingCandidates.shift();
+                await _visitaPeerConn.addIceCandidate(new RTCIceCandidate(cand)).catch(function(){});
+              }
             } else if (sigObj.type === 'candidate' && sigObj.candidate) {
-              await _visitaPeerConn.addIceCandidate(new RTCIceCandidate(sigObj.candidate));
+              if (_visitaPeerConn.remoteDescription && _visitaPeerConn.remoteDescription.type) {
+                await _visitaPeerConn.addIceCandidate(new RTCIceCandidate(sigObj.candidate)).catch(function(){});
+              } else {
+                _pendingCandidates.push(sigObj.candidate);
+              }
             }
           }
         }
       } catch(_) {}
-    }, 1000);
+    }, 800);
 
   } catch(err) {
     console.warn('Voz visita:', err.message);
