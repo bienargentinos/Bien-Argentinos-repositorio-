@@ -314,12 +314,19 @@ function shellVecino(title, activeTab, content, vecinoData) {
     
     <!-- 1. Estado: Sonando Timbre -->
     <div id="box-timbre-sonando" style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:440px;margin:auto 0">
-      <div style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#2563EB,#38BDF8);display:flex;align-items:center;justify-content:center;font-size:48px;margin-bottom:16px;box-shadow:0 0 50px rgba(56,189,248,.6);animation:pulseRing 1.2s infinite">
+      
+      <!-- Captura Facial Anti-Broma de Quién Toca -->
+      <div id="box-foto-visita-preview" style="text-align:center;margin-bottom:14px;display:none">
+        <img id="img-foto-visita" src="" style="width:125px;height:125px;border-radius:20px;object-fit:cover;border:3px solid #38BDF8;box-shadow:0 8px 24px rgba(0,0,0,.4);margin:0 auto 6px;display:block">
+        <span style="font-size:11px;font-weight:800;background:rgba(255,255,255,.2);color:#fff;padding:2px 10px;border-radius:999px">📸 Captura en la Puerta</span>
+      </div>
+
+      <div id="avatar-timbre-default" style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#2563EB,#38BDF8);display:flex;align-items:center;justify-content:center;font-size:48px;margin-bottom:16px;box-shadow:0 0 50px rgba(56,189,248,.6);animation:pulseRing 1.2s infinite">
         🔔
       </div>
       <div style="font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#38BDF8;margin-bottom:6px">TIMBRE ENTRANTE EN PORTERÍA</div>
       <h2 style="font-size:24px;font-weight:900;margin-bottom:4px" id="llamada-timbre-visita">🛵 Delivery en Puerta</h2>
-      <p style="font-size:15px;color:#E2E8F0;margin-bottom:24px">${v.edificio} · Depto ${v.departamento}</p>
+      <p style="font-size:15px;color:#E2E8F0;margin-bottom:20px">${v.edificio} · Depto ${v.departamento}</p>
 
       <!-- Botón Hablar en Vivo -->
       <button onclick="iniciarLlamadaVozVecino()" style="width:100%;height:56px;border:none;border-radius:16px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:17px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 6px 22px rgba(22,163,74,.5);margin-bottom:18px">
@@ -359,25 +366,35 @@ function shellVecino(title, activeTab, content, vecinoData) {
       </button>
     </div>
 
-    <!-- 2. Estado: En Llamada de Voz Activa -->
+    <!-- 2. Estado: En Llamada de Voz y Video Activa -->
     <div id="box-llamada-voz-activa" style="display:none;flex-direction:column;align-items:center;width:100%;max-width:440px;margin:auto 0">
-      <div style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#15803D,#16A34A);display:flex;align-items:center;justify-content:center;font-size:44px;margin-bottom:16px;box-shadow:0 0 45px rgba(22,163,74,.6)">
+      
+      <!-- Videoportero: Transmisión en Vivo desde la Puerta -->
+      <div id="box-video-webrtc" style="width:100%;max-width:320px;margin-bottom:14px;position:relative;border-radius:18px;overflow:hidden;background:#000;aspect-ratio:4/3;box-shadow:0 8px 24px rgba(0,0,0,.4);display:none">
+        <video id="video-webrtc-vecino" autoplay playsinline style="width:100%;height:100%;object-fit:cover"></video>
+        <div style="position:absolute;top:8px;left:8px;display:flex;align-items:center;gap:5px;background:rgba(0,0,0,.6);color:#fff;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:800">
+          <span style="width:7px;height:7px;border-radius:50%;background:#EF4444;animation:pulseRing 1.2s infinite"></span>
+          <span>CÁMARA DE PUERTA</span>
+        </div>
+      </div>
+
+      <div id="avatar-voz-container" style="width:84px;height:84px;border-radius:50%;background:linear-gradient(135deg,#15803D,#16A34A);display:flex;align-items:center;justify-content:center;font-size:38px;margin-bottom:12px;box-shadow:0 0 40px rgba(22,163,74,.5)">
         🎙️
       </div>
-      <div style="font-size:13px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#86EFAC;margin-bottom:4px">LLAMADA ENTRANTE EN VIVO</div>
-      <h2 style="font-size:22px;font-weight:900;margin-bottom:4px">Frente de Calle</h2>
-      <div id="voz-timer" style="font-size:20px;font-family:monospace;font-weight:800;color:#38BDF8;margin-bottom:24px">00:00</div>
+      <div style="font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#86EFAC;margin-bottom:2px">LLAMADA ENTRANTE EN VIVO</div>
+      <h2 style="font-size:20px;font-weight:900;margin-bottom:2px">Frente de Calle</h2>
+      <div id="voz-timer" style="font-size:18px;font-family:monospace;font-weight:800;color:#38BDF8;margin-bottom:18px">00:00</div>
 
-      <div style="display:flex;gap:12px;margin-bottom:20px;width:100%">
-        <button id="btn-mute-voz" onclick="toggleMuteVoz()" style="flex:1;height:50px;border-radius:14px;border:1.5px solid rgba(255,255,255,.3);background:rgba(255,255,255,.15);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+      <div style="display:flex;gap:10px;margin-bottom:16px;width:100%">
+        <button id="btn-mute-voz" onclick="toggleMuteVoz()" style="flex:1;height:48px;border-radius:12px;border:1.5px solid rgba(255,255,255,.3);background:rgba(255,255,255,.15);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
           <span>🎙️ Silenciar Mic</span>
         </button>
-        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="flex:1;height:50px;border-radius:14px;border:none;background:#2563EB;color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="flex:1;height:48px;border-radius:12px;border:none;background:#2563EB;color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
           <span>🏃 ¡Ya bajo!</span>
         </button>
       </div>
 
-      <button onclick="cortarLlamadaVoz()" style="width:100%;height:54px;border:none;border-radius:16px;background:#DC2626;color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 20px rgba(220,38,38,.5)">
+      <button onclick="cortarLlamadaVoz()" style="width:100%;height:52px;border:none;border-radius:14px;background:#DC2626;color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 20px rgba(220,38,38,.5)">
         <i class="ph ph-phone-disconnect-fill" style="font-size:22px"></i>
         <span>FINALIZAR LLAMADA</span>
       </button>
@@ -507,10 +524,21 @@ function shellVecino(title, activeTab, content, vecinoData) {
         });
 
         _peerConn.ontrack = function(event){
-          var remoteAudio = document.getElementById('audio-webrtc-vecino');
-          if (remoteAudio && event.streams[0]) {
-            remoteAudio.srcObject = event.streams[0];
-            remoteAudio.play().catch(function(e){ console.warn('Audio play:', e); });
+          if (event.track.kind === 'video') {
+            var remoteVideo = document.getElementById('video-webrtc-vecino');
+            var boxVideo = document.getElementById('box-video-webrtc');
+            var avatarVoz = document.getElementById('avatar-voz-container');
+            if (remoteVideo && event.streams[0]) {
+              remoteVideo.srcObject = event.streams[0];
+              if (boxVideo) boxVideo.style.display = 'block';
+              if (avatarVoz) avatarVoz.style.display = 'none';
+            }
+          } else if (event.track.kind === 'audio') {
+            var remoteAudio = document.getElementById('audio-webrtc-vecino');
+            if (remoteAudio && event.streams[0]) {
+              remoteAudio.srcObject = event.streams[0];
+              remoteAudio.play().catch(function(e){ console.warn('Audio play:', e); });
+            }
           }
         };
 
@@ -545,7 +573,31 @@ function shellVecino(title, activeTab, content, vecinoData) {
               for (var i = 0; i < sData.signals.length; i++) {
                 var sigObj = sData.signals[i].signal;
                 lastSince = Math.max(lastSince, sData.signals[i].timestamp);
-                if (sigObj.type === 'answer' && _peerConn.signalingState === 'have-local-offer') {
+                if (sigObj.type === 'hangup' || sigObj.type === 'corte') {
+                  clearInterval(sigInterval);
+                  detenerRingtoneLoop();
+                  clearInterval(_timerInterval);
+                  if (_peerConn) { _peerConn.close(); _peerConn = null; }
+                  if (_localStream) { _localStream.getTracks().forEach(function(t){ t.stop(); }); _localStream = null; }
+                  var remoteVideo = document.getElementById('video-webrtc-vecino');
+                  if (remoteVideo) remoteVideo.srcObject = null;
+                  var boxVideo = document.getElementById('box-video-webrtc');
+                  if (boxVideo) boxVideo.style.display = 'none';
+
+                  var boxVoz = document.getElementById('box-llamada-voz-activa');
+                  if (boxVoz) {
+                    boxVoz.innerHTML = '<div style="padding:24px 16px;text-align:center">' +
+                      '<div style="font-size:42px;margin-bottom:10px">📴</div>' +
+                      '<h2 style="font-size:22px;font-weight:900;margin-bottom:6px">La visita finalizó la llamada</h2>' +
+                      '<p style="font-size:14px;color:#CBD5E1;margin-bottom:20px">El micrófono se apagó correctamente.</p>' +
+                      '<button onclick="cortarLlamadaVoz()" style="padding:12px 28px;border:none;border-radius:14px;background:#2563EB;color:#fff;font-weight:800;font-size:15px;cursor:pointer">Aceptar / Cerrar</button>' +
+                    '</div>';
+                  }
+                  setTimeout(function(){
+                    cortarLlamadaVoz();
+                  }, 4500);
+                  return;
+                } else if (sigObj.type === 'answer' && _peerConn.signalingState === 'have-local-offer') {
                   await _peerConn.setRemoteDescription(new RTCSessionDescription(sigObj.sdp));
                   while (_pendingAnsCandidates.length > 0) {
                     var c = _pendingAnsCandidates.shift();
@@ -578,7 +630,17 @@ function shellVecino(title, activeTab, content, vecinoData) {
     };
 
     window.cortarLlamadaVoz = function() {
+      detenerRingtoneLoop();
       clearInterval(_timerInterval);
+
+      try {
+        fetch('/porteria/api/timbre-cortar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, from: 'vecino' })
+        }).catch(function(){});
+      } catch(_) {}
+
       if (_peerConn) {
         _peerConn.close();
         _peerConn = null;
@@ -587,12 +649,18 @@ function shellVecino(title, activeTab, content, vecinoData) {
         _localStream.getTracks().forEach(function(t){ t.stop(); });
         _localStream = null;
       }
+      var remoteVideo = document.getElementById('video-webrtc-vecino');
+      if (remoteVideo) remoteVideo.srcObject = null;
+      var boxVideo = document.getElementById('box-video-webrtc');
+      if (boxVideo) boxVideo.style.display = 'none';
+
       document.getElementById('box-timbre-sonando').style.display = 'flex';
       document.getElementById('box-llamada-voz-activa').style.display = 'none';
       document.getElementById('modal-llamada-timbre').style.display = 'none';
+      _llamadaMostradaId = '';
     };
 
-    // Polling de timbres entrantes cada 2.5 seg
+    // Polling de timbres entrantes cada 2 seg
     setInterval(async function() {
       try {
         var res = await fetch('/porteria/api/timbre-check?edificio=' + encodeURIComponent(_edificioVecino) + '&depto=' + encodeURIComponent(_deptoVecino));
@@ -603,6 +671,20 @@ function shellVecino(title, activeTab, content, vecinoData) {
             var visTitle = data.llamada.tipoVisita || '🛵 Visita en Puerta';
             if (data.llamada.nombreVisita) visTitle += ' (' + data.llamada.nombreVisita + ')';
             document.getElementById('llamada-timbre-visita').textContent = visTitle;
+
+            // Mostrar captura facial en puerta si está disponible
+            var imgFoto = document.getElementById('img-foto-visita');
+            var boxFoto = document.getElementById('box-foto-visita-preview');
+            var avDef = document.getElementById('avatar-timbre-default');
+            if (data.llamada.fotoVisitante && imgFoto && boxFoto) {
+              imgFoto.src = data.llamada.fotoVisitante;
+              boxFoto.style.display = 'block';
+              if (avDef) avDef.style.display = 'none';
+            } else {
+              if (boxFoto) boxFoto.style.display = 'none';
+              if (avDef) avDef.style.display = 'flex';
+            }
+
             document.getElementById('box-timbre-sonando').style.display = 'flex';
             document.getElementById('box-llamada-voz-activa').style.display = 'none';
             document.getElementById('modal-llamada-timbre').style.display = 'flex';
@@ -616,7 +698,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
           }
         }
       } catch(_) {}
-    }, 2500);
+    }, 2000);
     // ── LÓGICA DE INSTALACIÓN PWA (ANDROID & IOS) ──
     var _deferredPrompt = null;
     window.addEventListener('beforeinstallprompt', function(e) {

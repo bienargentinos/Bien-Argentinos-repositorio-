@@ -291,6 +291,18 @@ body{background:#F0F4F9;color:#16233B;font-family:'Hanken Grotesk',sans-serif;mi
       <button onclick="cerrarTimbre()" style="width:34px;height:34px;border-radius:50%;border:none;background:#F1F5F9;color:#64748B;cursor:pointer;font-size:16px">✕</button>
     </div>
 
+    <!-- Vista previa de cámara para captura de seguridad -->
+    <div style="margin-bottom:14px;position:relative;border-radius:14px;overflow:hidden;background:#0F172A;aspect-ratio:4/3;max-height:170px;display:flex;align-items:center;justify-content:center">
+      <video id="video-frente-cam" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video>
+      <div id="video-frente-overlay" style="position:absolute;bottom:6px;left:8px;display:flex;align-items:center;gap:5px;background:rgba(0,0,0,.6);color:#fff;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">
+        <span style="width:7px;height:7px;border-radius:50%;background:#22C55E;animation:pulseRing 1.5s infinite"></span>
+        <span>Cámara en Vivo</span>
+      </div>
+      <div id="video-frente-nocam" style="display:none;color:#94A3B8;font-size:12px;padding:12px;text-align:center">
+        📷 Cámara no detectada o sin permisos
+      </div>
+    </div>
+
     <div style="margin-bottom:14px">
       <label style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;display:block;margin-bottom:6px">¿Quién está en la puerta?</label>
       <div style="display:flex;gap:8px">
@@ -322,6 +334,7 @@ var _nombreActivo = '';
 var _telActivo = '';
 var _tipoVisita = '🛵 Delivery';
 var _edificio = '${esc(nombreEdificio)}';
+var _camaraFrenteStream = null;
 
 function filtrarDeptos(){
   var q = document.getElementById('search-inp').value.toLowerCase().trim();
@@ -330,6 +343,25 @@ function filtrarDeptos(){
     var txt = el.textContent.toLowerCase();
     el.style.display = txt.indexOf(q) !== -1 ? 'flex' : 'none';
   });
+}
+
+async function iniciarCamaraFrente(){
+  try {
+    if (!_camaraFrenteStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      _camaraFrenteStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+        audio: true
+      });
+      var v = document.getElementById('video-frente-cam');
+      if (v) {
+        v.srcObject = _camaraFrenteStream;
+      }
+    }
+  } catch(e) {
+    console.warn('Cámara frente:', e.message);
+    var noCam = document.getElementById('video-frente-nocam');
+    if (noCam) noCam.style.display = 'block';
+  }
 }
 
 function abrirTimbre(depto, nombre, tel){
@@ -341,6 +373,7 @@ function abrirTimbre(depto, nombre, tel){
   document.getElementById('ring-feedback').style.display = 'none';
   document.getElementById('btn-tocar').style.display = 'flex';
   document.getElementById('modal-ring').style.display = 'flex';
+  iniciarCamaraFrente();
 }
 
 function cerrarTimbre(){
@@ -382,6 +415,20 @@ async function ejecutarTimbre(){
 
   sonarChime();
 
+  // Capturar foto snapshot del frame de cámara
+  var fotoSnapshot = '';
+  try {
+    var v = document.getElementById('video-frente-cam');
+    if (v && v.videoWidth) {
+      var cvs = document.createElement('canvas');
+      cvs.width = 320;
+      cvs.height = 240;
+      var ctx = cvs.getContext('2d');
+      ctx.drawImage(v, 0, 0, 320, 240);
+      fotoSnapshot = cvs.toDataURL('image/jpeg', 0.65);
+    }
+  } catch(_) {}
+
   btn.disabled = true;
   btn.innerHTML = '<span style="animation:spin 1s infinite">⏳</span><span>Llamando...</span>';
 
@@ -393,7 +440,8 @@ async function ejecutarTimbre(){
         edificio: _edificio,
         departamento: _deptoActivo,
         tipoVisita: _tipoVisita,
-        nombreVisita: nombreVisita
+        nombreVisita: nombreVisita,
+        fotoVisitante: fotoSnapshot
       })
     });
     var data = await res.json();
@@ -401,8 +449,8 @@ async function ejecutarTimbre(){
     btn.style.display = 'none';
     fb.style.display = 'block';
     fb.innerHTML = '<div style="font-size:14.5px;font-weight:800;margin-bottom:4px">✓ ¡Llamando al vecino!</div>' +
-      '<div style="font-size:12.5px;color:#166534;margin-bottom:10px">Le sonó el timbre en su celular y enviamos aviso por WhatsApp.</div>' +
-      '<div id="timer-auto-reset" style="font-size:11.5px;color:#4B5563;margin-bottom:12px">⏱️ Esta pantalla se restablecerá en <strong id="secs-reset">30</strong>s para otra entrega.</div>' +
+      '<div style="font-size:12.5px;color:#166534;margin-bottom:10px">Le sonó el timbre en su celular con tu foto en vivo.</div>' +
+      '<div id="timer-auto-reset" style="font-size:11.5px;color:#4B5563;margin-bottom:12px">⏱️ Esta pantalla se restablecerá en <strong id="secs-reset">35</strong>s para otra entrega.</div>' +
       '<button onclick="restablecerPorteria()" style="width:100%;height:40px;border:1px solid #CBD5E1;border-radius:10px;background:#fff;color:#0F326A;font-weight:700;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">' +
         '<span>🔄 Llamar a otro depto ahora</span>' +
       '</button>';
@@ -411,8 +459,8 @@ async function ejecutarTimbre(){
       sonarChime();
     }, 400);
 
-    // Cuenta regresiva de 30 segundos para restablecer pantalla automáticamente
-    var _secsRestantes = 30;
+    // Cuenta regresiva para restablecer pantalla automáticamente
+    var _secsRestantes = 35;
     clearInterval(_autoResetInterval);
     _autoResetInterval = setInterval(function(){
       _secsRestantes--;
@@ -424,14 +472,32 @@ async function ejecutarTimbre(){
       }
     }, 1000);
 
-    // Escuchar si el vecino responde por texto o inicia llamada de voz
+    // Escuchar si el vecino responde por texto, inicia llamada o corta
     clearInterval(_checkInterval);
     _checkInterval = setInterval(async function(){
       try {
         var sRes = await fetch('/porteria/api/timbre-visita-status?callId=' + encodeURIComponent(data.callId || '') + '&edificio=' + encodeURIComponent(_edificio) + '&depto=' + encodeURIComponent(_deptoActivo));
         var sData = await sRes.json();
         if (sData) {
-          if (sData.estado === 'atendido' && sData.respuesta) {
+          if (sData.estado === 'cortado' && sData.quienCorto === 'vecino') {
+            clearInterval(_checkInterval);
+            clearInterval(_autoResetInterval);
+            clearInterval(_sigInterval);
+            if (_visitaPeerConn) { _visitaPeerConn.close(); _visitaPeerConn = null; }
+            if (_camaraFrenteStream) { _camaraFrenteStream.getTracks().forEach(function(t){ t.stop(); }); _camaraFrenteStream = null; }
+            _visitaLocalStream = null;
+            fb.style.background = '#FEE2E2';
+            fb.style.color = '#991B1B';
+            fb.style.borderColor = '#FCA5A5';
+            fb.innerHTML = '<div style="padding:14px 10px;text-align:center">' +
+              '<div style="font-size:32px;margin-bottom:8px">📴</div>' +
+              '<div style="font-size:16px;font-weight:900;color:#991B1B;margin-bottom:4px">El vecino cortó la llamada</div>' +
+              '<p style="font-size:12.5px;color:#7F1D1D;margin-bottom:14px">La comunicación finalizó y los micrófonos se apagaron.</p>' +
+              '<button onclick="restablecerPorteria()" style="width:100%;height:44px;border:none;border-radius:12px;background:#0F326A;color:#fff;font-weight:800;font-size:14px;cursor:pointer">✅ Entendido / Cerrar</button>' +
+            '</div>';
+            sonarChime();
+            setTimeout(restablecerPorteria, 5000);
+          } else if (sData.estado === 'atendido' && sData.respuesta) {
             clearInterval(_checkInterval);
             clearInterval(_autoResetInterval);
             fb.style.background = '#DCFCE7';
@@ -452,13 +518,13 @@ async function ejecutarTimbre(){
             fb.style.background = '#EBF3FC';
             fb.style.color = '#1E5FB4';
             fb.style.borderColor = '#93C5FD';
-            fb.innerHTML = '<div style="font-size:15px;font-weight:800;margin-bottom:6px">🎙️ ¡Llamada de Voz Conectada!</div><p style="font-size:12.5px;margin-bottom:10px">Podés hablar y escuchar al vecino por el celular.</p><button onclick="finalizarLlamadaVisita()" style="padding:6px 14px;border:none;border-radius:8px;background:#DC2626;color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">🔴 Finalizar llamada</button>';
+            fb.innerHTML = '<div style="font-size:15px;font-weight:800;margin-bottom:6px">🎙️ ¡Llamada en Vivo Conectada!</div><p style="font-size:12.5px;margin-bottom:10px">El vecino te está viendo y escuchando por su celular.</p><button onclick="finalizarLlamadaVisita()" style="padding:8px 16px;border:none;border-radius:10px;background:#DC2626;color:#fff;font-weight:800;font-size:13px;cursor:pointer;box-shadow:0 4px 12px rgba(220,38,38,.4)">🔴 Finalizar llamada</button>';
             sonarChime();
             iniciarVozVisita();
           }
         }
       } catch(_) {}
-    }, 1200);
+    }, 1000);
 
   } catch(err){
     btn.disabled = false;
@@ -486,6 +552,10 @@ function restablecerPorteria() {
     _visitaPeerConn.close();
     _visitaPeerConn = null;
   }
+  if (_camaraFrenteStream) {
+    _camaraFrenteStream.getTracks().forEach(function(t){ t.stop(); });
+    _camaraFrenteStream = null;
+  }
   if (_visitaLocalStream) {
     _visitaLocalStream.getTracks().forEach(function(t){ t.stop(); });
     _visitaLocalStream = null;
@@ -506,7 +576,15 @@ function restablecerPorteria() {
 
 async function iniciarVozVisita() {
   try {
-    _visitaLocalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (!_camaraFrenteStream) {
+      _camaraFrenteStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+      }).catch(function(){
+        return navigator.mediaDevices.getUserMedia({ audio: true });
+      });
+    }
+    _visitaLocalStream = _camaraFrenteStream;
     _visitaPeerConn = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     });
@@ -533,7 +611,7 @@ async function iniciarVozVisita() {
       }
     };
 
-    // Polling de oferta de vecino
+    // Polling de oferta de vecino y señales de corte (hangup)
     var lastSince = Date.now() - 6000;
     var _offerProcesada = false;
     var _pendingCandidates = [];
@@ -547,7 +625,27 @@ async function iniciarVozVisita() {
           for (var i = 0; i < sData.signals.length; i++) {
             var sigObj = sData.signals[i].signal;
             lastSince = Math.max(lastSince, sData.signals[i].timestamp);
-            if (sigObj.type === 'offer' && !_offerProcesada) {
+            if (sigObj.type === 'hangup' || sigObj.type === 'corte') {
+              clearInterval(_sigInterval);
+              if (_visitaPeerConn) { _visitaPeerConn.close(); _visitaPeerConn = null; }
+              if (_camaraFrenteStream) { _camaraFrenteStream.getTracks().forEach(function(t){ t.stop(); }); _camaraFrenteStream = null; }
+              _visitaLocalStream = null;
+              var fb = document.getElementById('ring-feedback');
+              if (fb) {
+                fb.style.background = '#FEE2E2';
+                fb.style.color = '#991B1B';
+                fb.style.borderColor = '#FCA5A5';
+                fb.innerHTML = '<div style="padding:14px 10px;text-align:center">' +
+                  '<div style="font-size:32px;margin-bottom:8px">📴</div>' +
+                  '<div style="font-size:16px;font-weight:900;color:#991B1B;margin-bottom:4px">El vecino cortó la llamada</div>' +
+                  '<p style="font-size:12.5px;color:#7F1D1D;margin-bottom:14px">La comunicación finalizó y los micrófonos se apagaron.</p>' +
+                  '<button onclick="restablecerPorteria()" style="width:100%;height:44px;border:none;border-radius:12px;background:#0F326A;color:#fff;font-weight:800;font-size:14px;cursor:pointer">✅ Entendido / Cerrar</button>' +
+                '</div>';
+              }
+              sonarChime();
+              setTimeout(restablecerPorteria, 5000);
+              return;
+            } else if (sigObj.type === 'offer' && !_offerProcesada) {
               _offerProcesada = true;
               await _visitaPeerConn.setRemoteDescription(new RTCSessionDescription(sigObj.sdp));
               var answer = await _visitaPeerConn.createAnswer();
@@ -580,7 +678,35 @@ async function iniciarVozVisita() {
 }
 
 function finalizarLlamadaVisita() {
-  restablecerPorteria();
+  fetch('/porteria/api/timbre-cortar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ edificio: _edificio, depto: _deptoActivo, from: 'visita' })
+  }).catch(function(){});
+
+  if (_visitaPeerConn) {
+    _visitaPeerConn.close();
+    _visitaPeerConn = null;
+  }
+  if (_camaraFrenteStream) {
+    _camaraFrenteStream.getTracks().forEach(function(t){ t.stop(); });
+    _camaraFrenteStream = null;
+  }
+  _visitaLocalStream = null;
+
+  var fb = document.getElementById('ring-feedback');
+  if (fb) {
+    fb.style.background = '#FEE2E2';
+    fb.style.color = '#991B1B';
+    fb.style.borderColor = '#FCA5A5';
+    fb.innerHTML = '<div style="padding:12px 8px;text-align:center">' +
+      '<div style="font-size:28px;margin-bottom:6px">📴</div>' +
+      '<div style="font-size:15px;font-weight:900;color:#991B1B;margin-bottom:4px">Llamada finalizada</div>' +
+      '<p style="font-size:12px;color:#7F1D1D;margin-bottom:12px">El micrófono se cerró correctamente.</p>' +
+      '<button onclick="restablecerPorteria()" style="padding:8px 18px;border:none;border-radius:10px;background:#0F326A;color:#fff;font-weight:800;font-size:13px;cursor:pointer">Volver al inicio</button>' +
+    '</div>';
+  }
+  setTimeout(restablecerPorteria, 4000);
 }
 </script>
 
@@ -606,12 +732,12 @@ function limpiarTimbresViejos() {
 // -------------------------------------------------------------------
 router.post('/api/tocar-timbre', async (req, res) => {
   try {
-    const { edificio, departamento, tipoVisita, nombreVisita } = req.body || {};
+    const { edificio, departamento, tipoVisita, nombreVisita, fotoVisitante } = req.body || {};
     let vecino = null;
 
     limpiarTimbresViejos();
 
-    // Guardar en cola de llamadas activas con canal de señales WebRTC
+    // Guardar en cola de llamadas activas con canal de señales WebRTC y foto de seguridad
     const callId = 'ring_' + Date.now();
     const ringKey = (edificio || '').toLowerCase().trim() + ':' + (departamento || '').toLowerCase().trim();
     const ringData = {
@@ -620,6 +746,7 @@ router.post('/api/tocar-timbre', async (req, res) => {
       departamento: departamento || '',
       tipoVisita: tipoVisita || '🛵 Delivery',
       nombreVisita: nombreVisita || '',
+      fotoVisitante: fotoVisitante || '',
       timestamp: Date.now(),
       estado: 'llamando',
       respuesta: '',
@@ -718,6 +845,20 @@ router.post('/api/timbre-responder', (req, res) => {
     return res.json({ ok: true, mensaje: 'Respuesta enviada a la puerta', respuesta: llamada.respuesta });
   }
   res.json({ ok: true });
+});
+
+// Endpoint para cortar la llamada y desconectar micrófonos en ambos extremos
+router.post('/api/timbre-cortar', (req, res) => {
+  const { edificio, depto, from, callId } = req.body || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
+  if (llamada) {
+    llamada.estado = 'cortado';
+    llamada.quienCorto = from || 'desconocido';
+    if (!llamada.signals) llamada.signals = [];
+    llamada.signals.push({ from: from || 'anon', signal: { type: 'hangup', quienCorto: from }, timestamp: Date.now() });
+    return res.json({ ok: true, mensaje: 'Llamada cortada correctamente', quienCorto: from });
+  }
+  res.json({ ok: true, mensaje: 'Sin llamada activa' });
 });
 
 // Endpoint para intercambiar señalización WebRTC (SDP / ICE candidates)

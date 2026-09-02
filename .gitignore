@@ -4,3 +4,4 @@ temp/
 *.log
 gen-lang-client-*.json
 vps_info.md
+backups/
