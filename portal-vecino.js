@@ -1042,7 +1042,7 @@ router.get('/', (req, res) => {
         <div style="display:flex;gap:16px;font-size:13px;font-weight:800">
           <span style="color:#0F326A;border-bottom:2px solid #0F326A;padding-bottom:8px">Expensas</span>
           <span style="color:#94A3B8;cursor:pointer" onclick="location.href='/vecino/amenities'">Reservas</span>
-          <span style="color:#94A3B8;cursor:pointer" onclick="location.href='/vecino/chat'">Reclamos</span>
+          <span style="color:#94A3B8;cursor:pointer" onclick="location.href='/vecino/reclamos'">Reclamos</span>
         </div>
         <span style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:#DCFCE7;color:#15803D;border:1px solid #86EFAC">
           ✓ ${v.estadoExpensa}
@@ -1089,7 +1089,7 @@ router.get('/', (req, res) => {
           <span style="font-size:11.5px;font-weight:800;color:#1E293B">Amenities</span>
         </a>
 
-        <a href="/vecino/chat" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
+        <a href="/vecino/reclamos" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
           <div style="width:44px;height:44px;border-radius:14px;background:#EBF3FC;color:#1E5FB4;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-wrench"></i>
           </div>
@@ -1735,6 +1735,457 @@ router.get('/novedades', (req, res) => {
   `;
 
   res.send(shellVecino('Avisos', 'novedades', content, v));
+});
+
+// -------------------------------------------------------------------
+// 5.5 RECLAMOS & REPORTES DE ROTURAS CON FOTO
+// -------------------------------------------------------------------
+const _reclamosEnMemoria = [
+  {
+    id: 101,
+    codigo_caso: 'CASO-2104',
+    edificio: 'San Patricio 159',
+    depto: '1° A',
+    vecino: 'Daniel Morales',
+    telefono: '+5491150542005',
+    rubro: 'Plomería',
+    problema: 'Goteo en la llave de paso de la cocina. Requiere cambio de cuerito.',
+    urgencia: 'normal',
+    foto_url: '',
+    estado: 'en_curso',
+    created_at: new Date(Date.now() - 36 * 3600000).toISOString()
+  },
+  {
+    id: 102,
+    codigo_caso: 'CASO-2089',
+    edificio: 'San Patricio 159',
+    depto: 'Palier Piso 1',
+    vecino: 'Daniel Morales',
+    telefono: '+5491150542005',
+    rubro: 'Electricidad',
+    problema: 'Luz dicroica del palier frente al ascensor quemada.',
+    urgencia: 'normal',
+    foto_url: '',
+    estado: 'resuelto',
+    created_at: new Date(Date.now() - 72 * 3600000).toISOString()
+  }
+];
+
+function renderItemReclamo(r) {
+  const estadoColor = r.estado === 'resuelto' ? { bg: '#DCFCE7', text: '#15803D', border: '#86EFAC', label: '✓ Resuelto' }
+    : r.estado === 'en_curso' ? { bg: '#EBF3FC', text: '#1E5FB4', border: '#93C5FD', label: '⚙️ En curso' }
+    : { bg: '#FEF3C7', text: '#92400E', border: '#FCD34D', label: '⏳ Pendiente' };
+
+  const iconRubro = (r.rubro || '').toLowerCase().includes('plom') ? '💧'
+    : (r.rubro || '').toLowerCase().includes('elec') ? '⚡'
+    : (r.rubro || '').toLowerCase().includes('ascen') ? '🛗'
+    : (r.rubro || '').toLowerCase().includes('cerraj') ? '🔑'
+    : (r.rubro || '').toLowerCase().includes('limp') ? '🧹'
+    : '🛠️';
+
+  const fechaStr = r.created_at ? new Date(r.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Reciente';
+
+  return `
+    <div class="card" style="padding:14px 16px;background:#fff;border-radius:16px;border:1px solid #E2E8F0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:18px">${iconRubro}</span>
+          <span style="font-size:13.5px;font-weight:900;color:#0F172A">${esc(r.rubro || 'Avería')}</span>
+          <span style="font-size:11px;font-weight:800;color:#64748B;background:#F1F5F9;padding:2px 6px;border-radius:6px">${esc(r.codigo_caso)}</span>
+        </div>
+        <span style="font-size:11px;font-weight:800;padding:3px 8px;border-radius:999px;background:${estadoColor.bg};color:${estadoColor.text};border:1px solid ${estadoColor.border}">
+          ${estadoColor.label}
+        </span>
+      </div>
+
+      <p style="font-size:13px;color:#334155;line-height:1.4;margin-bottom:8px">
+        ${esc(r.problema)}
+      </p>
+
+      ${r.foto_url ? `
+        <div style="margin-bottom:10px">
+          <img src="${r.foto_url}" onclick="verFotoGrande(this.src)" style="width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid #CBD5E1;cursor:pointer" title="Click para ampliar">
+        </div>
+      ` : ''}
+
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:#94A3B8;border-top:1px solid #F1F5F9;padding-top:8px">
+        <span>📍 ${esc(r.depto || 'Edificio')}</span>
+        <span>🕒 ${fechaStr} hs</span>
+      </div>
+    </div>
+  `;
+}
+
+router.get('/reclamos', async (req, res) => {
+  const v = getVecinoSession(req);
+  let reclamosLista = [];
+
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `SELECT * FROM reportes WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) ORDER BY created_at DESC LIMIT 30`;
+      const result = await pool.query(q, [v.edificio, '%' + v.edificio + '%']);
+      if (result && result.rows && result.rows.length > 0) {
+        reclamosLista = result.rows.map(r => ({
+          id: r.id,
+          codigo_caso: r.codigo_caso || ('CASO-' + r.id),
+          edificio: r.edificio,
+          depto: r.depto || r.departamento || '1° A',
+          vecino: r.vecino || 'Vecino',
+          telefono: r.telefono || '',
+          rubro: r.rubro || 'General',
+          problema: r.problema || r.mensaje || '',
+          urgencia: r.urgencia || 'normal',
+          foto_url: r.foto_url || '',
+          estado: r.estado || 'pendiente',
+          created_at: r.created_at || new Date().toISOString()
+        }));
+      }
+    }
+  } catch (errDb) {
+    console.warn('Carga reportes DB:', errDb.message);
+  }
+
+  // Combinar con memoria local sin duplicar
+  const idsExistentes = new Set(reclamosLista.map(r => String(r.codigo_caso)));
+  for (const rMem of _reclamosEnMemoria) {
+    if (!idsExistentes.has(String(rMem.codigo_caso))) {
+      reclamosLista.push(rMem);
+    }
+  }
+
+  // Separar los propios del vecino vs los del edificio
+  const misReclamos = reclamosLista.filter(r => 
+    (r.depto && r.depto.toLowerCase().includes(v.departamento.toLowerCase())) ||
+    (r.vecino && r.vecino.toLowerCase() === v.nombre.toLowerCase())
+  );
+  const otrosReclamos = reclamosLista.filter(r => !misReclamos.includes(r));
+
+  const totalActivos = reclamosLista.filter(r => r.estado !== 'resuelto').length;
+
+  const content = `
+    <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <div>
+        <h2 style="font-size:20px;font-weight:900;color:#0F326A;margin-bottom:2px">Reclamos y Averías</h2>
+        <p style="font-size:13px;color:#64748B">${esc(v.edificio)} · Depto ${esc(v.departamento)}</p>
+      </div>
+      <button onclick="abrirModalReclamo()" style="padding:10px 18px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 4px 14px rgba(15,50,106,.25)">
+        <i class="ph ph-plus-circle" style="font-size:18px"></i>
+        <span>Reportar Rotura</span>
+      </button>
+    </div>
+
+    <!-- TARJETA RESUMEN -->
+    <div class="card" style="padding:16px 18px;background:#fff;margin-bottom:16px;border-radius:18px;display:flex;align-items:center;justify-content:space-around;text-align:center">
+      <div>
+        <div style="font-size:22px;font-weight:900;color:#D97706">${totalActivos}</div>
+        <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase">En Gestión</div>
+      </div>
+      <div style="width:1px;height:36px;background:#E2E8F0"></div>
+      <div>
+        <div style="font-size:22px;font-weight:900;color:#15803D">${reclamosLista.filter(r => r.estado === 'resuelto').length}</div>
+        <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase">Resueltos</div>
+      </div>
+      <div style="width:1px;height:36px;background:#E2E8F0"></div>
+      <div>
+        <div style="font-size:22px;font-weight:900;color:#0F326A">${misReclamos.length}</div>
+        <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase">Mis Casos</div>
+      </div>
+    </div>
+
+    <!-- LISTADO DE RECLAMOS DEL VECINO -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:14px;font-weight:800;color:#0F172A;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        <span>👤</span> Mis Reclamos Reportados (${misReclamos.length})
+      </div>
+      ${misReclamos.length === 0 ? `
+        <div class="card" style="padding:24px 16px;text-align:center;color:#64748B;border-radius:16px">
+          <div style="font-size:32px;margin-bottom:8px">🎉</div>
+          <div style="font-size:14px;font-weight:700;color:#1E293B;margin-bottom:4px">No tenés reclamos activos</div>
+          <p style="font-size:12.5px;color:#64748B">Si notás alguna rotura en tu departamento o en el edificio, podés reportarla aquí.</p>
+        </div>
+      ` : `
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${misReclamos.map(r => renderItemReclamo(r)).join('')}
+        </div>
+      `}
+    </div>
+
+    <!-- RECLAMOS EN ÁREAS COMUNES DEL EDIFICIO -->
+    ${otrosReclamos.length > 0 ? `
+      <div style="margin-bottom:20px">
+        <div style="font-size:14px;font-weight:800;color:#0F172A;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+          <span>🏢</span> Averías en Áreas Comunes (${otrosReclamos.length})
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${otrosReclamos.map(r => renderItemReclamo(r)).join('')}
+        </div>
+      </div>
+    ` : ''}
+
+    <!-- MODAL NUEVO RECLAMO CON FOTO -->
+    <div id="modal-nuevo-reclamo" style="position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;display:none;align-items:center;justify-content:center;padding:16px;box-sizing:border-box">
+      <div style="background:#fff;width:100%;max-width:480px;border-radius:24px;padding:24px 20px;box-shadow:0 25px 50px rgba(0,0,0,.25);max-height:92vh;overflow-y:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:38px;height:38px;border-radius:10px;background:#EBF3FC;color:#1E5FB4;display:flex;align-items:center;justify-content:center;font-size:20px">
+              🛠️
+            </div>
+            <div>
+              <h3 style="font-size:17px;font-weight:900;color:#0F326A">Reportar Reclamo o Rotura</h3>
+              <div style="font-size:12px;color:#64748B">${esc(v.edificio)}</div>
+            </div>
+          </div>
+          <button onclick="cerrarModalReclamo()" style="width:32px;height:32px;border-radius:50%;border:none;background:#F1F5F9;color:#64748B;font-size:15px;cursor:pointer">✕</button>
+        </div>
+
+        <form id="form-reclamo" onsubmit="enviarReclamo(event)">
+          <!-- 1. Rubro con Chips -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Rubro / Tipo de Problema</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px" id="chips-rubros">
+              <div class="chip-rubro active" onclick="seleccionarRubro('Plomería / Agua', this)">💧 Plomería</div>
+              <div class="chip-rubro" onclick="seleccionarRubro('Electricidad / Luces', this)">⚡ Electricidad</div>
+              <div class="chip-rubro" onclick="seleccionarRubro('Ascensores', this)">🛗 Ascensor</div>
+              <div class="chip-rubro" onclick="seleccionarRubro('Cerrajería / Portón', this)">🔑 Cerrajería</div>
+              <div class="chip-rubro" onclick="seleccionarRubro('Gas / Calefacción', this)">🔥 Gas</div>
+              <div class="chip-rubro" onclick="seleccionarRubro('Limpieza / Residuos', this)">🧹 Limpieza</div>
+            </div>
+          </div>
+
+          <!-- 2. Ubicación -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Ubicación del Problema</label>
+            <div style="display:flex;gap:8px">
+              <label style="flex:1;display:flex;align-items:center;gap:6px;background:#F8FAFD;border:1.5px solid #CBD5E1;border-radius:10px;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer">
+                <input type="radio" name="ubicacion-tipo" value="depto" checked onchange="actualizarUbicacion(this.value)">
+                <span>En mi Depto (${esc(v.departamento)})</span>
+              </label>
+              <label style="flex:1;display:flex;align-items:center;gap:6px;background:#F8FAFD;border:1.5px solid #CBD5E1;border-radius:10px;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer">
+                <input type="radio" name="ubicacion-tipo" value="comun" onchange="actualizarUbicacion(this.value)">
+                <span>Área Común</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 3. Descripción -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Descripción del problema</label>
+            <textarea id="desc-reclamo" placeholder="Explicá en detalle qué ocurre (ej: Hay una fuga de agua debajo del fregadero o la luz del palier no prende)..." required style="width:100%;height:80px;border:1.5px solid #CBD5E1;border-radius:12px;padding:10px 12px;font-size:13.5px;font-family:inherit;outline:none;resize:none;box-sizing:border-box"></textarea>
+          </div>
+
+          <!-- 4. Subir Foto / Cámara -->
+          <div style="margin-bottom:16px">
+            <label style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Foto de la rotura (Muy Recomendado)</label>
+            <input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none" onchange="procesarFotoReclamo(event)">
+            
+            <div id="btn-foto-box" onclick="document.getElementById('foto-input').click()" style="border:2px dashed #93C5FD;background:#F8FAFD;border-radius:14px;padding:16px;text-align:center;cursor:pointer">
+              <div style="font-size:26px;margin-bottom:4px">📸</div>
+              <div style="font-size:13px;font-weight:800;color:#1E5FB4">Sacar Foto con la Cámara o Elegir de Galería</div>
+              <div style="font-size:11.5px;color:#64748B">Ayuda al técnico a traer el repuesto exacto</div>
+            </div>
+
+            <!-- Preview de Foto Cargada -->
+            <div id="foto-preview-container" style="display:none;position:relative;margin-top:8px;border-radius:12px;overflow:hidden;border:1px solid #CBD5E1">
+              <img id="foto-preview-img" src="" style="width:100%;height:180px;object-fit:cover;display:block">
+              <button type="button" onclick="quitarFotoReclamo()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.7);color:#fff;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:14px">✕</button>
+            </div>
+          </div>
+
+          <!-- 5. Urgencia -->
+          <div style="margin-bottom:20px">
+            <label style="display:flex;align-items:center;gap:8px;background:#FEF2F2;border:1.5px solid #FCA5A5;border-radius:12px;padding:10px 14px;cursor:pointer">
+              <input type="checkbox" id="check-urgente" style="width:18px;height:18px">
+              <div>
+                <div style="font-size:13px;font-weight:900;color:#991B1B">🚨 Marcar como Urgencia Grave</div>
+                <div style="font-size:11px;color:#7F1D1D">Inundación, corte de luz general, fuga de gas o riesgo físico</div>
+              </div>
+            </label>
+          </div>
+
+          <button id="btn-enviar-reclamo" type="submit" style="width:100%;height:48px;border:none;border-radius:14px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-weight:800;font-size:15px;cursor:pointer;box-shadow:0 4px 14px rgba(15,50,106,.3);display:flex;align-items:center;justify-content:center;gap:8px">
+            <span>Enviar Reclamo a Marcos IA</span>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL LIGHTBOX PARA VER FOTO EN GRANDE -->
+    <div id="modal-lightbox" onclick="this.style.display='none'" style="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:99999;display:none;align-items:center;justify-content:center;padding:16px">
+      <img id="lightbox-img" src="" style="max-width:92%;max-height:85vh;border-radius:14px;object-fit:contain;box-shadow:0 20px 40px rgba(0,0,0,.5)">
+    </div>
+
+    <style>
+      .chip-rubro {
+        padding: 9px 12px;
+        border-radius: 10px;
+        border: 1.5px solid #E2E8F0;
+        background: #F8FAFD;
+        font-size: 12.5px;
+        font-weight: 700;
+        color: #334155;
+        cursor: pointer;
+        transition: all .15s;
+        text-align: center;
+      }
+      .chip-rubro.active {
+        border-color: #0F326A;
+        background: #EBF3FC;
+        color: #0F326A;
+        font-weight: 800;
+      }
+    </style>
+
+    <script>
+      var _rubroSeleccionado = 'Plomería / Agua';
+      var _fotoReclamoBase64 = '';
+      var _ubicacionTipo = 'depto';
+
+      function seleccionarRubro(nombre, el) {
+        _rubroSeleccionado = nombre;
+        document.querySelectorAll('.chip-rubro').forEach(function(c){ c.classList.remove('active'); });
+        el.classList.add('active');
+      }
+
+      function actualizarUbicacion(val) {
+        _ubicacionTipo = val;
+      }
+
+      function abrirModalReclamo() {
+        document.getElementById('modal-nuevo-reclamo').style.display = 'flex';
+      }
+
+      function cerrarModalReclamo() {
+        document.getElementById('modal-nuevo-reclamo').style.display = 'none';
+      }
+
+      function verFotoGrande(src) {
+        document.getElementById('lightbox-img').src = src;
+        document.getElementById('modal-lightbox').style.display = 'flex';
+      }
+
+      function procesarFotoReclamo(e) {
+        var file = e.target.files && e.target.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(evt) {
+          _fotoReclamoBase64 = evt.target.result;
+          document.getElementById('foto-preview-img').src = _fotoReclamoBase64;
+          document.getElementById('foto-preview-container').style.display = 'block';
+          document.getElementById('btn-foto-box').style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+      }
+
+      function quitarFotoReclamo() {
+        _fotoReclamoBase64 = '';
+        document.getElementById('foto-input').value = '';
+        document.getElementById('foto-preview-container').style.display = 'none';
+        document.getElementById('btn-foto-box').style.display = 'block';
+      }
+
+      async function enviarReclamo(e) {
+        e.preventDefault();
+        var btn = document.getElementById('btn-enviar-reclamo');
+        var desc = document.getElementById('desc-reclamo').value.trim();
+        var esUrgente = document.getElementById('check-urgente').checked;
+
+        if (!desc) {
+          alert('Por favor describí el problema.');
+          return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = '<span>⏳ Registrando reclamo...</span>';
+
+        try {
+          var res = await fetch('/vecino/api/reclamos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              rubro: _rubroSeleccionado,
+              ubicacion: _ubicacionTipo,
+              descripcion: desc,
+              urgencia: esUrgente ? 'urgente' : 'normal',
+              fotoBase64: _fotoReclamoBase64
+            })
+          });
+          var data = await res.json();
+          if (data && data.ok) {
+            alert('✅ ¡Reclamo registrado con éxito! Código: ' + (data.codigoCaso || '') + '\\n\\nMarcos IA ya lo asignó y notificó a la Administración.');
+            location.reload();
+          } else {
+            alert('Error al registrar reclamo: ' + (data.error || 'Intente nuevamente'));
+            btn.disabled = false;
+            btn.innerHTML = '<span>Enviar Reclamo a Marcos IA</span>';
+          }
+        } catch(err) {
+          alert('Error de conexión: ' + err.message);
+          btn.disabled = false;
+          btn.innerHTML = '<span>Enviar Reclamo a Marcos IA</span>';
+        }
+      }
+    </script>
+  `;
+
+  res.send(shellVecino('Reclamos', 'reclamos', content, v));
+});
+
+router.post('/api/reclamos', async (req, res) => {
+  const v = getVecinoSession(req);
+  const { rubro, ubicacion, descripcion, urgencia, fotoBase64 } = req.body || {};
+
+  if (!descripcion || !descripcion.trim()) {
+    return res.status(400).json({ ok: false, error: 'La descripción del problema es requerida.' });
+  }
+
+  const codigoCaso = 'CASO-' + Math.floor(1000 + Math.random() * 9000);
+  const nuevoReclamo = {
+    id: Date.now(),
+    codigo_caso: codigoCaso,
+    edificio: v.edificio,
+    depto: ubicacion === 'comun' ? 'Área Común' : (v.departamento || '1° A'),
+    vecino: v.nombre,
+    telefono: v.telefono || '+5491150542005',
+    rubro: rubro || 'Mantenimiento General',
+    problema: descripcion.trim(),
+    urgencia: urgencia || 'normal',
+    foto_url: fotoBase64 || '',
+    estado: 'pendiente',
+    created_at: new Date().toISOString()
+  };
+
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      await pool.query(
+        `INSERT INTO reportes (codigo_caso, edificio, depto, vecino, telefono, problema, urgencia, estado, foto_url, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+        [
+          codigoCaso,
+          v.edificio,
+          nuevoReclamo.depto,
+          v.nombre,
+          nuevoReclamo.telefono,
+          `[${nuevoReclamo.rubro}] ${nuevoReclamo.problema}`,
+          nuevoReclamo.urgencia,
+          'pendiente',
+          nuevoReclamo.foto_url
+        ]
+      ).catch(e => console.warn('Error insertando en reportes PG:', e.message));
+    }
+  } catch (errDb) {
+    console.warn('DB reportes error:', errDb.message);
+  }
+
+  _reclamosEnMemoria.unshift(nuevoReclamo);
+
+  res.json({
+    ok: true,
+    mensaje: 'Reclamo registrado con éxito',
+    codigoCaso: codigoCaso,
+    reclamo: nuevoReclamo
+  });
 });
 
 // -------------------------------------------------------------------
