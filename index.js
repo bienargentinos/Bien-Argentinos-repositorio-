@@ -3026,6 +3026,34 @@ function validarYSanitizarNombre(nombre) {
                 // aviso quedaba con el mismo rubro que su caso eléctrico abierto en ese edificio
                 // y se metía adentro en vez de abrir uno nuevo.
                 const rubroAviso = rubroDelCaso(msgBodyParaRegistro, datosEmisor.especialidad);
+
+                // AHORA SÍ SE SABE DE QUÉ ES EL TRABAJO: hay que volver a preguntarse quién escribe.
+                //
+                // El desempate entre los técnicos que comparten la línea corre ARRIBA, al entrar el
+                // mensaje, cuando todavía no hay caso y por lo tanto no hay rubro con qué elegir.
+                // En ese momento se queda con el primero de la planilla y marca `nombreIncierto`.
+                //
+                // Visto en producción: Dario avisó por un caño roto y el caso quedó abierto a
+                // nombre de JULIO, que es el primero de esa línea. El rubro que lo habría resuelto
+                // --plomería, deducido del texto-- se calcula acá, una línea más arriba, o sea
+                // DESPUÉS de haber elegido el nombre. El dato correcto llegaba tarde.
+                //
+                // Con el rubro en la mano se vuelve a elegir, antes de escribir el caso: lo que
+                // quede anotado acá es con quien Marcos va a hablar de ahora en más.
+                if (rubroAviso && datosEmisor.nombreIncierto) {
+                    try {
+                        const { proveedoresPorTelefono } = require('./datos');
+                        const enLaLinea = (await proveedoresPorTelefono(from)) || [];
+                        const elCorrecto = enLaLinea.find(p => atiendeRubro(p.rubro, rubroAviso));
+                        if (elCorrecto) {
+                            console.log(`🎯 El aviso es de "${rubroAviso}": quien escribe desde ${from} es ${elCorrecto.nombre}, no ${datosEmisor.nombre}.`);
+                            datosEmisor.nombre = elCorrecto.nombre;
+                            datosEmisor.especialidad = elCorrecto.rubro || datosEmisor.especialidad;
+                            datosEmisor.nombreIncierto = false;
+                        }
+                    } catch (e) { console.error('No se pudo reelegir el técnico con el rubro del aviso:', e.message); }
+                }
+
                 try {
                     const { guardarReporte } = require('./datos');
                     const resAviso = await guardarReporte({

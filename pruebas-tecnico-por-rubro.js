@@ -128,6 +128,31 @@ console.log('\n── EL CASO YA DECIDIÓ CON QUIÉN HABLA ──');
         aQuienLeHabla(LINEA, 'electricidad', 'julio', ''), 'dario juju');
 }
 
+console.log('\n── EL RUBRO DEL AVISO LLEGABA TARDE ──');
+{
+    // EL CASO REAL. Dario avisó "me llamaron de San Patricio 270 por un problema de agua, un caño
+    // roto" y el CASO-1004 quedó abierto a nombre de JULIO.
+    //
+    // No fue un error del desempate: fue de ORDEN. El desempate corre al entrar el mensaje, cuando
+    // todavía no hay caso y por lo tanto no hay rubro con qué elegir -- ahí se queda con el primero
+    // de la planilla (julio) y marca nombreIncierto. El rubro que lo habría resuelto se deduce del
+    // texto DESPUÉS, ya adentro de la rama del aviso.
+    const { rubroDelCaso, atiendeRubro } = require('./rubros');
+
+    const texto = 'Hola me llamaron de San Patricio 270 por un problema de agua, un caño roto me llamo el encargado';
+    const rubro = rubroDelCaso(texto, 'Electricista');
+    verificar('del texto sale plomería, no el oficio de la ficha', rubro, 'plomería');
+
+    // Con ese rubro en la mano, el desempate elige bien.
+    verificar('y con el rubro se elige a Julio, que es el plomero de esa línea',
+        LINEA.find(p => atiendeRubro(p.rubro, rubro))?.nombre, 'julio');
+
+    // Al revés, con un aviso eléctrico de la misma línea sale Dario.
+    const rubroLuz = rubroDelCaso('me llamaron porque saltó el tablero de las luces del hall', 'Electricista');
+    verificar('un aviso eléctrico resuelve a Dario',
+        LINEA.find(p => atiendeRubro(p.rubro, rubroLuz))?.nombre, 'dario juju');
+}
+
 console.log('\n── QUE EL CÓDIGO REAL HAGA LO MISMO ──');
 {
     // Esta prueba reimplementa la decisión, así que puede quedarse vieja sin avisar. Al menos se
@@ -137,6 +162,12 @@ console.log('\n── QUE EL CÓDIGO REAL HAGA LO MISMO ──');
         /stProv\.tecnicoDelCaso/.test(src), true);
     verificar('y lo consulta antes de deducir por rubro',
         src.indexOf('const yaAnotado = String(stProv.tecnicoDelCaso') < src.indexOf('atiendeRubro(p.rubro, rubroActivoDelCaso)'), true);
+
+    // Y que el aviso vuelva a elegir con el rubro recién deducido, antes de escribir el caso.
+    verificar('el aviso reelige al técnico con el rubro del texto',
+        /atiendeRubro\(p\.rubro, rubroAviso\)/.test(src), true);
+    verificar('y lo hace ANTES de guardar el caso',
+        src.indexOf('atiendeRubro(p.rubro, rubroAviso)') < src.indexOf("vecino: 'Avisado por el proveedor'"), true);
 }
 
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);
