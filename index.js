@@ -4824,13 +4824,20 @@ app.get('/sw.js', (req, res) => {
 // Por eso se sirve solo con PORTAL_VECINO=on en el .env. Se prende para desarrollar y se apaga
 // para producción, hasta que el login sea real (contraseña hasheada, alta por el administrador)
 // y las rutas exijan sesión. Cuando eso esté, se saca este interruptor.
-if (String(process.env.PORTAL_VECINO || '').toLowerCase() === 'on') {
+//
+// Se aceptan las formas obvias de decir que sí --`on`, `1`, `true`, `si`-- y no solo `on`. La
+// versión anterior exigía la palabra exacta, y las DOS plantillas del .env (la de este repo y la
+// que sumó otro agente) decían `PORTAL_VECINO=1`: con eso el portal quedaba apagado y la URL daba
+// 404, sin ninguna pista de por qué. Un interruptor que solo entiende una forma de encenderse es
+// un interruptor que alguien va a dejar apagado creyendo que lo prendió.
+if (['on', '1', 'true', 'si', 'sí', 'yes'].includes(String(process.env.PORTAL_VECINO || '').toLowerCase().trim())) {
     const portalVecino = require('./portal-vecino');
     app.use('/vecino', portalVecino);
     app.use('/portal', portalVecino);
     console.log('🚧 Portal del vecino ACTIVO en /vecino y /portal — sin login real todavía. No dejar prendido en producción.');
 } else {
-    console.log('🔒 Portal del vecino apagado (PORTAL_VECINO=on para prenderlo mientras se desarrolla).');
+    console.log(`🔒 Portal del vecino APAGADO. PORTAL_VECINO vale "${process.env.PORTAL_VECINO ?? '(sin definir)'}" ` +
+                `y para prenderlo tiene que valer on / 1 / true. Mientras esté apagado, /vecino da 404.`);
 }
 
 // Portería Virtual & Timbre Inteligente Web
