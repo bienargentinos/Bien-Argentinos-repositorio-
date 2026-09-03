@@ -766,9 +766,39 @@ router.post('/api/tocar-timbre', async (req, res) => {
       }
     } catch (_) {}
 
-    // Si no está en DB o es 1° A en prueba, asignar Daniel Morales +5491150542005
-    const tel = (vecino && vecino.telefono) ? vecino.telefono : (departamento.includes('1') ? '+5491150542005' : null);
-    const nombre = (vecino && vecino.nombre) ? vecino.nombre : (departamento.includes('1') ? 'Daniel Morales' : ('Vecino del ' + departamento));
+    // Si el vecino no está en el padrón, se busca en los números de PRUEBA del .env.
+    //
+    // > [!CAUTION]
+    // > **Antes esto era `departamento.includes('1')` con un número escrito en el código.**
+    // > Ese `includes` matchea 1°A, 1°B, 11°C, 21°D -- cualquier unidad que tenga un uno. En un
+    // > edificio real, TODOS esos timbres le habrían llegado al mismo teléfono. Y como el número
+    // > estaba en el código, cambiarlo obligaba a tocar el repo y desplegar.
+    //
+    // Ahora sale del .env, se compara la unidad EXACTA, y queda dicho en el log que es de prueba:
+    //
+    //     TIMBRE_PRUEBA=1A:5491150542005:Daniel Morales,1B:5491112345678:Vecino de prueba
+    //
+    // El nombre es opcional. Esto es un andamio para probar sin cargar el padrón: en cuanto el
+    // vecino esté en la tabla `vecinos`, gana el padrón y esto no se usa nunca más.
+    const deptoNorm = String(departamento || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
+    let dePrueba = null;
+    for (const entrada of String(process.env.TIMBRE_PRUEBA || '').split(',')) {
+        const [unidad, telPrueba, nombrePrueba] = entrada.split(':').map(x => String(x || '').trim());
+        if (!unidad || !telPrueba) continue;
+        if (unidad.toLowerCase().replace(/[^a-z0-9]/gi, '') !== deptoNorm) continue;
+        dePrueba = { telefono: telPrueba, nombre: nombrePrueba || ('Vecino del ' + departamento) };
+        break;
+    }
+
+    const tel = (vecino && vecino.telefono) ? vecino.telefono : (dePrueba ? dePrueba.telefono : null);
+    const nombre = (vecino && vecino.nombre) ? vecino.nombre
+                 : (dePrueba ? dePrueba.nombre : ('Vecino del ' + departamento));
+
+    if (!vecino && dePrueba) {
+        console.log(`🔔🧪 ${departamento} de ${edificio} no está en el padrón: se usa el número de PRUEBA de TIMBRE_PRUEBA (${tel}). Cargalo en el padrón para que esto deje de hacer falta.`);
+    } else if (!vecino) {
+        console.log(`🔔❓ ${departamento} de ${edificio} no está en el padrón y no tiene número de prueba: NO se manda WhatsApp. El timbre suena solo en la app, y solo si está abierta.`);
+    }
 
     // Si tiene teléfono WhatsApp, enviar mensaje inmediato
     if (tel && marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
