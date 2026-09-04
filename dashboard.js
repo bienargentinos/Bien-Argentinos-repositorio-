@@ -1246,6 +1246,119 @@ textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-
 }
 
 /* Modo Oscuro / Dark Theme (High-Contrast & Ultra-Legible) */
+html.dark-theme, body.dark-theme {
+  background: #0B132B !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme header {
+  background: #111C38 !important;
+  border-bottom-color: #2A3A5E !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .sidebar-nav {
+  background: #111C38 !important;
+  border-right-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme .mobile-bottom-nav {
+  background: #111C38 !important;
+  border-top-color: #2A3A5E !important;
+}
+.dark-theme .modal-box {
+  background: #151F38 !important;
+  border: 1px solid #2A3A5E !important;
+  color: #F1F5F9 !important;
+  box-shadow: 0 16px 40px -12px rgba(0,0,0,.6) !important;
+}
+.dark-theme .modal-box > div {
+  border-color: #2A3A5E !important;
+}
+.dark-theme .menu-pop {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+  box-shadow: 0 16px 40px -12px rgba(0,0,0,.6) !important;
+}
+.dark-theme .menu-pop > div {
+  border-color: #2A3A5E !important;
+}
+.dark-theme .menu-pop a,
+.dark-theme .menu-pop button {
+  color: #F1F5F9 !important;
+}
+.dark-theme .menu-pop a:hover,
+.dark-theme .menu-pop button:hover {
+  background: #1C2B4E !important;
+  color: #FFFFFF !important;
+}
+.dark-theme div[style*="background:#fff"],
+.dark-theme div[style*="background: #fff"],
+.dark-theme div[style*="background:#FFFFFF"],
+.dark-theme div[style*="background: #FFFFFF"],
+.dark-theme section[style*="background:#fff"],
+.dark-theme section[style*="background: #fff"],
+.dark-theme .hv-card,
+.dark-theme .hv-selbtn {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme div[style*="background:#F8FAFD"],
+.dark-theme div[style*="background: #F8FAFD"],
+.dark-theme div[style*="background:#F7F9FC"],
+.dark-theme div[style*="background: #F7F9FC"],
+.dark-theme div[style*="background:#EEF2F8"],
+.dark-theme div[style*="background: #EEF2F8"],
+.dark-theme div[style*="background:#F1F4F9"],
+.dark-theme div[style*="background: #F1F4F9"] {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme button[style*="background:#fff"],
+.dark-theme button[style*="background: #fff"],
+.dark-theme button[style*="background:#FFFFFF"],
+.dark-theme button[style*="background: #FFFFFF"],
+.dark-theme a[style*="background:#fff"],
+.dark-theme a[style*="background: #fff"],
+.dark-theme a[style*="background:#FFFFFF"],
+.dark-theme a[style*="background: #FFFFFF"],
+.dark-theme button.hv-soft,
+.dark-theme a.hv-soft,
+.dark-theme button.hv-white,
+.dark-theme a.hv-white {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme span[style*="color:#16233B"],
+.dark-theme span[style*="color: #16233B"],
+.dark-theme div[style*="color:#16233B"],
+.dark-theme div[style*="color: #16233B"],
+.dark-theme p[style*="color:#16233B"],
+.dark-theme p[style*="color: #16233B"],
+.dark-theme h1, .dark-theme h2, .dark-theme h3, .dark-theme h4 {
+  color: #F8FAFC !important;
+}
+.dark-theme span[style*="color:#475569"],
+.dark-theme span[style*="color: #475569"],
+.dark-theme span[style*="color:#64748B"],
+.dark-theme span[style*="color: #64748B"],
+.dark-theme div[style*="color:#475569"],
+.dark-theme div[style*="color: #475569"],
+.dark-theme div[style*="color:#64748B"],
+.dark-theme div[style*="color: #64748B"] {
+  color: #CBD5E1 !important;
+}
+.dark-theme span[style*="color:#8595AD"],
+.dark-theme span[style*="color: #8595AD"],
+.dark-theme span[style*="color:#9AA7BD"],
+.dark-theme span[style*="color: #9AA7BD"],
+.dark-theme div[style*="color:#8595AD"],
+.dark-theme div[style*="color: #8595AD"] {
+  color: #94A3B8 !important;
+}
+
 /* Archivo de Comprobantes / Facturas y Fotos - Dark Theme High Contrast */
 .dark-theme .factura-card-metric {
   background: #151F38 !important;
