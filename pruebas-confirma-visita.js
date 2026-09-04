@@ -31,17 +31,8 @@ function condicion(nombre) {
     // adentro porque son cadenas de `||` sobre expresiones regulares).
     const fin = SRC.indexOf(';\n', ini);
     const cuerpo = SRC.slice(ini, fin + 1);
-
-    // `avisaQueVa` usa una constante declarada una línea antes (la clase de caracteres con
-    // acentos, que existe porque `\w` en JavaScript no los incluye). Se arrastra también, o el
-    // cuerpo extraído no compila.
-    const iniPal = SRC.lastIndexOf("const PAL = ", ini);
-    const declaraciones = (iniPal !== -1 && ini - iniPal < 400)
-        ? SRC.slice(iniPal, SRC.indexOf(';\n', iniPal) + 1)
-        : '';
-
     // eslint-disable-next-line no-new-func
-    return new Function('txtLow', `${declaraciones}\n${cuerpo}; return ${nombre};`);
+    return new Function('txtLow', `${cuerpo}; return ${nombre};`);
 }
 
 const avisaQueVa = condicion('avisaQueVa');

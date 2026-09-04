@@ -2985,10 +2985,9 @@ function validarYSanitizarNombre(nombre) {
             // Ojo con `\w`: en JavaScript NO incluye las vocales acentuadas, así que `llam\w*` se
             // corta antes de la "ó" de "llamó" y la frase más común de todas --"llamó el
             // encargado"-- no matcheaba. Por eso las clases se escriben a mano con los acentos.
-            const PAL = '[a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ]';
-            const avisaQueVa = new RegExp(`\\b(me|nos)\\s+(?:${PAL}+\\s+){0,3}(llam|avis|convoc|pidi|mand|contact|solicit)`, 'i').test(txtLow)
-                || new RegExp(`\\b(acab${PAL}*|termin${PAL}*)\\s+de\\s+(llamar|llamarme|avisar|avisarme|contactar|escribir)`, 'i').test(txtLow)
-                || new RegExp(`\\b(llam|avis|convoc|contact)${PAL}*\\s+(el|la|los|las|un|una)?\\s*(encargad|administrad|porter|seguridad|vecin|consorcio|edificio)`, 'i').test(txtLow)
+            const avisaQueVa = /\b(me|nos)\s+(?:[a-z0-9áéíóúüñ]+\s+){0,3}(llam|avis|convoc|pidi|mand|contact|solicit)/i.test(txtLow)
+                || /\b(acab[a-záéíóúüñ]*|termin[a-záéíóúüñ]*)\s+de\s+(llamar|llamarme|avisar|avisarme|contactar|escribir)/i.test(txtLow)
+                || /\b(llam|avis|convoc|contact)[a-záéíóúüñ]*\s+(el|la|los|las|un|una)?\s*(encargad|administrad|porter|seguridad|vecin|consorcio|edificio)/i.test(txtLow)
                 || /\b(llamaron|avisaron|convocaron|contactaron|me escribieron)\b/i.test(txtLow)
                 || /\b(voy a (pasar|ir|estar|acercarme)|estoy yendo|voy para|paso (hoy|ma[nñ]ana|luego|m[aá]s tarde)|me acerco|salgo para)\b/i.test(txtLow)
                 || /\b(aviso que|te aviso que|les aviso que)\b/i.test(txtLow);
