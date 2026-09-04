@@ -255,6 +255,155 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   border-bottom-color: #1E2D4A !important;
 }
 
+/* --- AMENITIES Y SELECTOR DE HORAS --- */
+.amenity-card-item {
+  border: 2px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 12px 8px;
+  cursor: pointer;
+  background: #ffffff;
+  text-align: center;
+  transition: all .2s ease;
+  user-select: none;
+  box-shadow: 0 1px 3px rgba(15,23,42,.04);
+}
+.amenity-card-item:hover {
+  transform: translateY(-2px);
+  border-color: #CBD5E1;
+}
+.amenity-card-item .amenity-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0F172A;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.amenity-card-item .amenity-time {
+  font-size: 11px;
+  color: #64748B;
+  margin-top: 2px;
+}
+.amenity-card-item.selected {
+  border: 2px solid #D97706 !important;
+  background: linear-gradient(135deg, #FEF3C7, #FFFBEB) !important;
+  box-shadow: 0 4px 14px rgba(217, 119, 6, 0.25) !important;
+  transform: translateY(-2px);
+}
+.amenity-card-item.selected .amenity-title {
+  color: #92400E !important;
+}
+
+/* Modo oscuro para tarjetas de Amenities */
+.dark-theme .amenity-card-item {
+  background: #15223D !important;
+  border: 2px solid #24355A !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,.3);
+}
+.dark-theme .amenity-card-item .amenity-title {
+  color: #FFFFFF !important;
+}
+.dark-theme .amenity-card-item .amenity-time {
+  color: #FBBF24 !important; /* Horario en amarillo */
+}
+/* Al seleccionar o tocar en modo oscuro: Degrade con resplandor dorado / amarillo y borde resaltado */
+.dark-theme .amenity-card-item.selected {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.25), rgba(217, 119, 6, 0.12)) !important;
+  border: 2px solid #FBBF24 !important;
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.45), inset 0 0 10px rgba(251, 191, 36, 0.18) !important;
+  transform: translateY(-2px);
+}
+.dark-theme .amenity-card-item.selected .amenity-title {
+  color: #FFFFFF !important;
+  font-weight: 900 !important;
+}
+.dark-theme .amenity-card-item.selected .amenity-time {
+  color: #FDE047 !important;
+  font-weight: 700 !important;
+}
+
+/* Botones de selección de horas (estilo butacas) */
+.hora-slot-btn {
+  padding: 10px 6px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 800;
+  text-align: center;
+  cursor: pointer;
+  transition: all .15s ease;
+  background: #ffffff;
+  border: 1.5px solid #CBD5E1;
+  color: #0F172A;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-family: inherit;
+  user-select: none;
+}
+.hora-slot-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.hora-slot-btn.selected {
+  background: linear-gradient(135deg, #1E5FB4, #2E6FC0) !important;
+  border: 1.5px solid #1E5FB4 !important;
+  color: #ffffff !important;
+  box-shadow: 0 3px 10px rgba(30,95,180,.35) !important;
+}
+.hora-slot-btn.ocupado {
+  background: #FEE2E2 !important;
+  border: 1.5px solid #FCA5A5 !important;
+  color: #991B1B !important;
+  cursor: not-allowed !important;
+  opacity: 0.85 !important;
+}
+
+/* Modo oscuro para botones de horas */
+.dark-theme .hora-slot-btn {
+  background: #15223D !important;
+  border: 1.5px solid #24355A !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .hora-slot-btn.selected {
+  background: linear-gradient(135deg, #F59E0B, #D97706) !important;
+  border: 1.5px solid #FDE047 !important;
+  color: #070D1E !important;
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.45) !important;
+}
+.dark-theme .hora-slot-btn.selected span {
+  color: #070D1E !important;
+  font-weight: 900 !important;
+}
+.dark-theme .hora-slot-btn.ocupado {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border: 1.5px solid rgba(239, 68, 68, 0.35) !important;
+  color: #F87171 !important;
+  opacity: 0.75 !important;
+}
+.dark-theme .hora-slot-btn.ocupado span {
+  color: #F87171 !important;
+}
+
+.dark-theme #resumen-seleccion-horas {
+  background: rgba(251, 191, 36, 0.15) !important;
+  border: 1px solid rgba(251, 191, 36, 0.4) !important;
+  color: #FDE047 !important;
+}
+.dark-theme #resumen-seleccion-horas strong,
+.dark-theme #resumen-seleccion-horas span {
+  color: #FFFFFF !important;
+}
+
+.dark-theme #contenido-reglamento-amenity {
+  background: #0B1426 !important;
+  border-color: #24355A !important;
+  color: #FFFFFF !important;
+}
+.dark-theme #titulo-reglamento-amenity {
+  color: #FBBF24 !important;
+}
+
 /* Inputs, textareas y selects en modo oscuro */
 .dark-theme input.inp,
 .dark-theme input[type="text"],
@@ -2664,6 +2813,7 @@ router.get('/amenities', async (req, res) => {
   let misReservas = [];
   let todasReservasEdificio = [];
   let amenitiesList = [];
+  let datosBanco = null;
 
   try {
     const { pool } = require('./db-pg');
@@ -2681,7 +2831,10 @@ router.get('/amenities', async (req, res) => {
           desc: a.descripcion || ('Capacidad ' + (a.capacidad || 20) + ' personas'),
           reglamento: a.reglamento || '',
           hora_apertura: a.hora_apertura || '08:00',
-          hora_cierre: a.hora_cierre || '23:00'
+          hora_cierre: a.hora_cierre || '23:00',
+          arancelado: Boolean(a.arancelado),
+          precio: Number(a.precio || 0),
+          moneda: a.moneda || 'ARS'
         }));
       }
 
@@ -2698,20 +2851,40 @@ router.get('/amenities', async (req, res) => {
           (r.nombre_vecino && r.nombre_vecino.toLowerCase() === v.nombre.toLowerCase())
         );
       }
+
+      // 3. Cargar datos bancarios del edificio para transferencias de seña/arancel
+      const qEd = `SELECT cbu, alias, titular, banco, cuit FROM edificios WHERE LOWER(nombre) = LOWER($1) OR LOWER(consorcio) = LOWER($1) LIMIT 1`;
+      const resEd = await pool.query(qEd, [v.edificio]);
+      if (resEd && resEd.rows && resEd.rows.length > 0) {
+        const r = resEd.rows[0];
+        if (r.cbu || r.alias) {
+          datosBanco = r;
+        }
+      }
     }
   } catch (errDb) {
     console.warn('Carga reservas amenities:', errDb.message);
   }
 
-  // Si aún no se configuraron amenities en este edificio, usar catálogo estándar
+  // Fallback de datos bancarios si no fueron configurados específicamente
+  if (!datosBanco) {
+    datosBanco = {
+      banco: 'Banco Oficial del Consorcio',
+      titular: 'Consorcio ' + (v.edificio || 'Edificio'),
+      cbu: 'Consultar con Administración',
+      alias: (v.edificio || 'consorcio').toLowerCase().replace(/[^a-z0-9]/g, '') + '.expensas',
+    };
+  }
+
+  // Si aún no se configuraron amenities en este edificio, usar catálogo estándar con aranceles sugeridos
   if (!amenitiesList.length) {
     amenitiesList = [
-      { id: 'sum', nombre: 'SUM (Salón de Eventos)', icon: '🎉', desc: 'Capacidad 35 personas · Parrilla, vajilla, TV y aire frío/calor', reglamento: 'Música permitida hasta 01:00 hs. Seña de $15.000 para limpieza. Dejar vajilla limpia. Prohibido fumar adentro.', hora_apertura: '09:00', hora_cierre: '23:00' },
-      { id: 'parrilla', nombre: 'Parrilla / Quincho', icon: '🥩', desc: 'Capacidad 15 personas · Parrilla a leña, mesa exterior y bacha', reglamento: 'Uso de carbón o leña propios. Apagar brasas y limpiar la parrilla al finalizar.', hora_apertura: '10:00', hora_cierre: '23:00' },
-      { id: 'pileta', nombre: 'Pileta & Solarium', icon: '🏊', desc: 'Solarium con reposeras · Temporada habilitada', reglamento: 'Uso obligatorio de gorro. Revisación médica previa. Menores de 12 años acompañados por un adulto.', hora_apertura: '09:00', hora_cierre: '20:00' },
-      { id: 'gimnasio', nombre: 'Gimnasio', icon: '🏋️', desc: 'Cinta para correr, mancuernas, polea y bicicleta estática', reglamento: 'Uso de toalla obligatorio para las máquinas. Limpiar y desinfectar el equipamiento tras su uso.', hora_apertura: '07:00', hora_cierre: '22:00' },
-      { id: 'cochera', nombre: 'Cochera de Cortesía', icon: '🚗', desc: 'Espacio de estacionamiento para visitas', reglamento: 'Máximo 48 hs continuas por visitante. Identificar vehículo con patente en portería.', hora_apertura: '08:00', hora_cierre: '23:00' },
-      { id: 'laundry', nombre: 'Laundry / Lavadero', icon: '🧺', desc: 'Lavarropas y secarropas automáticos', reglamento: 'Utilizar jabón para lavarropas automáticos. Retirar prendas al terminar el ciclo.', hora_apertura: '08:00', hora_cierre: '21:00' }
+      { id: 'sum', nombre: 'SUM (Salón de Eventos)', icon: '🎉', desc: 'Capacidad 35 personas · Parrilla, vajilla, TV y aire frío/calor', reglamento: 'Música permitida hasta 01:00 hs. Seña de $15.000 para limpieza. Dejar vajilla limpia. Prohibido fumar adentro.', hora_apertura: '09:00', hora_cierre: '23:00', arancelado: true, precio: 15000, moneda: 'ARS' },
+      { id: 'parrilla', nombre: 'Parrilla / Quincho', icon: '🥩', desc: 'Capacidad 15 personas · Parrilla a leña, mesa exterior y bacha', reglamento: 'Uso de carbón o leña propios. Apagar brasas y limpiar la parrilla al finalizar.', hora_apertura: '10:00', hora_cierre: '23:00', arancelado: false, precio: 0, moneda: 'ARS' },
+      { id: 'pileta', nombre: 'Pileta & Solarium', icon: '🏊', desc: 'Solarium con reposeras · Temporada habilitada', reglamento: 'Uso obligatorio de gorro. Revisación médica previa. Menores de 12 años acompañados por un adulto.', hora_apertura: '09:00', hora_cierre: '20:00', arancelado: false, precio: 0, moneda: 'ARS' },
+      { id: 'gimnasio', nombre: 'Gimnasio', icon: '🏋️', desc: 'Cinta para correr, mancuernas, polea y bicicleta estática', reglamento: 'Uso de toalla obligatorio para las máquinas. Limpiar y desinfectar el equipamiento tras su uso.', hora_apertura: '07:00', hora_cierre: '22:00', arancelado: false, precio: 0, moneda: 'ARS' },
+      { id: 'cochera', nombre: 'Cochera de Cortesía', icon: '🚗', desc: 'Espacio de estacionamiento para visitas', reglamento: 'Máximo 48 hs continuas por visitante. Identificar vehículo con patente en portería.', hora_apertura: '08:00', hora_cierre: '23:00', arancelado: true, precio: 5000, moneda: 'ARS' },
+      { id: 'laundry', nombre: 'Laundry / Lavadero', icon: '🧺', desc: 'Lavarropas y secarropas automáticos', reglamento: 'Utilizar jabón para lavarropas automáticos. Retirar prendas al terminar el ciclo.', hora_apertura: '08:00', hora_cierre: '21:00', arancelado: false, precio: 0, moneda: 'ARS' }
     ];
   }
 
@@ -2727,18 +2900,39 @@ router.get('/amenities', async (req, res) => {
     ${misReservas.length ? `
     <div class="card" style="margin-bottom:16px;padding:16px 18px">
       <div style="font-size:14px;font-weight:800;color:#0F172A;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-        <span>🎟️</span> Mis Reservas Confirmadas (${misReservas.length})
+        <span>🎟️</span> Mis Reservas (${misReservas.length})
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px">
-        ${misReservas.map(r => `
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #E2E8F0;border-radius:10px;background:#F8FAFD;gap:10px;flex-wrap:wrap">
-            <div>
-              <div style="font-size:13.5px;font-weight:800;color:#0F172A">${esc(r.amenity)}</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${misReservas.map(r => {
+          const montoNum = Number(r.monto || 0);
+          const estadoPago = r.estado_pago || (montoNum > 0 ? 'pendiente' : 'no_requiere');
+          let badgePago = '';
+          if (montoNum > 0) {
+            if (estadoPago === 'aprobado') {
+              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#DCFCE7;color:#15803D;border:1px solid #86EFAC">✅ Pago Aprobado ($' + montoNum.toLocaleString('es-AR') + ')</span>';
+            } else if (estadoPago === 'comprobante_subido') {
+              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D">⏳ Pago en Revisión ($' + montoNum.toLocaleString('es-AR') + ')</span>' +
+                (r.comprobante_url ? ' <a href="' + r.comprobante_url + '" target="_blank" style="font-size:11px;font-weight:700;color:#1E5FB4;text-decoration:underline;margin-left:4px">👁️ Ver Comprobante</a>' : '');
+            } else {
+              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#FEE2E2;color:#DC2626;border:1px solid #FCA5A5">⚠️ Pago Pendiente ($' + montoNum.toLocaleString('es-AR') + ')</span>' +
+                ' <button onclick="abrirModalPagarReserva(' + r.id + ', \'' + escJs(r.amenity) + '\', ' + montoNum + ')" style="border:none;background:linear-gradient(135deg,#1E5FB4,#2E6FC0);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;cursor:pointer;margin-left:6px;box-shadow:0 2px 6px rgba(30,95,180,0.25)">💳 Subir Comprobante</button>';
+            }
+          } else {
+            badgePago = '<span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:#F1F5F9;color:#64748B">🟢 Sin costo</span>';
+          }
+
+          return `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid #E2E8F0;border-radius:12px;background:#F8FAFD;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;min-width:220px">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+                <span style="font-size:14px;font-weight:800;color:#0F172A">${esc(r.amenity)}</span>
+                ${badgePago}
+              </div>
               <div style="font-size:12px;color:#64748B">📆 ${esc(r.fecha)} · ⏰ <strong>${esc(r.hora_desde || '00:00')} a ${esc(r.hora_hasta || '00:00')} hs</strong>${r.notas ? ' · ' + esc(r.notas) : ''}</div>
             </div>
-            <button onclick="cancelarReserva(${r.id})" style="border:1px solid #FCA5A5;background:#FEF2F2;color:#DC2626;font-size:11.5px;font-weight:700;padding:4px 8px;border-radius:6px;cursor:pointer">Cancelar</button>
-          </div>
-        `).join('')}
+            <button onclick="cancelarReserva(${r.id})" style="border:1px solid #FCA5A5;background:#FEF2F2;color:#DC2626;font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:6px;cursor:pointer">Cancelar</button>
+          </div>`;
+        }).join('')}
       </div>
     </div>
     ` : ''}
@@ -2749,20 +2943,29 @@ router.get('/amenities', async (req, res) => {
         <span>📅</span> Nueva Reserva por Horas
       </div>
 
-      <form id="form-reserva-amenity" onsubmit="enviarReserva(event)">
+      <form id="form-reserva-amenity" onsubmit="guardarReserva(event)">
         <!-- 1. Selección del Amenity -->
         <div style="margin-bottom:16px">
           <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:8px">1. Elegí el espacio común</label>
           <div id="grid-amenities" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
             ${amenitiesList.map((a, idx) => `
-              <div onclick="seleccionarAmenity('${escJs(a.nombre)}', this)" style="border:2px solid ${idx === 0 ? '#1E5FB4' : '#E2E8F0'};border-radius:10px;padding:10px;cursor:pointer;background:${idx === 0 ? '#EBF3FC' : '#fff'};text-align:center;transition:all .2s" class="amenity-card-item">
-                <div style="font-size:24px;margin-bottom:2px">${esc(a.icon)}</div>
-                <div style="font-size:13px;font-weight:800;color:#0F172A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.nombre)}</div>
-                <div style="font-size:11px;color:#64748B">${esc(a.hora_apertura)} a ${esc(a.hora_cierre)} hs</div>
+              <div onclick="seleccionarAmenity('${escJs(a.nombre)}', this)" class="amenity-card-item ${idx === 0 ? 'selected' : ''}">
+                <div style="font-size:26px;margin-bottom:4px">${esc(a.icon)}</div>
+                <div class="amenity-title">${esc(a.nombre)}</div>
+                <div class="amenity-time">${esc(a.hora_apertura)} a ${esc(a.hora_cierre)} hs</div>
+                ${a.arancelado && a.precio > 0 
+                  ? `<div style="font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,0.15);color:#FBBF24;border:1px solid rgba(251,191,36,0.35);margin-top:4px;display:inline-block">💰 $${Number(a.precio).toLocaleString('es-AR')}</div>`
+                  : `<div style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(74,222,128,0.12);color:#4ADE80;border:1px solid rgba(74,222,128,0.3);margin-top:4px;display:inline-block">🟢 Sin costo</div>`
+                }
               </div>
             `).join('')}
           </div>
           <input type="hidden" id="inp-amenity-sel" value="${esc(amenitiesList[0].nombre)}">
+        </div>
+
+        <!-- Caja Informativa de Arancel y CBU / Gratuito -->
+        <div id="box-info-arancel" style="margin-bottom:16px;padding:12px 14px;border-radius:12px;background:#EFF6FF;border:1px solid #BFDBFE;font-size:12.5px;color:#1E40AF;line-height:1.5">
+          <!-- Completado dinámicamente por JS -->
         </div>
 
         <!-- 2. Fecha -->
@@ -2790,7 +2993,7 @@ router.get('/amenities', async (req, res) => {
         <!-- 4. Notas / Motivo -->
         <div style="margin-bottom:16px">
           <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:6px">Motivo / Cantidad de personas (opcional)</label>
-          <input type="text" id="inp-reserva-notas" placeholder="Ej: Reunión de consejo (4 personas) o Asado familiar" class="inp" style="background:#fff;margin-bottom:0">
+          <input type="text" id="inp-reserva-notas" placeholder="Ej: Cumpleaños familiar o Reunión de trabajo" class="inp" style="background:#fff;margin-bottom:0">
         </div>
 
         <input type="hidden" id="inp-hora-desde" value="">
@@ -2813,20 +3016,99 @@ router.get('/amenities', async (req, res) => {
       </div>
     </div>
 
+    <!-- MODAL DE PAGO / SUBIDA DE COMPROBANTE DE RESERVA -->
+    <div id="modal-pagar-reserva" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.65);z-index:9999;align-items:center;justify-content:center;padding:16px">
+      <div style="background:#fff;border-radius:16px;max-width:480px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,0.3);overflow:hidden">
+        <div style="padding:16px 20px;border-bottom:1px solid #E2E8F0;display:flex;align-items:center;justify-content:space-between;background:#F8FAFD">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:20px">💳</span>
+            <span style="font-weight:800;font-size:15px;color:#0F172A">Informar Pago de Reserva</span>
+          </div>
+          <button type="button" onclick="cerrarModalPagarReserva()" style="background:none;border:none;font-size:20px;color:#64748B;cursor:pointer">✕</button>
+        </div>
+        
+        <form id="form-pago-reserva-modal" onsubmit="enviarComprobanteReserva(event)" style="padding:20px">
+          <input type="hidden" id="inp-modal-reserva-id" value="">
+          
+          <div style="margin-bottom:12px">
+            <div style="font-size:12.5px;color:#64748B">Espacio a abonar:</div>
+            <div id="txt-modal-amenity-nombre" style="font-size:15px;font-weight:800;color:#0F172A"></div>
+            <div id="txt-modal-arancel-info" style="font-size:13px;font-weight:700;color:#1E5FB4;margin-top:2px"></div>
+          </div>
+
+          <!-- Datos de transferencia bancaria -->
+          <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;color:#334155">
+            <div style="font-weight:800;color:#0F172A;margin-bottom:4px">🏦 Datos Bancarios Oficiales:</div>
+            <div>Titular: <strong>${esc(datosBanco.titular || 'Consorcio')}</strong></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
+              <span>Alias: <strong style="color:#1E5FB4">${esc(datosBanco.alias || '—')}</strong></span>
+              ${datosBanco.alias ? `<button type="button" onclick="copiarTexto('${escJs(datosBanco.alias)}', this)" style="padding:2px 8px;border-radius:4px;border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:11px;font-weight:700;cursor:pointer">Copiar</button>` : ''}
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
+              <span>CBU: <strong style="font-family:monospace">${esc(datosBanco.cbu || '—')}</strong></span>
+              ${datosBanco.cbu ? `<button type="button" onclick="copiarTexto('${escJs(datosBanco.cbu)}', this)" style="padding:2px 8px;border-radius:4px;border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:11px;font-weight:700;cursor:pointer">Copiar</button>` : ''}
+            </div>
+          </div>
+
+          <!-- Selector de Archivo con Preview -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:12px;font-weight:800;color:#475569;display:block;margin-bottom:6px">Adjuntar Comprobante (Foto o PDF) <span style="color:#EF4444">*</span></label>
+            <input type="file" id="inp-comprobante-reserva-file" accept="image/*,.pdf" style="display:none" onchange="previewComprobanteReserva(event)" required>
+            
+            <div id="box-select-comprobante-reserva" onclick="document.getElementById('inp-comprobante-reserva-file').click()" style="border:2px dashed #93C5FD;background:#FAFCFF;border-radius:12px;padding:16px;text-align:center;cursor:pointer">
+              <div style="font-size:24px;margin-bottom:4px">🧾</div>
+              <div style="font-size:13px;font-weight:800;color:#1E5FB4">Seleccionar Foto o PDF del Comprobante</div>
+              <div style="font-size:11px;color:#64748B">Tocá para elegir desde tu dispositivo o galería</div>
+            </div>
+
+            <div id="preview-comprobante-reserva-box" style="display:none;position:relative;margin-top:8px;border-radius:10px;overflow:hidden;border:1px solid #CBD5E1;background:#fff;padding:8px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <img id="preview-comprobante-reserva-img" src="" style="width:54px;height:54px;object-fit:cover;border-radius:6px;display:none;border:1px solid #E2E8F0">
+                <div id="preview-comprobante-reserva-pdf" style="width:46px;height:46px;border-radius:8px;background:#FEE2E2;color:#DC2626;display:none;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">
+                  📄
+                </div>
+                <div style="flex:1;overflow:hidden">
+                  <div id="preview-comprobante-reserva-name" style="font-size:12px;font-weight:800;color:#0F172A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+                  <div id="preview-comprobante-reserva-size" style="font-size:11px;color:#64748B"></div>
+                </div>
+                <button type="button" onclick="quitarComprobanteReserva()" style="background:#F1F5F9;border:none;border-radius:50%;width:26px;height:26px;cursor:pointer;color:#64748B;font-size:12px;flex-shrink:0">✕</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-bottom:16px">
+            <label style="font-size:12px;font-weight:800;color:#475569;display:block;margin-bottom:6px">Monto Abonado ($)</label>
+            <input type="text" id="inp-comprobante-reserva-monto" class="inp" style="background:#fff;margin-bottom:0" placeholder="Ej: 15000">
+          </div>
+
+          <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button type="button" onclick="cerrarModalPagarReserva()" style="padding:10px 16px;border-radius:10px;border:1px solid #CBD5E1;background:#fff;color:#64748B;font-size:13px;font-weight:700;cursor:pointer">Cancelar</button>
+            <button id="btn-enviar-comprobante-reserva" type="submit" style="padding:10px 18px;border-radius:10px;border:none;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:13.5px;font-weight:800;cursor:pointer;box-shadow:0 2px 8px rgba(22,163,74,.3)">Enviar Comprobante</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <script>
       var _todasReservas = ${JSON.stringify(todasReservasEdificio)};
       var _amenitiesList = ${JSON.stringify(amenitiesList)};
       var _horasSeleccionadas = [];
 
+      function copiarTexto(texto, btn) {
+        navigator.clipboard.writeText(texto).then(function() {
+          var old = btn.textContent;
+          btn.textContent = '✓ Copiado';
+          setTimeout(function() { btn.textContent = old; }, 1500);
+        });
+      }
+
       function seleccionarAmenity(nombre, el) {
         document.getElementById('inp-amenity-sel').value = nombre;
         var cards = document.querySelectorAll('.amenity-card-item');
         cards.forEach(function(c) {
-          c.style.borderColor = '#E2E8F0';
-          c.style.background = '#fff';
+          c.classList.remove('selected');
         });
-        el.style.borderColor = '#1E5FB4';
-        el.style.background = '#EBF3FC';
+        el.classList.add('selected');
         _horasSeleccionadas = [];
         
         // Actualizar caja de reglamento específico
@@ -2838,7 +3120,29 @@ router.get('/amenities', async (req, res) => {
           cReg.textContent = amObj.reglamento ? amObj.reglamento : 'Podés reservar desde 1 sola hora hasta varias continuas. El espacio debe entregarse limpio y en orden. Horario límite de música/ruidos: 01:00 hs.';
         }
 
+        // Actualizar caja informativa de arancel
+        actualizarCajaArancel(amObj);
+
         renderGrillaHoras();
+      }
+
+      function actualizarCajaArancel(amObj) {
+        var box = document.getElementById('box-info-arancel');
+        if (!box) return;
+        if (amObj && amObj.arancelado && amObj.precio > 0) {
+          box.style.display = 'block';
+          box.style.background = '#FEF3C7';
+          box.style.border = '1px solid #FCD34D';
+          box.style.color = '#92400E';
+          box.innerHTML = '💰 <strong>Arancel de Reserva requerido: $' + Number(amObj.precio).toLocaleString('es-AR') + '</strong><br>' +
+            '<span style="font-size:11.5px;display:block;margin-top:3px">Una vez confirmada la reserva, podrás transferir a la cuenta del consorcio (Alias: <strong>${escJs(datosBanco.alias || '')}</strong>) y adjuntar el comprobante desde "Mis Reservas" o la sección Expensas para su validación oficial.</span>';
+        } else {
+          box.style.display = 'block';
+          box.style.background = '#EFF6FF';
+          box.style.border = '1px solid #BFDBFE';
+          box.style.color = '#1E40AF';
+          box.innerHTML = '🟢 <strong>Espacio sin costo adicional:</strong> El uso de este amenity está incluido en el mantenimiento ordinario de las expensas.';
+        }
       }
 
       function parseHoraToNum(hStr) {
@@ -2869,7 +3173,6 @@ router.get('/amenities', async (req, res) => {
         for (var h = horaInicio; h < horaFin; h++) {
           var hStartStr = String(h).padStart(2, '0') + ':00';
           var hEndStr = String(h + 1).padStart(2, '0') + ':00';
-          var slotLabel = hStartStr + ' - ' + hEndStr;
 
           // Verificar si esta hora cae dentro de alguna reserva
           var ocupadoPor = null;
@@ -2896,13 +3199,12 @@ router.get('/amenities', async (req, res) => {
 
           if (ocupadoPor) {
             btnSlot.disabled = true;
-            btnSlot.style.cssText = 'padding:10px 6px;border-radius:10px;background:#FEE2E2;border:1.5px solid #FCA5A5;color:#991B1B;font-size:12px;font-weight:700;text-align:center;cursor:not-allowed;opacity:0.9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px';
+            btnSlot.className = 'hora-slot-btn ocupado';
             btnSlot.innerHTML = '<span>🔒 ' + hStartStr + '</span><span style="font-size:9.5px;opacity:.8">' + ocupadoPor + '</span>';
           } else {
             var isSel = _horasSeleccionadas.indexOf(h) !== -1;
-            btnSlot.style.cssText = 'padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:800;text-align:center;cursor:pointer;transition:all .12s ease;' + 
-              (isSel ? 'background:#1E5FB4;border:1.5px solid #1E5FB4;color:#fff;box-shadow:0 3px 8px rgba(30,95,180,.35)' : 'background:#fff;border:1.5px solid #CBD5E1;color:#16233B');
-            btnSlot.innerHTML = '<span>' + hStartStr + '</span><span style="font-size:10px;font-weight:600;opacity:' + (isSel ? '1' : '.6') + '">' + (isSel ? '✓ Elegido' : 'Libre') + '</span>';
+            btnSlot.className = 'hora-slot-btn' + (isSel ? ' selected' : '');
+            btnSlot.innerHTML = '<span>' + hStartStr + '</span><span style="font-size:10px;font-weight:700;opacity:' + (isSel ? '1' : '.7') + '">' + (isSel ? '✓ Elegido' : 'Libre') + '</span>';
             
             btnSlot.onclick = (function(horaNum){
               return function() { toggleHora(horaNum); };
@@ -2988,8 +3290,13 @@ router.get('/amenities', async (req, res) => {
           });
           var data = await res.json();
           if (data.ok) {
-            alert('✓ ¡Reserva confirmada de ' + horaDesde + ' a ' + horaHasta + ' hs con éxito!');
-            location.reload();
+            if (data.monto && Number(data.monto) > 0) {
+              alert('✓ ¡Reserva registrada de ' + horaDesde + ' a ' + horaHasta + ' hs!\n\nEste espacio requiere un arancel de $' + Number(data.monto).toLocaleString('es-AR') + '.\nPodés transferir y adjuntar el comprobante ahora mismo o más tarde desde "Mis Reservas".');
+              abrirModalPagarReserva(data.id, amenity, data.monto);
+            } else {
+              alert('✓ ¡Reserva confirmada de ' + horaDesde + ' a ' + horaHasta + ' hs con éxito!');
+              location.reload();
+            }
           } else {
             alert('Error: ' + (data.error || 'No se pudo completar la reserva'));
             btn.disabled = false;
@@ -2999,6 +3306,102 @@ router.get('/amenities', async (req, res) => {
           alert('Error de conexión al guardar la reserva.');
           btn.disabled = false;
           btn.textContent = 'Confirmar Reserva';
+        }
+      }
+
+      function abrirModalPagarReserva(reservaId, amenityNombre, monto) {
+        document.getElementById('inp-modal-reserva-id').value = reservaId;
+        document.getElementById('txt-modal-amenity-nombre').textContent = amenityNombre;
+        document.getElementById('txt-modal-arancel-info').textContent = 'Arancel / Seña: $' + Number(monto || 0).toLocaleString('es-AR');
+        document.getElementById('inp-comprobante-reserva-monto').value = monto || '';
+        quitarComprobanteReserva();
+        var modal = document.getElementById('modal-pagar-reserva');
+        modal.style.display = 'flex';
+      }
+
+      function cerrarModalPagarReserva() {
+        var modal = document.getElementById('modal-pagar-reserva');
+        modal.style.display = 'none';
+        location.reload();
+      }
+
+      function previewComprobanteReserva(e) {
+        var file = e.target.files && e.target.files[0];
+        if (!file) return;
+        var pBox = document.getElementById('preview-comprobante-reserva-box');
+        var sBox = document.getElementById('box-select-comprobante-reserva');
+        var img = document.getElementById('preview-comprobante-reserva-img');
+        var pdfIcon = document.getElementById('preview-comprobante-reserva-pdf');
+        var nameEl = document.getElementById('preview-comprobante-reserva-name');
+        var sizeEl = document.getElementById('preview-comprobante-reserva-size');
+
+        nameEl.textContent = file.name;
+        sizeEl.textContent = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+
+        if (file.type.startsWith('image/')) {
+          var reader = new FileReader();
+          reader.onload = function(evt) {
+            img.src = evt.target.result;
+            img.style.display = 'block';
+            pdfIcon.style.display = 'none';
+          };
+          reader.readAsDataURL(file);
+        } else {
+          img.style.display = 'none';
+          pdfIcon.style.display = 'flex';
+        }
+
+        sBox.style.display = 'none';
+        pBox.style.display = 'block';
+      }
+
+      function quitarComprobanteReserva() {
+        var fileInp = document.getElementById('inp-comprobante-reserva-file');
+        if (fileInp) fileInp.value = '';
+        var pBox = document.getElementById('preview-comprobante-reserva-box');
+        var sBox = document.getElementById('box-select-comprobante-reserva');
+        if (pBox) pBox.style.display = 'none';
+        if (sBox) sBox.style.display = 'block';
+      }
+
+      async function enviarComprobanteReserva(e) {
+        e.preventDefault();
+        var fileInp = document.getElementById('inp-comprobante-reserva-file');
+        var montoInp = document.getElementById('inp-comprobante-reserva-monto');
+        var reservaIdInp = document.getElementById('inp-modal-reserva-id');
+        var btn = document.getElementById('btn-enviar-comprobante-reserva');
+
+        if (!fileInp.files || !fileInp.files[0]) {
+          alert('Por favor adjuntá el comprobante de transferencia.');
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Enviando comprobante...';
+
+        var formData = new FormData();
+        formData.append('comprobante', fileInp.files[0]);
+        formData.append('reserva_id', reservaIdInp.value);
+        formData.append('monto', montoInp.value.trim());
+
+        try {
+          var res = await fetch('/vecino/api/comprobante-reserva', {
+            method: 'POST',
+            body: formData
+          });
+          var data = await res.json();
+          if (data && data.ok) {
+            alert(data.mensaje || '¡Comprobante enviado con éxito! La administración lo revisará a la brevedad.');
+            cerrarModalPagarReserva();
+          } else {
+            alert('Error: ' + (data.error || 'No se pudo enviar el comprobante'));
+            btn.disabled = false;
+            btn.textContent = 'Enviar Comprobante';
+          }
+        } catch(err) {
+          alert('Error de conexión al enviar el comprobante: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = 'Enviar Comprobante';
         }
       }
 
@@ -3023,6 +3426,7 @@ router.get('/amenities', async (req, res) => {
       }
 
       document.addEventListener('DOMContentLoaded', function() {
+        actualizarCajaArancel(_amenitiesList[0]);
         renderGrillaHoras();
       });
     </script>
@@ -3042,8 +3446,37 @@ router.post('/api/reservar-amenity', async (req, res) => {
     }
 
     const { pool } = require('./db-pg');
+    let monto = 0;
+    let estado_pago = 'no_requiere';
+
     if (pool) {
-      // Validar si existe solapamiento con alguna reserva activa en la misma fecha y amenity
+      // 1. Averiguar si el amenity es arancelado y su precio
+      try {
+        const qAm = `SELECT arancelado, precio FROM edificio_amenities 
+                     WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
+                     AND LOWER(nombre) = LOWER($3) AND activo = TRUE LIMIT 1`;
+        const amRes = await pool.query(qAm, [v.edificio, '%' + v.edificio + '%', amenity]);
+        if (amRes && amRes.rows && amRes.rows.length > 0) {
+          const amRow = amRes.rows[0];
+          if (amRow.arancelado && Number(amRow.precio) > 0) {
+            monto = Number(amRow.precio);
+            estado_pago = 'pendiente';
+          }
+        } else {
+          // Fallback para SUM ($15000) y Cochera ($5000) si no estaban en DB
+          if (/sum|salón|salon/i.test(amenity)) {
+            monto = 15000;
+            estado_pago = 'pendiente';
+          } else if (/cochera|estacionamiento/i.test(amenity)) {
+            monto = 5000;
+            estado_pago = 'pendiente';
+          }
+        }
+      } catch (errAm) {
+        console.warn('Verificación arancel amenity:', errAm.message);
+      }
+
+      // 2. Validar solapamiento con alguna reserva activa
       const qCheck = `SELECT id, departamento, hora_desde, hora_hasta, turno FROM reservas_amenities 
                       WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
                       AND LOWER(amenity) = LOWER($3)
@@ -3060,7 +3493,6 @@ router.post('/api/reservar-amenity', async (req, res) => {
             const exStart = parseInt(r.hora_desde.split(':')[0], 10) + (parseInt(r.hora_desde.split(':')[1] || 0, 10) / 60);
             const exEnd = parseInt(r.hora_hasta.split(':')[0], 10) + (parseInt(r.hora_hasta.split(':')[1] || 0, 10) / 60);
             
-            // Solapamiento: no termina antes de que empiece la otra ni empieza después de que termine
             if (!(nuevaEnd <= exStart || nuevaStart >= exEnd)) {
               return res.status(400).json({ 
                 ok: false, 
@@ -3072,8 +3504,8 @@ router.post('/api/reservar-amenity', async (req, res) => {
       }
 
       const turnoLabel = `${hora_desde} a ${hora_hasta} hs`;
-      const qIns = `INSERT INTO reservas_amenities (edificio, amenity, fecha, hora_desde, hora_hasta, turno, departamento, nombre_vecino, telefono, estado, notas, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()) RETURNING id`;
+      const qIns = `INSERT INTO reservas_amenities (edificio, amenity, fecha, hora_desde, hora_hasta, turno, departamento, nombre_vecino, telefono, estado, notas, monto, estado_pago, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW()) RETURNING id`;
       const insRes = await pool.query(qIns, [
         v.edificio,
         amenity,
@@ -3085,13 +3517,112 @@ router.post('/api/reservar-amenity', async (req, res) => {
         v.nombre,
         v.telefono || '',
         'confirmada',
-        notas || ''
+        notas || '',
+        monto,
+        estado_pago
       ]);
 
-      return res.json({ ok: true, mensaje: 'Reserva confirmada con éxito', id: insRes.rows[0].id });
+      return res.json({ 
+        ok: true, 
+        mensaje: 'Reserva confirmada con éxito', 
+        id: insRes.rows[0].id,
+        monto,
+        estado_pago
+      });
     }
 
-    res.json({ ok: true, mensaje: 'Reserva registrada' });
+    res.json({ ok: true, mensaje: 'Reserva registrada', id: Date.now(), monto, estado_pago });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Endpoint receptor de Comprobantes de Pago de Reservas de Amenities
+router.post('/api/comprobante-reserva', uploadComprobante.single('comprobante'), async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const { reserva_id, monto } = req.body || {};
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ ok: false, error: 'No se recibió ningún archivo de comprobante' });
+    }
+
+    const archivoUrl = '/archivos/facturas/' + file.filename;
+    const montoFormateado = monto ? ('$' + String(monto).replace(/^\$/, '')) : '$0';
+    
+    let amenityNombre = 'Amenity';
+
+    // 1. Actualizar reserva en PostgreSQL
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        if (reserva_id) {
+          const resReserva = await pool.query('SELECT amenity FROM reservas_amenities WHERE id = $1', [reserva_id]);
+          if (resReserva && resReserva.rows && resReserva.rows.length > 0) {
+            amenityNombre = resReserva.rows[0].amenity || 'Amenity';
+          }
+          await pool.query(
+            `UPDATE reservas_amenities 
+             SET estado_pago = 'comprobante_subido', comprobante_url = $1 
+             WHERE id = $2`, 
+            [archivoUrl, reserva_id]
+          );
+        }
+
+        // 2. Insertar en tabla facturas (comprobante de pago unificado visible en expensas y panel admin)
+        const qFact = `INSERT INTO facturas (edificio, tipo, proveedor, monto, fecha, url, estado, notas, created_at)
+                       VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $7, NOW())`;
+        await pool.query(qFact, [
+          v.edificio,
+          'comprobante_pago',
+          v.nombre + ' (' + v.departamento + ')',
+          monto || '0',
+          archivoUrl,
+          'pendiente_aprobacion',
+          'Comprobante de pago de reserva ' + amenityNombre + (reserva_id ? (' #' + reserva_id) : '') + ' - ' + v.nombre + ' (' + v.departamento + ')'
+        ]);
+      }
+    } catch (errDb) {
+      console.warn('Registro comprobante reserva PG:', errDb.message);
+    }
+
+    // 3. Registrar en memoria para que aparezca de inmediato en /vecino/expensas
+    const nuevoComprobante = {
+      id: Date.now(),
+      edificio: v.edificio,
+      vecino: v.nombre + ' (' + v.departamento + ')',
+      monto: montoFormateado,
+      fecha: new Date().toLocaleDateString('es-AR'),
+      url: archivoUrl,
+      estado: 'pendiente_aprobacion',
+      notas: '🎟️ Reserva: ' + amenityNombre + (reserva_id ? (' #' + reserva_id) : '')
+    };
+    _comprobantesEnMemoria.unshift(nuevoComprobante);
+
+    // 4. Notificar a la administración por WhatsApp
+    try {
+      const marcosOps = require('./agentes/marcos-ops');
+      if (marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
+        const adminPhone = process.env.ADMIN_PHONE || '+5491150542005';
+        const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+        const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
+        const msgAlerta = `🎟️ *NUEVO COMPROBANTE DE RESERVA DE AMENITY*\n\n` +
+          `🏢 *Edificio:* ${v.edificio}\n` +
+          `👤 *Vecino:* ${v.nombre} (${v.departamento})\n` +
+          `🎉 *Espacio:* ${amenityNombre}\n` +
+          `💵 *Monto informado:* ${montoFormateado}\n` +
+          `📅 *Fecha:* ${nuevoComprobante.fecha}\n\n` +
+          `👉 Ver en Panel: https://marcos.bienargentinos.com/admin/amenities`;
+        await marcosOps.enviarWhatsApp(adminPhone, msgAlerta, phoneId, token).catch(() => {});
+      }
+    } catch (_) {}
+
+    res.json({
+      ok: true,
+      mensaje: '¡Comprobante de reserva recibido con éxito! La administración lo revisará a la brevedad.',
+      archivoUrl
+    });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

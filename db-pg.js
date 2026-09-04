@@ -226,6 +226,9 @@ async function _initPgSchema() {
             );
 
             ALTER TABLE edificio_amenities ADD COLUMN IF NOT EXISTS reglamento TEXT;
+            ALTER TABLE edificio_amenities ADD COLUMN IF NOT EXISTS arancelado BOOLEAN DEFAULT FALSE;
+            ALTER TABLE edificio_amenities ADD COLUMN IF NOT EXISTS precio NUMERIC DEFAULT 0;
+            ALTER TABLE edificio_amenities ADD COLUMN IF NOT EXISTS moneda VARCHAR(10) DEFAULT 'ARS';
 
             CREATE TABLE IF NOT EXISTS reservas_amenities (
                 id SERIAL PRIMARY KEY,
@@ -245,6 +248,10 @@ async function _initPgSchema() {
 
             ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS hora_desde VARCHAR(10);
             ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS hora_hasta VARCHAR(10);
+            ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS monto NUMERIC DEFAULT 0;
+            ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS estado_pago VARCHAR(50) DEFAULT 'no_requiere';
+            ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS comprobante_url TEXT;
+            ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS comprobante_id INT;
 
             CREATE TABLE IF NOT EXISTS sugerencias (
                 id SERIAL PRIMARY KEY,
@@ -425,6 +432,9 @@ async function _initPgSchema() {
             -- ("la dejo asociada al CASO-1001") y no quedaba escrito en ningun lado, asi que el
             -- administrador veia el monto sin la conversacion que lo explica.
             ALTER TABLE facturas ADD COLUMN IF NOT EXISTS id_evento VARCHAR(50);
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS tipo VARCHAR(50);
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS url TEXT;
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS notas TEXT;
 
             CREATE INDEX IF NOT EXISTS idx_pg_vecinos_tel ON vecinos(telefono);
             CREATE INDEX IF NOT EXISTS idx_pg_reportes_codigo ON reportes(codigo_caso);

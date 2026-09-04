@@ -4609,6 +4609,9 @@ async function guardarAmenityNuevo(btn) {
   var capacidad = valEl('amenity-nuevo-capacidad') || '20';
   var descripcion = valEl('amenity-nuevo-desc') || '';
   var reglamento = valEl('amenity-nuevo-reglamento') || '';
+  var chkArancel = document.getElementById('amenity-nuevo-arancelado');
+  var arancelado = chkArancel ? chkArancel.checked : false;
+  var precio = valEl('amenity-nuevo-precio') || '0';
 
   if (!nombre.trim()) {
     toast('Ingresá el nombre del espacio común (ej: SUM, Piscina, Gimnasio)', 'err');
@@ -4631,7 +4634,9 @@ async function guardarAmenityNuevo(btn) {
         hora_cierre: cierre,
         capacidad: parseInt(capacidad, 10) || 20,
         descripcion: descripcion.trim(),
-        reglamento: reglamento.trim()
+        reglamento: reglamento.trim(),
+        arancelado: Boolean(arancelado),
+        precio: parseFloat(precio) || 0
       })
     });
     var j = await r.json();
@@ -4648,7 +4653,7 @@ async function guardarAmenityNuevo(btn) {
 }
 window.guardarAmenityNuevo = guardarAmenityNuevo;
 
-function abrirModalAmenityEditar(id, nombre, icono, apertura, cierre, capacidad, desc, reglamento) {
+function abrirModalAmenityEditar(id, nombre, icono, apertura, cierre, capacidad, desc, reglamento, arancelado, precio) {
   var idEl = document.getElementById('amenity-edit-id');
   if (idEl) idEl.value = id || '';
   var nEl = document.getElementById('amenity-edit-nombre');
@@ -4665,6 +4670,14 @@ function abrirModalAmenityEditar(id, nombre, icono, apertura, cierre, capacidad,
   if (dEl) dEl.value = desc || '';
   var regEl = document.getElementById('amenity-edit-reglamento');
   if (regEl) regEl.value = reglamento || '';
+
+  var chkEl = document.getElementById('amenity-edit-arancelado');
+  if (chkEl) chkEl.checked = Boolean(arancelado);
+  var boxP = document.getElementById('box-precio-edit');
+  if (boxP) boxP.style.display = arancelado ? 'block' : 'none';
+  var pEl = document.getElementById('amenity-edit-precio');
+  if (pEl) pEl.value = precio || 0;
+
   abrirModal('modal-amenity-editar');
 }
 window.abrirModalAmenityEditar = abrirModalAmenityEditar;
@@ -4679,6 +4692,9 @@ async function guardarAmenityEditado(btn) {
   var capacidad = valEl('amenity-edit-capacidad') || '20';
   var descripcion = valEl('amenity-edit-desc') || '';
   var reglamento = valEl('amenity-edit-reglamento') || '';
+  var chkArancel = document.getElementById('amenity-edit-arancelado');
+  var arancelado = chkArancel ? chkArancel.checked : false;
+  var precio = valEl('amenity-edit-precio') || '0';
 
   if (!id || !nombre.trim()) {
     toast('Ingresá el nombre del espacio común', 'err');
@@ -4702,7 +4718,9 @@ async function guardarAmenityEditado(btn) {
         hora_cierre: cierre,
         capacidad: parseInt(capacidad, 10) || 20,
         descripcion: descripcion.trim(),
-        reglamento: reglamento.trim()
+        reglamento: reglamento.trim(),
+        arancelado: Boolean(arancelado),
+        precio: parseFloat(precio) || 0
       })
     });
     var j = await r.json();
@@ -4718,6 +4736,23 @@ async function guardarAmenityEditado(btn) {
   }
 }
 window.guardarAmenityEditado = guardarAmenityEditado;
+
+async function cambiarEstadoPagoReserva(id, estado_pago) {
+  try {
+    var r = await fetch('/admin/api/reserva-amenity-pago', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id, estado_pago: estado_pago })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al actualizar estado de pago');
+    toast('¡Estado de pago actualizado!', 'ok');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+window.cambiarEstadoPagoReserva = cambiarEstadoPagoReserva;
 
 async function eliminarAmenity(id, nombre) {
   if (!confirm('¿Estás seguro de eliminar el amenity "' + nombre + '" de este edificio?')) return;
@@ -8265,10 +8300,13 @@ router.get('/mi-edificio', async (req, res) => {
                   <div>
                     <div style="font-size:14px;font-weight:800;color:#0F172A">${esc(a.nombre)}</div>
                     <div style="font-size:12px;color:#64748B">⏰ ${esc(a.hora_apertura || '08:00')} a ${esc(a.hora_cierre || '23:00')} hs · Cap. ${esc(a.capacidad || 20)} pers.</div>
+                    <div style="font-size:11.5px;font-weight:700;margin-top:3px">
+                      ${a.arancelado && Number(a.precio) > 0 ? `<span style="color:#D97706;background:#FEF3C7;padding:2px 8px;border-radius:6px">💰 Arancel: $${Number(a.precio).toLocaleString('es-AR')}</span>` : `<span style="color:#15803D;background:#DCFCE7;padding:2px 8px;border-radius:6px">🟢 Sin costo adicional</span>`}
+                    </div>
                   </div>
                 </div>
                 <div style="display:flex;align-items:center;gap:4px">
-                  <button onclick="abrirModalAmenityEditar(${a.id}, '${escJs(a.nombre)}', '${escJs(a.icono || '🎉')}', '${escJs(a.hora_apertura || '08:00')}', '${escJs(a.hora_cierre || '23:00')}', ${a.capacidad || 20}, '${escJs(a.descripcion || '')}', '${escJs(a.reglamento || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#2E6FC0;font-size:11.5px;font-weight:700;border-radius:6px;padding:3px 8px;cursor:pointer" class="hv-blue">✏️ Editar</button>
+                  <button onclick="abrirModalAmenityEditar(${a.id}, '${escJs(a.nombre)}', '${escJs(a.icono || '🎉')}', '${escJs(a.hora_apertura || '08:00')}', '${escJs(a.hora_cierre || '23:00')}', ${a.capacidad || 20}, '${escJs(a.descripcion || '')}', '${escJs(a.reglamento || '')}', ${a.arancelado ? 'true' : 'false'}, ${Number(a.precio) || 0})" style="border:1px solid #CBD5E1;background:#fff;color:#2E6FC0;font-size:11.5px;font-weight:700;border-radius:6px;padding:3px 8px;cursor:pointer" class="hv-blue">✏️ Editar</button>
                   <button onclick="eliminarAmenity(${a.id}, '${escJs(a.nombre)}')" style="border:none;background:none;color:#EF4444;font-size:13px;font-weight:700;cursor:pointer;padding:4px" title="Eliminar amenity">✕</button>
                 </div>
               </div>
@@ -8298,7 +8336,17 @@ router.get('/mi-edificio', async (req, res) => {
                     <div style="font-size:12px;color:#64748B">📆 ${esc(r.fecha)} · ⏰ <strong>${esc(r.hora_desde || '00:00')} a ${esc(r.hora_hasta || '00:00')} hs</strong>${r.notas ? ' · 📝 ' + esc(r.notas) : ''}</div>
                   </div>
                 </div>
-                <span style="font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:#DCFCE7;color:#15803D;text-transform:uppercase">Confirmada</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                  ${r.monto > 0 ? `
+                    ${r.estado_pago === 'aprobado' ? `<span style="font-size:11px;font-weight:800;background:#DCFCE7;color:#15803D;padding:3px 8px;border-radius:6px">✅ Pago Aprobado ($${Number(r.monto).toLocaleString('es-AR')})</span>` :
+                      r.estado_pago === 'comprobante_subido' ? `
+                        <span style="font-size:11px;font-weight:800;background:#E0F2FE;color:#0369A1;padding:3px 8px;border-radius:6px">🧾 Comprobante Recibido</span>
+                        ${r.comprobante_url ? `<a href="${r.comprobante_url}" target="_blank" style="font-size:11px;color:#2E6FC0;font-weight:700;text-decoration:underline">Ver</a>` : ''}
+                        <button onclick="cambiarEstadoPagoReserva(${r.id}, 'aprobado')" style="border:none;background:#15803D;color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer">✓ Aprobar</button>` :
+                        `<span style="font-size:11px;font-weight:800;background:#FEF3C7;color:#92400E;padding:3px 8px;border-radius:6px">⏳ Pendiente ($${Number(r.monto).toLocaleString('es-AR')})</span>`
+                    }
+                  ` : `<span style="font-size:11px;font-weight:700;color:#15803D;background:#DCFCE7;padding:2px 7px;border-radius:6px">Sin costo</span>`}
+                </div>
               </div>
             `).join('')}
           </div>` : '<div style="font-size:12.5px;color:#8595AD;padding:4px 0">No hay reservas registradas para este edificio todavía.</div>'}
@@ -8351,6 +8399,16 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="margin-bottom:14px">
               <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Descripción o Equipamiento</label>
               <textarea id="amenity-nuevo-desc" placeholder="Ej: Aire acondicionado, vajilla para 30 personas, heladera y parrilla." class="inp" style="height:55px;resize:vertical;background:#fff"></textarea>
+            </div>
+            <div style="background:#F1F5FB;border:1px solid #DCE4F0;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:800;color:#0F326A">
+                <input type="checkbox" id="amenity-nuevo-arancelado" onchange="document.getElementById('box-precio-nuevo').style.display=this.checked?'block':'none'" style="width:18px;height:18px">
+                <span>¿Requiere pago / arancel de reserva o seña?</span>
+              </label>
+              <div id="box-precio-nuevo" style="display:none;margin-top:10px">
+                <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto / Seña ($ ARS)</label>
+                <input type="number" id="amenity-nuevo-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp" style="background:#fff">
+              </div>
             </div>
             <div style="margin-bottom:14px">
               <label style="font-size:13px;font-weight:700;color:#0F326A;display:block;margin-bottom:4px">📜 Reglamento y Normas del Sector</label>
@@ -8412,6 +8470,16 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="margin-bottom:14px">
               <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Descripción o Equipamiento</label>
               <textarea id="amenity-edit-desc" class="inp" style="height:55px;resize:vertical;background:#fff"></textarea>
+            </div>
+            <div style="background:#F1F5FB;border:1px solid #DCE4F0;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:800;color:#0F326A">
+                <input type="checkbox" id="amenity-edit-arancelado" onchange="document.getElementById('box-precio-edit').style.display=this.checked?'block':'none'" style="width:18px;height:18px">
+                <span>¿Requiere pago / arancel de reserva o seña?</span>
+              </label>
+              <div id="box-precio-edit" style="display:none;margin-top:10px">
+                <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto / Seña ($ ARS)</label>
+                <input type="number" id="amenity-edit-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp" style="background:#fff">
+              </div>
             </div>
             <div style="margin-bottom:14px">
               <label style="font-size:13px;font-weight:700;color:#0F326A;display:block;margin-bottom:4px">📜 Reglamento y Normas del Sector</label>
@@ -12563,15 +12631,15 @@ router.get('/api/busqueda-global', async (req, res) => {
 router.post('/api/edificio-amenity-guardar', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento } = req.body || {};
+    const { edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio } = req.body || {};
     if (!edificio || !nombre) {
       return res.status(400).json({ error: 'Faltan datos obligatorios (edificio, nombre)' });
     }
 
     const { pool } = require('./db-pg');
     if (pool) {
-      const q = `INSERT INTO edificio_amenities (edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, activo, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, NOW()) RETURNING id`;
+      const q = `INSERT INTO edificio_amenities (edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio, activo, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, NOW()) RETURNING id`;
       const result = await pool.query(q, [
         edificio,
         nombre,
@@ -12580,7 +12648,9 @@ router.post('/api/edificio-amenity-guardar', async (req, res) => {
         hora_cierre || '23:00',
         Number(capacidad) || 20,
         descripcion || '',
-        reglamento || ''
+        reglamento || '',
+        Boolean(arancelado),
+        Number(precio) || 0
       ]);
       return res.json({ ok: true, mensaje: 'Amenity configurado con éxito', id: result.rows[0].id });
     }
@@ -12593,7 +12663,7 @@ router.post('/api/edificio-amenity-guardar', async (req, res) => {
 router.post('/api/edificio-amenity-editar', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { id, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento } = req.body || {};
+    const { id, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio } = req.body || {};
     if (!id || !nombre) {
       return res.status(400).json({ error: 'Faltan datos obligatorios (id, nombre)' });
     }
@@ -12601,8 +12671,8 @@ router.post('/api/edificio-amenity-editar', async (req, res) => {
     const { pool } = require('./db-pg');
     if (pool) {
       const q = `UPDATE edificio_amenities 
-                 SET nombre = $1, icono = $2, hora_apertura = $3, hora_cierre = $4, capacidad = $5, descripcion = $6, reglamento = $7
-                 WHERE id = $8`;
+                 SET nombre = $1, icono = $2, hora_apertura = $3, hora_cierre = $4, capacidad = $5, descripcion = $6, reglamento = $7, arancelado = $8, precio = $9
+                 WHERE id = $10`;
       await pool.query(q, [
         nombre,
         icono || '🎉',
@@ -12611,6 +12681,8 @@ router.post('/api/edificio-amenity-editar', async (req, res) => {
         Number(capacidad) || 20,
         descripcion || '',
         reglamento || '',
+        Boolean(arancelado),
+        Number(precio) || 0,
         id
       ]);
       return res.json({ ok: true, mensaje: 'Amenity y reglamento actualizados con éxito' });
@@ -12632,6 +12704,26 @@ router.post('/api/edificio-amenity-eliminar', async (req, res) => {
       await pool.query('UPDATE edificio_amenities SET activo = FALSE WHERE id = $1', [id]);
     }
     res.json({ ok: true, mensaje: 'Amenity eliminado' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/reserva-amenity-pago', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { id, estado_pago } = req.body || {};
+    if (!id || !estado_pago) return res.status(400).json({ error: 'ID y estado_pago requeridos' });
+
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const resReserva = await pool.query('UPDATE reservas_amenities SET estado_pago = $1 WHERE id = $2 RETURNING comprobante_url', [estado_pago, id]);
+      if (resReserva && resReserva.rows && resReserva.rows[0] && resReserva.rows[0].comprobante_url) {
+        const compUrl = resReserva.rows[0].comprobante_url;
+        await pool.query('UPDATE facturas SET estado = $1 WHERE url = $2', [estado_pago, compUrl]).catch(() => {});
+      }
+    }
+    res.json({ ok: true, mensaje: 'Estado de pago actualizado con éxito' });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
