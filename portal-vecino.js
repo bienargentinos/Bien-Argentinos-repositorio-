@@ -660,6 +660,54 @@ input:checked + .slider-timbre:before {
 .dark-theme .btn-ocupante-reubicar i {
   color: #A5B4FC !important;
 }
+
+/* Selector de roles para asignación de integrantes */
+.btn-rol-selector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 8px;
+  background: #F8FAFC;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 12px;
+  color: #334155;
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all .15s ease;
+  text-align: center;
+}
+.btn-rol-selector i {
+  font-size: 20px;
+  color: #64748B;
+}
+.btn-rol-selector.active {
+  background: #EFF6FF;
+  border-color: #2563EB;
+  color: #1D4ED8;
+}
+.btn-rol-selector.active i {
+  color: #2563EB;
+}
+
+.dark-theme .btn-rol-selector {
+  background: #15223D !important;
+  border-color: #24355A !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .btn-rol-selector i {
+  color: #93C5FD !important;
+}
+.dark-theme .btn-rol-selector.active {
+  background: #1E3A8A !important;
+  border-color: #3B82F6 !important;
+  color: #FBBF24 !important;
+}
+.dark-theme .btn-rol-selector.active i {
+  color: #FBBF24 !important;
+}
 `;
 
 function getVecinoSession(req) {
@@ -679,6 +727,7 @@ function getVecinoSession(req) {
     timbre_activo: true,
     timbre_silencio_desde: '23:00',
     timbre_silencio_hasta: '07:30',
+    timbre_no_molestar_activo: false,
     saldoExpensa: '$120.000,00',
     estadoExpensa: 'Al día',
     unidades: [
@@ -2220,100 +2269,103 @@ router.get('/', (req, res) => {
         </label>
       </div>
 
-      <!-- Configuración No Molestar / Silencio Nocturno -->
-      <div class="timbre-horario-row">
-        <div style="display:flex;align-items:center;gap:6px">
-          <span class="timbre-horario-label">🌙 Modo "No Molestar":</span>
+      <!-- Configuración No Molestar / Silencio Nocturno con switch ON/OFF -->
+      <div style="border-top:1px solid #F1F5F9;padding-top:12px;margin-top:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="timbre-horario-label" style="font-size:13px">🌙 Modo "No Molestar"</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="nm-estado-lbl" style="font-size:11.5px;font-weight:700;color:${v.timbre_no_molestar_activo ? '#D97706' : '#64748B'}">
+              ${v.timbre_no_molestar_activo ? 'Activado' : 'Desactivado (24 hs libre)'}
+            </span>
+            <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;margin:0">
+              <input type="checkbox" id="chk-nm-activo" ${v.timbre_no_molestar_activo ? 'checked' : ''} onchange="toggleNoMolestar()" style="opacity:0;width:0;height:0">
+              <span class="slider-timbre" id="slider-nm-bg" style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:${v.timbre_no_molestar_activo ? '#F59E0B' : '#CBD5E1'};border-radius:24px;transition:.3s"></span>
+            </label>
+          </div>
         </div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <span class="timbre-de-label">De</span>
-          <input type="time" id="timbre-silencio-desde" class="inp-time-timbre" value="${esc(v.timbre_silencio_desde || '23:00')}" onchange="guardarConfigTimbre()">
-          <span class="timbre-a-label">a</span>
-          <input type="time" id="timbre-silencio-hasta" class="inp-time-timbre" value="${esc(v.timbre_silencio_hasta || '07:30')}" onchange="guardarConfigTimbre()">
+
+        <div id="box-horario-no-molestar" class="timbre-horario-row" style="display:${v.timbre_no_molestar_activo ? 'flex' : 'none'};margin-top:6px">
+          <span class="timbre-horario-label">Horario de silencio:</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="timbre-de-label">De</span>
+            <input type="time" id="timbre-silencio-desde" class="inp-time-timbre" value="${esc(v.timbre_silencio_desde || '23:00')}" onchange="guardarConfigTimbre()">
+            <span class="timbre-a-label">a</span>
+            <input type="time" id="timbre-silencio-hasta" class="inp-time-timbre" value="${esc(v.timbre_silencio_hasta || '07:30')}" onchange="guardarConfigTimbre()">
+          </div>
         </div>
       </div>
+
       <div id="timbre-guardado-msg" style="display:none;font-size:11.5px;color:#16A34A;font-weight:800;margin-top:8px;text-align:right">
         ✓ Preferencia de timbre guardada
       </div>
     </div>
   `;
 
-  // 3. Tarjeta Gestión de Ocupantes y Huéspedes (Propietarios y Gestores)
+  // 3. Tarjeta Resumen de Ocupantes (Ligera y Rápida para el Home)
   const puedeGestionarOcupantes = (v.rol === 'propietario' || v.rol === 'asistente');
-  const tarjetaOcupantes = puedeGestionarOcupantes ? `
-    <div class="card" style="padding:18px 20px;background:#ffffff;margin-bottom:14px;border-radius:20px;border:1px solid #E2E8F0;box-shadow:0 4px 14px rgba(15,23,42,.04)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #F1F5F9;padding-bottom:10px">
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="width:38px;height:38px;border-radius:12px;background:#EFF6FF;color:#2563EB;display:flex;align-items:center;justify-content:center;font-size:20px">
+  const tarjetaResumenOcupantes = puedeGestionarOcupantes ? `
+    <div class="card" style="padding:16px 18px;background:#ffffff;margin-bottom:14px;border-radius:20px;border:1px solid #E2E8F0;box-shadow:0 4px 14px rgba(15,23,42,.04)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:40px;height:40px;border-radius:12px;background:#EFF6FF;color:#2563EB;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
             <i class="ph ph-users-three"></i>
           </div>
           <div>
             <div style="font-size:14px;font-weight:900;color:#0F172A">Ocupantes del Depto ${esc(v.departamento)}</div>
-            <div style="font-size:11.5px;color:#64748B">Convivientes, Inquilinos y Huéspedes</div>
+            <div id="resumen-ocupantes-txt" style="font-size:12px;color:#64748B;font-weight:700">Cargando integrantes...</div>
           </div>
         </div>
-        <button onclick="cargarOcupantes()" style="border:none;background:#F1F5F9;color:#475569;width:30px;height:30px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center">
-          <i class="ph ph-arrows-clockwise" style="font-size:16px"></i>
-        </button>
+        <a href="/vecino/integrantes" style="padding:8px 14px;border-radius:12px;background:#0F326A;color:#fff;font-size:12px;font-weight:800;text-decoration:none;display:inline-flex;align-items:center;gap:6px;flex-shrink:0;box-shadow:0 2px 6px rgba(15,50,106,.2)">
+          <span>Gestionar</span>
+          <i class="ph ph-arrow-right" style="font-size:14px"></i>
+        </a>
       </div>
-
-      <!-- Lista de Integrantes -->
-      <div id="lista-ocupantes-box" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
-        <div style="font-size:12px;color:#94A3B8;text-align:center;padding:10px">Cargando integrantes...</div>
-      </div>
-
-      <!-- Botones de Acción -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <button type="button" class="btn-ocupante-action btn-ocupante-familiar" onclick="abrirModalAgregarOcupante('conviviente')">
-          <i class="ph ph-user-plus"></i>
-          <span>+ Familiar / Inquilino</span>
-        </button>
-        <button type="button" class="btn-ocupante-action btn-ocupante-huesped" onclick="abrirModalAgregarHuesped()">
-          <i class="ph ph-suitcase"></i>
-          <span>+ Pase Huésped Turista</span>
-        </button>
-      </div>
-
-      <button type="button" class="btn-ocupante-action btn-ocupante-reubicar" onclick="abrirModalReubicarHuesped()">
-        <i class="ph ph-arrows-left-right"></i>
-        <span>🔄 Reubicar Huésped a Otra Unidad</span>
-      </button>
     </div>
   ` : '';
 
   const content = `
     ${tarjetaSuperior}
     ${tarjetaTimbre}
-    ${tarjetaOcupantes}
+    ${tarjetaResumenOcupantes}
 
     <!-- Servicios Rápidos en Fila (Estilo Mercado Pago Icons) -->
     <div style="margin-bottom:14px">
       <div style="font-size:13.5px;font-weight:800;color:#0F172A;margin-bottom:10px">Accesos Directos</div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(68px,1fr));gap:8px">
         
         <a href="/porteria/${encodeURIComponent(v.edificio)}" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
-          <div style="width:44px;height:44px;border-radius:14px;background:#FEF3C7;color:#D97706;display:flex;align-items:center;justify-content:center;font-size:22px">
+          <div style="width:42px;height:42px;border-radius:14px;background:#FEF3C7;color:#D97706;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-qr-code"></i>
           </div>
           <span style="font-size:11.5px;font-weight:800;color:#1E293B">Portería QR</span>
         </a>
 
         <a href="/vecino/amenities" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
-          <div style="width:44px;height:44px;border-radius:14px;background:#DCFCE7;color:#15803D;display:flex;align-items:center;justify-content:center;font-size:22px">
+          <div style="width:42px;height:42px;border-radius:14px;background:#DCFCE7;color:#15803D;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-swimming-pool"></i>
           </div>
           <span style="font-size:11.5px;font-weight:800;color:#1E293B">Amenities</span>
         </a>
 
+        ${(v.rol === 'propietario' || v.rol === 'asistente') ? `
+        <a href="/vecino/integrantes" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
+          <div style="width:42px;height:42px;border-radius:14px;background:#EEF2FF;color:#4F46E5;display:flex;align-items:center;justify-content:center;font-size:22px">
+            <i class="ph ph-users-three"></i>
+          </div>
+          <span style="font-size:11.5px;font-weight:800;color:#1E293B">Integrantes</span>
+        </a>` : ''}
+
         <a href="/vecino/reclamos" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
-          <div style="width:44px;height:44px;border-radius:14px;background:#EBF3FC;color:#1E5FB4;display:flex;align-items:center;justify-content:center;font-size:22px">
+          <div style="width:42px;height:42px;border-radius:14px;background:#EBF3FC;color:#1E5FB4;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-wrench"></i>
           </div>
           <span style="font-size:11.5px;font-weight:800;color:#1E293B">Reclamos</span>
         </a>
 
         <a href="/vecino/novedades" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
-          <div style="width:44px;height:44px;border-radius:14px;background:#F3E8FF;color:#7E22CE;display:flex;align-items:center;justify-content:center;font-size:22px">
+          <div style="width:42px;height:42px;border-radius:14px;background:#F3E8FF;color:#7E22CE;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-bell-ringing"></i>
           </div>
           <span style="font-size:11.5px;font-weight:800;color:#1E293B">Avisos</span>
@@ -2387,80 +2439,232 @@ router.get('/', (req, res) => {
       <div style="font-size:12.5px;color:#64748B;line-height:1.4">Se realizará el jueves de 08:00 a 14:00 hs. Habrá baja presión momentánea.</div>
     </div>
 
-    <!-- MODAL 1: Sumar Familiar / Conviviente -->
-    <div id="modal-agregar-familiar" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:16px">
-      <div style="background:#fff;border-radius:20px;max-width:440px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.2)">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div style="font-size:16px;font-weight:900;color:#0F172A">Sumar Ocupante a la Unidad</div>
-          <button onclick="cerrarModal('modal-agregar-familiar')" style="border:none;background:#F1F5F9;border-radius:50%;width:30px;height:30px;font-size:16px;cursor:pointer;color:#64748B">✕</button>
+    <!-- Scripts de Interacción Home -->
+    <script>
+      function toggleNoMolestar() {
+        const chkNm = document.getElementById('chk-nm-activo');
+        const boxNm = document.getElementById('box-horario-no-molestar');
+        const lblNm = document.getElementById('nm-estado-lbl');
+        const sNmBg = document.getElementById('slider-nm-bg');
+        const activo = chkNm ? chkNm.checked : false;
+        if (boxNm) boxNm.style.display = activo ? 'flex' : 'none';
+        if (lblNm) {
+          lblNm.innerText = activo ? 'Activado' : 'Desactivado (24 hs libre)';
+          lblNm.style.color = activo ? '#D97706' : '#64748B';
+        }
+        if (sNmBg) sNmBg.style.backgroundColor = activo ? '#F59E0B' : '#CBD5E1';
+        guardarConfigTimbre();
+      }
+
+      async function guardarConfigTimbre() {
+        const chk = document.getElementById('chk-timbre-activo');
+        const chkNm = document.getElementById('chk-nm-activo');
+        const desde = document.getElementById('timbre-silencio-desde') ? document.getElementById('timbre-silencio-desde').value : '23:00';
+        const hasta = document.getElementById('timbre-silencio-hasta') ? document.getElementById('timbre-silencio-hasta').value : '07:30';
+        const activo = chk ? chk.checked : true;
+        const nmActivo = chkNm ? chkNm.checked : false;
+
+        const icoBox = document.getElementById('timbre-icono-box');
+        const lbl = document.getElementById('timbre-estado-lbl');
+        const sBg = document.getElementById('slider-timbre-bg');
+        if (icoBox && lbl && sBg) {
+          if (activo) {
+            icoBox.style.background = '#DCFCE7';
+            icoBox.style.color = '#15803D';
+            icoBox.innerHTML = '<i class="ph ph-bell-ringing"></i>';
+            lbl.style.color = '#15803D';
+            lbl.innerText = '● Activo · Suena en tu celu';
+            sBg.style.backgroundColor = '#10B981';
+          } else {
+            icoBox.style.background = '#FEE2E2';
+            icoBox.style.color = '#DC2626';
+            icoBox.innerHTML = '<i class="ph ph-bell-slash"></i>';
+            lbl.style.color = '#DC2626';
+            lbl.innerText = '○ Silenciado';
+            sBg.style.backgroundColor = '#CBD5E1';
+          }
+        }
+
+        try {
+          const res = await fetch('/vecino/api/timbre-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              timbre_activo: activo,
+              timbre_no_molestar_activo: nmActivo,
+              timbre_silencio_desde: desde,
+              timbre_silencio_hasta: hasta
+            })
+          });
+          const data = await res.json();
+          if (data.ok) {
+            const msg = document.getElementById('timbre-guardado-msg');
+            if (msg) {
+              msg.style.display = 'block';
+              setTimeout(function() { msg.style.display = 'none'; }, 3000);
+            }
+          }
+        } catch (_) {}
+      }
+
+      async function cargarResumenOcupantes() {
+        const el = document.getElementById('resumen-ocupantes-txt');
+        if (!el) return;
+        try {
+          const res = await fetch('/vecino/api/ocupantes-unidad');
+          const data = await res.json();
+          if (data.ok && data.ocupantes && data.ocupantes.length > 0) {
+            const total = data.ocupantes.length;
+            const roles = [];
+            if (data.ocupantes.some(function(o) { return o.rol === 'propietario'; })) roles.push('👑 Propietario');
+            if (data.ocupantes.some(function(o) { return o.rol === 'conviviente' || o.rol === 'familiar'; })) roles.push('👥 Familiar');
+            if (data.ocupantes.some(function(o) { return o.rol === 'inquilino'; })) roles.push('🔑 Inquilino');
+            if (data.ocupantes.some(function(o) { return o.rol === 'turista'; })) roles.push('🧳 Turista');
+            if (data.ocupantes.some(function(o) { return o.rol === 'asistente'; })) roles.push('🏢 Gestor');
+            el.innerText = total + ' integrante' + (total > 1 ? 's' : '') + ' · ' + roles.join(', ');
+          } else {
+            el.innerText = '1 integrante · Modo Titular';
+          }
+        } catch (_) {
+          el.innerText = 'Titular activo';
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        cargarResumenOcupantes();
+      });
+    </script>
+  `;
+
+  res.send(shellVecino('Inicio', 'inicio', content, v));
+});
+
+// -------------------------------------------------------------------
+// PÁGINA DEDICADA: GESTIÓN DE INTEGRANTES Y ASISTENTES
+// -------------------------------------------------------------------
+router.get('/integrantes', (req, res) => {
+  const v = getVecinoSession(req);
+  if (v.rol !== 'propietario' && v.rol !== 'asistente') {
+    return res.redirect('/vecino');
+  }
+
+  const content = `
+    <!-- Barra Superior / Header de la Sección -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <a href="/vecino" style="display:inline-flex;align-items:center;gap:6px;color:#0F326A;font-size:13px;font-weight:800;text-decoration:none;background:#F1F5F9;padding:7px 12px;border-radius:10px">
+        <i class="ph ph-arrow-left" style="font-size:16px"></i>
+        <span>Volver al Inicio</span>
+      </a>
+      <span style="font-size:12px;font-weight:800;color:#64748B;background:#fff;padding:5px 12px;border-radius:20px;border:1px solid #E2E8F0">
+        ${esc(v.edificio)} · Depto ${esc(v.departamento)}
+      </span>
+    </div>
+
+    <!-- TARJETA 1: ASIGNAR A LA UNIDAD / CEDER GESTIÓN -->
+    <div class="card" style="padding:18px 20px;background:#ffffff;margin-bottom:16px;border-radius:20px;border:1px solid #E2E8F0;box-shadow:0 4px 14px rgba(15,23,42,.04)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;border-bottom:1px solid #F1F5F9;padding-bottom:10px">
+        <div style="width:38px;height:38px;border-radius:12px;background:#EFF6FF;color:#2563EB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">
+          <i class="ph ph-user-plus"></i>
         </div>
-        <form onsubmit="guardarNuevoOcupante(event)">
-          <div style="margin-bottom:10px">
-            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Rol en el Depto</label>
-            <select id="inp-fam-rol" class="inp" style="background:#fff">
-              <option value="conviviente">Familiar / Conviviente</option>
-              <option value="inquilino">Inquilino (Alquiler Fijo)</option>
-            </select>
+        <div>
+          <div style="font-size:15px;font-weight:900;color:#0F172A">Asignar a la Unidad</div>
+          <div style="font-size:11.5px;color:#64748B">Convivientes, inquilinos, turistas o asistentes de propiedad</div>
+        </div>
+      </div>
+
+      <form onsubmit="guardarAsignacion(event)">
+        <!-- 1. Selección de Rol -->
+        <div style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:8px">1. Seleccioná el Rol en el Departamento</label>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px" id="grid-roles-asignar">
+            <button type="button" class="btn-rol-selector active" onclick="seleccionarRol('conviviente', this)">
+              <i class="ph ph-user-circle"></i>
+              <span>Familiar / Conviviente</span>
+            </button>
+            <button type="button" class="btn-rol-selector" onclick="seleccionarRol('inquilino', this)">
+              <i class="ph ph-key"></i>
+              <span>Inquilino (Fijo)</span>
+            </button>
+            <button type="button" class="btn-rol-selector" onclick="seleccionarRol('turista', this)">
+              <i class="ph ph-suitcase"></i>
+              <span>Pase Huésped Turista</span>
+            </button>
+            <button type="button" class="btn-rol-selector" onclick="seleccionarRol('asistente', this)">
+              <i class="ph ph-buildings"></i>
+              <span>Asistente de Propiedad</span>
+            </button>
           </div>
-          <div style="margin-bottom:10px">
-            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Nombre y Apellido</label>
-            <input type="text" id="inp-fam-nombre" placeholder="Ej: Lucas Morales" class="inp" style="background:#fff" required>
+          <input type="hidden" id="asig-rol" value="conviviente">
+        </div>
+
+        <!-- 2. Búsqueda por Email de Usuario Registrado -->
+        <div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em">2. Email del Usuario Registrado</label>
+            <span id="txt-buscando-status" style="font-size:11px;font-weight:700;color:#64748B;display:none">Verificando...</span>
           </div>
-          <div style="margin-bottom:10px">
-            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Email (para iniciar sesión)</label>
-            <input type="email" id="inp-fam-email" placeholder="lucas@gmail.com" class="inp" style="background:#fff" required>
+          <div style="position:relative">
+            <input type="email" id="asig-email" class="inp" placeholder="ejemplo: usuario@correo.com" required oninput="buscarUsuarioDebounced()" style="padding-right:38px;background:#fff">
+            <span id="asig-email-status-icon" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:18px"></span>
           </div>
-          <div style="margin-bottom:14px">
-            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Teléfono WhatsApp</label>
-            <input type="tel" id="inp-fam-tel" placeholder="11 2345-6789" class="inp" style="background:#fff">
+        </div>
+
+        <!-- Caja de Verificación y Datos de Usuario Autofill -->
+        <div id="asig-feedback-box" style="display:none;margin-bottom:14px"></div>
+
+        <!-- Campos adicionales si es Huésped Turista (Fechas) -->
+        <div id="box-fechas-turista" style="display:none;margin-bottom:14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:14px;padding:12px 14px">
+          <div style="font-size:11.5px;font-weight:800;color:#92400E;text-transform:uppercase;margin-bottom:8px">Fechas de Estadía del Huésped</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <label style="font-size:11px;font-weight:700;color:#92400E;display:block;margin-bottom:4px">Check-in</label>
+              <input type="date" id="asig-fecha-desde" class="inp" style="background:#fff">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:700;color:#92400E;display:block;margin-bottom:4px">Check-out</label>
+              <input type="date" id="asig-fecha-hasta" class="inp" style="background:#fff">
+            </div>
           </div>
-          <div style="font-size:11.5px;color:#64748B;line-height:1.4;margin-bottom:14px;background:#F8FAFC;padding:8px 12px;border-radius:8px">
-            ℹ️ Tendrá timbre digital personal independiente, acceso a amenities y expensas (ordinarias y extraordinarias).
+          <div style="font-size:11px;color:#92400E;margin-top:8px;line-height:1.3">
+            🔒 <em>Expensas ocultas: el turista solo tendrá acceso a timbre digital, reservas de amenities y Marcos IA.</em>
           </div>
-          <button type="submit" id="btn-fam-guardar" style="width:100%;height:44px;border:none;border-radius:12px;background:#0F326A;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer">Guardar Ocupante</button>
-        </form>
+        </div>
+
+        <!-- Aviso si es Asistente de Propiedad -->
+        <div id="box-aviso-asistente" style="display:none;margin-bottom:14px;background:#EEF2FF;border:1px solid #C7D2FE;border-radius:14px;padding:12px 14px;color:#3730A3;font-size:12px;line-height:1.4">
+          🏢 <strong>Cesión de Gestión:</strong> Esta unidad se incorporará al portafolio de administración del asistente. Podrá coordinar estadías, registrar huéspedes temporales, solicitar reubicaciones y gestionar tickets en tu nombre.
+        </div>
+
+        <!-- Botón de Confirmación -->
+        <button type="submit" id="btn-confirmar-asignacion" disabled style="width:100%;height:46px;border:none;border-radius:12px;background:#CBD5E1;color:#64748B;font-weight:900;font-size:13.5px;cursor:not-allowed;transition:all .15s ease">
+          Completar Asignación
+        </button>
+      </form>
+    </div>
+
+    <!-- TARJETA 2: LISTA DE INTEGRANTES ACTUALES -->
+    <div class="card" style="padding:18px 20px;background:#ffffff;margin-bottom:16px;border-radius:20px;border:1px solid #E2E8F0;box-shadow:0 4px 14px rgba(15,23,42,.04)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #F1F5F9;padding-bottom:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:38px;height:38px;border-radius:12px;background:#EFF6FF;color:#2563EB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">
+            <i class="ph ph-users-three"></i>
+          </div>
+          <div>
+            <div style="font-size:15px;font-weight:900;color:#0F172A">Integrantes Activos</div>
+            <div style="font-size:11.5px;color:#64748B">Personas con acceso a la unidad</div>
+          </div>
+        </div>
+        <button onclick="cargarIntegrantes()" style="border:none;background:#F1F5F9;color:#475569;width:32px;height:32px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center">
+          <i class="ph ph-arrows-clockwise" style="font-size:16px"></i>
+        </button>
+      </div>
+
+      <div id="lista-integrantes-box" style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#94A3B8;text-align:center;padding:12px">Cargando integrantes...</div>
       </div>
     </div>
 
-    <!-- MODAL 2: Registrar Huésped / Turista (Airbnb) -->
-    <div id="modal-agregar-huesped" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:16px">
-      <div style="background:#fff;border-radius:20px;max-width:440px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.2)">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div style="font-size:16px;font-weight:900;color:#0F172A">🧳 Registrar Huésped Temporal (Airbnb)</div>
-          <button onclick="cerrarModal('modal-agregar-huesped')" style="border:none;background:#F1F5F9;border-radius:50%;width:30px;height:30px;font-size:16px;cursor:pointer;color:#64748B">✕</button>
-        </div>
-        <form onsubmit="guardarNuevoHuesped(event)">
-          <div style="margin-bottom:10px">
-            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Nombre Completo del Huésped</label>
-            <input type="text" id="inp-hue-nombre" placeholder="Ej: John Doe" class="inp" style="background:#fff" required>
-          </div>
-          <div style="margin-bottom:10px">
-            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Email (para acceso a la app)</label>
-            <input type="email" id="inp-hue-email" placeholder="john@airbnb.com" class="inp" style="background:#fff" required>
-          </div>
-          <div style="margin-bottom:10px">
-            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Teléfono WhatsApp</label>
-            <input type="tel" id="inp-hue-tel" placeholder="+1 555-1234" class="inp" style="background:#fff">
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-            <div>
-              <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Check-in</label>
-              <input type="date" id="inp-hue-desde" class="inp" style="background:#fff" required>
-            </div>
-            <div>
-              <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Check-out</label>
-              <input type="date" id="inp-hue-hasta" class="inp" style="background:#fff" required>
-            </div>
-          </div>
-          <div style="font-size:11.5px;color:#92400E;line-height:1.4;margin-bottom:14px;background:#FEF3C7;padding:8px 12px;border-radius:8px;border:1px solid #FCD34D">
-            🔒 <strong>Expensas 100% Ocultas:</strong> El huésped solo tendrá acceso al timbre personal, reservas de amenities y Marcos IA.
-          </div>
-          <button type="submit" id="btn-hue-guardar" style="width:100%;height:44px;border:none;border-radius:12px;background:#D97706;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer">Generar Pase Huésped</button>
-        </form>
-      </div>
-    </div>
-
-    <!-- MODAL 3: Reubicar Huésped a Otra Unidad -->
+    <!-- MODAL: Reubicar Huésped a Otra Unidad -->
     <div id="modal-reubicar-huesped" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:16px">
       <div style="background:#fff;border-radius:20px;max-width:460px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.2)">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -2482,228 +2686,276 @@ router.get('/', (req, res) => {
           </div>
           <div style="margin-bottom:12px">
             <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Motivo del Traslado</label>
-            <input type="text" id="inp-reub-motivo" placeholder="Ej: Fuga de agua en el baño / Reparación urgente" class="inp" style="background:#fff" required>
+            <input type="text" id="inp-reub-motivo" placeholder="Ej: Fuga de agua / Reparación urgente" class="inp" style="background:#fff" required>
           </div>
           <div style="font-size:11.5px;color:#4338CA;line-height:1.4;margin-bottom:14px;background:#EEF2FF;padding:10px 12px;border-radius:10px;border:1px solid #C7D2FE">
             ✨ <strong>Efectos Inmediatos:</strong><br>
             • El timbre digital del huésped se redirige al nuevo departamento.<br>
-            • Las reservas activas de amenities se trasladan automáticamente.<br>
-            • El incidente y la reubicación quedan documentados para administración y propietarios.
+            • Las reservas de amenities se transfieren automáticamente.<br>
+            • Se registra la trazabilidad para administración y propietario.
           </div>
           <button type="submit" id="btn-reub-ejecutar" style="width:100%;height:44px;border:none;border-radius:12px;background:#4F46E5;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer">Confirmar Reubicación Inmediata</button>
         </form>
       </div>
     </div>
 
-    <!-- Scripts de Interacción -->
+    <!-- SCRIPTS DE CLIENTE -->
     <script>
-      let _ocupantesActuales = [];
+      let _integrantesActuales = [];
+      let _usuarioVerificado = null;
+      let _timerBusqueda = null;
+      const _miUsuarioId = ${Number(v.usuario_id || 0)};
 
-      async function guardarConfigTimbre() {
-        const chk = document.getElementById('chk-timbre-activo');
-        const desde = document.getElementById('timbre-silencio-desde').value;
-        const hasta = document.getElementById('timbre-silencio-hasta').value;
-        const activo = chk.checked;
+      function seleccionarRol(rol, btn) {
+        document.getElementById('asig-rol').value = rol;
+        const btns = document.querySelectorAll('#grid-roles-asignar .btn-rol-selector');
+        btns.forEach(function(b) { b.classList.remove('active'); });
+        if (btn) btn.classList.add('active');
 
-        const icoBox = document.getElementById('timbre-icono-box');
-        const lbl = document.getElementById('timbre-estado-lbl');
-        const sBg = document.getElementById('slider-timbre-bg');
-        if (activo) {
-          icoBox.style.background = '#DCFCE7';
-          icoBox.style.color = '#15803D';
-          icoBox.innerHTML = '<i class="ph ph-bell-ringing"></i>';
-          lbl.style.color = '#15803D';
-          lbl.innerText = '● Activo · Suena en tu celu';
-          sBg.style.backgroundColor = '#10B981';
-        } else {
-          icoBox.style.background = '#FEE2E2';
-          icoBox.style.color = '#DC2626';
-          icoBox.innerHTML = '<i class="ph ph-bell-slash"></i>';
-          lbl.style.color = '#DC2626';
-          lbl.innerText = '○ Silenciado';
-          sBg.style.backgroundColor = '#CBD5E1';
+        const boxTur = document.getElementById('box-fechas-turista');
+        const boxAsis = document.getElementById('box-aviso-asistente');
+        if (boxTur) boxTur.style.display = (rol === 'turista') ? 'block' : 'none';
+        if (boxAsis) boxAsis.style.display = (rol === 'asistente') ? 'block' : 'none';
+
+        validarBotonSubmit();
+      }
+
+      function buscarUsuarioDebounced() {
+        clearTimeout(_timerBusqueda);
+        const email = (document.getElementById('asig-email').value || '').trim();
+        const icon = document.getElementById('asig-email-status-icon');
+        const statusTxt = document.getElementById('txt-buscando-status');
+        const box = document.getElementById('asig-feedback-box');
+
+        if (!email || email.indexOf('@') === -1) {
+          _usuarioVerificado = null;
+          if (icon) icon.innerText = '';
+          if (statusTxt) statusTxt.style.display = 'none';
+          if (box) box.style.display = 'none';
+          validarBotonSubmit();
+          return;
         }
 
+        if (statusTxt) statusTxt.style.display = 'inline';
+        if (icon) icon.innerText = '⏳';
+
+        _timerBusqueda = setTimeout(function() {
+          ejecutarBusquedaUsuario(email);
+        }, 350);
+      }
+
+      async function ejecutarBusquedaUsuario(email) {
+        const icon = document.getElementById('asig-email-status-icon');
+        const statusTxt = document.getElementById('txt-buscando-status');
+        const box = document.getElementById('asig-feedback-box');
+
         try {
-          const res = await fetch('/vecino/api/timbre-config', {
+          const res = await fetch('/vecino/api/buscar-usuario-email?email=' + encodeURIComponent(email));
+          const data = await res.json();
+          if (statusTxt) statusTxt.style.display = 'none';
+
+          if (data.ok && data.existe && data.usuario) {
+            _usuarioVerificado = data.usuario;
+            if (icon) icon.innerText = '✅';
+            if (box) {
+              const nombreCompleto = (data.usuario.nombre || '') + ' ' + (data.usuario.apellido || '');
+              const tel = data.usuario.telefono ? (' · 📞 ' + data.usuario.telefono) : '';
+              box.innerHTML = '<div style="background:#F0FDF4;border:1.5px solid #86EFAC;border-radius:12px;padding:12px 14px;color:#166534">' +
+                                '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#15803D;margin-bottom:3px">✓ Usuario Verificado en la App</div>' +
+                                '<div style="font-size:14px;font-weight:900;color:#0F172A">' + nombreCompleto + '</div>' +
+                                '<div style="font-size:12px;color:#475569">✉️ ' + data.usuario.email + tel + '</div>' +
+                              '</div>';
+              box.style.display = 'block';
+            }
+          } else {
+            _usuarioVerificado = null;
+            if (icon) icon.innerText = '⚠️';
+            if (box) {
+              box.innerHTML = '<div style="background:#FEF2F2;border:1.5px solid #FCA5A5;border-radius:12px;padding:12px 14px;color:#991B1B;font-size:12.5px;line-height:1.4">' +
+                                '<strong style="display:block;margin-bottom:3px">⚠️ Usuario no registrado</strong>' +
+                                'Este email no pertenece a ningún usuario registrado en la app. La persona debe registrarse previamente con su email y número de teléfono para poder asociarla a la unidad.' +
+                              '</div>';
+              box.style.display = 'block';
+            }
+          }
+        } catch (_) {
+          _usuarioVerificado = null;
+          if (statusTxt) statusTxt.style.display = 'none';
+          if (icon) icon.innerText = '❌';
+        }
+
+        validarBotonSubmit();
+      }
+
+      function validarBotonSubmit() {
+        const btn = document.getElementById('btn-confirmar-asignacion');
+        if (!btn) return;
+        if (_usuarioVerificado) {
+          btn.disabled = false;
+          btn.style.background = '#0F326A';
+          btn.style.color = '#ffffff';
+          btn.style.cursor = 'pointer';
+        } else {
+          btn.disabled = true;
+          btn.style.background = '#CBD5E1';
+          btn.style.color = '#64748B';
+          btn.style.cursor = 'not-allowed';
+        }
+      }
+
+      async function guardarAsignacion(e) {
+        e.preventDefault();
+        if (!_usuarioVerificado) {
+          alert('Debés ingresar un usuario registrado previamente en la app.');
+          return;
+        }
+        const btn = document.getElementById('btn-confirmar-asignacion');
+        btn.disabled = true;
+        btn.innerText = 'Guardando...';
+
+        const rol = document.getElementById('asig-rol').value;
+        const payload = {
+          email: _usuarioVerificado.email,
+          rol: rol,
+          fecha_desde: (rol === 'turista') ? document.getElementById('asig-fecha-desde').value : null,
+          fecha_hasta: (rol === 'turista') ? document.getElementById('asig-fecha-hasta').value : null
+        };
+
+        try {
+          const res = await fetch('/vecino/api/asignar-integrante-registrado', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              timbre_activo: activo,
-              timbre_silencio_desde: desde,
-              timbre_silencio_hasta: hasta
-            })
+            body: JSON.stringify(payload)
           });
           const data = await res.json();
           if (data.ok) {
-            const msg = document.getElementById('timbre-guardado-msg');
-            if (msg) {
-              msg.style.display = 'block';
-              setTimeout(() => { msg.style.display = 'none'; }, 3000);
-            }
+            alert(data.mensaje || 'Asignación realizada con éxito.');
+            document.getElementById('asig-email').value = '';
+            document.getElementById('asig-feedback-box').style.display = 'none';
+            document.getElementById('asig-email-status-icon').innerText = '';
+            _usuarioVerificado = null;
+            validarBotonSubmit();
+            cargarIntegrantes();
+          } else {
+            alert(data.error || 'Error al realizar la asignación.');
           }
-        } catch (_) {}
+        } catch (_) {
+          alert('Error de conexión con el servidor.');
+        } finally {
+          btn.innerText = 'Completar Asignación';
+          validarBotonSubmit();
+        }
       }
 
-      async function cargarOcupantes() {
-        const box = document.getElementById('lista-ocupantes-box');
+      async function cargarIntegrantes() {
+        const box = document.getElementById('lista-integrantes-box');
         if (!box) return;
-        box.innerHTML = '<div style="font-size:12px;color:#94A3B8;text-align:center;padding:10px">Cargando integrantes...</div>';
+        box.innerHTML = '<div style="font-size:12px;color:#94A3B8;text-align:center;padding:12px">Cargando integrantes...</div>';
+
         try {
           const res = await fetch('/vecino/api/ocupantes-unidad');
           const data = await res.json();
           if (data.ok && data.ocupantes) {
-            _ocupantesActuales = data.ocupantes;
-            renderizarOcupantes(data.ocupantes);
+            _integrantesActuales = data.ocupantes;
+            renderizarLista(data.ocupantes);
           } else {
-            box.innerHTML = '<div style="font-size:12px;color:#EF4444;text-align:center;padding:10px">No se pudieron cargar los ocupantes.</div>';
+            box.innerHTML = '<div style="font-size:12px;color:#EF4444;text-align:center;padding:12px">No se pudieron cargar los datos.</div>';
           }
         } catch (_) {
-          box.innerHTML = '<div style="font-size:12px;color:#94A3B8;text-align:center;padding:10px">Sin datos de ocupantes.</div>';
+          box.innerHTML = '<div style="font-size:12px;color:#94A3B8;text-align:center;padding:12px">Sin conexión.</div>';
         }
       }
 
-      function renderizarOcupantes(lista) {
-        const box = document.getElementById('lista-ocupantes-box');
+      function renderizarLista(lista) {
+        const box = document.getElementById('lista-integrantes-box');
         if (!box) return;
-        if (!lista || lista.length === 0) {
-          box.innerHTML = '<div style="font-size:12px;color:#FBBF24;text-align:center;padding:8px">No hay otros integrantes registrados en esta unidad.</div>';
+        if (!lista || !lista.length) {
+          box.innerHTML = '<div style="font-size:12px;color:#94A3B8;text-align:center;padding:12px">No hay otros integrantes registrados.</div>';
           return;
         }
+
         let html = '';
         for (let i = 0; i < lista.length; i++) {
           const o = lista[i];
           const esTur = (o.rol === 'turista');
-          const badgeClass = esTur ? 'badge-ocupante-turista' : (o.rol === 'propietario' ? 'badge-ocupante-propietario' : (o.rol === 'asistente' ? 'badge-ocupante-asistente' : 'badge-ocupante-inquilino'));
-          const badgeTxt = esTur ? '🧳 Turista' : (o.rol === 'propietario' ? '👑 Propietario' : (o.rol === 'asistente' ? '🏢 Gestor' : (o.rol === 'inquilino' ? '🔑 Inquilino' : '👥 Familiar')));
+          const esAsis = (o.rol === 'asistente');
+          const badgeClass = esTur ? 'badge-ocupante-turista' : (o.rol === 'propietario' ? 'badge-ocupante-propietario' : (esAsis ? 'badge-ocupante-asistente' : 'badge-ocupante-inquilino'));
+          const badgeTxt = esTur ? '🧳 Turista' : (o.rol === 'propietario' ? '👑 Propietario' : (esAsis ? '🏢 Asistente / Gestor' : (o.rol === 'inquilino' ? '🔑 Inquilino' : '👥 Familiar')));
           const timbreTxt = o.timbre_activo !== false ? '🔔 Timbre ON' : '🔕 Timbre OFF';
           const timbreClass = o.timbre_activo !== false ? 'timbre-on' : 'timbre-off';
+
           let fechasTxt = '';
           if (o.fecha_desde && o.fecha_hasta) {
-            fechasTxt = ' · ' + String(o.fecha_desde).slice(0, 10) + ' al ' + String(o.fecha_hasta).slice(0, 10);
+            fechasTxt = ' · Del ' + String(o.fecha_desde).slice(0, 10) + ' al ' + String(o.fecha_hasta).slice(0, 10);
           }
           const nom = (o.nombre || '') + ' ' + (o.apellido || '');
           const contacto = o.email || o.telefono || 'Sin contacto';
 
-          html += '<div class="ocupante-item-row">' +
-                    '<div>' +
-                      '<div style="display:flex;align-items:center;gap:6px">' +
+          let btnReubicar = '';
+          if (esTur) {
+            btnReubicar = '<button type="button" onclick="abrirModalReubicar(' + o.usuario_id + ')" style="padding:4px 10px;border-radius:8px;background:#EEF2FF;border:1px solid #C7D2FE;color:#4F46E5;font-size:11px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-top:6px">' +
+                            '<i class="ph ph-arrows-left-right"></i>' +
+                            '<span>Reubicar Depto</span>' +
+                          '</button>';
+          }
+
+          let btnDesvincular = '';
+          if (o.usuario_id && o.usuario_id !== _miUsuarioId && o.rol !== 'propietario') {
+            btnDesvincular = '<button type="button" onclick="desvincular(' + o.usuario_id + ', \'' + (o.nombre || 'el usuario') + '\')" style="padding:4px 8px;border-radius:8px;background:#FEE2E2;border:1px solid #FCA5A5;color:#DC2626;font-size:11px;font-weight:800;cursor:pointer;margin-top:6px" title="Desvincular">' +
+                               '✕ Desvincular' +
+                             '</button>';
+          }
+
+          html += '<div class="ocupante-item-row" style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">' +
+                    '<div style="flex:1">' +
+                      '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
                         '<strong class="ocupante-nombre">' + nom + '</strong>' +
                         '<span class="badge-ocupante ' + badgeClass + '">' + badgeTxt + '</span>' +
                       '</div>' +
                       '<div class="ocupante-contacto">' + contacto + fechasTxt + '</div>' +
+                      '<div style="display:flex;align-items:center;gap:8px">' + btnReubicar + btnDesvincular + '</div>' +
                     '</div>' +
-                    '<div class="ocupante-timbre-status ' + timbreClass + '">' + timbreTxt + '</div>' +
+                    '<div class="ocupante-timbre-status ' + timbreClass + '" style="flex-shrink:0">' + timbreTxt + '</div>' +
                   '</div>';
         }
         box.innerHTML = html;
       }
 
-      function abrirModalAgregarOcupante(rol) {
-        const m = document.getElementById('modal-agregar-familiar');
-        if (m) {
-          if (rol) document.getElementById('inp-fam-rol').value = rol;
-          m.style.display = 'flex';
-        }
-      }
-
-      async function guardarNuevoOcupante(e) {
-        e.preventDefault();
-        const btn = document.getElementById('btn-fam-guardar');
-        btn.disabled = true;
-        btn.innerText = 'Guardando...';
-
-        const payload = {
-          rol: document.getElementById('inp-fam-rol').value,
-          nombre: document.getElementById('inp-fam-nombre').value,
-          email: document.getElementById('inp-fam-email').value,
-          telefono: document.getElementById('inp-fam-tel').value
-        };
-
+      async function desvincular(usuarioId, nombre) {
+        if (!confirm('¿Estás seguro de que querés desvincular a ' + nombre + ' de este departamento?')) return;
         try {
-          const res = await fetch('/vecino/api/agregar-ocupante', {
+          const res = await fetch('/vecino/api/desvincular-integrante', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify({ usuario_id: usuarioId })
           });
           const data = await res.json();
           if (data.ok) {
-            cerrarModal('modal-agregar-familiar');
-            cargarOcupantes();
+            alert('Integrante desvinculado con éxito.');
+            cargarIntegrantes();
           } else {
-            alert(data.error || 'Error al guardar ocupante');
+            alert(data.error || 'No se pudo desvincular.');
           }
-        } catch (err) {
-          alert('Error de conexión');
-        } finally {
-          btn.disabled = false;
-          btn.innerText = 'Guardar Ocupante';
+        } catch (_) {
+          alert('Error de conexión.');
         }
       }
 
-      function abrirModalAgregarHuesped() {
-        const m = document.getElementById('modal-agregar-huesped');
-        if (m) {
-          const hoy = new Date().toISOString().split('T')[0];
-          document.getElementById('inp-hue-desde').value = hoy;
-          m.style.display = 'flex';
-        }
-      }
-
-      async function guardarNuevoHuesped(e) {
-        e.preventDefault();
-        const btn = document.getElementById('btn-hue-guardar');
-        btn.disabled = true;
-        btn.innerText = 'Generando pase...';
-
-        const payload = {
-          rol: 'turista',
-          nombre: document.getElementById('inp-hue-nombre').value,
-          email: document.getElementById('inp-hue-email').value,
-          telefono: document.getElementById('inp-hue-tel').value,
-          fecha_desde: document.getElementById('inp-hue-desde').value,
-          fecha_hasta: document.getElementById('inp-hue-hasta').value
-        };
-
-        try {
-          const res = await fetch('/vecino/api/agregar-ocupante', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          const data = await res.json();
-          if (data.ok) {
-            cerrarModal('modal-agregar-huesped');
-            cargarOcupantes();
-          } else {
-            alert(data.error || 'Error al registrar huésped');
-          }
-        } catch (err) {
-          alert('Error de conexión');
-        } finally {
-          btn.disabled = false;
-          btn.innerText = 'Generar Pase Huésped';
-        }
-      }
-
-      async function abrirModalReubicarHuesped() {
+      async function abrirModalReubicar(turistaId) {
         const m = document.getElementById('modal-reubicar-huesped');
         if (!m) return;
         m.style.display = 'flex';
 
         const selH = document.getElementById('sel-reub-huesped');
         selH.innerHTML = '<option value="">Seleccionar huésped...</option>';
-        const turistas = _ocupantesActuales.filter(function(o) { return o.rol === 'turista'; });
-        if (turistas.length === 0) {
-          selH.innerHTML = '<option value="">No hay huéspedes turistas activos en este depto</option>';
-        } else {
-          for (let i = 0; i < turistas.length; i++) {
-            const t = turistas[i];
-            const opt = document.createElement('option');
-            opt.value = t.usuario_id;
-            opt.innerText = (t.nombre || 'Huésped') + ' (' + (t.email || t.telefono || ('ID: ' + t.usuario_id)) + ')';
-            selH.appendChild(opt);
-          }
+        const turistas = _integrantesActuales.filter(function(o) { return o.rol === 'turista'; });
+        for (let i = 0; i < turistas.length; i++) {
+          const t = turistas[i];
+          const opt = document.createElement('option');
+          opt.value = t.usuario_id;
+          opt.innerText = (t.nombre || 'Huésped') + ' (' + (t.email || t.telefono || ('ID: ' + t.usuario_id)) + ')';
+          if (turistaId && t.usuario_id === turistaId) opt.selected = true;
+          selH.appendChild(opt);
         }
 
         const selD = document.getElementById('sel-reub-destino');
@@ -2760,12 +3012,12 @@ router.get('/', (req, res) => {
           if (data.ok) {
             alert(data.mensaje || 'Huésped reubicado con éxito.');
             cerrarModal('modal-reubicar-huesped');
-            cargarOcupantes();
+            cargarIntegrantes();
           } else {
             alert(data.error || 'No se pudo reubicar al huésped.');
           }
-        } catch (err) {
-          alert('Error de conexión');
+        } catch (_) {
+          alert('Error de conexión.');
         } finally {
           btn.disabled = false;
           btn.innerText = 'Confirmar Reubicación Inmediata';
@@ -2778,12 +3030,15 @@ router.get('/', (req, res) => {
       }
 
       document.addEventListener('DOMContentLoaded', () => {
-        cargarOcupantes();
+        const hoy = new Date().toISOString().split('T')[0];
+        const fDesde = document.getElementById('asig-fecha-desde');
+        if (fDesde) fDesde.value = hoy;
+        cargarIntegrantes();
       });
     </script>
   `;
 
-  res.send(shellVecino('Inicio', 'inicio', content, v));
+  res.send(shellVecino('Integrantes', 'integrantes', content, v));
 });
 
 // -------------------------------------------------------------------
@@ -2794,11 +3049,12 @@ router.get('/', (req, res) => {
 router.post('/api/timbre-config', async (req, res) => {
   try {
     const v = getVecinoSession(req);
-    const { timbre_activo, timbre_silencio_desde, timbre_silencio_hasta } = req.body || {};
+    const { timbre_activo, timbre_silencio_desde, timbre_silencio_hasta, timbre_no_molestar_activo } = req.body || {};
 
     // Actualizar en sesión activa
     if (req.session && req.session.vecino) {
       if (typeof timbre_activo !== 'undefined') req.session.vecino.timbre_activo = Boolean(timbre_activo);
+      if (typeof timbre_no_molestar_activo !== 'undefined') req.session.vecino.timbre_no_molestar_activo = Boolean(timbre_no_molestar_activo);
       if (timbre_silencio_desde) req.session.vecino.timbre_silencio_desde = timbre_silencio_desde;
       if (timbre_silencio_hasta) req.session.vecino.timbre_silencio_hasta = timbre_silencio_hasta;
     }
@@ -2809,13 +3065,124 @@ router.post('/api/timbre-config', async (req, res) => {
       await actualizarConfigTimbre(v.usuario_id, v.edificio, v.departamento, {
         timbre_activo: Boolean(timbre_activo),
         timbre_silencio_desde,
-        timbre_silencio_hasta
+        timbre_silencio_hasta,
+        timbre_no_molestar_activo: Boolean(timbre_no_molestar_activo)
       });
     }
 
     res.json({ ok: true, mensaje: 'Preferencia de timbre guardada.' });
   } catch (err) {
     console.error('Error en /vecino/api/timbre-config:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 1b. Buscar usuario por email (para asignación previa con autocompletado)
+router.get('/api/buscar-usuario-email', async (req, res) => {
+  try {
+    const { email } = req.query;
+    const emailNorm = String(email || '').trim().toLowerCase();
+    if (!emailNorm) {
+      return res.json({ ok: false, error: 'Email requerido' });
+    }
+    const { obtenerUsuarioPorEmail } = require('./db-pg');
+    const user = await obtenerUsuarioPorEmail(emailNorm);
+    if (!user) {
+      return res.json({ ok: true, existe: false });
+    }
+    return res.json({
+      ok: true,
+      existe: true,
+      usuario: {
+        id: user.id,
+        nombre: user.nombre,
+        apellido: user.apellido || '',
+        email: user.email,
+        telefono: user.telefono || ''
+      }
+    });
+  } catch (err) {
+    console.error('Error en /vecino/api/buscar-usuario-email:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 1c. Asignar usuario registrado a la unidad (familiar, inquilino, turista o asistente)
+router.post('/api/asignar-integrante-registrado', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    if (v.rol !== 'propietario' && v.rol !== 'asistente') {
+      return res.status(403).json({ ok: false, error: 'Solo propietarios o administradores pueden asignar integrantes.' });
+    }
+
+    const { email, rol, fecha_desde, fecha_hasta } = req.body || {};
+    const emailNorm = String(email || '').trim().toLowerCase();
+    if (!emailNorm || !rol) {
+      return res.status(400).json({ ok: false, error: 'Email y rol son obligatorios.' });
+    }
+
+    const { obtenerUsuarioPorEmail, asignarUsuarioAUnidad, asignarAsistenteAPropiedad } = require('./db-pg');
+    const user = await obtenerUsuarioPorEmail(emailNorm);
+    if (!user) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Usuario no registrado: Debe registrarse previamente en la app para poder asociarlo a la unidad.'
+      });
+    }
+
+    if (rol === 'asistente') {
+      await asignarAsistenteAPropiedad(v.usuario_id || 1, user.id, v.edificio, v.departamento);
+      return res.json({
+        ok: true,
+        mensaje: `Gestión cedida exitosamente al asistente ${user.nombre} ${user.apellido || ''}.`
+      });
+    }
+
+    const esTurista = (rol === 'turista');
+    const puedeVerExpensas = !esTurista;
+
+    await asignarUsuarioAUnidad(user.id, v.edificio, v.departamento, rol, {
+      fecha_desde: fecha_desde || null,
+      fecha_hasta: fecha_hasta || null,
+      timbre_activo: true,
+      puede_ver_expensas: puedeVerExpensas,
+      asignado_por_usuario_id: v.usuario_id || null,
+      notas: esTurista ? 'Pase de huésped turista' : `Asignado como ${rol} por titular`
+    });
+
+    return res.json({
+      ok: true,
+      mensaje: esTurista ? 'Pase huésped emitido con éxito.' : 'Integrante asignado a la unidad con éxito.'
+    });
+  } catch (err) {
+    console.error('Error en /vecino/api/asignar-integrante-registrado:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 1d. Desvincular integrante de la unidad
+router.post('/api/desvincular-integrante', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    if (v.rol !== 'propietario' && v.rol !== 'asistente') {
+      return res.status(403).json({ ok: false, error: 'Sin permisos para desvincular integrantes.' });
+    }
+
+    const { usuario_id } = req.body || {};
+    if (!usuario_id) {
+      return res.status(400).json({ ok: false, error: 'ID de usuario requerido.' });
+    }
+
+    if (Number(usuario_id) === Number(v.usuario_id)) {
+      return res.status(400).json({ ok: false, error: 'No podés desvincular tu propio usuario titular.' });
+    }
+
+    const { desvincularIntegrante } = require('./db-pg');
+    await desvincularIntegrante(Number(usuario_id), v.edificio, v.departamento);
+
+    res.json({ ok: true, mensaje: 'Integrante desvinculado con éxito.' });
+  } catch (err) {
+    console.error('Error en /vecino/api/desvincular-integrante:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

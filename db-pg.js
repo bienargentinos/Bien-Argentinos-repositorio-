@@ -330,6 +330,8 @@ async function _initPgSchema() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            ALTER TABLE usuario_unidades ADD COLUMN IF NOT EXISTS timbre_no_molestar_activo BOOLEAN DEFAULT FALSE;
+
             CREATE TABLE IF NOT EXISTS asistente_asignaciones (
                 id SERIAL PRIMARY KEY,
                 asistente_usuario_id INT REFERENCES usuarios(id) ON DELETE CASCADE,
@@ -1070,21 +1072,23 @@ async function reubicarHuesped(turistaUsuarioId, origenEdificio, origenDepto, de
     return resNueva.rows[0];
 }
 
-async function actualizarConfigTimbre(usuarioId, edificio, departamento, timbreActivo, silencioDesde, silencioHasta) {
+async function actualizarConfigTimbre(usuarioId, edificio, departamento, timbreActivo, silencioDesde, silencioHasta, noMolestarActivo) {
     if (typeof timbreActivo === 'object' && timbreActivo !== null) {
         const opts = timbreActivo;
         timbreActivo = opts.timbre_activo;
         silencioDesde = opts.timbre_silencio_desde;
         silencioHasta = opts.timbre_silencio_hasta;
+        noMolestarActivo = opts.timbre_no_molestar_activo;
     }
     const res = await pool.query(
         `UPDATE usuario_unidades 
          SET timbre_activo = $1,
              timbre_silencio_desde = $2,
-             timbre_silencio_hasta = $3
-         WHERE usuario_id = $4 AND LOWER(edificio) = LOWER($5) AND LOWER(departamento) = LOWER($6) AND estado = 'activo'
+             timbre_silencio_hasta = $3,
+             timbre_no_molestar_activo = $4
+         WHERE usuario_id = $5 AND LOWER(edificio) = LOWER($6) AND LOWER(departamento) = LOWER($7) AND estado = 'activo'
          RETURNING *`,
-        [Boolean(timbreActivo), silencioDesde || '23:00', silencioHasta || '07:30', usuarioId, edificio, departamento]
+        [Boolean(timbreActivo), silencioDesde || '23:00', silencioHasta || '07:30', Boolean(noMolestarActivo), usuarioId, edificio, departamento]
     );
     return res.rows[0] || null;
 }
@@ -1092,7 +1096,7 @@ async function actualizarConfigTimbre(usuarioId, edificio, departamento, timbreA
 async function obtenerIntegrantesUnidad(edificio, departamento) {
     const q = `
         SELECT uu.id AS asignacion_id, uu.rol, uu.fecha_desde, uu.fecha_hasta,
-               uu.timbre_activo, uu.timbre_silencio_desde, uu.timbre_silencio_hasta,
+               uu.timbre_activo, uu.timbre_silencio_desde, uu.timbre_silencio_hasta, uu.timbre_no_molestar_activo,
                uu.puede_ver_expensas, uu.estado, uu.notas,
                u.id AS usuario_id, u.email, u.nombre, u.apellido, u.telefono
         FROM usuario_unidades uu
@@ -1116,6 +1120,48 @@ async function obtenerPortafolioAsistente(asistenteUsuarioId) {
     `;
     const res = await pool.query(q, [asistenteUsuarioId]);
     return res.rows || [];
+}
+
+async function asignarAsistenteAPropiedad(propietarioUsuarioId, asistenteUsuarioId, edificio, departamento) {
+    // 1. Desactivar asignación previa activa en esa unidad si existiera
+    await pool.query(
+        `UPDATE asistente_asignaciones 
+         SET activo = FALSE 
+         WHERE LOWER(edificio) = LOWER($1) AND LOWER(departamento) = LOWER($2)`,
+        [edificio, departamento]
+    );
+    // 2. Crear nueva asignación en asistente_asignaciones
+    const res = await pool.query(
+        `INSERT INTO asistente_asignaciones 
+         (propietario_usuario_id, asistente_usuario_id, edificio, departamento, activo, created_at)
+         VALUES ($1, $2, $3, $4, TRUE, NOW())
+         RETURNING *`,
+        [propietarioUsuarioId, asistenteUsuarioId, edificio, departamento]
+    );
+    // 3. Crear asignación de rol asistente en usuario_unidades
+    await pool.query(
+        `INSERT INTO usuario_unidades 
+         (usuario_id, edificio, departamento, rol, timbre_activo, puede_ver_expensas, asignado_por_usuario_id, notas, estado, created_at)
+         VALUES ($1, $2, $3, 'asistente', TRUE, TRUE, $4, 'Gestión de propiedad cedida por propietario', 'activo', NOW())`,
+        [asistenteUsuarioId, edificio, departamento, propietarioUsuarioId]
+    );
+    return res.rows[0];
+}
+
+async function desvincularIntegrante(usuarioId, edificio, departamento) {
+    await pool.query(
+        `UPDATE usuario_unidades 
+         SET estado = 'inactivo'
+         WHERE usuario_id = $1 AND LOWER(edificio) = LOWER($2) AND LOWER(departamento) = LOWER($3) AND estado = 'activo'`,
+        [usuarioId, edificio, departamento]
+    );
+    await pool.query(
+        `UPDATE asistente_asignaciones 
+         SET activo = FALSE 
+         WHERE asistente_usuario_id = $1 AND LOWER(edificio) = LOWER($2) AND LOWER(departamento) = LOWER($3)`,
+        [usuarioId, edificio, departamento]
+    );
+    return true;
 }
 
 module.exports = {
@@ -1144,5 +1190,7 @@ module.exports = {
     reubicarHuesped,
     actualizarConfigTimbre,
     obtenerIntegrantesUnidad,
-    obtenerPortafolioAsistente
+    obtenerPortafolioAsistente,
+    asignarAsistenteAPropiedad,
+    desvincularIntegrante
 };
