@@ -275,6 +275,8 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   text-align: center;
   transition: all .2s ease;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
   box-shadow: 0 1px 3px rgba(15,23,42,.04);
 }
 .amenity-card-item:hover {
@@ -295,13 +297,18 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   margin-top: 2px;
 }
 .amenity-card-item.selected {
-  border: 2px solid #D97706 !important;
-  background: linear-gradient(135deg, #FEF3C7, #FFFBEB) !important;
-  box-shadow: 0 4px 14px rgba(217, 119, 6, 0.25) !important;
+  border: 2px solid #F59E0B !important;
+  background: linear-gradient(135deg, #FEF08A, #FDE047) !important;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.35) !important;
   transform: translateY(-2px);
 }
 .amenity-card-item.selected .amenity-title {
+  color: #78350F !important;
+  font-weight: 900 !important;
+}
+.amenity-card-item.selected .amenity-time {
   color: #92400E !important;
+  font-weight: 700 !important;
 }
 
 /* Modo oscuro para tarjetas de Amenities */
@@ -309,6 +316,8 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   background: #15223D !important;
   border: 2px solid #24355A !important;
   box-shadow: 0 4px 12px rgba(0,0,0,.3);
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
 }
 .dark-theme .amenity-card-item .amenity-title {
   color: #FFFFFF !important;
@@ -318,9 +327,9 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
 }
 /* Al seleccionar o tocar en modo oscuro: Degrade con resplandor dorado / amarillo y borde resaltado */
 .dark-theme .amenity-card-item.selected {
-  background: linear-gradient(135deg, rgba(251, 191, 36, 0.25), rgba(217, 119, 6, 0.12)) !important;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.3), rgba(217, 119, 6, 0.18)) !important;
   border: 2px solid #FBBF24 !important;
-  box-shadow: 0 0 18px rgba(251, 191, 36, 0.45), inset 0 0 10px rgba(251, 191, 36, 0.18) !important;
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.5), inset 0 0 10px rgba(251, 191, 36, 0.25) !important;
   transform: translateY(-2px);
 }
 .dark-theme .amenity-card-item.selected .amenity-title {
@@ -762,7 +771,8 @@ function shellVecino(title, activeTab, content, vecinoData) {
 <style>${CSS_VECINO}</style>
 <script>
   (function(){
-    if(localStorage.getItem('marcos_theme')==='dark'){
+    var savedTheme = localStorage.getItem('marcos_theme');
+    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
       document.documentElement.classList.add('dark-theme');
     }
   })();
@@ -3613,7 +3623,7 @@ router.get('/expensas', async (req, res) => {
   try {
     const { pool } = require('./db-pg');
     if (pool) {
-      const qEd = `SELECT cbu, alias, titular, banco, cuit FROM edificios WHERE LOWER(nombre) = LOWER($1) OR LOWER(consorcio) = LOWER($1) LIMIT 1`;
+      const qEd = `SELECT id, edificio, nombre, cuit FROM edificios WHERE LOWER(edificio) = LOWER($1) OR LOWER(nombre) = LOWER($1) LIMIT 1`;
       const resEd = await pool.query(qEd, [v.edificio]);
       if (resEd && resEd.rows && resEd.rows.length > 0) {
         const r = resEd.rows[0];
@@ -4558,7 +4568,7 @@ router.get('/amenities', async (req, res) => {
       }
 
       // 3. Cargar datos bancarios del edificio para transferencias de seña/arancel
-      const qEd = `SELECT cbu, alias, titular, banco, cuit FROM edificios WHERE LOWER(nombre) = LOWER($1) OR LOWER(consorcio) = LOWER($1) LIMIT 1`;
+      const qEd = `SELECT id, edificio, nombre, cuit FROM edificios WHERE LOWER(edificio) = LOWER($1) OR LOWER(nombre) = LOWER($1) LIMIT 1`;
       const resEd = await pool.query(qEd, [v.edificio]);
       if (resEd && resEd.rows && resEd.rows.length > 0) {
         const r = resEd.rows[0];
@@ -4813,11 +4823,13 @@ router.get('/amenities', async (req, res) => {
         cards.forEach(function(c) {
           c.classList.remove('selected');
         });
-        el.classList.add('selected');
+        if (el) el.classList.add('selected');
         _horasSeleccionadas = [];
         
         // Actualizar caja de reglamento específico
-        var amObj = _amenitiesList.find(function(a){ return a.nombre === nombre; });
+        var amObj = _amenitiesList.find(function(a){ 
+          return a.nombre && a.nombre.toLowerCase() === nombre.toLowerCase(); 
+        });
         var tReg = document.getElementById('titulo-reglamento-amenity');
         var cReg = document.getElementById('contenido-reglamento-amenity');
         if (tReg && amObj) tReg.textContent = 'Reglamento: ' + amObj.nombre;
@@ -4857,20 +4869,49 @@ router.get('/amenities', async (req, res) => {
       }
 
       function renderGrillaHoras() {
-        var amenityNombre = document.getElementById('inp-amenity-sel').value;
-        var fecha = document.getElementById('inp-reserva-fecha').value;
+        var inpHoraSel = document.getElementById('inp-amenity-sel');
+        var amenityNombre = inpHoraSel ? inpHoraSel.value : '';
+        var inpFecha = document.getElementById('inp-reserva-fecha');
+        var fecha = inpFecha ? inpFecha.value : '';
         var grid = document.getElementById('grid-horas-container');
+        if (!grid) return;
         grid.innerHTML = '';
 
-        if (!fecha) return;
+        if (!fecha) {
+          grid.innerHTML = '<div style="grid-column:1/-1;padding:12px;color:#64748B;font-size:12.5px;text-align:center">Elegí una fecha para ver los horarios disponibles.</div>';
+          return;
+        }
 
-        var amenityObj = _amenitiesList.find(function(a){ return a.nombre === amenityNombre; }) || _amenitiesList[0];
-        var horaInicio = parseInt((amenityObj.hora_apertura || '08:00').split(':')[0], 10);
-        var horaFin = parseInt((amenityObj.hora_cierre || '23:00').split(':')[0], 10);
+        var amenityObj = _amenitiesList.find(function(a){ 
+          return a.nombre && amenityNombre && a.nombre.toLowerCase() === amenityNombre.toLowerCase(); 
+        }) || _amenitiesList[0];
+
+        var horaInicio = 8;
+        var horaFin = 23;
+
+        if (amenityObj) {
+          if (amenityObj.hora_apertura) {
+            var pIni = parseInt(String(amenityObj.hora_apertura).split(':')[0], 10);
+            if (!isNaN(pIni)) horaInicio = pIni;
+          }
+          if (amenityObj.hora_cierre) {
+            var pFin = parseInt(String(amenityObj.hora_cierre).split(':')[0], 10);
+            if (!isNaN(pFin)) horaFin = pFin;
+          }
+        }
+
+        // Si la hora de cierre es 00:00 (medianoche) o menor/igual que la apertura, normalizar a medianoche (24:00)
+        if (horaFin === 0 || horaFin <= horaInicio) {
+          horaFin = 24;
+        }
+        if (horaFin <= horaInicio) {
+          horaFin = Math.min(24, horaInicio + 8);
+        }
 
         // Buscar reservas existentes para esta fecha y amenity
         var reservasFecha = _todasReservas.filter(function(r) {
-          return r.amenity.toLowerCase() === amenityNombre.toLowerCase() && 
+          return r.amenity && amenityNombre && 
+                 r.amenity.toLowerCase() === amenityNombre.toLowerCase() && 
                  r.fecha === fecha && 
                  r.estado !== 'cancelada';
         });
@@ -4917,6 +4958,10 @@ router.get('/amenities', async (req, res) => {
           }
 
           grid.appendChild(btnSlot);
+        }
+
+        if (grid.children.length === 0) {
+          grid.innerHTML = '<div style="grid-column:1/-1;padding:14px;color:#94A3B8;font-size:12.5px;text-align:center">No hay horarios disponibles configurados para este espacio.</div>';
         }
 
         actualizarResumenSeleccion();
@@ -5130,10 +5175,18 @@ router.get('/amenities', async (req, res) => {
         }
       }
 
-      document.addEventListener('DOMContentLoaded', function() {
-        actualizarCajaArancel(_amenitiesList[0]);
+      function initAmenitiesView() {
+        if (_amenitiesList && _amenitiesList.length > 0) {
+          actualizarCajaArancel(_amenitiesList[0]);
+        }
         renderGrillaHoras();
-      });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initAmenitiesView);
+      } else {
+        initAmenitiesView();
+      }
     </script>
   `;
 

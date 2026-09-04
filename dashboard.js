@@ -5934,9 +5934,12 @@ async function guardarDatosBancarios(btn) {
 
 // --- mi cuenta, avatar y preferencias ---
 async function subirAvatarPerfil(inp){
-  if(!inp.files||!inp.files[0])return;
+  if(!inp||!inp.files||!inp.files[0])return;
   var file=inp.files[0];
-  if(!file.type||!file.type.startsWith('image/')){
+  var fileName=(file.name||'').toLowerCase();
+  var isImgExt=/\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(fileName);
+  var isImgMime=file.type&&file.type.startsWith('image/');
+  if(!isImgExt&&!isImgMime){
     toast('Por favor seleccioná una imagen válida (PNG, JPG, WEBP, GIF)','err');
     inp.value='';
     return;
@@ -5946,25 +5949,36 @@ async function subirAvatarPerfil(inp){
     inp.value='';
     return;
   }
+  var btnText=document.getElementById('account-avatar-btn-text');
   var label=inp.closest('label');
-  var oldH=label?label.innerHTML:'';
-  if(label)label.innerHTML='<span>⏳ Subiendo...</span>';
+  if(btnText)btnText.innerText='⏳ Subiendo...';
+  if(label)label.style.pointerEvents='none';
   try{
     var fd=new FormData();
     fd.append('avatar',file);
     var r=await fetch('/admin/api/subir-avatar',{method:'POST',body:fd});
-    var j=await r.json();
-    if(!r.ok||j.error)throw new Error(j.error||'Error al subir imagen');
+    var ct=r.headers.get('content-type')||'';
+    var j=null;
+    if(ct.includes('application/json')){
+      j=await r.json();
+    }
+    if(!r.ok){
+      if(r.status===413)throw new Error('La imagen es demasiado grande para el servidor (máx 10 MB)');
+      if(j&&j.error)throw new Error(j.error);
+      throw new Error('Error al subir imagen (HTTP '+r.status+')');
+    }
+    if(!j||!j.url)throw new Error('Respuesta inválida del servidor');
     var pBox=document.getElementById('avatar-preview-box');
     if(pBox){
-      pBox.innerHTML='<img id="account-avatar-img" src="'+j.url+'" style="width:100%;height:100%;object-fit:cover">';
+      pBox.innerHTML='<img id="account-avatar-img" src="'+j.url+'?t='+Date.now()+'" style="width:100%;height:100%;object-fit:cover">';
     }
     toast('Foto de perfil actualizada','ok');
     setTimeout(function(){location.reload();},700);
   }catch(e){
     toast('Error: '+e.message,'err');
   }finally{
-    if(label)label.innerHTML=oldH;
+    if(btnText)btnText.innerText='📷 Subir foto';
+    if(label)label.style.pointerEvents='auto';
     inp.value='';
   }
 }
@@ -5975,8 +5989,9 @@ async function eliminarAvatarPerfil(btn){
   try{
     var r=await fetch('/admin/api/actualizar-perfil',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({avatar:''})});
-    var j=await r.json();
-    if(!r.ok||j.error)throw new Error(j.error||'Error al eliminar foto');
+    var ct=r.headers.get('content-type')||'';
+    var j=ct.includes('application/json')?await r.json():null;
+    if(!r.ok||(j&&j.error))throw new Error((j&&j.error)||'Error al eliminar foto');
     toast('Foto de perfil eliminada','ok');
     setTimeout(function(){location.reload();},700);
   }catch(e){
@@ -7046,8 +7061,8 @@ ${(() => {
               <div style="font-size:12px;color:#8595AD;margin-bottom:8px">Cargá una foto o logo para personalizar tu cuenta en el panel.</div>
               <div style="display:flex;gap:8px;flex-wrap:wrap">
                 <label style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid #2E6FC0;border-radius:8px;background:#EAF1FB;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer" class="hv-blue">
-                  <span>📷 Subir foto</span>
-                  <input type="file" id="account-avatar-file" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" onchange="subirAvatarPerfil(this)">
+                  <span id="account-avatar-btn-text">📷 Subir foto</span>
+                  <input type="file" id="account-avatar-file" accept="image/png,image/jpeg,image/webp,image/gif,image/jpg,.png,.jpg,.jpeg,.webp,.gif" style="display:none" onchange="subirAvatarPerfil(this)">
                 </label>
                 ${userAvatar ? `<button type="button" onclick="eliminarAvatarPerfil(this)" style="height:32px;padding:0 10px;border:1px solid #FCA5A5;border-radius:8px;background:#FEF2F2;color:#DC2626;font-size:12px;font-weight:700;cursor:pointer" class="hv-red">Eliminar</button>` : ''}
               </div>
