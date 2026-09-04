@@ -480,6 +480,41 @@ comprobantes de obras distintas y los seis se pegan al mismo caso.
   cierra, y el comprobante llega una semana después.
 - Prueba: `node pruebas-factura-a-que-caso.js`.
 
+### "1001 es el caso" no es "CASO 1001"
+
+> [!CAUTION]
+> **Nadie contesta un número de caso de una sola forma.**
+
+Marcos preguntó de qué obra era la factura. Daniel contestó **"1001 es el caso"** — el número
+primero — y la condición exigía la palabra `CASO` pegada adelante:
+
+```js
+textoFinal.match(/\bCASO[\s-]?0*(\d{2,})\b/i)
+```
+
+No matcheó ninguna de las tres vías: ni esta, ni la del edificio (el texto no nombra ninguno), ni
+la de la lista (pide **un** dígito, y 1001 tiene cuatro). La factura terminó abriendo el
+**CASO-1002** al lado del caso que él acababa de nombrar, en el mismo edificio, con el mismo
+técnico y el mismo rubro.
+
+Ahora se acepta en cualquier orden, y también el número pelado de 3 dígitos o más: a esa altura de
+la conversación Marcos ya preguntó de qué obra era, así que "1001" a secas no puede ser otra cosa.
+Lo que **no** se toma como caso es un monto, un número de factura ni una cantidad.
+
+### Contestar el edificio no quiere decir que haga falta un caso nuevo
+
+Cuando el técnico contestaba con el edificio, el código **siempre** abría un evento nuevo. Nunca
+miraba si ese técnico ya tenía un caso ahí esperando su comprobante.
+
+Abrir el caso sigue siendo lo correcto en el caso **normal** —al técnico lo llamó el encargado,
+hizo el trabajo y mandó la factura, nunca hubo reclamo por este canal—, pero si su caso reciente
+en ese edificio **todavía no tiene factura**, la que llega es de ese trabajo.
+
+- Con **un solo** caso sin comprobante en ese edificio, la factura va ahí y no se abre nada.
+- Con **dos o más**, no se adivina: elegir mal reparte el gasto al azar entre dos consorcios.
+- La factura ahora guarda `id_evento` también por esta vía (`imputarFacturaSinEdificio`), en
+  Sheets y en PostgreSQL. Antes el caso se le decía al técnico por WhatsApp y no quedaba escrito.
+
 ### "Marcos tiró la factura a la basura" — cómo distinguir qué pasó
 
 Cuando un técnico manda una factura y en el panel no aparece, hay tres cosas distintas que desde
@@ -845,6 +880,45 @@ hacerlo. `tieneAccesoPropio()` lo detecta y marca el ingreso como resuelto en el
 > técnico parado en la puerta sin que nadie le abra — así que ante cualquier negación de tener
 > algo se sale por lo seguro y se manda el contacto igual. Un mensaje de más no le hace daño a
 > nadie.
+
+### El nombre del encargado no es la fila entera de la planilla
+
+> [!CAUTION]
+> **La columna `encargado` guarda `nombre [estado | horario]`.** Lo escribe así el panel y lo
+> vuelve a desarmar para mostrarlo (`dashboard.js:5174`). `contacto-ingreso.js` no lo desarmaba.
+
+Lo que le llegó al técnico, tal cual, a la 1:20 de la madrugada:
+
+```
+te abre pachu [activo | L-V 08:02-12:00 · L-V 01:00-12:00 · Sáb 12:00-08:00] (12345667)
+Si al llegar no te abren, avisame y lo resuelvo.
+```
+
+Tres cosas mal en un solo mensaje, y las tres se arreglaron:
+
+1. **Eso no es un mensaje, es una fila de una planilla.** `datosDelEncargado()` separa el nombre
+   del estado y del horario; al técnico va el nombre y nada más.
+2. **`(12345667)` son ocho dígitos** — relleno que quedó en la ficha, entregado como el contacto
+   de ingreso. `telefonoUsable()` exige los 10 dígitos que tiene todo número argentino (área +
+   local). Con menos se baja al siguiente escalón, y si no hay ninguno se dice que se está
+   averiguando: mandar a alguien a discar un número que no existe lo deja parado en la puerta.
+3. **A las 2 de la mañana el encargado no está**, y el mensaje se contradecía solo: el propio
+   horario que Marcos acababa de mandar ya decía que no había nadie. Daniel: *"esos horarios no
+   sirven en este horario nocturno, así que es un mensaje que no va a funcionar; ya en el mensaje
+   de horario está lo imposible que alguien le abra"*.
+
+Sobre lo tercero, un detalle deliberado: **no se mira el horario cargado.** Con la estructura de
+bloques actual la ficha de ese edificio dice literalmente `L-V 01:00-12:00`, así que cualquier
+chequeo contra ella concluiría que el encargado **sí** está a la 1 de la mañana. Hasta que los
+bloques se reemplacen por calendario o texto libre, **el reloj es más confiable que el dato**.
+
+- El encargado y el suplente no se afirman de madrugada (22 a 8): se dice a qué hora llega, que a
+  esa hora no hay nadie, y que se está confirmando con la Administración.
+- **Seguridad sí se afirma de noche**: es, por definición, la opción de la noche.
+- La hora sale de lo que el técnico prometió (`tecnico_eta` → `momentoPrometido`); sin promesa, la
+  de ahora.
+- El reloj argentino (huso fijo −3, franja 8–22) vive en `fecha.js` y lo usan `seguimiento.js` y
+  `contacto-ingreso.js`. Estaba escrito dos veces.
 
 Prueba: `node pruebas-contacto-ingreso.js`.
 

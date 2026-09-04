@@ -28,24 +28,10 @@ const SIN_ETA_MS = 3 * 60 * 60 * 1000; // si confirmó sin dar horario
 // exactamente la confianza que Marcos necesita para existir. Y no cuesta nada evitarlo: el control
 // que cae fuera de este rango se corre a la mañana siguiente. Perder ocho horas en un seguimiento
 // no le hace daño a nadie; un mensaje a las 3 AM sí.
-const HORA_DESDE = 8;
-const HORA_HASTA = 22;
-
-// Argentina no cambia de hora desde 2009, así que el desfase es fijo. Se hace la cuenta a mano y
-// no con `toLocaleString` porque el Node de este VPS está compilado con ICU reducido y el formato
-// en español se cae al inglés -- el mismo motivo por el que existe `fecha.js`.
-const OFFSET_AR_MIN = -180;
-
-/** Descompone un instante en fecha y hora ARGENTINA. */
-function partesAR(fecha) {
-    const t = new Date(fecha.getTime() + OFFSET_AR_MIN * 60000);
-    return { y: t.getUTCFullYear(), m: t.getUTCMonth(), d: t.getUTCDate(), h: t.getUTCHours(), min: t.getUTCMinutes() };
-}
-
-/** Vuelve a armar un instante a partir de una fecha y hora argentina. */
-function desdeAR({ y, m, d, h, min = 0 }) {
-    return new Date(Date.UTC(y, m, d, h, min) - OFFSET_AR_MIN * 60000);
-}
+// La franja, la cuenta del huso y el descompuesto viven en `fecha.js`: ya son dos los archivos
+// que deciden cosas con la hora argentina --este y `contacto-ingreso.js`-- y la misma cuenta
+// escrita dos veces es una cuenta que en algún momento va a decir dos cosas distintas.
+const { partesAR, desdeAR, HORA_DESDE, HORA_HASTA } = require('./fecha');
 
 /** Corre a horario laboral un control que cayó de madrugada o de noche. */
 function enHorarioRazonable(fecha) {

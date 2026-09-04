@@ -173,12 +173,13 @@ async function imputarFacturaSinEdificio(args) {
         copiarAPg(`la imputación de facturas de ${args?.proveedor || 'proveedor'}`, async () => {
             const { pool } = require('./db-pg');
             await pool.query(
-                `UPDATE facturas SET edificio = $1, estado = 'Pendiente'
+                `UPDATE facturas SET edificio = $1, estado = 'Pendiente',
+                        id_evento = COALESCE(NULLIF($3, ''), id_evento)
                  WHERE lower(trim(coalesce(proveedor, ''))) = lower(trim($2))
                    AND (lower(trim(coalesce(estado, ''))) = 'sin imputar'
                         OR coalesce(trim(edificio), '') = ''
                         OR lower(trim(edificio)) = 'no especificado')`,
-                [args.edificio, args.proveedor || '']
+                [args.edificio, args.proveedor || '', args.idEvento || '']
             );
         });
     }

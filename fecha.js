@@ -47,4 +47,47 @@ function fechaAR(fecha = new Date()) {
     return d.toLocaleDateString('es-AR', OPCIONES_FECHA);
 }
 
-module.exports = { fechaHoraAR, fechaAR, ZONA };
+// ── EL RELOJ ARGENTINO, A MANO ──────────────────────────────────────────────
+//
+// Por el mismo ICU reducido de arriba, la hora del día no se puede sacar con `toLocaleString`:
+// hay que hacer la cuenta. Argentina no cambia de hora desde 2009, así que el desfase es fijo.
+//
+// Vive acá y no en cada archivo que lo necesita porque ya son dos los que deciden cosas con la
+// hora --el seguimiento y el contacto de ingreso-- y una cuenta de husos escrita dos veces es una
+// cuenta que en algún momento va a decir dos cosas distintas.
+
+const OFFSET_AR_MIN = -180;
+
+// La franja en que se le puede escribir a una persona. Un "¿pudiste pasar?" a las 3 AM no lo
+// contesta nadie, despierta a alguien y quema la confianza que Marcos necesita para existir.
+const HORA_DESDE = 8;
+const HORA_HASTA = 22;
+
+/** Descompone un instante en fecha y hora ARGENTINA. */
+function partesAR(fecha = new Date()) {
+    const t = new Date(fecha.getTime() + OFFSET_AR_MIN * 60000);
+    return { y: t.getUTCFullYear(), m: t.getUTCMonth(), d: t.getUTCDate(), h: t.getUTCHours(), min: t.getUTCMinutes() };
+}
+
+/** Vuelve a armar un instante a partir de una fecha y hora argentina. */
+function desdeAR({ y, m, d, h, min = 0 }) {
+    return new Date(Date.UTC(y, m, d, h, min) - OFFSET_AR_MIN * 60000);
+}
+
+/** Si ese instante cae de noche o de madrugada, hora argentina. */
+function esHorarioNocturno(fecha = new Date()) {
+    const h = partesAR(fecha).h;
+    return h < HORA_DESDE || h >= HORA_HASTA;
+}
+
+/** La hora sola, "02:20", para poder nombrarla en un mensaje. */
+function horaAR(fecha = new Date()) {
+    const p = partesAR(fecha);
+    return `${String(p.h).padStart(2, '0')}:${String(p.min).padStart(2, '0')}`;
+}
+
+module.exports = {
+    fechaHoraAR, fechaAR, ZONA,
+    partesAR, desdeAR, esHorarioNocturno, horaAR,
+    OFFSET_AR_MIN, HORA_DESDE, HORA_HASTA,
+};

@@ -112,6 +112,45 @@ console.log('\n── LA MISMA FACTURA MANDADA DOS VECES ──');
     verificar('sin número de comprobante no se bloquea', sinNumero, null);
 }
 
+console.log('\n── CÓMO CONTESTA EL TÉCNICO DE QUÉ CASO ES ──');
+{
+    // > [!CAUTION]
+    // > **La palabra "caso" no siempre va adelante del número.**
+    //
+    // Marcos preguntó de qué obra era la factura. Daniel contestó **"1001 es el caso"** -- el
+    // número primero -- y la condición exigía `CASO 1001`. No matcheó ninguna de las tres vías:
+    // ni esta, ni la del edificio (el texto no nombra ninguno), ni la de la lista (pide UN
+    // dígito). La factura terminó abriendo el CASO-1002 al lado del caso que él acababa de
+    // nombrar, en el mismo edificio y con el mismo técnico.
+    //
+    // La condición se lee del propio index.js para que la prueba valide el código real.
+    const fs = require('fs');
+    const path = require('path');
+    const SRC = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+    const ini = SRC.indexOf('const codRespuesta =');
+    if (ini === -1) throw new Error('No encontré `codRespuesta` en index.js.');
+    const fin = SRC.indexOf(';\n', ini);
+    // eslint-disable-next-line no-new-func
+    const codigo = new Function('textoFinal', `${SRC.slice(ini, fin + 1)}; return codRespuesta;`);
+
+    console.log('  · el número lo entiende venga como venga');
+    for (const t of [
+        'CASO-1001', 'caso 1001', 'es del caso 1001', 'Caso: 1001', 'CASO 0001001',
+        '1001 es el caso', 'el 1001, es ese caso', '1001',
+    ]) {
+        verificar(`"${t}"`, codigo(t), '1001');
+    }
+
+    console.log('  · y no inventa uno donde no lo hay');
+    // Un monto, un número de factura o una cantidad no son un número de caso. Confundirlos manda
+    // el gasto a un caso que no existe o, peor, a uno ajeno.
+    verificar('"San Patricio 270"', codigo('San Patricio 270'), undefined);
+    verificar('"son 45000 pesos"', codigo('son 45000 pesos'), undefined);
+    verificar('"factura 0001-284"', codigo('factura 0001-284'), undefined);
+    verificar('"gracias, saludos"', codigo('gracias, saludos'), undefined);
+    verificar('"el 2" (esa la resuelve la lista, no esta)', codigo('el 2'), undefined);
+}
+
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);
 process.exit(fallos === 0 ? 0 : 1);
 

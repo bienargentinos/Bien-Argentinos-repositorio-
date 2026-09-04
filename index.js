@@ -750,12 +750,26 @@ async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento
                 accesosIngreso = edificio ? ((await buscarAccesosEdificio(edificio)) || []) : [];
             } catch (e) { console.error('No se pudo leer quién abre en el edificio:', e.message); }
 
+            // A QUÉ HORA VA A LLEGAR. El encargado trabaja por horario: si el técnico llega de
+            // madrugada, no está, y afirmarle que le abre es mandarlo a la puerta a descubrirlo
+            // solo. Se usa la hora que el técnico prometió; sin promesa, la de ahora, que es lo
+            // más parecido a "está por salir".
+            let momentoVisita = new Date();
+            try {
+                const { buscarCasoPorCodigo } = require('./datos');
+                const { momentoPrometido } = require('./seguimiento');
+                const casoIngreso = idEvento ? await buscarCasoPorCodigo(idEvento) : null;
+                const eta = String(casoIngreso?.eta || '').trim();
+                if (eta) momentoVisita = momentoPrometido(eta) || momentoVisita;
+            } catch (e) { console.error('No se pudo leer a qué hora dijo que iba:', e.message); }
+
             const contacto = contactoParaElIngreso({
                 perfil: perfilIngreso,
                 accesos: accesosIngreso,
                 contactoDeCasoAnterior: String(vecinoFicha?.contactoAcceso || '').trim(),
                 edificioDelContacto: vecinoFicha?.edificio || '',
                 edificio: edificio || '',
+                momentoVisita,
             });
 
             // Sin nada firme, la Administración es la que sabe: se le pregunta en vez de reciclar
@@ -2812,12 +2826,32 @@ function validarYSanitizarNombre(nombre) {
                     };
 
                     let edificioElegido = '';
+                    let casoElegido = null;
 
                     // a) Contestó con el código del caso.
-                    const codRespuesta = (textoFinal.match(/\bCASO[\s-]?0*(\d{2,})\b/i) || [])[1];
+                    //
+                    // > [!CAUTION]
+                    // > **La palabra "caso" no siempre va adelante del número.**
+                    //
+                    // Esto exigía `CASO 1001`. Daniel contestó **"1001 es el caso"** --el número
+                    // primero-- y no matcheó nada: ni esta, ni la del edificio (no nombra
+                    // ninguno), ni la de la lista (pide UN dígito). La factura terminó abriendo un
+                    // caso nuevo al lado del que él acababa de nombrar.
+                    //
+                    // Nadie contesta un número de caso de una sola forma. Se acepta en las dos, y
+                    // también el número pelado cuando es de 3 dígitos o más: a esa altura de la
+                    // conversación Marcos ya preguntó de qué obra era, así que "1001" a secas no
+                    // puede ser otra cosa.
+                    const codRespuesta =
+                        (textoFinal.match(/\bCASO[\s:\-]*0*(\d{2,})\b/i) || [])[1]
+                        || (textoFinal.match(/\b0*(\d{3,})\b(?=[^]{0,20}\bcaso\b)/i) || [])[1]
+                        || (String(textoFinal || '').trim().match(/^#?0*(\d{3,})$/) || [])[1];
                     if (codRespuesta) {
                         const c = await buscarCasoPorCodigo(codRespuesta);
-                        if (c?.edificio && enCarteraResp(c.edificio)) edificioElegido = c.edificio;
+                        if (c?.edificio && enCarteraResp(c.edificio)) {
+                            edificioElegido = c.edificio;
+                            casoElegido = c;
+                        }
                     }
 
                     // b) Contestó nombrando el edificio.
@@ -2838,6 +2872,46 @@ function validarYSanitizarNombre(nombre) {
                     }
 
                     if (edificioElegido) {
+                        // ── ¿HAY YA UN CASO ESPERANDO ESTA FACTURA? ──────────────────────────
+                        //
+                        // > [!CAUTION]
+                        // > **Contestar el edificio no quiere decir que haga falta un caso nuevo.**
+                        //
+                        // Visto en la prueba: a la 1:19 se abrió el CASO-1001 en San Patricio 270
+                        // con este mismo técnico y este mismo rubro; a la 1:27 llegó su factura y
+                        // Marcos abrió el CASO-1002, en el mismo edificio, con el mismo técnico y
+                        // el mismo rubro. Dos casos donde había un trabajo, y el administrador
+                        // viendo un gasto separado de la conversación que lo explica.
+                        //
+                        // El caso nuevo sigue siendo lo correcto cuando de verdad no hubo reclamo
+                        // por este canal --al técnico lo llamó el encargado y mandó la factura--,
+                        // que es el caso normal. Pero si su caso reciente en ese edificio todavía
+                        // no tiene comprobante, esa factura es de ESE trabajo.
+                        if (!casoElegido) {
+                            try {
+                                const { casoYaTieneFactura } = require('./datos');
+                                const recientes = (await buscarCasosRecientesPorTecnico(datosEmisor.nombre, from, 30)) || [];
+                                const mismoEdif = recientes.filter(c =>
+                                    c.id_evento && normalizarTextoEdificio(c.edificio) === normalizarTextoEdificio(edificioElegido));
+
+                                // Con más de uno no se adivina: se toma el más reciente SOLO si es
+                                // el único sin factura. Dos candidatos sin comprobante son dos
+                                // trabajos distintos y elegir mal reparte el gasto al azar.
+                                const libres = [];
+                                for (const c of mismoEdif) {
+                                    if (!(await casoYaTieneFactura(c.id_evento))) libres.push(c);
+                                }
+                                if (libres.length === 1) {
+                                    casoElegido = libres[0];
+                                    console.log(`🧾 La factura de ${datosEmisor.nombre} va al ${casoElegido.id_evento}: es su único caso en "${edificioElegido}" sin comprobante. No se abre uno nuevo.`);
+                                } else if (libres.length > 1) {
+                                    console.log(`🤔 ${datosEmisor.nombre} tiene ${libres.length} casos sin factura en "${edificioElegido}". No se adivina: se abre el evento del trabajo facturado.`);
+                                }
+                            } catch (e) {
+                                console.error('Error buscando si ya había un caso esperando esta factura:', e.message);
+                            }
+                        }
+
                         // La factura que se está por imputar es la última sin edificio: la misma
                         // que va a tocar `imputarFacturaSinEdificio`. De ahí sale la indicación
                         // que el técnico había escrito cuando la mandó.
@@ -2845,7 +2919,8 @@ function validarYSanitizarNombre(nombre) {
 
                         const cuantas = await imputarFacturaSinEdificio({
                             proveedor: datosEmisor.nombre,
-                            edificio: edificioElegido
+                            edificio: edificioElegido,
+                            idEvento: casoElegido?.id_evento || ''
                         });
                         const quedan = sinImputar.length - cuantas;
 
@@ -2870,7 +2945,35 @@ function validarYSanitizarNombre(nombre) {
                         // este canal. El evento es lo único que le da contexto al gasto -- es
                         // exactamente lo que el administrador tenía antes en su propio WhatsApp,
                         // y lo que Marcos tiene que reemplazar.
-                        if (cuantas > 0) {
+                        //
+                        // PERO si el caso ya existe (lo nombró el técnico, o es su único caso sin
+                        // comprobante en ese edificio), la factura va AHÍ. Abrir uno nuevo al lado
+                        // parte un trabajo en dos y le muestra al administrador dos gastos donde
+                        // hay uno.
+                        if (cuantas > 0 && casoElegido) {
+                            const idEv = casoElegido.id_evento;
+                            try {
+                                const { guardarReporte } = require('./datos');
+                                await guardarReporte({
+                                    id_evento: idEv,
+                                    edificio: edificioElegido,
+                                    tecnico: datosEmisor.nombre || '',
+                                    tel_tecnico: from || '',
+                                    notas_ia: `Factura recibida del técnico ${datosEmisor.nombre}` +
+                                        (laQueSeImputa?.numero_factura ? `. N° ${laQueSeImputa.numero_factura}` : '') +
+                                        (laQueSeImputa?.monto ? ` por $${laQueSeImputa.monto}` : '') +
+                                        (nota ? `. Textual: "${nota}"` : ''),
+                                    historial_chat: JSON.stringify([
+                                        ...(nota ? [`Proveedor (${datosEmisor.nombre}): ${nota}`] : []),
+                                        `Marcos (a Proveedor): ¿De qué edificio es esta factura?`,
+                                        `Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`,
+                                    ])
+                                });
+                            } catch (e) {
+                                console.error('Error anotando la factura en el caso que ya existía:', e.message);
+                            }
+                            avisoEvento = ` La dejé asociada al *${idEv}*, que es el trabajo que ya teníamos abierto ahí.`;
+                        } else if (cuantas > 0) {
                             // Mismo criterio que cuando llegó la factura (ver `quedoPorLaMitad`),
                             // incluido el detalle del `\b` después de una vocal acentuada.
                             const faltaOtroGremio = /\b(hay que|habr[ií]a que|tienen que|tendr[ií]an que|deber[ií]an)\s+(llamar|mandar|convocar|contratar|coordinar|buscar|conseguir)\b/i.test(nota)

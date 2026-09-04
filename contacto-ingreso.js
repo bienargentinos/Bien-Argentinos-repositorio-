@@ -28,11 +28,61 @@
 // Y si no hay ninguno, no se inventa: se le dice al técnico que se está averiguando y se le
 // pregunta a la Administración, que es la que sabe.
 
+const { esHorarioNocturno, horaAR } = require('./fecha');
+
 /**
- * @returns {{texto:string, telefono:string, quien:string, firme:boolean, origen:string}|null}
- *          `firme: false` significa que hay que decirlo como sugerencia, no como hecho.
+ * El nombre del encargado, separado de la metadata que viaja en la misma celda.
+ *
+ * > [!CAUTION]
+ * > **La columna `encargado` no guarda solo el nombre.** El panel escribe ahí
+ * > `nombre [estado | horario]` y lo vuelve a desarmar para mostrarlo (`dashboard.js:5174`).
+ *
+ * Visto en producción, tal cual le llegó al técnico a la 1:20 de la madrugada:
+ *
+ *     te abre pachu [activo | L-V 08:02-12:00 · L-V 01:00-12:00 · Sáb 12:00-08:00] (12345667)
+ *
+ * Eso no es un mensaje, es una fila de una planilla. El técnico no necesita la semana entera del
+ * encargado: necesita a quién llamar. Y de paso queda a la vista lo que Daniel ya había decidido
+ * arreglar de raíz -- los bloques L-V + Sábado no pueden representar los horarios reales.
  */
-function contactoParaElIngreso({ perfil = null, accesos = [], contactoDeCasoAnterior = '', casoAnterior = '', edificioDelContacto = '', edificio = '' } = {}) {
+function datosDelEncargado(texto) {
+    const t = String(texto || '').trim();
+    const abre = t.indexOf('[');
+    const cierra = t.indexOf(']', abre);
+    if (abre === -1 || cierra < abre) return { nombre: t, estado: '', horario: '' };
+
+    const meta = t.slice(abre + 1, cierra).trim();
+    const nombre = (t.slice(0, abre) + ' ' + t.slice(cierra + 1)).replace(/\s{2,}/g, ' ').trim();
+
+    let estado = '', horario = '';
+    for (const parte of meta.split('|').map(s => s.trim()).filter(Boolean)) {
+        if (/^(activo|licencia|vacaciones|suspendido)$/i.test(parte)) estado = parte.toLowerCase();
+        else horario = parte;
+    }
+    return { nombre, estado, horario };
+}
+
+/**
+ * Un teléfono que no se puede discar no es un contacto.
+ *
+ * En la prueba salió `pachu (12345667)` — ocho dígitos, un número de relleno que quedó cargado en
+ * la ficha. Marcos se lo entregó al técnico como el contacto de ingreso a las 2 de la mañana.
+ *
+ * Todo número argentino real tiene área + local = 10 dígitos como piso. Con menos, es mejor decir
+ * "estoy averiguando quién te abre" que mandar a alguien a discar un número que no existe: lo
+ * primero se arregla con un mensaje, lo segundo lo deja parado en la puerta.
+ */
+function telefonoUsable(tel) {
+    return String(tel || '').replace(/\D/g, '').length >= 10;
+}
+
+/**
+ * @returns {{texto:string, telefono:string, quien:string, firme:boolean, origen:string,
+ *            reserva:string}|null}
+ *          `firme: false` significa que hay que decirlo como sugerencia, no como hecho.
+ *          `reserva` explica POR QUÉ no es firme, cuando el motivo no es el origen del dato.
+ */
+function contactoParaElIngreso({ perfil = null, accesos = [], contactoDeCasoAnterior = '', casoAnterior = '', edificioDelContacto = '', edificio = '', momentoVisita = null } = {}) {
     const limpio = (s) => String(s || '').trim();
     const conTel = (nombre, tel) => {
         const n = limpio(nombre), t = limpio(tel);
@@ -40,43 +90,65 @@ function contactoParaElIngreso({ perfil = null, accesos = [], contactoDeCasoAnte
         return n ? `${n} (${t})` : t;
     };
 
-    // 1 y 2. El encargado, o su suplente si el encargado no está.
-    const estado = limpio(perfil?.encargadoEstado || 'activo').toLowerCase();
-    const encargadoActivo = !estado || estado === 'activo';
+    // ── DE MADRUGADA NO SE AFIRMA QUE EL ENCARGADO ABRE ─────────────────────
+    //
+    // El encargado y su suplente trabajan por horario. A las 2 de la mañana no están, y decirle al
+    // técnico "te abre pachu, si no te abren avisame" es un mensaje que se contradice solo: el
+    // propio horario que Marcos acababa de mandar ya decía que a esa hora no había nadie.
+    //
+    // No se mira el horario cargado a propósito. Con la estructura de bloques actual, la ficha de
+    // este edificio dice literalmente `L-V 01:00-12:00`, así que cualquier chequeo contra ella
+    // concluiría que el encargado SÍ está a la 1 de la mañana. Daniel ya decidió que esos bloques
+    // se reemplazan por calendario o texto libre; hasta entonces el reloj es más confiable que el
+    // dato. Seguridad queda afuera de esta regla: es, por definición, la opción de la noche.
+    const deNoche = momentoVisita ? esHorarioNocturno(momentoVisita) : false;
+    const reservaNocturna = deNoche
+        ? `va a llegar cerca de las ${horaAR(momentoVisita)} y a esa hora el personal del edificio no está`
+        : '';
 
-    if (encargadoActivo && limpio(perfil?.telEncargado)) {
+    // 1 y 2. El encargado, o su suplente si el encargado no está.
+    const delCampo = limpio(perfil?.encargadoEstado).toLowerCase();
+    const enc = datosDelEncargado(perfil?.encargado);
+    const estado = delCampo || enc.estado || 'activo';
+    const encargadoActivo = estado === 'activo';
+
+    if (encargadoActivo && telefonoUsable(perfil?.telEncargado)) {
         return {
-            texto: conTel(perfil.encargado, perfil.telEncargado),
+            texto: conTel(enc.nombre, perfil.telEncargado),
             telefono: limpio(perfil.telEncargado),
-            quien: limpio(perfil.encargado) || 'el encargado',
-            firme: true,
+            quien: enc.nombre || 'el encargado',
+            firme: !deNoche,
+            reserva: reservaNocturna,
             origen: 'encargado del edificio',
         };
     }
 
-    if (limpio(perfil?.telSuplente)) {
+    const sup = datosDelEncargado(perfil?.encargadoSuplente);
+    if (telefonoUsable(perfil?.telSuplente)) {
         return {
-            texto: conTel(perfil.encargadoSuplente, perfil.telSuplente),
+            texto: conTel(sup.nombre, perfil.telSuplente),
             telefono: limpio(perfil.telSuplente),
-            quien: limpio(perfil.encargadoSuplente) || 'el suplente',
-            firme: true,
+            quien: sup.nombre || 'el suplente',
+            firme: !deNoche,
+            reserva: reservaNocturna,
             origen: encargadoActivo ? 'suplente del encargado' : `suplente (el encargado está de ${estado})`,
         };
     }
 
-    // 3. Seguridad de la entrada.
-    if (limpio(perfil?.telSeguridad)) {
+    // 3. Seguridad de la entrada. Sí se afirma de noche: para eso está.
+    if (telefonoUsable(perfil?.telSeguridad)) {
         return {
             texto: conTel('Seguridad', perfil.telSeguridad),
             telefono: limpio(perfil.telSeguridad),
             quien: 'seguridad',
             firme: true,
+            reserva: '',
             origen: 'seguridad de la entrada',
         };
     }
 
     // 4. Lo que Marcos aprendió sobre los accesos DE ESTE EDIFICIO. Es del edificio, no de un caso.
-    const delEdificio = (accesos || []).find(a => limpio(a?.telefono) && limpio(a?.quien_tiene || a?.quienTiene));
+    const delEdificio = (accesos || []).find(a => telefonoUsable(a?.telefono) && limpio(a?.quien_tiene || a?.quienTiene));
     if (delEdificio) {
         const quien = limpio(delEdificio.quien_tiene || delEdificio.quienTiene);
         return {
@@ -84,6 +156,7 @@ function contactoParaElIngreso({ perfil = null, accesos = [], contactoDeCasoAnte
             telefono: limpio(delEdificio.telefono),
             quien,
             firme: true,
+            reserva: '',
             origen: `registrado en los accesos del edificio${limpio(delEdificio.instalacion) ? ` (${limpio(delEdificio.instalacion)})` : ''}`,
         };
     }
@@ -99,6 +172,7 @@ function contactoParaElIngreso({ perfil = null, accesos = [], contactoDeCasoAnte
             telefono: limpio(contactoDeCasoAnterior),
             quien: limpio(contactoDeCasoAnterior),
             firme: false,
+            reserva: '',
             origen: casoAnterior ? `abrió en el ${casoAnterior}, esa vez` : 'abrió en una visita anterior',
         };
     }
@@ -128,6 +202,20 @@ function mensajeDeIngreso({ contacto, idEvento, direccion, nombreTecnico = '' })
             `${hola}para la visita en ${direccion} te abre *${contacto.texto}* — ${contacto.origen}.\n` +
             (/\s\/\s/.test(contacto.texto) ? `Tiene más de un número, probá con cualquiera.\n` : '') +
             `Si al llegar no te abren, avisame y lo resuelvo.`;
+    }
+
+    // ── LLEGA DE NOCHE ──────────────────────────────────────────────────────
+    //
+    // Hay un contacto cargado, pero es alguien que trabaja por horario y a esa hora no está.
+    // Lo que NO se puede hacer es lo que hacía antes: darlo por bueno y cerrar con "si no te
+    // abren, avisame". Eso es prometerle una puerta abierta y dejarle a él el costo de descubrir
+    // que no lo estaba, a las 2 de la mañana y con el viaje hecho.
+    if (contacto.reserva) {
+        return cabecera +
+            `${hola}para la visita en ${direccion} el contacto del edificio es *${contacto.texto}* ` +
+            `(${contacto.origen}), pero ${contacto.reserva}.\n` +
+            `Antes de que salgas lo confirmo: ya le pregunté a la Administración quién te abre a esa hora. ` +
+            `Si preferís ir igual, decime y te aviso apenas tenga respuesta.`;
     }
 
     // La forma en que se dice importa tanto como el dato: acá se está sugiriendo, no afirmando.
@@ -174,4 +262,7 @@ function tieneAccesoPropio(texto) {
     return false;
 }
 
-module.exports = { contactoParaElIngreso, mensajeDeIngreso, tieneAccesoPropio };
+module.exports = {
+    contactoParaElIngreso, mensajeDeIngreso, tieneAccesoPropio,
+    datosDelEncargado, telefonoUsable,
+};

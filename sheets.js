@@ -1816,12 +1816,16 @@ async function buscarFacturasSinImputar({ proveedor }) {
  * técnico que manda seis comprobantes de tres administradores distintos contesta una pregunta por
  * vez, y mandarlas todas al mismo edificio sería repetir el error que estamos arreglando.
  */
-async function imputarFacturaSinEdificio({ proveedor, edificio, todas = false }) {
+async function imputarFacturaSinEdificio({ proveedor, edificio, todas = false, idEvento = '' }) {
     try {
         if (!String(edificio || '').trim()) return 0;
         const doc = await getSheet();
         const sheet = pestaña(doc, 'facturas');
         if (!sheet) return 0;
+
+        // El caso al que pertenece, cuando se supo. Antes se le decía al técnico por WhatsApp
+        // ("la dejé asociada al CASO-1001") y no quedaba escrito en ninguna parte.
+        if (String(idEvento || '').trim()) await asegurarColumnas(sheet, ['id_evento'], 'facturas');
 
         const provBuscado = String(proveedor || '').toLowerCase().trim();
         if (!provBuscado) return 0;
@@ -1839,11 +1843,12 @@ async function imputarFacturaSinEdificio({ proveedor, edificio, todas = false })
         for (const r of aTocar) {
             r.set('edificio', edificio);
             r.set('estado', 'Pendiente');
+            if (String(idEvento || '').trim()) r.set('id_evento', idEvento);
             await r.save();
         }
 
         if (aTocar.length) {
-            console.log(`🧾 ${aTocar.length} factura(s) de ${proveedor} imputada(s) a "${edificio}".`);
+            console.log(`🧾 ${aTocar.length} factura(s) de ${proveedor} imputada(s) a "${edificio}"${idEvento ? ` y al ${idEvento}` : ''}.`);
         }
         return aTocar.length;
     } catch (err) {

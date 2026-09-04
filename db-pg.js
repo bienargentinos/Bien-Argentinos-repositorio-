@@ -421,6 +421,10 @@ async function _initPgSchema() {
             -- técnico ya lo había advertido.
             ALTER TABLE facturas ADD COLUMN IF NOT EXISTS nota_tecnico TEXT;
             ALTER TABLE facturas ADD COLUMN IF NOT EXISTS enviada_por VARCHAR(200);
+            -- A que caso pertenece el gasto. Antes el caso se le decia al tecnico por WhatsApp
+            -- ("la dejo asociada al CASO-1001") y no quedaba escrito en ningun lado, asi que el
+            -- administrador veia el monto sin la conversacion que lo explica.
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS id_evento VARCHAR(50);
 
             CREATE INDEX IF NOT EXISTS idx_pg_vecinos_tel ON vecinos(telefono);
             CREATE INDEX IF NOT EXISTS idx_pg_reportes_codigo ON reportes(codigo_caso);
