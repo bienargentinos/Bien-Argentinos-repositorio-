@@ -428,6 +428,9 @@ async function _initPgSchema() {
             -- técnico ya lo había advertido.
             ALTER TABLE facturas ADD COLUMN IF NOT EXISTS nota_tecnico TEXT;
             ALTER TABLE facturas ADD COLUMN IF NOT EXISTS enviada_por VARCHAR(200);
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS tipo VARCHAR(50);
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS url TEXT;
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS notas TEXT;
 
             CREATE INDEX IF NOT EXISTS idx_pg_vecinos_tel ON vecinos(telefono);
             CREATE INDEX IF NOT EXISTS idx_pg_reportes_codigo ON reportes(codigo_caso);
