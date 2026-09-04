@@ -222,7 +222,17 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
 .dark-theme [style*="background: #ffffff"],
 .dark-theme [style*="background:#F8FAFD"],
 .dark-theme [style*="background:#FAFCFF"],
-.dark-theme [style*="background:#F1F5F9"] {
+.dark-theme [style*="background:#F1F5F9"],
+.dark-theme [style*="background:#F8FAFC"],
+.dark-theme [style*="background: #F8FAFC"],
+.dark-theme [style*="background:#FFFBEB"],
+.dark-theme [style*="background: #FFFBEB"],
+.dark-theme [style*="background:#FEF3C7"],
+.dark-theme [style*="background: #FEF3C7"],
+.dark-theme [style*="background:#EEF2FF"],
+.dark-theme [style*="background: #EEF2FF"],
+.dark-theme [style*="background:#EFF6FF"],
+.dark-theme [style*="background: #EFF6FF"] {
   background: #15223D !important;
   border-color: #24355A !important;
 }
@@ -436,6 +446,219 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
 }
 input:checked + .slider-timbre:before {
   transform: translateX(22px);
+}
+
+/* --- ESTILOS TIMBRE Y GESTIÓN DE OCUPANTES --- */
+.timbre-horario-row {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.timbre-horario-label {
+  color: #1E293B;
+  font-size: 12px;
+  font-weight: 800;
+}
+.timbre-de-label, .timbre-a-label {
+  color: #64748B;
+  font-size: 11px;
+  font-weight: 700;
+}
+.inp-time-timbre {
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0F172A;
+  background: #ffffff;
+}
+
+.ocupante-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+}
+.ocupante-nombre {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0F172A;
+}
+.ocupante-contacto {
+  font-size: 11px;
+  color: #64748B;
+  margin-top: 2px;
+  font-weight: 600;
+}
+.ocupante-timbre-status.timbre-on {
+  font-size: 11px;
+  font-weight: 800;
+  color: #15803D;
+}
+.ocupante-timbre-status.timbre-off {
+  font-size: 11px;
+  font-weight: 800;
+  color: #94A3B8;
+}
+.badge-ocupante {
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.badge-ocupante-propietario { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; }
+.badge-ocupante-inquilino { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+.badge-ocupante-asistente { background: #E0E7FF; color: #3730A3; border: 1px solid #C7D2FE; }
+.badge-ocupante-turista { background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; }
+
+.btn-ocupante-action {
+  padding: 11px 10px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all .15s ease;
+  user-select: none;
+}
+.btn-ocupante-familiar {
+  border: 1.5px solid #CBD5E1;
+  background: #F8FAFC;
+  color: #0F172A;
+}
+.btn-ocupante-familiar i { font-size: 17px; color: #2563EB; }
+.btn-ocupante-huesped {
+  border: 1.5px solid #FCD34D;
+  background: #FFFBEB;
+  color: #92400E;
+}
+.btn-ocupante-huesped i { font-size: 17px; color: #D97706; }
+.btn-ocupante-reubicar {
+  width: 100%;
+  margin-top: 8px;
+  padding: 11px;
+  border: 1.5px dashed #6366F1;
+  background: #EEF2FF;
+  color: #4F46E5;
+  font-size: 12.5px;
+}
+.btn-ocupante-reubicar i { font-size: 17px; color: #4F46E5; }
+
+/* MODO OSCURO PARA TIMBRE Y OCUPANTES */
+.dark-theme .timbre-horario-row {
+  background: #15223D !important;
+  border: 1px solid #24355A !important;
+}
+.dark-theme .timbre-horario-label {
+  color: #FBBF24 !important; /* Amarillo oro brillante */
+  font-weight: 800 !important;
+}
+.dark-theme .timbre-de-label,
+.dark-theme .timbre-a-label {
+  color: #FFFFFF !important; /* Blanco puro */
+  font-weight: 700 !important;
+}
+.dark-theme .inp-time-timbre {
+  background: #0B1426 !important;
+  border: 1.5px solid #3B82F6 !important;
+  color: #FFFFFF !important;
+  color-scheme: dark !important;
+}
+
+.dark-theme .ocupante-item-row {
+  background: #15223D !important;
+  border: 1px solid #24355A !important;
+}
+.dark-theme .ocupante-nombre {
+  color: #FFFFFF !important;
+  font-weight: 900 !important;
+}
+.dark-theme .ocupante-contacto {
+  color: #FBBF24 !important; /* Amarillo en vez de gris */
+  font-weight: 700 !important;
+}
+.dark-theme .ocupante-timbre-status.timbre-on {
+  color: #4ADE80 !important;
+  font-weight: 800 !important;
+}
+.dark-theme .ocupante-timbre-status.timbre-off {
+  color: #F87171 !important;
+  font-weight: 800 !important;
+}
+
+.dark-theme .badge-ocupante-propietario {
+  background: rgba(34, 197, 94, 0.2) !important;
+  color: #4ADE80 !important;
+  border: 1px solid rgba(74, 222, 128, 0.5) !important;
+}
+.dark-theme .badge-ocupante-inquilino {
+  background: rgba(59, 130, 246, 0.2) !important;
+  color: #60A5FA !important;
+  border: 1px solid rgba(96, 165, 250, 0.5) !important;
+}
+.dark-theme .badge-ocupante-asistente {
+  background: rgba(129, 140, 248, 0.2) !important;
+  color: #A5B4FC !important;
+  border: 1px solid rgba(165, 180, 252, 0.5) !important;
+}
+.dark-theme .badge-ocupante-turista {
+  background: rgba(245, 158, 11, 0.25) !important;
+  color: #FDE047 !important;
+  border: 1px solid #F59E0B !important;
+}
+
+/* Botones en modo oscuro: fondo oscuro profundo con bordes y tipografía resaltada */
+.dark-theme .btn-ocupante-familiar {
+  background: #172554 !important;
+  border: 1.5px solid #3B82F6 !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .btn-ocupante-familiar span {
+  color: #FFFFFF !important;
+  font-weight: 800 !important;
+}
+.dark-theme .btn-ocupante-familiar i {
+  color: #60A5FA !important;
+}
+
+.dark-theme .btn-ocupante-huesped {
+  background: #2E1B05 !important;
+  border: 1.5px solid #F59E0B !important;
+  color: #FBBF24 !important;
+}
+.dark-theme .btn-ocupante-huesped span {
+  color: #FBBF24 !important;
+  font-weight: 900 !important;
+}
+.dark-theme .btn-ocupante-huesped i {
+  color: #FBBF24 !important;
+}
+
+.dark-theme .btn-ocupante-reubicar {
+  background: #1E1B4B !important;
+  border: 1.5px dashed #818CF8 !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .btn-ocupante-reubicar span {
+  color: #FFFFFF !important;
+  font-weight: 800 !important;
+}
+.dark-theme .btn-ocupante-reubicar i {
+  color: #A5B4FC !important;
 }
 `;
 
@@ -1998,15 +2221,15 @@ router.get('/', (req, res) => {
       </div>
 
       <!-- Configuración No Molestar / Silencio Nocturno -->
-      <div style="background:#F8FAFC;border-radius:14px;padding:10px 14px;border:1px solid #E2E8F0;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#334155">
-          <span>🌙 Modo "No Molestar":</span>
+      <div class="timbre-horario-row">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="timbre-horario-label">🌙 Modo "No Molestar":</span>
         </div>
         <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-size:11px;color:#64748B;font-weight:600">De</span>
-          <input type="time" id="timbre-silencio-desde" value="${esc(v.timbre_silencio_desde || '23:00')}" onchange="guardarConfigTimbre()" style="border:1px solid #CBD5E1;border-radius:8px;padding:4px 8px;font-size:12px;font-weight:700;color:#0F172A;background:#fff">
-          <span style="font-size:11px;color:#64748B;font-weight:600">a</span>
-          <input type="time" id="timbre-silencio-hasta" value="${esc(v.timbre_silencio_hasta || '07:30')}" onchange="guardarConfigTimbre()" style="border:1px solid #CBD5E1;border-radius:8px;padding:4px 8px;font-size:12px;font-weight:700;color:#0F172A;background:#fff">
+          <span class="timbre-de-label">De</span>
+          <input type="time" id="timbre-silencio-desde" class="inp-time-timbre" value="${esc(v.timbre_silencio_desde || '23:00')}" onchange="guardarConfigTimbre()">
+          <span class="timbre-a-label">a</span>
+          <input type="time" id="timbre-silencio-hasta" class="inp-time-timbre" value="${esc(v.timbre_silencio_hasta || '07:30')}" onchange="guardarConfigTimbre()">
         </div>
       </div>
       <div id="timbre-guardado-msg" style="display:none;font-size:11.5px;color:#16A34A;font-weight:800;margin-top:8px;text-align:right">
@@ -2041,18 +2264,18 @@ router.get('/', (req, res) => {
 
       <!-- Botones de Acción -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <button onclick="abrirModalAgregarOcupante('conviviente')" style="padding:10px 8px;border:1px solid #CBD5E1;border-radius:12px;background:#F8FAFC;color:#0F172A;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
-          <i class="ph ph-user-plus" style="font-size:16px;color:#2563EB"></i>
+        <button type="button" class="btn-ocupante-action btn-ocupante-familiar" onclick="abrirModalAgregarOcupante('conviviente')">
+          <i class="ph ph-user-plus"></i>
           <span>+ Familiar / Inquilino</span>
         </button>
-        <button onclick="abrirModalAgregarHuesped()" style="padding:10px 8px;border:1px solid #FCD34D;border-radius:12px;background:#FFFBEB;color:#92400E;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
-          <i class="ph ph-suitcase" style="font-size:16px;color:#D97706"></i>
+        <button type="button" class="btn-ocupante-action btn-ocupante-huesped" onclick="abrirModalAgregarHuesped()">
+          <i class="ph ph-suitcase"></i>
           <span>+ Pase Huésped Turista</span>
         </button>
       </div>
 
-      <button onclick="abrirModalReubicarHuesped()" style="width:100%;margin-top:8px;padding:10px;border:1px dashed #6366F1;border-radius:12px;background:#EEF2FF;color:#4F46E5;font-size:12.5px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
-        <i class="ph ph-arrows-left-right" style="font-size:16px"></i>
+      <button type="button" class="btn-ocupante-action btn-ocupante-reubicar" onclick="abrirModalReubicarHuesped()">
+        <i class="ph ph-arrows-left-right"></i>
         <span>🔄 Reubicar Huésped a Otra Unidad</span>
       </button>
     </div>
@@ -2344,33 +2567,33 @@ router.get('/', (req, res) => {
         const box = document.getElementById('lista-ocupantes-box');
         if (!box) return;
         if (!lista || lista.length === 0) {
-          box.innerHTML = '<div style="font-size:12px;color:#64748B;text-align:center;padding:8px">No hay otros integrantes registrados en esta unidad.</div>';
+          box.innerHTML = '<div style="font-size:12px;color:#FBBF24;text-align:center;padding:8px">No hay otros integrantes registrados en esta unidad.</div>';
           return;
         }
         let html = '';
         for (let i = 0; i < lista.length; i++) {
           const o = lista[i];
           const esTur = (o.rol === 'turista');
-          const badgeColor = esTur ? 'background:#FEF3C7;color:#92400E' : (o.rol === 'propietario' ? 'background:#DCFCE7;color:#15803D' : (o.rol === 'asistente' ? 'background:#E0E7FF;color:#3730A3' : 'background:#F1F5F9;color:#0F326A'));
+          const badgeClass = esTur ? 'badge-ocupante-turista' : (o.rol === 'propietario' ? 'badge-ocupante-propietario' : (o.rol === 'asistente' ? 'badge-ocupante-asistente' : 'badge-ocupante-inquilino'));
           const badgeTxt = esTur ? '🧳 Turista' : (o.rol === 'propietario' ? '👑 Propietario' : (o.rol === 'asistente' ? '🏢 Gestor' : (o.rol === 'inquilino' ? '🔑 Inquilino' : '👥 Familiar')));
           const timbreTxt = o.timbre_activo !== false ? '🔔 Timbre ON' : '🔕 Timbre OFF';
+          const timbreClass = o.timbre_activo !== false ? 'timbre-on' : 'timbre-off';
           let fechasTxt = '';
           if (o.fecha_desde && o.fecha_hasta) {
             fechasTxt = ' · ' + String(o.fecha_desde).slice(0, 10) + ' al ' + String(o.fecha_hasta).slice(0, 10);
           }
           const nom = (o.nombre || '') + ' ' + (o.apellido || '');
           const contacto = o.email || o.telefono || 'Sin contacto';
-          const timbreColor = o.timbre_activo !== false ? '#15803D' : '#94A3B8';
 
-          html += '<div style="display:flex;align-items:center;justify-content:space-between;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:10px 12px;margin-bottom:6px">' +
+          html += '<div class="ocupante-item-row">' +
                     '<div>' +
                       '<div style="display:flex;align-items:center;gap:6px">' +
-                        '<strong style="font-size:13px;color:#0F172A">' + nom + '</strong>' +
-                        '<span style="font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:999px;' + badgeColor + '">' + badgeTxt + '</span>' +
+                        '<strong class="ocupante-nombre">' + nom + '</strong>' +
+                        '<span class="badge-ocupante ' + badgeClass + '">' + badgeTxt + '</span>' +
                       '</div>' +
-                      '<div style="font-size:11px;color:#64748B;margin-top:2px">' + contacto + fechasTxt + '</div>' +
+                      '<div class="ocupante-contacto">' + contacto + fechasTxt + '</div>' +
                     '</div>' +
-                    '<div style="font-size:11px;font-weight:700;color:' + timbreColor + '">' + timbreTxt + '</div>' +
+                    '<div class="ocupante-timbre-status ' + timbreClass + '">' + timbreTxt + '</div>' +
                   '</div>';
         }
         box.innerHTML = html;
