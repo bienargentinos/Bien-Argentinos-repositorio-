@@ -1872,6 +1872,34 @@ textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-
   color: #60A5FA !important;
 }
 
+/* 8. Bloque de Servicios, Personal y Limpieza en Edificios (Modo Oscuro) */
+.dark-theme .box-staff-section {
+  background: #0F1A30 !important;
+  border-color: #1E2D4A !important;
+}
+.dark-theme .box-staff-section h2,
+.dark-theme .box-staff-section div[style*="color:#16233B"],
+.dark-theme .box-staff-section div[style*="color: #16233B"] {
+  color: #FBBF24 !important; /* Amarillo oro para títulos de staff/servicios */
+}
+.dark-theme .box-staff-section .hv-card {
+  background: #15223D !important;
+  border-color: #24355A !important;
+}
+.dark-theme .box-staff-section .hv-card div[style*="color:#16233B"],
+.dark-theme .box-staff-section .hv-card div[style*="color: #16233B"] {
+  color: #FFFFFF !important; /* Blanco puro para nombres */
+}
+.dark-theme .box-staff-section div[style*="background:#F8FAFD"],
+.dark-theme .box-staff-section div[style*="background: #F8FAFD"] {
+  background: #0B1426 !important;
+  border-color: #1E2D4A !important;
+}
+.dark-theme .box-staff-section div[style*="color:#475569"],
+.dark-theme .box-staff-section div[style*="color: #475569"] {
+  color: #FFFFFF !important;
+}
+
 `;
 
 /* ===================================================================

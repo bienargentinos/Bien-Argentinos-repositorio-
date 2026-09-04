@@ -136,10 +136,27 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   #card-instalar-pwa { display: none !important; }
 }
 
-/* Modo Oscuro - Corrección integral de contraste */
-.dark-theme { background: #070D1E !important; color: #E2E8F0 !important; }
+/* Modo Oscuro - Corrección integral de alto contraste (Cero grises, letras blancas y amarillas) */
+.dark-theme,
+.dark-theme body {
+  background: #070D1E !important;
+  color: #FFFFFF !important;
+}
 .dark-theme .app-shell { background: #070D1E !important; }
-.dark-theme .card { background: #0F1A30 !important; border-color: #1E2D4A !important; box-shadow: 0 4px 18px rgba(0,0,0,.4) !important; }
+.dark-theme .card {
+  background: #0F1A30 !important;
+  border-color: #1E2D4A !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 4px 18px rgba(0,0,0,.4) !important;
+}
+
+/* Todos los elementos dentro de las tarjetas heredan blanco por defecto si no tienen estilo explícito */
+.dark-theme .card span,
+.dark-theme .card p,
+.dark-theme .card strong,
+.dark-theme .card div {
+  color: #FFFFFF;
+}
 
 /* Títulos y textos oscuros inline se adaptan a blanco brillante */
 .dark-theme [style*="color:#0F172A"],
@@ -150,18 +167,52 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
 .dark-theme [style*="color: #0F172A"],
 .dark-theme [style*="color: #1E293B"],
 .dark-theme [style*="color: #0F326A"],
-.dark-theme [style*="color: #16233B"] {
-  color: #F8FAFC !important;
+.dark-theme [style*="color: #16233B"],
+.dark-theme [style*="color:#000000"] {
+  color: #FFFFFF !important;
 }
 
-/* Textos secundarios inline se adaptan a gris legible */
+/* Textos secundarios o descriptivos: BLANCO NÍTIDO en lugar de gris */
 .dark-theme [style*="color:#64748B"],
 .dark-theme [style*="color:#475569"],
 .dark-theme [style*="color:#334155"],
 .dark-theme [style*="color:#334259"],
+.dark-theme [style*="color:#8595AD"],
+.dark-theme [style*="color:#94A3B8"],
 .dark-theme [style*="color: #64748B"],
-.dark-theme [style*="color: #475569"] {
-  color: #94A3B8 !important;
+.dark-theme [style*="color: #475569"],
+.dark-theme [style*="color: #8595AD"],
+.dark-theme [style*="color: #94A3B8"] {
+  color: #FFFFFF !important; /* Blanco puro, nada de gris */
+}
+
+/* Subtítulos de sección, etiquetas uppercase y destacados: AMARILLO ORO BRILLANTE */
+.dark-theme [style*="text-transform:uppercase"],
+.dark-theme [style*="text-transform: uppercase"],
+.dark-theme .sec-tag,
+.dark-theme .servicios-titulo,
+.dark-theme .tag-amarillo {
+  color: #FBBF24 !important; /* Amarillo oro bien visible */
+  font-weight: 800 !important;
+}
+
+/* Estados verdes normales adaptados a Verde Lima luminoso */
+.dark-theme [style*="color:#15803D"],
+.dark-theme [style*="color:#16A34A"],
+.dark-theme [style*="color:#1B7A43"],
+.dark-theme [style*="color: #15803D"],
+.dark-theme [style*="color: #16A34A"],
+.dark-theme [style*="color: #1B7A43"] {
+  color: #4ADE80 !important; /* Verde lima brillante */
+  font-weight: 700 !important;
+}
+.dark-theme [style*="background:#DCFCE7"],
+.dark-theme [style*="background: #DCFCE7"],
+.dark-theme [style*="background:#E7F4EC"],
+.dark-theme [style*="background: #E7F4EC"] {
+  background: rgba(34, 197, 94, 0.2) !important;
+  color: #4ADE80 !important;
+  border: 1px solid rgba(74, 222, 128, 0.4) !important;
 }
 
 /* Fondos blancos/claros inline dentro de tarjetas se adaptan a oscuro */
@@ -176,24 +227,52 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   border-color: #24355A !important;
 }
 
+/* Separadores de lista o tablas */
+.dark-theme [style*="border-bottom:1px solid #F1F5F9"],
+.dark-theme [style*="border-bottom: 1px solid #F1F5F9"],
+.dark-theme [style*="border-bottom:1px solid #EEF1F6"],
+.dark-theme [style*="border-bottom:1px solid #E2E8F0"] {
+  border-bottom-color: #1E2D4A !important;
+}
+
+/* Bloque específico del Estado de Servicios del Edificio */
+.dark-theme .card-servicios {
+  background: #0F1A30 !important;
+  border: 1px solid #1E2D4A !important;
+}
+.dark-theme .card-servicios .servicios-titulo {
+  color: #FBBF24 !important; /* Amarillo oro */
+}
+.dark-theme .card-servicios .servicio-nombre {
+  color: #FFFFFF !important; /* Blanco puro */
+  font-weight: 800 !important;
+}
+.dark-theme .card-servicios .servicio-estado {
+  color: #4ADE80 !important; /* Verde lima brillante */
+  font-weight: 700 !important;
+}
+.dark-theme .card-servicios .servicio-item {
+  border-bottom-color: #1E2D4A !important;
+}
+
 /* Inputs, textareas y selects en modo oscuro */
 .dark-theme input.inp,
 .dark-theme input[type="text"],
 .dark-theme input[type="password"],
 .dark-theme textarea {
   background: #0B1426 !important;
-  color: #F8FAFC !important;
+  color: #FFFFFF !important;
   border-color: #24355A !important;
 }
 .dark-theme input::placeholder,
 .dark-theme textarea::placeholder {
-  color: #64748B !important;
+  color: #94A3B8 !important;
 }
 
 .dark-theme .v-bottom-nav { background: #0F1A30 !important; border-top-color: #1E2D4A !important; }
-.dark-theme .v-bottom-nav a { color: #94A3B8 !important; }
-.dark-theme .v-bottom-nav a.active { color: #38BDF8 !important; }
-.dark-theme .chat-bubble-marcos { background: #15223D !important; border-color: #24355A !important; color: #F1F5F9 !important; }
+.dark-theme .v-bottom-nav a { color: #FFFFFF !important; }
+.dark-theme .v-bottom-nav a.active { color: #FBBF24 !important; }
+.dark-theme .chat-bubble-marcos { background: #15223D !important; border-color: #24355A !important; color: #FFFFFF !important; }
 `;
 
 function getVecinoSession(req) {
@@ -1357,23 +1436,23 @@ router.get('/', (req, res) => {
     </div>
 
     <!-- Estado de Servicios del Edificio -->
-    <div class="card" style="padding:16px;background:#fff;margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <span style="font-size:13px;font-weight:800;color:#64748B;text-transform:uppercase">Servicios · San Patricio 159</span>
-        <span style="font-size:11px;font-weight:800;color:#15803D;background:#DCFCE7;padding:2px 8px;border-radius:999px">Operativo</span>
+    <div class="card card-servicios" style="padding:16px;background:#fff;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span class="servicios-titulo" style="font-size:13px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:.04em">Servicios · ${esc(v.edificio)}</span>
+        <span class="servicio-badge-operativo" style="font-size:11px;font-weight:800;color:#15803D;background:#DCFCE7;padding:3px 9px;border-radius:999px">Operativo</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px">
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
-          <span style="display:flex;align-items:center;gap:8px;font-weight:700">🛗 Ascensor Principal</span>
-          <span style="font-size:11.5px;font-weight:700;color:#15803D">En servicio normal</span>
+        <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px;padding-bottom:8px;border-bottom:1px solid #F1F5F9">
+          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:#0F172A">🛗 Ascensor Principal</span>
+          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:#15803D">En servicio normal</span>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
-          <span style="display:flex;align-items:center;gap:8px;font-weight:700">💧 Bombas de Agua</span>
-          <span style="font-size:11.5px;font-weight:700;color:#15803D">Presión estándar</span>
+        <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px;padding-bottom:8px;border-bottom:1px solid #F1F5F9">
+          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:#0F172A">💧 Bombas de Agua</span>
+          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:#15803D">Presión estándar</span>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
-          <span style="display:flex;align-items:center;gap:8px;font-weight:700">🚗 Portón Cochera</span>
-          <span style="font-size:11.5px;font-weight:700;color:#15803D">Apertura automática</span>
+        <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
+          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:#0F172A">🚗 Portón Cochera</span>
+          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:#15803D">Apertura automática</span>
         </div>
       </div>
     </div>
@@ -1381,13 +1460,13 @@ router.get('/', (req, res) => {
     <!-- Novedades del Consorcio -->
     <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:13.5px;font-weight:900;color:#0F172A">Novedades del Consorcio</span>
-      <a href="/vecino/novedades" style="font-size:12.5px;font-weight:800;color:#1E5FB4">Ver todas</a>
+      <a href="/vecino/novedades" style="font-size:12.5px;font-weight:800;color:#38BDF8">Ver todas</a>
     </div>
 
     <div class="card" style="padding:15px;background:#fff;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <span style="font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:#FEF3C7;color:#92400E">Mantenimiento</span>
-        <span style="font-size:11.5px;color:#94A3B8">Hoy · 09:30 hs</span>
+        <span style="font-size:11.5px;color:#FBBF24;font-weight:700">Hoy · 09:30 hs</span>
       </div>
       <div style="font-size:14px;font-weight:800;color:#0F172A;margin-bottom:4px">Limpieza programada de tanques</div>
       <div style="font-size:12.5px;color:#64748B;line-height:1.4">Se realizará el jueves de 08:00 a 14:00 hs. Habrá baja presión momentánea.</div>
