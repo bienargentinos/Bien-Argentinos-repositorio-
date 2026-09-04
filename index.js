@@ -2969,7 +2969,27 @@ function validarYSanitizarNombre(nombre) {
         // propio administrador ya pueden (caen al camino común). El proveedor era el único que no
         // podía, porque su rama corta antes.
         {
-            const avisaQueVa = /\b(me (llam|llamaron|pidi|avis|convoc|mand))/i.test(txtLow)
+            // > [!CAUTION]
+            // > **"me llamó" y "me ACABAN DE llamar" no son la misma expresión regular.**
+            //
+            // La condición anterior era `/\bme (llam|avis|convoc|...)/`, que exige el "me" PEGADO al
+            // verbo. En producción Daniel escribió "me acaban de llamar de San Patricio 270" y no
+            // matcheó: tres palabras en el medio alcanzaron para que la rama del aviso no se
+            // activara. Sin caso abierto, el mensaje se fue al camino genérico, ahí se buscó "el
+            // caso abierto del técnico" y Marcos contestó sobre un caso de otro edificio.
+            //
+            // Nadie habla con la plantilla que uno imaginó. Se admiten hasta tres palabras entre
+            // el pronombre y el verbo, y las formas que faltaban: "acaban de llamarme", "recién
+            // llamó el encargado", "llamaron del edificio".
+            //
+            // Ojo con `\w`: en JavaScript NO incluye las vocales acentuadas, así que `llam\w*` se
+            // corta antes de la "ó" de "llamó" y la frase más común de todas --"llamó el
+            // encargado"-- no matcheaba. Por eso las clases se escriben a mano con los acentos.
+            const PAL = '[a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ]';
+            const avisaQueVa = new RegExp(`\\b(me|nos)\\s+(?:${PAL}+\\s+){0,3}(llam|avis|convoc|pidi|mand|contact|solicit)`, 'i').test(txtLow)
+                || new RegExp(`\\b(acab${PAL}*|termin${PAL}*)\\s+de\\s+(llamar|llamarme|avisar|avisarme|contactar|escribir)`, 'i').test(txtLow)
+                || new RegExp(`\\b(llam|avis|convoc|contact)${PAL}*\\s+(el|la|los|las|un|una)?\\s*(encargad|administrad|porter|seguridad|vecin|consorcio|edificio)`, 'i').test(txtLow)
+                || /\b(llamaron|avisaron|convocaron|contactaron|me escribieron)\b/i.test(txtLow)
                 || /\b(voy a (pasar|ir|estar|acercarme)|estoy yendo|voy para|paso (hoy|ma[nñ]ana|luego|m[aá]s tarde)|me acerco|salgo para)\b/i.test(txtLow)
                 || /\b(aviso que|te aviso que|les aviso que)\b/i.test(txtLow);
 
