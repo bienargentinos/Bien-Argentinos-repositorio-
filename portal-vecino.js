@@ -255,6 +255,155 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   border-bottom-color: #1E2D4A !important;
 }
 
+/* --- AMENITIES Y SELECTOR DE HORAS --- */
+.amenity-card-item {
+  border: 2px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 12px 8px;
+  cursor: pointer;
+  background: #ffffff;
+  text-align: center;
+  transition: all .2s ease;
+  user-select: none;
+  box-shadow: 0 1px 3px rgba(15,23,42,.04);
+}
+.amenity-card-item:hover {
+  transform: translateY(-2px);
+  border-color: #CBD5E1;
+}
+.amenity-card-item .amenity-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0F172A;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.amenity-card-item .amenity-time {
+  font-size: 11px;
+  color: #64748B;
+  margin-top: 2px;
+}
+.amenity-card-item.selected {
+  border: 2px solid #D97706 !important;
+  background: linear-gradient(135deg, #FEF3C7, #FFFBEB) !important;
+  box-shadow: 0 4px 14px rgba(217, 119, 6, 0.25) !important;
+  transform: translateY(-2px);
+}
+.amenity-card-item.selected .amenity-title {
+  color: #92400E !important;
+}
+
+/* Modo oscuro para tarjetas de Amenities */
+.dark-theme .amenity-card-item {
+  background: #15223D !important;
+  border: 2px solid #24355A !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,.3);
+}
+.dark-theme .amenity-card-item .amenity-title {
+  color: #FFFFFF !important;
+}
+.dark-theme .amenity-card-item .amenity-time {
+  color: #FBBF24 !important; /* Horario en amarillo */
+}
+/* Al seleccionar o tocar en modo oscuro: Degrade con resplandor dorado / amarillo y borde resaltado */
+.dark-theme .amenity-card-item.selected {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.25), rgba(217, 119, 6, 0.12)) !important;
+  border: 2px solid #FBBF24 !important;
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.45), inset 0 0 10px rgba(251, 191, 36, 0.18) !important;
+  transform: translateY(-2px);
+}
+.dark-theme .amenity-card-item.selected .amenity-title {
+  color: #FFFFFF !important;
+  font-weight: 900 !important;
+}
+.dark-theme .amenity-card-item.selected .amenity-time {
+  color: #FDE047 !important;
+  font-weight: 700 !important;
+}
+
+/* Botones de selección de horas (estilo butacas) */
+.hora-slot-btn {
+  padding: 10px 6px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 800;
+  text-align: center;
+  cursor: pointer;
+  transition: all .15s ease;
+  background: #ffffff;
+  border: 1.5px solid #CBD5E1;
+  color: #0F172A;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-family: inherit;
+  user-select: none;
+}
+.hora-slot-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.hora-slot-btn.selected {
+  background: linear-gradient(135deg, #1E5FB4, #2E6FC0) !important;
+  border: 1.5px solid #1E5FB4 !important;
+  color: #ffffff !important;
+  box-shadow: 0 3px 10px rgba(30,95,180,.35) !important;
+}
+.hora-slot-btn.ocupado {
+  background: #FEE2E2 !important;
+  border: 1.5px solid #FCA5A5 !important;
+  color: #991B1B !important;
+  cursor: not-allowed !important;
+  opacity: 0.85 !important;
+}
+
+/* Modo oscuro para botones de horas */
+.dark-theme .hora-slot-btn {
+  background: #15223D !important;
+  border: 1.5px solid #24355A !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .hora-slot-btn.selected {
+  background: linear-gradient(135deg, #F59E0B, #D97706) !important;
+  border: 1.5px solid #FDE047 !important;
+  color: #070D1E !important;
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.45) !important;
+}
+.dark-theme .hora-slot-btn.selected span {
+  color: #070D1E !important;
+  font-weight: 900 !important;
+}
+.dark-theme .hora-slot-btn.ocupado {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border: 1.5px solid rgba(239, 68, 68, 0.35) !important;
+  color: #F87171 !important;
+  opacity: 0.75 !important;
+}
+.dark-theme .hora-slot-btn.ocupado span {
+  color: #F87171 !important;
+}
+
+.dark-theme #resumen-seleccion-horas {
+  background: rgba(251, 191, 36, 0.15) !important;
+  border: 1px solid rgba(251, 191, 36, 0.4) !important;
+  color: #FDE047 !important;
+}
+.dark-theme #resumen-seleccion-horas strong,
+.dark-theme #resumen-seleccion-horas span {
+  color: #FFFFFF !important;
+}
+
+.dark-theme #contenido-reglamento-amenity {
+  background: #0B1426 !important;
+  border-color: #24355A !important;
+  color: #FFFFFF !important;
+}
+.dark-theme #titulo-reglamento-amenity {
+  color: #FBBF24 !important;
+}
+
 /* Inputs, textareas y selects en modo oscuro */
 .dark-theme input.inp,
 .dark-theme input[type="text"],
@@ -2755,10 +2904,10 @@ router.get('/amenities', async (req, res) => {
           <label style="font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:8px">1. Elegí el espacio común</label>
           <div id="grid-amenities" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
             ${amenitiesList.map((a, idx) => `
-              <div onclick="seleccionarAmenity('${escJs(a.nombre)}', this)" style="border:2px solid ${idx === 0 ? '#1E5FB4' : '#E2E8F0'};border-radius:10px;padding:10px;cursor:pointer;background:${idx === 0 ? '#EBF3FC' : '#fff'};text-align:center;transition:all .2s" class="amenity-card-item">
-                <div style="font-size:24px;margin-bottom:2px">${esc(a.icon)}</div>
-                <div style="font-size:13px;font-weight:800;color:#0F172A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.nombre)}</div>
-                <div style="font-size:11px;color:#64748B">${esc(a.hora_apertura)} a ${esc(a.hora_cierre)} hs</div>
+              <div onclick="seleccionarAmenity('${escJs(a.nombre)}', this)" class="amenity-card-item ${idx === 0 ? 'selected' : ''}">
+                <div style="font-size:26px;margin-bottom:4px">${esc(a.icon)}</div>
+                <div class="amenity-title">${esc(a.nombre)}</div>
+                <div class="amenity-time">${esc(a.hora_apertura)} a ${esc(a.hora_cierre)} hs</div>
               </div>
             `).join('')}
           </div>
@@ -2822,11 +2971,9 @@ router.get('/amenities', async (req, res) => {
         document.getElementById('inp-amenity-sel').value = nombre;
         var cards = document.querySelectorAll('.amenity-card-item');
         cards.forEach(function(c) {
-          c.style.borderColor = '#E2E8F0';
-          c.style.background = '#fff';
+          c.classList.remove('selected');
         });
-        el.style.borderColor = '#1E5FB4';
-        el.style.background = '#EBF3FC';
+        el.classList.add('selected');
         _horasSeleccionadas = [];
         
         // Actualizar caja de reglamento específico
@@ -2896,13 +3043,12 @@ router.get('/amenities', async (req, res) => {
 
           if (ocupadoPor) {
             btnSlot.disabled = true;
-            btnSlot.style.cssText = 'padding:10px 6px;border-radius:10px;background:#FEE2E2;border:1.5px solid #FCA5A5;color:#991B1B;font-size:12px;font-weight:700;text-align:center;cursor:not-allowed;opacity:0.9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px';
+            btnSlot.className = 'hora-slot-btn ocupado';
             btnSlot.innerHTML = '<span>🔒 ' + hStartStr + '</span><span style="font-size:9.5px;opacity:.8">' + ocupadoPor + '</span>';
           } else {
             var isSel = _horasSeleccionadas.indexOf(h) !== -1;
-            btnSlot.style.cssText = 'padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:800;text-align:center;cursor:pointer;transition:all .12s ease;' + 
-              (isSel ? 'background:#1E5FB4;border:1.5px solid #1E5FB4;color:#fff;box-shadow:0 3px 8px rgba(30,95,180,.35)' : 'background:#fff;border:1.5px solid #CBD5E1;color:#16233B');
-            btnSlot.innerHTML = '<span>' + hStartStr + '</span><span style="font-size:10px;font-weight:600;opacity:' + (isSel ? '1' : '.6') + '">' + (isSel ? '✓ Elegido' : 'Libre') + '</span>';
+            btnSlot.className = 'hora-slot-btn' + (isSel ? ' selected' : '');
+            btnSlot.innerHTML = '<span>' + hStartStr + '</span><span style="font-size:10px;font-weight:700;opacity:' + (isSel ? '1' : '.7') + '">' + (isSel ? '✓ Elegido' : 'Libre') + '</span>';
             
             btnSlot.onclick = (function(horaNum){
               return function() { toggleHora(horaNum); };
