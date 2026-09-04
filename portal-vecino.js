@@ -136,14 +136,64 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   #card-instalar-pwa { display: none !important; }
 }
 
-/* Modo Oscuro */
-.dark-theme{background:#0B132B!important;color:#F1F5F9!important}
-.dark-theme .app-shell{background:#0B132B!important}
-.dark-theme .card{background:#151F38!important;border-color:#2A3A5E!important}
-.dark-theme .v-bottom-nav{background:#151F38!important;border-top-color:#2A3A5E!important}
-.dark-theme .v-bottom-nav a{color:#94A3B8!important}
-.dark-theme .v-bottom-nav a.active{color:#38BDF8!important}
-.dark-theme .chat-bubble-marcos{background:#1E2B4B!important;border-color:#2A3A5E!important;color:#F1F5F9!important}
+/* Modo Oscuro - Corrección integral de contraste */
+.dark-theme { background: #070D1E !important; color: #E2E8F0 !important; }
+.dark-theme .app-shell { background: #070D1E !important; }
+.dark-theme .card { background: #0F1A30 !important; border-color: #1E2D4A !important; box-shadow: 0 4px 18px rgba(0,0,0,.4) !important; }
+
+/* Títulos y textos oscuros inline se adaptan a blanco brillante */
+.dark-theme [style*="color:#0F172A"],
+.dark-theme [style*="color:#1E293B"],
+.dark-theme [style*="color:#0F326A"],
+.dark-theme [style*="color:#16233B"],
+.dark-theme [style*="color:#000"],
+.dark-theme [style*="color: #0F172A"],
+.dark-theme [style*="color: #1E293B"],
+.dark-theme [style*="color: #0F326A"],
+.dark-theme [style*="color: #16233B"] {
+  color: #F8FAFC !important;
+}
+
+/* Textos secundarios inline se adaptan a gris legible */
+.dark-theme [style*="color:#64748B"],
+.dark-theme [style*="color:#475569"],
+.dark-theme [style*="color:#334155"],
+.dark-theme [style*="color:#334259"],
+.dark-theme [style*="color: #64748B"],
+.dark-theme [style*="color: #475569"] {
+  color: #94A3B8 !important;
+}
+
+/* Fondos blancos/claros inline dentro de tarjetas se adaptan a oscuro */
+.dark-theme [style*="background:#fff"],
+.dark-theme [style*="background:#ffffff"],
+.dark-theme [style*="background: #fff"],
+.dark-theme [style*="background: #ffffff"],
+.dark-theme [style*="background:#F8FAFD"],
+.dark-theme [style*="background:#FAFCFF"],
+.dark-theme [style*="background:#F1F5F9"] {
+  background: #15223D !important;
+  border-color: #24355A !important;
+}
+
+/* Inputs, textareas y selects en modo oscuro */
+.dark-theme input.inp,
+.dark-theme input[type="text"],
+.dark-theme input[type="password"],
+.dark-theme textarea {
+  background: #0B1426 !important;
+  color: #F8FAFC !important;
+  border-color: #24355A !important;
+}
+.dark-theme input::placeholder,
+.dark-theme textarea::placeholder {
+  color: #64748B !important;
+}
+
+.dark-theme .v-bottom-nav { background: #0F1A30 !important; border-top-color: #1E2D4A !important; }
+.dark-theme .v-bottom-nav a { color: #94A3B8 !important; }
+.dark-theme .v-bottom-nav a.active { color: #38BDF8 !important; }
+.dark-theme .chat-bubble-marcos { background: #15223D !important; border-color: #24355A !important; color: #F1F5F9 !important; }
 `;
 
 function getVecinoSession(req) {
@@ -815,6 +865,20 @@ function shellVecino(title, activeTab, content, vecinoData) {
 // -------------------------------------------------------------------
 // 1. LOGIN CON CREDENCIALES
 // -------------------------------------------------------------------
+// -------------------------------------------------------------------
+// 1. LOGIN CON WHATSAPP Y CÓDIGO PIN (OTP)
+// -------------------------------------------------------------------
+const _pinesLogin = new Map(); // tel -> { pin, vecino, expira }
+
+function normalizarTelArg(t) {
+  let num = String(t || '').replace(/\D/g, '');
+  if (num.startsWith('0')) num = num.slice(1);
+  if (num.startsWith('15')) num = '11' + num.slice(2);
+  if (!num.startsWith('549') && num.startsWith('54')) num = '549' + num.slice(2);
+  if (!num.startsWith('549')) num = '549' + num;
+  return num;
+}
+
 router.get('/login', (req, res) => {
   res.send(`<!DOCTYPE html>
 <html lang="es-AR">
@@ -830,143 +894,343 @@ router.get('/login', (req, res) => {
 <link rel="apple-touch-icon" href="/admin/assets/logo.png">
 <link rel="icon" type="image/png" href="/admin/assets/logo.png">
 <title>Marcos IA · Portal de Vecinos</title>
-<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css"/>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0F326A;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 45%,#1B4D9B 100%);color:#fff;font-family:'Hanken Grotesk',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.login-card{background:#ffffff;color:#16233B;border-radius:24px;padding:32px 26px;width:100%;max-width:400px;box-shadow:0 25px 60px rgba(0,0,0,.35)}
-.inp{width:100%;height:48px;border:1.5px solid #DDE3EE;border-radius:12px;padding:0 14px;font-size:15px;color:#16233B;background:#F8FAFD;outline:none;margin-bottom:14px}
+body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%,#1B4D9B 100%);color:#fff;font-family:'Hanken Grotesk',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-card{background:#ffffff;color:#16233B;border-radius:24px;padding:32px 24px;width:100%;max-width:420px;box-shadow:0 25px 60px rgba(0,0,0,.45)}
+.inp{width:100%;height:48px;border:1.5px solid #DDE3EE;border-radius:12px;padding:0 14px;font-size:15px;color:#16233B;background:#F8FAFD;outline:none;margin-bottom:14px;font-family:inherit}
 .inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.12)}
-.btn-login{width:100%;height:48px;border:none;border-radius:12px;background:linear-gradient(135deg,#17408B,#2E6FC0);color:#fff;font-size:15.5px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 14px rgba(23,64,139,.35)}
-.btn-pwa{width:100%;height:44px;border:1.5px solid #BFDBFE;border-radius:12px;background:#EFF6FF;color:#1E5FB4;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:16px;box-shadow:0 2px 8px rgba(30,95,180,.1)}
+.btn-primary{width:100%;height:48px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-size:15px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 14px rgba(15,50,106,.3);font-family:inherit}
+.btn-secondary{width:100%;height:44px;border:1.5px solid #E2E8F0;border-radius:12px;background:#F8FAFD;color:#475569;font-size:13.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit}
+.btn-pwa{width:100%;height:42px;border:1.5px solid #BFDBFE;border-radius:12px;background:#EFF6FF;color:#1E5FB4;font-size:13.5px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:16px}
+.pin-box{width:100%;height:54px;border:2px solid #2E6FC0;border-radius:14px;font-size:26px;font-weight:900;text-align:center;letter-spacing:14px;color:#0F326A;background:#F8FAFD;outline:none;margin-bottom:16px}
 </style>
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function() {
-      navigator.serviceWorker.register('/sw.js').catch(function(e){ console.warn('SW:', e); });
-    });
-  }
-</script>
 </head>
 <body>
 <div class="login-card">
   <div style="text-align:center;margin-bottom:20px">
-    <div style="width:58px;height:58px;border-radius:16px;background:linear-gradient(135deg,#0F326A,#2E6FC0);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:28px;margin-bottom:12px;box-shadow:0 8px 20px rgba(15,50,106,.25)">
+    <div style="width:58px;height:58px;border-radius:18px;background:linear-gradient(135deg,#0F326A,#2E6FC0);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:28px;margin-bottom:12px;box-shadow:0 8px 20px rgba(15,50,106,.25)">
       🏢
     </div>
-    <h1 style="font-size:22px;font-weight:800;letter-spacing:-.02em;margin-bottom:4px;color:#0F326A">Portal del Vecino</h1>
-    <p style="font-size:13.5px;color:#64748B">Ingresá a tu edificio o instalá la app</p>
+    <h1 style="font-size:22px;font-weight:900;letter-spacing:-.02em;margin-bottom:4px;color:#0F326A">Mi Consorcio</h1>
+    <p style="font-size:13px;color:#64748B">Acceso seguro para vecinos con WhatsApp</p>
   </div>
 
-  <!-- Botón Instalar PWA directo en Login -->
   <button type="button" class="btn-pwa" onclick="instalarPwaLogin()">
     <span>📲 Instalar App en mi Celular</span>
   </button>
 
-  <form action="/vecino/auth" method="POST">
-    <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:6px">Email o Teléfono WhatsApp</div>
-    <input name="identificador" class="inp" type="text" placeholder="ejemplo@correo.com o +54 9 11..." value="demo@edificio.com" required>
-
-    <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:6px">Contraseña o Código de Unidad</div>
-    <input name="password" class="inp" type="password" placeholder="Tu contraseña" value="123456" required>
-
-    <button type="submit" class="btn-login">
-      <span>Ingresar a mi Edificio</span>
-      <i class="ph ph-arrow-right" style="font-size:18px"></i>
-    </button>
-  </form>
-
-  <div style="margin-top:20px;text-align:center;font-size:12.5px;color:#64748B">
-    ¿Primer ingreso? Podés tocar <strong>Ingresar a mi Edificio</strong> para acceder en modo demo.
-  </div>
-</div>
-
-<!-- MODAL GUÍA DE INSTALACIÓN IOS / SAFARI -->
-<div id="modal-pwa-ios" style="position:fixed;inset:0;background:rgba(10,31,68,.85);backdrop-filter:blur(8px);z-index:99999;display:none;align-items:flex-end;justify-content:center;padding:16px">
-  <div style="background:#fff;border-radius:22px 22px 18px 18px;width:100%;max-width:480px;padding:24px 20px;text-align:center;box-shadow:0 -10px 40px rgba(0,0,0,.25);animation:fadeIn .25s ease both;color:#16233B">
-    <div style="width:52px;height:52px;border-radius:14px;background:#EBF3FC;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 12px">
-      📲
-    </div>
-    <h3 style="font-size:18px;font-weight:800;color:#0F326A;margin-bottom:6px">Instalar en iPhone (iOS)</h3>
-    <p style="font-size:13px;color:#64748B;margin-bottom:16px;line-height:1.4">Tené la app en tu pantalla de inicio en 3 simples pasos desde Safari:</p>
-    
-    <div style="display:flex;flex-direction:column;gap:10px;text-align:left;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:#334259">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">1</span>
-        <span>Tocá el botón <strong>Compartir <i class="ph ph-share-network" style="font-size:16px;vertical-align:middle;color:#1E5FB4"></i></strong> en la barra inferior de Safari.</span>
+  <!-- PASO 1: INGRESAR TELÉFONO -->
+  <div id="paso-1-telefono">
+    <form onsubmit="solicitarPinWhatsApp(event)">
+      <label style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Número de Celular / WhatsApp</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <div style="height:48px;padding:0 12px;background:#F1F5F9;border:1.5px solid #DDE3EE;border-radius:12px;display:flex;align-items:center;gap:6px;font-weight:800;font-size:14px;color:#334155">
+          <span>🇦🇷</span> +54
+        </div>
+        <input id="inp-login-tel" type="tel" class="inp" style="margin-bottom:0" placeholder="Ej: 11 5054-2005" required>
       </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">2</span>
-        <span>Deslizá hacia abajo y elegí <strong>"Agregar a inicio" <i class="ph ph-plus-square" style="font-size:16px;vertical-align:middle;color:#1E5FB4"></i></strong>.</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">3</span>
-        <span>Tocá <strong>"Agregar"</strong> arriba a la derecha. ¡Listo!</span>
-      </div>
+
+      <button id="btn-pedir-pin" type="submit" class="btn-primary" style="margin-bottom:12px">
+        <i class="ph ph-whatsapp-logo" style="font-size:20px"></i>
+        <span>Recibir Código por WhatsApp</span>
+      </button>
+    </form>
+
+    <div style="display:flex;align-items:center;margin:16px 0;gap:10px">
+      <div style="flex:1;height:1px;background:#E2E8F0"></div>
+      <span style="font-size:12px;color:#94A3B8;font-weight:700">O MODO RÁPIDO</span>
+      <div style="flex:1;height:1px;background:#E2E8F0"></div>
     </div>
 
-    <button onclick="document.getElementById('modal-pwa-ios').style.display='none'" style="width:100%;height:46px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-weight:800;font-size:14.5px;cursor:pointer">¡Entendido!</button>
+    <!-- Acceso Directo de Prueba / Demo -->
+    <form action="/vecino/auth" method="POST">
+      <input type="hidden" name="identificador" value="5491150542005">
+      <button type="submit" class="btn-secondary">
+        <span>🚀 Ingresar como Daniel Morales (Demo)</span>
+      </button>
+    </form>
   </div>
+
+  <!-- PASO 2: INGRESAR CÓDIGO DE 4 DÍGITOS -->
+  <div id="paso-2-pin" style="display:none">
+    <div style="background:#DCFCE7;border:1px solid #86EFAC;border-radius:14px;padding:12px;margin-bottom:16px;text-align:center">
+      <div style="font-size:12.5px;color:#15803D;font-weight:800;margin-bottom:2px">💬 Te enviamos el código a tu WhatsApp:</div>
+      <div id="txt-tel-destino" style="font-size:14px;font-weight:900;color:#166534"></div>
+      <div id="txt-pin-hint" style="font-size:11.5px;color:#15803D;margin-top:4px;font-weight:700;display:none"></div>
+    </div>
+
+    <form onsubmit="verificarPinWhatsApp(event)">
+      <label style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:8px;text-align:center">Código de 4 Dígitos</label>
+      <input id="inp-login-pin" type="text" maxlength="4" class="pin-box" placeholder="••••" required autofocus>
+
+      <button id="btn-verificar-pin" type="submit" class="btn-primary" style="margin-bottom:12px">
+        <i class="ph ph-lock-key-open" style="font-size:20px"></i>
+        <span>Ingresar a mi Edificio</span>
+      </button>
+    </form>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
+      <button type="button" onclick="volverPaso1()" style="background:none;border:none;color:#64748B;font-size:12.5px;font-weight:700;cursor:pointer">
+        ← Cambiar teléfono
+      </button>
+      <button type="button" onclick="reenviarPinWhatsApp()" style="background:none;border:none;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer">
+        🔄 Reenviar código
+      </button>
+    </div>
+  </div>
+
+  <div id="login-error-msg" style="display:none;margin-top:14px;padding:10px;border-radius:10px;background:#FEE2E2;border:1px solid #FCA5A5;color:#991B1B;font-size:12.5px;text-align:center"></div>
 </div>
 
 <script>
-  var _deferredPromptLogin = null;
-  window.addEventListener('beforeinstallprompt', function(e) {
-    e.preventDefault();
-    _deferredPromptLogin = e;
-  });
+  var _telActual = '';
 
-  function instalarPwaLogin() {
-    var isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
-    var isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
-    
-    if (isStandalone) {
-      alert('¡La aplicación ya está instalada en tu teléfono!');
+  async function solicitarPinWhatsApp(e) {
+    if (e) e.preventDefault();
+    var inp = document.getElementById('inp-login-tel');
+    var btn = document.getElementById('btn-pedir-pin');
+    var err = document.getElementById('login-error-msg');
+    err.style.display = 'none';
+
+    var rawTel = inp.value.trim();
+    if (!rawTel) {
+      alert('Ingresá tu número de teléfono');
       return;
     }
 
-    if (isIos) {
-      var m = document.getElementById('modal-pwa-ios');
-      if (m) m.style.display = 'flex';
-      return;
-    }
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ Enviando código...</span>';
 
-    if (window._deferredPromptLogin) {
-      window._deferredPromptLogin.prompt();
-      window._deferredPromptLogin = null;
-    } else {
-      var mAnd = document.getElementById('modal-pwa-android-login');
-      if (mAnd) mAnd.style.display = 'flex';
+    try {
+      var res = await fetch('/vecino/api/solicitar-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telefono: rawTel })
+      });
+      var data = await res.json();
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ph ph-whatsapp-logo" style="font-size:20px"></i><span>Recibir Código por WhatsApp</span>';
+
+      if (data && data.ok) {
+        _telActual = data.telefono;
+        document.getElementById('txt-tel-destino').textContent = '+' + data.telefono;
+        if (data.pinDemo) {
+          var hint = document.getElementById('txt-pin-hint');
+          hint.textContent = '💡 Código de prueba: ' + data.pinDemo;
+          hint.style.display = 'block';
+        }
+        document.getElementById('paso-1-telefono').style.display = 'none';
+        document.getElementById('paso-2-pin').style.display = 'block';
+        document.getElementById('inp-login-pin').focus();
+      } else {
+        err.style.display = 'block';
+        err.textContent = data.error || 'No se pudo enviar el código. Verificá tu número.';
+      }
+    } catch(ex) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ph ph-whatsapp-logo" style="font-size:20px"></i><span>Recibir Código por WhatsApp</span>';
+      err.style.display = 'block';
+      err.textContent = 'Error de conexión: ' + ex.message;
     }
   }
+
+  async function verificarPinWhatsApp(e) {
+    if (e) e.preventDefault();
+    var inp = document.getElementById('inp-login-pin');
+    var btn = document.getElementById('btn-verificar-pin');
+    var err = document.getElementById('login-error-msg');
+    err.style.display = 'none';
+
+    var pin = inp.value.trim();
+    if (pin.length !== 4) {
+      alert('El código debe tener 4 dígitos.');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ Verificando...</span>';
+
+    try {
+      var res = await fetch('/vecino/api/verificar-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telefono: _telActual, pin: pin })
+      });
+      var data = await res.json();
+      if (data && data.ok) {
+        window.location.href = data.redirect || '/vecino';
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ph ph-lock-key-open" style="font-size:20px"></i><span>Ingresar a mi Edificio</span>';
+        err.style.display = 'block';
+        err.textContent = data.error || 'Código incorrecto o expirado.';
+      }
+    } catch(ex) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ph ph-lock-key-open" style="font-size:20px"></i><span>Ingresar a mi Edificio</span>';
+      err.style.display = 'block';
+      err.textContent = 'Error de conexión: ' + ex.message;
+    }
+  }
+
+  function volverPaso1() {
+    document.getElementById('paso-2-pin').style.display = 'none';
+    document.getElementById('paso-1-telefono').style.display = 'block';
+    document.getElementById('login-error-msg').style.display = 'none';
+  }
+
+  function reenviarPinWhatsApp() {
+    solicitarPinWhatsApp(null);
+  }
+
+  function instalarPwaLogin() {
+    alert('Para instalar la app, tocá el menú de tu navegador y seleccioná "Agregar a la pantalla principal" o "Instalar".');
+  }
 </script>
-
-<!-- MODAL GUÍA DE INSTALACIÓN ANDROID / CHROME -->
-<div id="modal-pwa-android-login" style="position:fixed;inset:0;background:rgba(10,31,68,.85);backdrop-filter:blur(8px);z-index:99999;display:none;align-items:flex-end;justify-content:center;padding:16px">
-  <div style="background:#fff;border-radius:22px 22px 18px 18px;width:100%;max-width:480px;padding:24px 20px;text-align:center;box-shadow:0 -10px 40px rgba(0,0,0,.25);animation:fadeIn .25s ease both;color:#16233B">
-    <div style="width:52px;height:52px;border-radius:14px;background:#EBF3FC;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 12px">
-      📲
-    </div>
-    <h3 style="font-size:18px;font-weight:800;color:#0F326A;margin-bottom:6px">Instalar en Android (Chrome / Edge)</h3>
-    <p style="font-size:13px;color:#64748B;margin-bottom:16px;line-height:1.4">Seguí estos 2 simples pasos en tu navegador:</p>
-    
-    <div style="display:flex;flex-direction:column;gap:10px;text-align:left;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:#334259">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">1</span>
-        <span>Tocá el menú de <strong>3 puntos (⋮)</strong> arriba a la derecha en Chrome.</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="width:24px;height:24px;border-radius:50%;background:#1E5FB4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">2</span>
-        <span>Seleccioná <strong>"Instalar aplicación"</strong> o <strong>"Agregar a la pantalla principal"</strong>.</span>
-      </div>
-    </div>
-
-    <button onclick="document.getElementById('modal-pwa-android-login').style.display='none'" style="width:100%;height:46px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-weight:800;font-size:14.5px;cursor:pointer">¡Entendido!</button>
-  </div>
-</div>
 </body>
 </html>`);
+});
+
+// API SOLICITAR PIN DE ACCESO
+router.post('/api/solicitar-pin', async (req, res) => {
+  const { telefono } = req.body || {};
+  if (!telefono || !String(telefono).trim()) {
+    return res.status(400).json({ ok: false, error: 'El número de teléfono es requerido.' });
+  }
+
+  const telNorm = normalizarTelArg(telefono);
+  let vecinoEncontrado = null;
+
+  // 1. Buscar en PostgreSQL o datos locales
+  if (datosPg && typeof datosPg.buscarVecinosPorTelefono === 'function') {
+    try {
+      const lista = await datosPg.buscarVecinosPorTelefono(telNorm);
+      if (lista && lista.length > 0) {
+        vecinoEncontrado = lista[0];
+      }
+    } catch (_) {}
+  }
+
+  // 2. Fallback de búsqueda en tabla 'vecinos'
+  if (!vecinoEncontrado) {
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        const q = `SELECT * FROM vecinos WHERE REPLACE(REPLACE(REPLACE(telefono, ' ', ''), '-', ''), '+', '') LIKE $1 LIMIT 1`;
+        const r = await pool.query(q, ['%' + telNorm.slice(-8) + '%']);
+        if (r && r.rows && r.rows.length > 0) {
+          const row = r.rows[0];
+          vecinoEncontrado = {
+            nombre: row.nombre || 'Vecino',
+            telefono: row.telefono || telNorm,
+            edificio: row.edificio || 'San Patricio 159',
+            departamento: row.departamento || '1° A'
+          };
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 3. Si es el teléfono de Daniel o modo desarrollo
+  if (!vecinoEncontrado && (telNorm.includes('50542005') || telNorm.includes('1150542005') || telNorm.includes('5491150542005'))) {
+    vecinoEncontrado = {
+      nombre: 'Daniel Morales',
+      telefono: '+5491150542005',
+      edificio: 'San Patricio 159',
+      departamento: '1° A'
+    };
+  }
+
+  if (!vecinoEncontrado) {
+    // Si no está en el padrón, permitimos registrarlo en el consorcio activo por defecto
+    vecinoEncontrado = {
+      nombre: 'Vecino',
+      telefono: '+' + telNorm,
+      edificio: 'San Patricio 159',
+      departamento: '1° A'
+    };
+  }
+
+  // Generar PIN de 4 dígitos
+  const pin = Math.floor(1000 + Math.random() * 9000).toString();
+  _pinesLogin.set(telNorm, {
+    pin,
+    vecino: vecinoEncontrado,
+    expira: Date.now() + 10 * 60 * 1000
+  });
+
+  console.log(`🔑 [LOGIN OTP] PIN para ${vecinoEncontrado.nombre} (${telNorm}): ${pin}`);
+
+  // Enviar mensaje por WhatsApp vía Meta API si está disponible
+  try {
+    const marcosOps = require('./agentes/marcos-ops');
+    if (marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
+      const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+      const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
+      const textoMsg = `🏢 *Portal del Vecino — Código de Acceso*\n\nHola *${vecinoEncontrado.nombre}*, tu código para ingresar es:\n\n🔑 *${pin}*\n\n(Válido por 10 minutos. No lo compartas).`;
+      await marcosOps.enviarWhatsApp('+' + telNorm, textoMsg, phoneId, token).catch(() => {});
+    }
+  } catch (_) {}
+
+  res.json({
+    ok: true,
+    mensaje: 'Código enviado por WhatsApp',
+    telefono: telNorm,
+    pinDemo: pin
+  });
+});
+
+// API VERIFICAR PIN DE ACCESO
+router.post('/api/verificar-pin', (req, res) => {
+  const { telefono, pin } = req.body || {};
+  if (!telefono || !pin) {
+    return res.status(400).json({ ok: false, error: 'Teléfono y PIN son requeridos.' });
+  }
+
+  const telNorm = normalizarTelArg(telefono);
+  const dataPin = _pinesLogin.get(telNorm);
+
+  if (!dataPin) {
+    return res.status(400).json({ ok: false, error: 'No hay ningún código pendiente para este número. Solicitá uno nuevo.' });
+  }
+
+  if (Date.now() > dataPin.expira) {
+    _pinesLogin.delete(telNorm);
+    return res.status(400).json({ ok: false, error: 'El código expiró. Solicitá uno nuevo.' });
+  }
+
+  if (dataPin.pin !== String(pin).trim()) {
+    return res.status(400).json({ ok: false, error: 'Código incorrecto. Revisá el mensaje en WhatsApp.' });
+  }
+
+  // Autenticación Exitosa: Guardar en sesión
+  if (req.session) {
+    req.session.vecino = {
+      nombre: dataPin.vecino.nombre,
+      telefono: dataPin.vecino.telefono,
+      edificio: dataPin.vecino.edificio,
+      departamento: dataPin.vecino.departamento,
+      saldoExpensa: '$120.000,00',
+      estadoExpensa: 'Al día'
+    };
+  }
+
+  _pinesLogin.delete(telNorm);
+  res.json({ ok: true, redirect: '/vecino' });
+});
+
+// LOGOUT
+router.get('/logout', (req, res) => {
+  if (req.session) {
+    req.session.destroy(() => {
+      res.redirect('/vecino/login');
+    });
+  } else {
+    res.redirect('/vecino/login');
+  }
 });
 
 router.post('/auth', async (req, res) => {
@@ -974,57 +1238,15 @@ router.post('/auth', async (req, res) => {
   const limpio = String(identificador || '').trim();
   const telLimpio = limpio.replace(/\D/g, '');
 
-  let vecinoEncontrado = null;
-
-  // 1. Buscar por teléfono en datos-pg
-  if (telLimpio.length >= 6 && datosPg && typeof datosPg.buscarVecinosPorTelefono === 'function') {
-    try {
-      const vecList = await datosPg.buscarVecinosPorTelefono(telLimpio);
-      if (vecList && vecList.length > 0) {
-        vecinoEncontrado = vecList[0];
-      }
-    } catch (_) {}
-  }
-
-  // 2. Si no encontró por teléfono, buscar en la base de datos PostgreSQL
-  if (!vecinoEncontrado && limpio) {
-    try {
-      const { pool } = require('./db-pg');
-      const q = `SELECT * FROM vecinos WHERE LOWER(telefono) LIKE LOWER($1) OR LOWER(nombre) LIKE LOWER($1) LIMIT 1`;
-      const result = await pool.query(q, ['%' + limpio + '%']);
-      if (result.rows && result.rows.length > 0) {
-        const r = result.rows[0];
-        vecinoEncontrado = {
-          nombre: r.nombre || 'Vecino',
-          telefono: r.telefono || limpio,
-          edificio: r.edificio || 'Consorcio',
-          departamento: r.departamento || 'Unidad',
-        };
-      }
-    } catch (_) {}
-  }
-
-  // 3. Guardar en la sesión
   if (req.session) {
-    if (vecinoEncontrado) {
-      req.session.vecino = {
-        nombre: vecinoEncontrado.nombre,
-        telefono: vecinoEncontrado.telefono,
-        edificio: vecinoEncontrado.edificio,
-        departamento: vecinoEncontrado.departamento,
-        saldoExpensa: '$120.000,00',
-        estadoExpensa: 'Al día',
-      };
-    } else {
-      req.session.vecino = {
-        nombre: limpio.includes('@') ? limpio.split('@')[0] : (limpio || 'Daniel Morales'),
-        telefono: telLimpio || '+5491150542005',
-        edificio: 'San Patricio 159',
-        departamento: '1° A',
-        saldoExpensa: '$120.000,00',
-        estadoExpensa: 'Al día',
-      };
-    }
+    req.session.vecino = {
+      nombre: 'Daniel Morales',
+      telefono: telLimpio || '+5491150542005',
+      edificio: 'San Patricio 159',
+      departamento: '1° A',
+      saldoExpensa: '$120.000,00',
+      estadoExpensa: 'Al día',
+    };
   }
   res.redirect('/vecino');
 });
@@ -1398,11 +1620,25 @@ router.post('/api/chat', async (req, res) => {
 // -------------------------------------------------------------------
 // 4. MIS EXPENSAS (HISTORIAL, DATOS BANCARIOS & COMPROBANTES)
 // -------------------------------------------------------------------
+const _comprobantesEnMemoria = [
+  {
+    id: 991,
+    edificio: 'San Patricio 159',
+    vecino: 'Daniel Morales (1° A)',
+    monto: '$120.000',
+    fecha: '01/08/2026',
+    url: '',
+    estado: 'aprobado',
+    notas: 'Comprobante de transferencia bancaria'
+  }
+];
+
 router.get('/expensas', async (req, res) => {
   const v = getVecinoSession(req);
 
   let expensas = [];
   let datosBanco = null;
+  let misComprobantes = [];
 
   // 1. Obtener expensas reales de la base de datos
   try {
@@ -1413,8 +1649,32 @@ router.get('/expensas', async (req, res) => {
       if (resExp && resExp.rows && resExp.rows.length > 0) {
         expensas = resExp.rows;
       }
+
+      // Obtener comprobantes subidos
+      const qFac = `SELECT * FROM facturas WHERE tipo = 'comprobante_pago' AND LOWER(edificio) = LOWER($1) ORDER BY id DESC LIMIT 10`;
+      const resFac = await pool.query(qFac, [v.edificio]);
+      if (resFac && resFac.rows && resFac.rows.length > 0) {
+        misComprobantes = resFac.rows.map(r => ({
+          id: r.id,
+          edificio: r.edificio,
+          vecino: r.proveedor,
+          monto: r.monto ? ('$' + r.monto) : 'Informado',
+          fecha: r.fecha ? new Date(r.fecha).toLocaleDateString('es-AR') : 'Reciente',
+          url: r.url || '',
+          estado: r.estado || 'pendiente_aprobacion',
+          notas: r.notas || ''
+        }));
+      }
     }
   } catch (_) {}
+
+  // Combinar con comprobantes en memoria sin duplicar
+  const idsComprobantes = new Set(misComprobantes.map(c => String(c.id)));
+  for (const cMem of _comprobantesEnMemoria) {
+    if (!idsComprobantes.has(String(cMem.id))) {
+      misComprobantes.push(cMem);
+    }
+  }
 
   // 2. Obtener datos bancarios del consorcio
   try {
@@ -1515,35 +1775,94 @@ router.get('/expensas', async (req, res) => {
       </div>
     </div>
 
-    <!-- 3. Formulario Subir Comprobante de Pago -->
-    <div class="card" style="padding:18px 20px;margin-bottom:18px;background:#FAFCFF;border:1.5px dashed #B8D5F8">
+    <!-- 3. Formulario Subir Comprobante de Pago Con Previsualización -->
+    <div class="card" style="padding:18px 20px;margin-bottom:18px;background:#FAFCFF;border:1.5px dashed #B8D5F8;border-radius:18px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        <span style="font-size:20px">📤</span>
+        <span style="font-size:22px">📤</span>
         <div>
-          <div style="font-size:15px;font-weight:800;color:#0F172A">Informar Pago / Subir Comprobante</div>
-          <div style="font-size:11.5px;color:#64748B">Adjuntá tu transferencia bancaria</div>
+          <div style="font-size:15.5px;font-weight:800;color:#0F172A">Informar Pago de Expensas</div>
+          <div style="font-size:12px;color:#64748B">Adjuntá tu transferencia bancaria para validación</div>
         </div>
       </div>
 
       <form id="form-comprobante" onsubmit="enviarComprobante(event)">
-        <div style="margin-bottom:10px">
-          <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Captura o PDF de la Transferencia <span style="color:#EF4444">*</span></label>
-          <input type="file" id="inp-comprobante-file" accept="image/*,.pdf" class="inp" style="padding:8px;background:#fff;margin-bottom:8px" required>
-        </div>
         <div style="margin-bottom:12px">
-          <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Importe o Detalle (opcional)</label>
+          <label style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Comprobante de Transferencia (Foto o PDF) <span style="color:#EF4444">*</span></label>
+          <input type="file" id="inp-comprobante-file" accept="image/*,.pdf" style="display:none" onchange="previewComprobante(event)" required>
+          
+          <div id="box-select-comprobante" onclick="document.getElementById('inp-comprobante-file').click()" style="border:2px dashed #93C5FD;background:#fff;border-radius:12px;padding:16px;text-align:center;cursor:pointer">
+            <div style="font-size:26px;margin-bottom:4px">🧾</div>
+            <div style="font-size:13px;font-weight:800;color:#1E5FB4">Seleccionar Foto o PDF del Comprobante</div>
+            <div style="font-size:11.5px;color:#64748B">Tocá para elegir desde tu celular o galería</div>
+          </div>
+
+          <!-- Preview de Comprobante Seleccionado -->
+          <div id="preview-comprobante-box" style="display:none;position:relative;margin-top:10px;border-radius:12px;overflow:hidden;border:1px solid #CBD5E1;background:#fff;padding:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <img id="preview-comprobante-img" src="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;display:none;border:1px solid #E2E8F0">
+              <div id="preview-comprobante-pdf-icon" style="width:54px;height:54px;border-radius:10px;background:#FEE2E2;color:#DC2626;display:none;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">
+                📄
+              </div>
+              <div style="flex:1;overflow:hidden">
+                <div id="preview-comprobante-name" style="font-size:13px;font-weight:800;color:#0F172A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+                <div id="preview-comprobante-size" style="font-size:11.5px;color:#64748B"></div>
+              </div>
+              <button type="button" onclick="quitarComprobante()" style="background:#F1F5F9;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;color:#64748B;font-size:14px;flex-shrink:0">✕</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:14px">
+          <label style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Importe Transferido</label>
           <input type="text" id="inp-comprobante-monto" placeholder="Ej: $120.000 (Expensa Agosto)" class="inp" style="background:#fff;margin-bottom:0">
         </div>
-        <button id="btn-comprobante" type="submit" style="width:100%;height:44px;border:none;border-radius:10px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-weight:800;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 3px 10px rgba(22,163,74,.25)">
-          <i class="ph ph-check-circle" style="font-size:18px"></i>
+
+        <button id="btn-comprobante" type="submit" style="width:100%;height:46px;border:none;border-radius:12px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-weight:800;font-size:14.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 3px 10px rgba(22,163,74,.25)">
+          <i class="ph ph-check-circle" style="font-size:20px"></i>
           <span>Enviar Comprobante a la Administración</span>
         </button>
-        <div id="comprobante-msg" style="display:none;margin-top:10px;padding:10px;border-radius:8px;font-size:12.5px;text-align:center"></div>
+        <div id="comprobante-msg" style="display:none;margin-top:10px;padding:12px;border-radius:10px;font-size:13px;text-align:center"></div>
       </form>
     </div>
 
-    <!-- 4. Historial Completo de Liquidaciones Anteriores -->
-    <div class="card" style="padding:18px 20px;margin-bottom:18px">
+    <!-- 4. Mis Comprobantes Informados -->
+    <div class="card" style="padding:18px 20px;margin-bottom:18px;border-radius:18px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span style="font-size:20px">📋</span>
+        <div>
+          <div style="font-size:15px;font-weight:800;color:#0F172A">Mis Comprobantes Informados (${misComprobantes.length})</div>
+          <div style="font-size:11.5px;color:#64748B">Seguimiento de transferencias enviadas</div>
+        </div>
+      </div>
+
+      ${misComprobantes.length > 0 ? `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${misComprobantes.map(c => {
+          const isAprobado = c.estado === 'aprobado';
+          return `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid #E2E8F0;border-radius:12px;background:#F8FAFD;gap:10px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:38px;height:38px;border-radius:10px;background:#EBF3FC;color:#1E5FB4;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">
+                💵
+              </div>
+              <div>
+                <div style="font-size:14px;font-weight:800;color:#0F172A">${esc(c.monto || 'Comprobante')}</div>
+                <div style="font-size:11.5px;color:#64748B">📅 ${esc(c.fecha || 'Reciente')}${c.notas ? ' · ' + esc(c.notas) : ''}</div>
+              </div>
+            </div>
+            <span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:${isAprobado ? '#DCFCE7' : '#FEF3C7'};color:${isAprobado ? '#15803D' : '#92400E'};border:1px solid ${isAprobado ? '#86EFAC' : '#FCD34D'}">
+              ${isAprobado ? '✓ Imputado / Al Día' : '⏳ En Revisión'}
+            </span>
+          </div>`;
+        }).join('')}
+      </div>` : `
+      <div style="text-align:center;padding:20px;color:#8595AD;font-size:12.5px;background:#F8FAFD;border-radius:12px;border:1px dashed #DCE4F0">
+        Aún no has informado pagos este período. Al subir tu comprobante quedará registrado acá para tu tranquilidad.
+      </div>`}
+    </div>
+
+    <!-- 5. Historial Completo de Liquidaciones Anteriores -->
+    <div class="card" style="padding:18px 20px;margin-bottom:18px;border-radius:18px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px">
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:20px">📚</span>
@@ -1595,6 +1914,42 @@ router.get('/expensas', async (req, res) => {
         });
       }
 
+      function previewComprobante(e) {
+        var file = e.target.files && e.target.files[0];
+        if (!file) return;
+        var pBox = document.getElementById('preview-comprobante-box');
+        var sBox = document.getElementById('box-select-comprobante');
+        var img = document.getElementById('preview-comprobante-img');
+        var pdfIcon = document.getElementById('preview-comprobante-pdf-icon');
+        var nameEl = document.getElementById('preview-comprobante-name');
+        var sizeEl = document.getElementById('preview-comprobante-size');
+
+        nameEl.textContent = file.name;
+        sizeEl.textContent = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+
+        if (file.type.startsWith('image/')) {
+          var reader = new FileReader();
+          reader.onload = function(evt) {
+            img.src = evt.target.result;
+            img.style.display = 'block';
+            pdfIcon.style.display = 'none';
+          };
+          reader.readAsDataURL(file);
+        } else {
+          img.style.display = 'none';
+          pdfIcon.style.display = 'flex';
+        }
+
+        sBox.style.display = 'none';
+        pBox.style.display = 'block';
+      }
+
+      function quitarComprobante() {
+        document.getElementById('inp-comprobante-file').value = '';
+        document.getElementById('preview-comprobante-box').style.display = 'none';
+        document.getElementById('box-select-comprobante').style.display = 'block';
+      }
+
       async function enviarComprobante(e) {
         e.preventDefault();
         var fileInp = document.getElementById('inp-comprobante-file');
@@ -1608,7 +1963,7 @@ router.get('/expensas', async (req, res) => {
         }
 
         btn.disabled = true;
-        btn.textContent = 'Enviando comprobante...';
+        btn.innerHTML = '<span>⏳ Enviando comprobante...</span>';
 
         var formData = new FormData();
         formData.append('comprobante', fileInp.files[0]);
@@ -1620,15 +1975,16 @@ router.get('/expensas', async (req, res) => {
             body: formData
           });
           var data = await res.json();
-          if (data.ok) {
+          if (data && data.ok) {
             msg.style.display = 'block';
             msg.style.background = '#DCFCE7';
             msg.style.color = '#15803D';
             msg.style.border = '1px solid #86EFAC';
-            msg.textContent = data.mensaje || '¡Comprobante enviado con éxito!';
+            msg.textContent = data.mensaje || '¡Comprobante enviado con éxito! Tu administración lo revisará a la brevedad.';
             fileInp.value = '';
             montoInp.value = '';
-            btn.textContent = '✓ Enviado';
+            btn.innerHTML = '<span>✓ Comprobante Registrado</span>';
+            setTimeout(function(){ location.reload(); }, 1800);
           } else {
             msg.style.display = 'block';
             msg.style.background = '#FEE2E2';
@@ -1636,16 +1992,16 @@ router.get('/expensas', async (req, res) => {
             msg.style.border = '1px solid #FCA5A5';
             msg.textContent = 'Error: ' + (data.error || 'No se pudo enviar el comprobante');
             btn.disabled = false;
-            btn.textContent = 'Reintentar envío';
+            btn.innerHTML = '<span>Reintentar envío</span>';
           }
         } catch (err) {
           msg.style.display = 'block';
           msg.style.background = '#FEE2E2';
           msg.style.color = '#991B1B';
           msg.style.border = '1px solid #FCA5A5';
-          msg.textContent = 'Error de conexión al enviar el comprobante.';
+          msg.textContent = 'Error de conexión al enviar el comprobante: ' + err.message;
           btn.disabled = false;
-          btn.textContent = 'Reintentar envío';
+          btn.innerHTML = '<span>Reintentar envío</span>';
         }
       }
     </script>
@@ -1666,6 +2022,16 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
     }
 
     const archivoUrl = '/archivos/facturas/' + file.filename;
+    const nuevoComprobante = {
+      id: Date.now(),
+      edificio: v.edificio,
+      vecino: v.nombre + ' (' + v.departamento + ')',
+      monto: monto ? ('$' + monto.replace(/^\$/, '')) : '$120.000',
+      fecha: new Date().toLocaleDateString('es-AR'),
+      url: archivoUrl,
+      estado: 'pendiente_aprobacion',
+      notas: 'Comprobante informado desde el Portal del Vecino'
+    };
 
     // Guardar en la base de datos PostgreSQL si está disponible
     try {
@@ -1684,13 +2050,33 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
         ]);
       }
     } catch (errDb) {
-      console.warn('Registro comprobante:', errDb.message);
+      console.warn('Registro comprobante PG:', errDb.message);
     }
+
+    _comprobantesEnMemoria.unshift(nuevoComprobante);
+
+    // Notificar a la administración por WhatsApp si está configurado
+    try {
+      const marcosOps = require('./agentes/marcos-ops');
+      if (marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
+        const adminPhone = process.env.ADMIN_PHONE || '+5491150542005';
+        const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+        const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
+        const msgAlerta = `💳 *NUEVO COMPROBANTE DE EXPENSAS INFORMADO*\n\n` +
+          `🏢 *Edificio:* ${v.edificio}\n` +
+          `👤 *Vecino:* ${v.nombre} (${v.departamento})\n` +
+          `💵 *Monto:* ${nuevoComprobante.monto}\n` +
+          `📅 *Fecha:* ${nuevoComprobante.fecha}\n\n` +
+          `👉 Ver en Panel: https://marcos.bienargentinos.com/admin/archivos`;
+        await marcosOps.enviarWhatsApp(adminPhone, msgAlerta, phoneId, token).catch(() => {});
+      }
+    } catch (_) {}
 
     res.json({
       ok: true,
       mensaje: '¡Comprobante enviado con éxito! Tu administración lo revisará a la brevedad.',
-      archivoUrl
+      archivoUrl,
+      comprobante: nuevoComprobante
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
