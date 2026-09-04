@@ -428,23 +428,30 @@ function getVecinoSession(req) {
   if (req.session && req.session.vecino) {
     return req.session.vecino;
   }
-  // Default de prueba
+  // Default de prueba con soporte multi-unidad
   return {
+    usuario_id: 1,
     nombre: 'Daniel Morales',
+    email: 'daniel@consorcio.ai',
     telefono: '+5491150542005',
     edificio: 'San Patricio 159',
     departamento: '1° A',
+    rol: 'propietario',
+    puede_ver_expensas: true,
+    timbre_activo: true,
+    timbre_silencio_desde: '23:00',
+    timbre_silencio_hasta: '07:30',
     saldoExpensa: '$120.000,00',
     estadoExpensa: 'Al día',
+    unidades: [
+      { edificio: 'San Patricio 159', departamento: '1° A', rol: 'propietario', puede_ver_expensas: true },
+      { edificio: 'San Patricio 159', departamento: '4° C', rol: 'propietario', puede_ver_expensas: true }
+    ]
   };
 }
 
 function shellVecino(title, activeTab, content, vecinoData) {
-  const v = vecinoData || {
-    nombre: 'Daniel Morales',
-    edificio: 'San Patricio 159',
-    departamento: '1° A',
-  };
+  const v = vecinoData || getVecinoSession({});
 
   return `<!DOCTYPE html>
 <html lang="es-AR">
@@ -534,19 +541,31 @@ function shellVecino(title, activeTab, content, vecinoData) {
           ${v.nombre.split(' ').map(n=>n[0]).slice(0,2).join('')}
         </div>
         <div>
-          <div style="font-size:17px;font-weight:900;line-height:1.2;letter-spacing:-.01em">Hola, ${v.nombre.split(' ')[0]} 👋</div>
-          <div style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:rgba(255,255,255,.85);margin-top:2px">
-            <span>${v.edificio}</span> · <span style="background:rgba(255,255,255,.2);padding:1px 6px;border-radius:6px">Depto ${v.departamento}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em">Hola, ${v.nombre.split(' ')[0]} 👋</span>
+            ${v.rol === 'turista' ? '<span style="font-size:10px;font-weight:800;background:#38BDF8;color:#0F172A;padding:1px 6px;border-radius:6px">🧳 Huésped</span>' :
+              v.rol === 'asistente' ? '<span style="font-size:10px;font-weight:800;background:#FBBF24;color:#0F172A;padding:1px 6px;border-radius:6px">🏢 Gestor</span>' :
+              v.rol === 'inquilino' ? '<span style="font-size:10px;font-weight:800;background:#4ADE80;color:#0F172A;padding:1px 6px;border-radius:6px">🔑 Inquilino</span>' :
+              '<span style="font-size:10px;font-weight:800;background:rgba(255,255,255,.25);color:#fff;padding:1px 6px;border-radius:6px">👑 Propietario</span>'}
           </div>
+          ${v.unidades && v.unidades.length > 1 ? `
+          <button type="button" onclick="abrirModalCambiarUnidad()" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#FBBF24;margin-top:3px;background:rgba(0,0,0,.3);border:1px solid rgba(251,191,36,0.5);border-radius:6px;padding:2px 8px;cursor:pointer">
+            <span>🏢 ${esc(v.edificio)} · Depto ${esc(v.departamento)}</span>
+            <span style="font-size:9px">▼</span>
+          </button>
+          ` : `
+          <div style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:rgba(255,255,255,.85);margin-top:2px">
+            <span>${esc(v.edificio)}</span> · <span style="background:rgba(255,255,255,.2);padding:1px 6px;border-radius:6px">Depto ${esc(v.departamento)}</span>
+          </div>
+          `}
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <button onclick="toggleTheme()" style="width:36px;height:36px;border-radius:50%;border:none;background:rgba(255,255,255,.15);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff">
           <i class="ph ph-moon" style="font-size:18px"></i>
         </button>
-        <a href="/vecino/novedades" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;color:#fff;position:relative">
-          <i class="ph ph-bell-simple" style="font-size:19px"></i>
-          <span style="position:absolute;top:7px;right:7px;width:7px;height:7px;background:#EF4444;border-radius:50%"></span>
+        <a href="/vecino/logout" title="Cerrar sesión" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none">
+          <i class="ph ph-sign-out" style="font-size:18px"></i>
         </a>
       </div>
     </div>
@@ -569,7 +588,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
     </a>
     
     <!-- Botón Central QR Portería -->
-    <a href="/porteria/San%20Patricio%20159" style="position:relative;top:-10px;text-decoration:none">
+    <a href="/porteria/${encodeURIComponent(v.edificio || 'San Patricio 159')}" style="position:relative;top:-10px;text-decoration:none">
       <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(15,50,106,.35);border:3px solid #fff">
         <i class="ph ph-qr-code" style="font-size:26px"></i>
       </div>
@@ -580,11 +599,66 @@ function shellVecino(title, activeTab, content, vecinoData) {
       <span class="nav-icon"><i class="ph ph-calendar-check${activeTab === 'amenities' ? '-fill' : ''}"></i></span>
       <span>Amenities</span>
     </a>
+    ${v.puede_ver_expensas !== false ? `
     <a href="/vecino/expensas" class="${activeTab === 'expensas' ? 'active' : ''}">
       <span class="nav-icon"><i class="ph ph-receipt${activeTab === 'expensas' ? '-fill' : ''}"></i></span>
       <span>Expensas</span>
-    </a>
+    </a>` : `
+    <a href="/vecino/novedades" class="${activeTab === 'novedades' ? 'active' : ''}">
+      <span class="nav-icon"><i class="ph ph-bell-simple${activeTab === 'novedades' ? '-fill' : ''}"></i></span>
+      <span>Avisos</span>
+    </a>`}
   </nav>
+
+  <!-- MODAL CAMBIAR UNIDAD (MULTI-PROPIEDAD) -->
+  ${v.unidades && v.unidades.length > 1 ? `
+  <div id="modal-cambiar-unidad" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:99999;align-items:center;justify-content:center;padding:16px">
+    <div style="background:#fff;border-radius:20px;max-width:380px;width:100%;padding:22px 20px;box-shadow:0 12px 35px rgba(0,0,0,0.3)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div>
+          <div style="font-size:16px;font-weight:900;color:#0F172A">Seleccionar Propiedad</div>
+          <div style="font-size:12px;color:#64748B">Cambiá de departamento en 1 toque</div>
+        </div>
+        <button type="button" onclick="cerrarModalCambiarUnidad()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748B">✕</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${v.unidades.map(u => {
+          const isActiva = u.edificio.toLowerCase() === v.edificio.toLowerCase() && u.departamento.toLowerCase() === v.departamento.toLowerCase();
+          return `
+          <div onclick="seleccionarUnidadActiva('${escJs(u.edificio)}', '${escJs(u.departamento)}')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:12px;border:2px solid ${isActiva ? '#2E6FC0' : '#E2E8F0'};background:${isActiva ? '#EFF6FF' : '#F8FAFD'};cursor:pointer">
+            <div>
+              <div style="font-size:14px;font-weight:800;color:${isActiva ? '#1E40AF' : '#0F172A'}">${esc(u.edificio)}</div>
+              <div style="font-size:12px;color:#64748B">Depto <strong>${esc(u.departamento)}</strong> · Rol: <strong>${esc(u.rol || 'propietario')}</strong></div>
+            </div>
+            ${isActiva ? '<span style="font-size:12px;color:#2E6FC0;font-weight:900">✓ Activo</span>' : ''}
+          </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  </div>
+  <script>
+    function abrirModalCambiarUnidad() {
+      var m = document.getElementById('modal-cambiar-unidad');
+      if (m) m.style.display = 'flex';
+    }
+    function cerrarModalCambiarUnidad() {
+      var m = document.getElementById('modal-cambiar-unidad');
+      if (m) m.style.display = 'none';
+    }
+    async function seleccionarUnidadActiva(edificio, depto) {
+      try {
+        var res = await fetch('/vecino/api/cambiar-unidad', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ edificio: edificio, departamento: depto })
+        });
+        var data = await res.json();
+        if (data && data.ok) location.reload();
+      } catch(_) { location.reload(); }
+    }
+  </script>
+  ` : ''}
 
   <!-- MODAL LLAMADA ENTRANTE DE PORTERÍA (TIMBRE VIRTUAL & VOZ WEBRTC FULLSCREEN) -->
   <audio id="audio-webrtc-vecino" autoplay playsinline style="display:none"></audio>
@@ -1127,94 +1201,284 @@ router.get('/login', (req, res) => {
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%,#1B4D9B 100%);color:#fff;font-family:'Hanken Grotesk',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.login-card{background:#ffffff;color:#16233B;border-radius:24px;padding:32px 24px;width:100%;max-width:420px;box-shadow:0 25px 60px rgba(0,0,0,.45)}
-.inp{width:100%;height:48px;border:1.5px solid #DDE3EE;border-radius:12px;padding:0 14px;font-size:15px;color:#16233B;background:#F8FAFD;outline:none;margin-bottom:14px;font-family:inherit}
+.login-card{background:#ffffff;color:#16233B;border-radius:24px;padding:30px 22px;width:100%;max-width:420px;box-shadow:0 25px 60px rgba(0,0,0,.45)}
+.inp{width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:12px;padding:0 14px;font-size:14.5px;color:#16233B;background:#F8FAFD;outline:none;margin-bottom:12px;font-family:inherit}
 .inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.12)}
 .btn-primary{width:100%;height:48px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-size:15px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 14px rgba(15,50,106,.3);font-family:inherit}
 .btn-secondary{width:100%;height:44px;border:1.5px solid #E2E8F0;border-radius:12px;background:#F8FAFD;color:#475569;font-size:13.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit}
-.btn-pwa{width:100%;height:42px;border:1.5px solid #BFDBFE;border-radius:12px;background:#EFF6FF;color:#1E5FB4;font-size:13.5px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:16px}
+.btn-pwa{width:100%;height:40px;border:1.5px solid #BFDBFE;border-radius:12px;background:#EFF6FF;color:#1E5FB4;font-size:13px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:14px}
 .pin-box{width:100%;height:54px;border:2px solid #2E6FC0;border-radius:14px;font-size:26px;font-weight:900;text-align:center;letter-spacing:14px;color:#0F326A;background:#F8FAFD;outline:none;margin-bottom:16px}
 </style>
 </head>
 <body>
 <div class="login-card">
-  <div style="text-align:center;margin-bottom:20px">
-    <div style="width:58px;height:58px;border-radius:18px;background:linear-gradient(135deg,#0F326A,#2E6FC0);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:28px;margin-bottom:12px;box-shadow:0 8px 20px rgba(15,50,106,.25)">
+  <div style="text-align:center;margin-bottom:18px">
+    <div style="width:54px;height:54px;border-radius:18px;background:linear-gradient(135deg,#0F326A,#2E6FC0);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:26px;margin-bottom:10px;box-shadow:0 8px 20px rgba(15,50,106,.25)">
       🏢
     </div>
-    <h1 style="font-size:22px;font-weight:900;letter-spacing:-.02em;margin-bottom:4px;color:#0F326A">Mi Consorcio</h1>
-    <p style="font-size:13px;color:#64748B">Acceso seguro para vecinos con WhatsApp</p>
+    <h1 style="font-size:21px;font-weight:900;letter-spacing:-.02em;margin-bottom:2px;color:#0F326A">Mi Consorcio</h1>
+    <p style="font-size:12.5px;color:#64748B">Acceso para Propietarios, Inquilinos y Gestores</p>
   </div>
 
   <button type="button" class="btn-pwa" onclick="instalarPwaLogin()">
     <span>📲 Instalar App en mi Celular</span>
   </button>
 
-  <!-- PASO 1: INGRESAR TELÉFONO -->
-  <div id="paso-1-telefono">
-    <form onsubmit="solicitarPinWhatsApp(event)">
-      <label style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Número de Celular / WhatsApp</label>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-        <div style="height:48px;padding:0 12px;background:#F1F5F9;border:1.5px solid #DDE3EE;border-radius:12px;display:flex;align-items:center;gap:6px;font-weight:800;font-size:14px;color:#334155">
-          <span>🇦🇷</span> +54
-        </div>
-        <input id="inp-login-tel" type="tel" class="inp" style="margin-bottom:0" placeholder="Ej: 11 5054-2005" required>
-      </div>
-
-      <button id="btn-pedir-pin" type="submit" class="btn-primary" style="margin-bottom:12px">
-        <i class="ph ph-whatsapp-logo" style="font-size:20px"></i>
-        <span>Recibir Código por WhatsApp</span>
-      </button>
-    </form>
-
-    <div style="display:flex;align-items:center;margin:16px 0;gap:10px">
-      <div style="flex:1;height:1px;background:#E2E8F0"></div>
-      <span style="font-size:12px;color:#94A3B8;font-weight:700">O MODO RÁPIDO</span>
-      <div style="flex:1;height:1px;background:#E2E8F0"></div>
-    </div>
-
-    <!-- Acceso Directo de Prueba / Demo -->
-    <form action="/vecino/auth" method="POST">
-      <input type="hidden" name="identificador" value="5491150542005">
-      <button type="submit" class="btn-secondary">
-        <span>🚀 Ingresar como Daniel Morales (Demo)</span>
-      </button>
-    </form>
+  <!-- PESTAÑAS: EMAIL vs WHATSAPP -->
+  <div style="display:flex;background:#F1F5F9;border-radius:12px;padding:4px;margin-bottom:16px;gap:4px">
+    <button type="button" id="tab-btn-email" onclick="cambiarTabLogin('email')" style="flex:1;padding:8px 6px;border:none;border-radius:10px;font-weight:800;font-size:12.5px;cursor:pointer;background:#fff;color:#0F326A;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+      ✉️ Con Email
+    </button>
+    <button type="button" id="tab-btn-wa" onclick="cambiarTabLogin('wa')" style="flex:1;padding:8px 6px;border:none;border-radius:10px;font-weight:800;font-size:12.5px;cursor:pointer;background:transparent;color:#64748B">
+      💬 WhatsApp PIN
+    </button>
   </div>
 
-  <!-- PASO 2: INGRESAR CÓDIGO DE 4 DÍGITOS -->
-  <div id="paso-2-pin" style="display:none">
-    <div style="background:#DCFCE7;border:1px solid #86EFAC;border-radius:14px;padding:12px;margin-bottom:16px;text-align:center">
-      <div style="font-size:12.5px;color:#15803D;font-weight:800;margin-bottom:2px">💬 Te enviamos el código a tu WhatsApp:</div>
-      <div id="txt-tel-destino" style="font-size:14px;font-weight:900;color:#166534"></div>
-      <div id="txt-pin-hint" style="font-size:11.5px;color:#15803D;margin-top:4px;font-weight:700;display:none"></div>
+  <!-- SECCIÓN 1: LOGIN Y REGISTRO CON EMAIL -->
+  <div id="seccion-email">
+    <!-- Formulario Iniciar Sesión -->
+    <div id="box-login-email">
+      <form onsubmit="loginConEmail(event)">
+        <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Correo Electrónico</label>
+        <input id="inp-login-email" type="email" class="inp" placeholder="ejemplo@correo.com" required value="daniel@consorcio.ai">
+
+        <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Contraseña</label>
+        <input id="inp-login-pass" type="password" class="inp" placeholder="••••••••" required value="admin123">
+
+        <button id="btn-submit-login-email" type="submit" class="btn-primary" style="margin-bottom:12px">
+          <i class="ph ph-sign-in" style="font-size:20px"></i>
+          <span>Ingresar con Email</span>
+        </button>
+      </form>
+
+      <div style="text-align:center;margin-top:10px">
+        <button type="button" onclick="mostrarRegistroEmail(true)" style="background:none;border:none;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer">
+          ¿No tenés cuenta? Registrate acá
+        </button>
+      </div>
     </div>
 
-    <form onsubmit="verificarPinWhatsApp(event)">
-      <label style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:8px;text-align:center">Código de 4 Dígitos</label>
-      <input id="inp-login-pin" type="text" maxlength="4" class="pin-box" placeholder="••••" required autofocus>
+    <!-- Formulario Registro Nuevo Usuario -->
+    <div id="box-registro-email" style="display:none">
+      <form onsubmit="registrarConEmail(event)">
+        <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Nombre Completo</label>
+        <input id="inp-reg-nombre" type="text" class="inp" placeholder="Ej: Juan Pérez" required>
 
-      <button id="btn-verificar-pin" type="submit" class="btn-primary" style="margin-bottom:12px">
-        <i class="ph ph-lock-key-open" style="font-size:20px"></i>
-        <span>Ingresar a mi Edificio</span>
-      </button>
-    </form>
+        <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Correo Electrónico</label>
+        <input id="inp-reg-email" type="email" class="inp" placeholder="juan@correo.com" required>
 
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
-      <button type="button" onclick="volverPaso1()" style="background:none;border:none;color:#64748B;font-size:12.5px;font-weight:700;cursor:pointer">
-        ← Cambiar teléfono
-      </button>
-      <button type="button" onclick="reenviarPinWhatsApp()" style="background:none;border:none;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer">
-        🔄 Reenviar código
-      </button>
+        <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Celular / WhatsApp (para avisos y timbres)</label>
+        <input id="inp-reg-tel" type="tel" class="inp" placeholder="Ej: 11 5054-2005" required>
+
+        <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Contraseña</label>
+        <input id="inp-reg-pass" type="password" class="inp" placeholder="Mínimo 6 caracteres" required>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Depto</label>
+            <input id="inp-reg-depto" type="text" class="inp" placeholder="Ej: 1° A" required value="1° A">
+          </div>
+          <div>
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Rol</label>
+            <select id="inp-reg-rol" class="inp" style="padding:0 8px">
+              <option value="propietario">Propietario</option>
+              <option value="inquilino">Inquilino</option>
+              <option value="asistente">Gestor / Asistente</option>
+            </select>
+          </div>
+        </div>
+
+        <button id="btn-submit-reg" type="submit" class="btn-primary" style="margin-bottom:10px">
+          <span>Crear Cuenta e Ingresar</span>
+        </button>
+      </form>
+
+      <div style="text-align:center;margin-top:6px">
+        <button type="button" onclick="mostrarRegistroEmail(false)" style="background:none;border:none;color:#64748B;font-size:12.5px;font-weight:700;cursor:pointer">
+          ← Ya tengo cuenta, volver
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECCIÓN 2: LOGIN CON WHATSAPP Y PIN -->
+  <div id="seccion-wa" style="display:none">
+    <!-- PASO 1: INGRESAR TELÉFONO -->
+    <div id="paso-1-telefono">
+      <form onsubmit="solicitarPinWhatsApp(event)">
+        <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Número de Celular</label>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+          <div style="height:46px;padding:0 10px;background:#F1F5F9;border:1.5px solid #DDE3EE;border-radius:12px;display:flex;align-items:center;gap:4px;font-weight:800;font-size:13.5px;color:#334155">
+            <span>🇦🇷</span> +54
+          </div>
+          <input id="inp-login-tel" type="tel" class="inp" style="margin-bottom:0" placeholder="Ej: 11 5054-2005">
+        </div>
+
+        <button id="btn-pedir-pin" type="submit" class="btn-primary" style="margin-bottom:12px">
+          <i class="ph ph-whatsapp-logo" style="font-size:20px"></i>
+          <span>Recibir Código por WhatsApp</span>
+        </button>
+      </form>
+    </div>
+
+    <!-- PASO 2: INGRESAR CÓDIGO DE 4 DÍGITOS -->
+    <div id="paso-2-pin" style="display:none">
+      <div style="background:#DCFCE7;border:1px solid #86EFAC;border-radius:14px;padding:12px;margin-bottom:14px;text-align:center">
+        <div style="font-size:12px;color:#15803D;font-weight:800;margin-bottom:2px">Te enviamos el código a tu WhatsApp:</div>
+        <div id="txt-tel-destino" style="font-size:13.5px;font-weight:900;color:#166534"></div>
+        <div id="txt-pin-hint" style="font-size:11px;color:#15803D;margin-top:4px;font-weight:700;display:none"></div>
+      </div>
+
+      <form onsubmit="verificarPinWhatsApp(event)">
+        <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:8px;text-align:center">Código de 4 Dígitos</label>
+        <input id="inp-login-pin" type="text" maxlength="4" class="pin-box" placeholder="••••" autofocus>
+
+        <button id="btn-verificar-pin" type="submit" class="btn-primary" style="margin-bottom:12px">
+          <i class="ph ph-lock-key-open" style="font-size:20px"></i>
+          <span>Ingresar con PIN</span>
+        </button>
+      </form>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+        <button type="button" onclick="volverPaso1()" style="background:none;border:none;color:#64748B;font-size:12px;font-weight:700;cursor:pointer">
+          ← Cambiar número
+        </button>
+        <button type="button" onclick="reenviarPinWhatsApp()" style="background:none;border:none;color:#1E5FB4;font-size:12px;font-weight:700;cursor:pointer">
+          🔄 Reenviar código
+        </button>
+      </div>
     </div>
   </div>
 
   <div id="login-error-msg" style="display:none;margin-top:14px;padding:10px;border-radius:10px;background:#FEE2E2;border:1px solid #FCA5A5;color:#991B1B;font-size:12.5px;text-align:center"></div>
+
+  <!-- Acceso Directo de Prueba / Demo -->
+  <div style="margin-top:16px;border-top:1px solid #F1F5F9;padding-top:12px">
+    <form action="/vecino/auth" method="POST">
+      <button type="submit" class="btn-secondary" style="font-size:12.5px">
+        <span>🚀 Entrar como Daniel Morales (Demo Rápido)</span>
+      </button>
+    </form>
+  </div>
 </div>
 
 <script>
   var _telActual = '';
+
+  function cambiarTabLogin(tab) {
+    var btnEmail = document.getElementById('tab-btn-email');
+    var btnWa = document.getElementById('tab-btn-wa');
+    var secEmail = document.getElementById('seccion-email');
+    var secWa = document.getElementById('seccion-wa');
+    var err = document.getElementById('login-error-msg');
+    err.style.display = 'none';
+
+    if (tab === 'email') {
+      btnEmail.style.background = '#fff';
+      btnEmail.style.color = '#0F326A';
+      btnEmail.style.boxShadow = '0 1px 3px rgba(0,0,0,.08)';
+      btnWa.style.background = 'transparent';
+      btnWa.style.color = '#64748B';
+      btnWa.style.boxShadow = 'none';
+      secEmail.style.display = 'block';
+      secWa.style.display = 'none';
+    } else {
+      btnWa.style.background = '#fff';
+      btnWa.style.color = '#0F326A';
+      btnWa.style.boxShadow = '0 1px 3px rgba(0,0,0,.08)';
+      btnEmail.style.background = 'transparent';
+      btnEmail.style.color = '#64748B';
+      btnEmail.style.boxShadow = 'none';
+      secWa.style.display = 'block';
+      secEmail.style.display = 'none';
+    }
+  }
+
+  function mostrarRegistroEmail(mostrar) {
+    document.getElementById('box-login-email').style.display = mostrar ? 'none' : 'block';
+    document.getElementById('box-registro-email').style.display = mostrar ? 'block' : 'none';
+    document.getElementById('login-error-msg').style.display = 'none';
+  }
+
+  async function loginConEmail(e) {
+    e.preventDefault();
+    var email = document.getElementById('inp-login-email').value.trim();
+    var pass = document.getElementById('inp-login-pass').value;
+    var btn = document.getElementById('btn-submit-login-email');
+    var err = document.getElementById('login-error-msg');
+    err.style.display = 'none';
+
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ Verificando...</span>';
+
+    try {
+      var res = await fetch('/vecino/api/login-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, password: pass })
+      });
+      var data = await res.json();
+      if (data && data.ok) {
+        window.location.href = data.redirect || '/vecino';
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ph ph-sign-in" style="font-size:20px"></i><span>Ingresar con Email</span>';
+        err.style.display = 'block';
+        err.textContent = data.error || 'Email o contraseña incorrectos';
+      }
+    } catch (ex) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ph ph-sign-in" style="font-size:20px"></i><span>Ingresar con Email</span>';
+      err.style.display = 'block';
+      err.textContent = 'Error de conexión: ' + ex.message;
+    }
+  }
+
+  async function registrarConEmail(e) {
+    e.preventDefault();
+    var nombre = document.getElementById('inp-reg-nombre').value.trim();
+    var email = document.getElementById('inp-reg-email').value.trim();
+    var pass = document.getElementById('inp-reg-pass').value;
+    var tel = document.getElementById('inp-reg-tel').value.trim();
+    var depto = document.getElementById('inp-reg-depto').value.trim();
+    var rol = document.getElementById('inp-reg-rol').value;
+    var btn = document.getElementById('btn-submit-reg');
+    var err = document.getElementById('login-error-msg');
+    err.style.display = 'none';
+
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ Creando cuenta...</span>';
+
+    try {
+      var res = await fetch('/vecino/api/registro-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: nombre,
+          email: email,
+          password: pass,
+          telefono: tel,
+          edificio: 'San Patricio 159',
+          departamento: depto,
+          rol: rol
+        })
+      });
+      var data = await res.json();
+      if (data && data.ok) {
+        window.location.href = data.redirect || '/vecino';
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '<span>Crear Cuenta e Ingresar</span>';
+        err.style.display = 'block';
+        err.textContent = data.error || 'Error al registrar la cuenta';
+      }
+    } catch (ex) {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Crear Cuenta e Ingresar</span>';
+      err.style.display = 'block';
+      err.textContent = 'Error de conexión: ' + ex.message;
+    }
+  }
 
   async function solicitarPinWhatsApp(e) {
     if (e) e.preventDefault();
@@ -1292,13 +1556,13 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
         window.location.href = data.redirect || '/vecino';
       } else {
         btn.disabled = false;
-        btn.innerHTML = '<i class="ph ph-lock-key-open" style="font-size:20px"></i><span>Ingresar a mi Edificio</span>';
+        btn.innerHTML = '<i class="ph ph-lock-key-open" style="font-size:20px"></i><span>Ingresar con PIN</span>';
         err.style.display = 'block';
         err.textContent = data.error || 'Código incorrecto o expirado.';
       }
     } catch(ex) {
       btn.disabled = false;
-      btn.innerHTML = '<i class="ph ph-lock-key-open" style="font-size:20px"></i><span>Ingresar a mi Edificio</span>';
+      btn.innerHTML = '<i class="ph ph-lock-key-open" style="font-size:20px"></i><span>Ingresar con PIN</span>';
       err.style.display = 'block';
       err.textContent = 'Error de conexión: ' + ex.message;
     }
@@ -1322,7 +1586,133 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
 </html>`);
 });
 
-// API SOLICITAR PIN DE ACCESO
+// API LOGIN CON EMAIL Y CONTRASEÑA
+router.post('/api/login-email', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ ok: false, error: 'Email y contraseña son requeridos' });
+    }
+
+    const { obtenerUsuarioPorEmail, verificarPassword, obtenerUnidadesDeUsuario } = require('./db-pg');
+    const u = await obtenerUsuarioPorEmail(email);
+    if (!u) {
+      return res.status(400).json({ ok: false, error: 'No existe ninguna cuenta registrada con este email' });
+    }
+
+    if (!u.password_hash || !verificarPassword(password, u.password_hash)) {
+      return res.status(400).json({ ok: false, error: 'Contraseña incorrecta' });
+    }
+
+    const unidades = await obtenerUnidadesDeUsuario(u.id);
+    const uActiva = unidades.length > 0 ? unidades[0] : {
+      edificio: 'San Patricio 159',
+      departamento: '1° A',
+      rol: 'propietario',
+      puede_ver_expensas: true,
+      timbre_activo: true
+    };
+
+    if (req.session) {
+      req.session.vecino = {
+        usuario_id: u.id,
+        nombre: u.nombre || 'Vecino',
+        apellido: u.apellido || '',
+        email: u.email,
+        telefono: u.telefono || '',
+        edificio: uActiva.edificio,
+        departamento: uActiva.departamento,
+        rol: uActiva.rol || 'propietario',
+        puede_ver_expensas: uActiva.puede_ver_expensas !== false,
+        timbre_activo: uActiva.timbre_activo !== false,
+        timbre_silencio_desde: uActiva.timbre_silencio_desde || '23:00',
+        timbre_silencio_hasta: uActiva.timbre_silencio_hasta || '07:30',
+        saldoExpensa: '$120.000,00',
+        estadoExpensa: 'Al día',
+        unidades: unidades.length > 0 ? unidades : [uActiva]
+      };
+    }
+
+    res.json({ ok: true, redirect: '/vecino' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// API REGISTRO NUEVO USUARIO CON EMAIL
+router.post('/api/registro-email', async (req, res) => {
+  try {
+    const { email, password, nombre, apellido, telefono, edificio, departamento, rol } = req.body || {};
+    if (!email || !password || !nombre) {
+      return res.status(400).json({ ok: false, error: 'Email, contraseña y nombre son requeridos' });
+    }
+
+    const { registrarOUsuario, asignarUsuarioAUnidad, obtenerUnidadesDeUsuario } = require('./db-pg');
+    const u = await registrarOUsuario(email, password, nombre, apellido || '', telefono || '');
+
+    const edif = edificio || 'San Patricio 159';
+    const depto = departamento || '1° A';
+    const rolAsignado = rol || 'propietario';
+
+    await asignarUsuarioAUnidad(u.id, edif, depto, rolAsignado);
+    const unidades = await obtenerUnidadesDeUsuario(u.id);
+
+    if (req.session) {
+      req.session.vecino = {
+        usuario_id: u.id,
+        nombre: u.nombre,
+        apellido: u.apellido,
+        email: u.email,
+        telefono: u.telefono,
+        edificio: edif,
+        departamento: depto,
+        rol: rolAsignado,
+        puede_ver_expensas: rolAsignado !== 'turista',
+        timbre_activo: true,
+        timbre_silencio_desde: '23:00',
+        timbre_silencio_hasta: '07:30',
+        saldoExpensa: '$0,00',
+        estadoExpensa: 'Al día',
+        unidades: unidades
+      };
+    }
+
+    res.json({ ok: true, redirect: '/vecino' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// API CAMBIAR UNIDAD ACTIVA (SELECTOR MULTI-PROPIEDAD)
+router.post('/api/cambiar-unidad', async (req, res) => {
+  try {
+    const { edificio, departamento } = req.body || {};
+    if (!edificio || !departamento) return res.status(400).json({ ok: false, error: 'Faltan datos de la unidad' });
+
+    if (req.session && req.session.vecino) {
+      const v = req.session.vecino;
+      const uEncontrada = (v.unidades || []).find(u => 
+        u.edificio.toLowerCase() === edificio.toLowerCase() &&
+        u.departamento.toLowerCase() === departamento.toLowerCase()
+      );
+
+      v.edificio = edificio;
+      v.departamento = departamento;
+      if (uEncontrada) {
+        v.rol = uEncontrada.rol || 'propietario';
+        v.puede_ver_expensas = uEncontrada.puede_ver_expensas !== false;
+        v.timbre_activo = uEncontrada.timbre_activo !== false;
+        v.timbre_silencio_desde = uEncontrada.timbre_silencio_desde || '23:00';
+        v.timbre_silencio_hasta = uEncontrada.timbre_silencio_hasta || '07:30';
+      }
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// API SOLICITAR PIN DE ACCESO (WHATSAPP)
 router.post('/api/solicitar-pin', async (req, res) => {
   const { telefono } = req.body || {};
   if (!telefono || !String(telefono).trim()) {
@@ -1373,7 +1763,6 @@ router.post('/api/solicitar-pin', async (req, res) => {
   }
 
   if (!vecinoEncontrado) {
-    // Si no está en el padrón, permitimos registrarlo en el consorcio activo por defecto
     vecinoEncontrado = {
       nombre: 'Vecino',
       telefono: '+' + telNorm,
@@ -1412,7 +1801,7 @@ router.post('/api/solicitar-pin', async (req, res) => {
 });
 
 // API VERIFICAR PIN DE ACCESO
-router.post('/api/verificar-pin', (req, res) => {
+router.post('/api/verificar-pin', async (req, res) => {
   const { telefono, pin } = req.body || {};
   if (!telefono || !pin) {
     return res.status(400).json({ ok: false, error: 'Teléfono y PIN son requeridos.' });
@@ -1434,15 +1823,40 @@ router.post('/api/verificar-pin', (req, res) => {
     return res.status(400).json({ ok: false, error: 'Código incorrecto. Revisá el mensaje en WhatsApp.' });
   }
 
+  // Cargar unidades del usuario desde DB si existen
+  let unidades = [];
+  try {
+    const { pool, obtenerUnidadesDeUsuario } = require('./db-pg');
+    if (pool) {
+      const resU = await pool.query('SELECT id, email, nombre FROM usuarios WHERE REPLACE(REPLACE(REPLACE(telefono, " ", ""), "-", ""), "+", "") LIKE $1 LIMIT 1', ['%' + telNorm.slice(-8) + '%']);
+      if (resU && resU.rows && resU.rows[0]) {
+        unidades = await obtenerUnidadesDeUsuario(resU.rows[0].id);
+      }
+    }
+  } catch (_) {}
+
+  if (!unidades.length) {
+    unidades = [
+      { edificio: dataPin.vecino.edificio || 'San Patricio 159', departamento: dataPin.vecino.departamento || '1° A', rol: 'propietario', puede_ver_expensas: true }
+    ];
+  }
+
   // Autenticación Exitosa: Guardar en sesión
   if (req.session) {
     req.session.vecino = {
       nombre: dataPin.vecino.nombre,
       telefono: dataPin.vecino.telefono,
-      edificio: dataPin.vecino.edificio,
-      departamento: dataPin.vecino.departamento,
+      email: dataPin.vecino.email || (telNorm + '@vecino.consorcio.ai'),
+      edificio: unidades[0].edificio,
+      departamento: unidades[0].departamento,
+      rol: unidades[0].rol || 'propietario',
+      puede_ver_expensas: unidades[0].puede_ver_expensas !== false,
+      timbre_activo: true,
+      timbre_silencio_desde: '23:00',
+      timbre_silencio_hasta: '07:30',
       saldoExpensa: '$120.000,00',
-      estadoExpensa: 'Al día'
+      estadoExpensa: 'Al día',
+      unidades: unidades
     };
   }
 

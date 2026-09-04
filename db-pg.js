@@ -882,6 +882,225 @@ async function buscarTextoMensajeWa(waMsgId) {
     }
 }
 
+// ── GESTIÓN DE IDENTIDAD, ROLES MULTI-UNIDAD Y TIMBRES ─────────────────────────
+
+function hashPassword(password) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+    return `${salt}:${hash}`;
+}
+
+function verificarPassword(password, storedHash) {
+    if (!storedHash || !storedHash.includes(':')) return false;
+    const [salt, originalHash] = storedHash.split(':');
+    const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+    return hash === originalHash;
+}
+
+async function registrarOUsuario(email, password, nombre, apellido, telefono) {
+    const emailNorm = String(email || '').trim().toLowerCase();
+    if (!emailNorm) throw new Error('Email requerido');
+    const passHash = password ? hashPassword(password) : null;
+
+    const res = await pool.query(
+        `INSERT INTO usuarios (email, password_hash, nombre, apellido, telefono, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+         ON CONFLICT (email) DO UPDATE 
+         SET nombre = COALESCE(NULLIF(EXCLUDED.nombre, ''), usuarios.nombre),
+             apellido = COALESCE(NULLIF(EXCLUDED.apellido, ''), usuarios.apellido),
+             telefono = COALESCE(NULLIF(EXCLUDED.telefono, ''), usuarios.telefono),
+             password_hash = COALESCE(EXCLUDED.password_hash, usuarios.password_hash),
+             updated_at = NOW()
+         RETURNING id, email, nombre, apellido, telefono`,
+        [emailNorm, passHash, nombre || '', apellido || '', telefono || '']
+    );
+    return res.rows[0];
+}
+
+async function obtenerUsuarioPorEmail(email) {
+    const emailNorm = String(email || '').trim().toLowerCase();
+    if (!emailNorm) return null;
+    const res = await pool.query('SELECT * FROM usuarios WHERE LOWER(email) = $1 AND activo = TRUE', [emailNorm]);
+    return res.rows[0] || null;
+}
+
+async function obtenerUsuarioPorId(id) {
+    if (!id) return null;
+    const res = await pool.query('SELECT id, email, nombre, apellido, telefono, activo, created_at FROM usuarios WHERE id = $1', [id]);
+    return res.rows[0] || null;
+}
+
+async function obtenerUnidadesDeUsuario(usuarioId) {
+    if (!usuarioId) return [];
+    // 1. Unidades directas asignadas al usuario
+    const q1 = `
+        SELECT uu.id AS asignacion_id, uu.edificio, uu.departamento, uu.rol,
+               uu.fecha_desde, uu.fecha_hasta, uu.timbre_activo,
+               uu.timbre_silencio_desde, uu.timbre_silencio_hasta,
+               uu.puede_ver_expensas, uu.estado, uu.notas
+        FROM usuario_unidades uu
+        WHERE uu.usuario_id = $1 AND uu.estado = 'activo'
+          AND (uu.fecha_hasta IS NULL OR uu.fecha_hasta >= NOW())
+        ORDER BY uu.id ASC
+    `;
+    const res1 = await pool.query(q1, [usuarioId]);
+    const unidades = res1.rows || [];
+
+    // 2. Unidades asignadas a través de asistente_asignaciones (si el usuario es asistente)
+    const q2 = `
+        SELECT aa.id AS asistente_asig_id, aa.edificio, aa.departamento, 'asistente' AS rol,
+               NULL AS fecha_desde, NULL AS fecha_hasta, FALSE AS timbre_activo,
+               '23:00' AS timbre_silencio_desde, '07:30' AS timbre_silencio_hasta,
+               TRUE AS puede_ver_expensas, 'activo' AS estado,
+               'Asignado a portafolio de gestión' AS notas
+        FROM asistente_asignaciones aa
+        WHERE aa.asistente_usuario_id = $1 AND aa.activo = TRUE
+        ORDER BY aa.id ASC
+    `;
+    const res2 = await pool.query(q2, [usuarioId]);
+    if (res2 && res2.rows) {
+        for (const row of res2.rows) {
+            const yaExiste = unidades.some(u => 
+                u.edificio.toLowerCase() === row.edificio.toLowerCase() && 
+                u.departamento.toLowerCase() === row.departamento.toLowerCase()
+            );
+            if (!yaExiste) unidades.push(row);
+        }
+    }
+
+    return unidades;
+}
+
+async function asignarUsuarioAUnidad(usuarioId, edificio, departamento, rol, opts = {}) {
+    const {
+        fecha_desde = null,
+        fecha_hasta = null,
+        timbre_activo = true,
+        timbre_silencio_desde = '23:00',
+        timbre_silencio_hasta = '07:30',
+        puede_ver_expensas = (rol !== 'turista'),
+        asignado_por_usuario_id = null,
+        notas = ''
+    } = opts;
+
+    const res = await pool.query(
+        `INSERT INTO usuario_unidades 
+         (usuario_id, edificio, departamento, rol, fecha_desde, fecha_hasta, 
+          timbre_activo, timbre_silencio_desde, timbre_silencio_hasta, 
+          puede_ver_expensas, asignado_por_usuario_id, notas, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+         RETURNING *`,
+        [
+            usuarioId, edificio, departamento, rol,
+            fecha_desde, fecha_hasta,
+            timbre_activo, timbre_silencio_desde, timbre_silencio_hasta,
+            puede_ver_expensas, asignado_por_usuario_id, notas
+        ]
+    );
+    return res.rows[0];
+}
+
+async function reubicarHuesped(turistaUsuarioId, origenEdificio, origenDepto, destinoEdificio, destinoDepto, motivo, operadorUsuarioId) {
+    // 1. Marcar unidad anterior como 'reubicado'
+    await pool.query(
+        `UPDATE usuario_unidades 
+         SET estado = 'reubicado',
+             notas = COALESCE(notas, '') || ' -> Reubicado al depto ' || $4 || ' de ' || $3 || ' por: ' || $5
+         WHERE usuario_id = $1 AND LOWER(edificio) = LOWER($2) AND LOWER(departamento) = LOWER($6) AND estado = 'activo'`,
+        [turistaUsuarioId, origenEdificio, destinoEdificio, destinoDepto, motivo || 'Reubicación por gestión', origenDepto]
+    );
+
+    // 2. Obtener datos de la asignación original
+    const resOrig = await pool.query(
+        `SELECT fecha_desde, fecha_hasta, timbre_activo, timbre_silencio_desde, timbre_silencio_hasta
+         FROM usuario_unidades
+         WHERE usuario_id = $1 AND estado = 'reubicado'
+         ORDER BY id DESC LIMIT 1`,
+        [turistaUsuarioId]
+    );
+    const orig = resOrig.rows[0] || {};
+
+    // 3. Crear nueva asignación en departamento de destino
+    const resNueva = await pool.query(
+        `INSERT INTO usuario_unidades 
+         (usuario_id, edificio, departamento, rol, fecha_desde, fecha_hasta, 
+          timbre_activo, timbre_silencio_desde, timbre_silencio_hasta, 
+          puede_ver_expensas, asignado_por_usuario_id, notas, estado, created_at)
+         VALUES ($1, $2, $3, 'turista', $4, $5, $6, $7, $8, FALSE, $9, $10, 'activo', NOW())
+         RETURNING *`,
+        [
+            turistaUsuarioId, destinoEdificio, destinoDepto,
+            orig.fecha_desde || null, orig.fecha_hasta || null,
+            orig.timbre_activo !== false,
+            orig.timbre_silencio_desde || '23:00',
+            orig.timbre_silencio_hasta || '07:30',
+            operadorUsuarioId || null,
+            'Reubicado desde ' + origenEdificio + ' ' + origenDepto + '. Motivo: ' + (motivo || '')
+        ]
+    );
+
+    // 4. Migrar reservas de amenities a la nueva unidad
+    try {
+        const uTur = await obtenerUsuarioPorId(turistaUsuarioId);
+        if (uTur) {
+            await pool.query(
+                `UPDATE reservas_amenities 
+                 SET edificio = $1, departamento = $2,
+                     notas = COALESCE(notas, '') || ' [Traslado de ' || $3 || ' ' || $4 || ']'
+                 WHERE (LOWER(nombre_vecino) = LOWER($5) OR telefono = $6)
+                   AND fecha >= CURRENT_DATE AND estado != 'cancelada'`,
+                [destinoEdificio, destinoDepto, origenEdificio, origenDepto, uTur.nombre || '', uTur.telefono || '']
+            );
+        }
+    } catch (eAm) {
+        console.warn('Migración de amenities al reubicar:', eAm.message);
+    }
+
+    return resNueva.rows[0];
+}
+
+async function actualizarConfigTimbre(usuarioId, edificio, departamento, timbreActivo, silencioDesde, silencioHasta) {
+    const res = await pool.query(
+        `UPDATE usuario_unidades 
+         SET timbre_activo = $1,
+             timbre_silencio_desde = $2,
+             timbre_silencio_hasta = $3
+         WHERE usuario_id = $4 AND LOWER(edificio) = LOWER($5) AND LOWER(departamento) = LOWER($6) AND estado = 'activo'
+         RETURNING *`,
+        [Boolean(timbreActivo), silencioDesde || '23:00', silencioHasta || '07:30', usuarioId, edificio, departamento]
+    );
+    return res.rows[0] || null;
+}
+
+async function obtenerIntegrantesUnidad(edificio, departamento) {
+    const q = `
+        SELECT uu.id AS asignacion_id, uu.rol, uu.fecha_desde, uu.fecha_hasta,
+               uu.timbre_activo, uu.timbre_silencio_desde, uu.timbre_silencio_hasta,
+               uu.puede_ver_expensas, uu.estado, uu.notas,
+               u.id AS usuario_id, u.email, u.nombre, u.apellido, u.telefono
+        FROM usuario_unidades uu
+        JOIN usuarios u ON uu.usuario_id = u.id
+        WHERE LOWER(uu.edificio) = LOWER($1) AND LOWER(uu.departamento) = LOWER($2)
+          AND uu.estado = 'activo'
+        ORDER BY uu.id ASC
+    `;
+    const res = await pool.query(q, [edificio, departamento]);
+    return res.rows || [];
+}
+
+async function obtenerPortafolioAsistente(asistenteUsuarioId) {
+    const q = `
+        SELECT aa.id, aa.edificio, aa.departamento, aa.activo, aa.created_at,
+               uProp.nombre AS propietario_nombre, uProp.email AS propietario_email, uProp.telefono AS propietario_telefono
+        FROM asistente_asignaciones aa
+        LEFT JOIN usuarios uProp ON aa.propietario_usuario_id = uProp.id
+        WHERE aa.asistente_usuario_id = $1 AND aa.activo = TRUE
+        ORDER BY aa.edificio ASC, aa.departamento ASC
+    `;
+    const res = await pool.query(q, [asistenteUsuarioId]);
+    return res.rows || [];
+}
+
 module.exports = {
     pool,
     initPgSchema,
@@ -897,5 +1116,16 @@ module.exports = {
     registrarAudioTTS,
     buscarAccesosEdificio,
     guardarAccesoEdificio,
-    quitarAccesoEdificio
+    quitarAccesoEdificio,
+    hashPassword,
+    verificarPassword,
+    registrarOUsuario,
+    obtenerUsuarioPorEmail,
+    obtenerUsuarioPorId,
+    obtenerUnidadesDeUsuario,
+    asignarUsuarioAUnidad,
+    reubicarHuesped,
+    actualizarConfigTimbre,
+    obtenerIntegrantesUnidad,
+    obtenerPortafolioAsistente
 };
