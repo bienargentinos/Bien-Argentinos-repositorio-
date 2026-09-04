@@ -1001,6 +1001,17 @@ async function asignarUsuarioAUnidad(usuarioId, edificio, departamento, rol, opt
 }
 
 async function reubicarHuesped(turistaUsuarioId, origenEdificio, origenDepto, destinoEdificio, destinoDepto, motivo, operadorUsuarioId) {
+    if (typeof turistaUsuarioId === 'object' && turistaUsuarioId !== null) {
+        const o = turistaUsuarioId;
+        turistaUsuarioId = o.turistaUsuarioId || o.usuario_id;
+        origenEdificio = o.origenEdificio || o.origen_edificio;
+        origenDepto = o.origenDepto || o.origen_departamento;
+        destinoEdificio = o.destinoEdificio || o.nuevo_edificio;
+        destinoDepto = o.destinoDepto || o.nuevo_departamento;
+        motivo = o.motivo;
+        operadorUsuarioId = o.operadorUsuarioId || o.operador_usuario_id;
+    }
+
     // 1. Marcar unidad anterior como 'reubicado'
     await pool.query(
         `UPDATE usuario_unidades 
@@ -1060,6 +1071,12 @@ async function reubicarHuesped(turistaUsuarioId, origenEdificio, origenDepto, de
 }
 
 async function actualizarConfigTimbre(usuarioId, edificio, departamento, timbreActivo, silencioDesde, silencioHasta) {
+    if (typeof timbreActivo === 'object' && timbreActivo !== null) {
+        const opts = timbreActivo;
+        timbreActivo = opts.timbre_activo;
+        silencioDesde = opts.timbre_silencio_desde;
+        silencioHasta = opts.timbre_silencio_hasta;
+    }
     const res = await pool.query(
         `UPDATE usuario_unidades 
          SET timbre_activo = $1,

@@ -420,8 +420,23 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
 
 .dark-theme .v-bottom-nav { background: #0F1A30 !important; border-top-color: #1E2D4A !important; }
 .dark-theme .v-bottom-nav a { color: #FFFFFF !important; }
-.dark-theme .v-bottom-nav a.active { color: #FBBF24 !important; }
 .dark-theme .chat-bubble-marcos { background: #15223D !important; border-color: #24355A !important; color: #FFFFFF !important; }
+
+/* Switch deslizante para timbre digital */
+.slider-timbre:before {
+  position: absolute;
+  content: "";
+  height: 22px;
+  width: 22px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  border-radius: 50%;
+  transition: .3s;
+}
+input:checked + .slider-timbre:before {
+  transform: translateX(22px);
+}
 `;
 
 function getVecinoSession(req) {
@@ -1899,47 +1914,161 @@ router.post('/auth', async (req, res) => {
 router.get('/', (req, res) => {
   const v = getVecinoSession(req);
 
-  const content = `
-    <!-- Tarjeta Principal de Expensas (Estilo Saldo Mercado Pago) -->
+  // 1. Tarjeta superior de Expensas (Solo fijos/titulares) o Bienvenida (Turistas)
+  const tarjetaSuperior = (v.puede_ver_expensas !== false) ? `
+    <!-- Tarjeta Principal de Expensas (Estilo Mercado Pago) -->
     <div class="card" style="padding:18px;background:#ffffff;margin-bottom:14px;box-shadow:0 4px 18px rgba(15,23,42,.06);border-radius:20px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #F1F5F9;padding-bottom:10px">
         <div style="display:flex;gap:16px;font-size:13px;font-weight:800">
-          <span style="color:#0F326A;border-bottom:2px solid #0F326A;padding-bottom:8px">Expensas</span>
+          <span style="color:#0F326A;border-bottom:2px solid #0F326A;padding-bottom:8px">Expensas (Ord. y Extraord.)</span>
           <span style="color:#94A3B8;cursor:pointer" onclick="location.href='/vecino/amenities'">Reservas</span>
           <span style="color:#94A3B8;cursor:pointer" onclick="location.href='/vecino/reclamos'">Reclamos</span>
         </div>
         <span style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:#DCFCE7;color:#15803D;border:1px solid #86EFAC">
-          ✓ ${v.estadoExpensa}
+          ✓ ${esc(v.estadoExpensa || 'Al día')}
         </span>
       </div>
 
       <div style="margin-bottom:16px">
-        <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em">Total a Pagar (Mes de Agosto)</div>
+        <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em">Total a Pagar (Mes Vigente)</div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
-          <div style="font-size:32px;font-weight:900;color:#0F172A;letter-spacing:-.03em">${v.saldoExpensa}</div>
+          <div style="font-size:32px;font-weight:900;color:#0F172A;letter-spacing:-.03em">${esc(v.saldoExpensa || '$0')}</div>
         </div>
-        <div style="font-size:12px;color:#64748B;margin-top:2px">Vencimiento: 10 de Agosto · Acreditado</div>
+        <div style="font-size:12px;color:#64748B;margin-top:2px">Vencimiento: 10 del mes · Ordinarias y Extraordinarias</div>
       </div>
 
       <!-- Acciones de la Expensa -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:#0F326A;color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(15,50,106,.25)">
+        <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:#0F326A;color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(15,50,106,.25);text-decoration:none">
           <i class="ph ph-credit-card" style="font-size:18px"></i>
           <span>Pagar Expensa</span>
         </a>
-        <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:#F1F5F9;color:#0F326A;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid #E2E8F0">
+        <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:#F1F5F9;color:#0F326A;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid #E2E8F0;text-decoration:none">
           <i class="ph ph-receipt" style="font-size:18px"></i>
           <span>Ver Recibo PDF</span>
         </a>
       </div>
     </div>
+  ` : `
+    <!-- Tarjeta Huésped Temporal (Turista) - Expensas Ocultas -->
+    <div class="card" style="padding:20px;background:linear-gradient(135deg,#0F2B5C,#1E3A8A);color:#fff;margin-bottom:14px;box-shadow:0 4px 18px rgba(15,43,92,.2);border-radius:20px;border:1px solid rgba(251,191,36,0.3)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <span style="font-size:11.5px;font-weight:900;padding:3px 10px;border-radius:999px;background:rgba(251,191,36,0.2);color:#FBBF24;border:1px solid rgba(251,191,36,0.4)">
+          🧳 Estadía Temporal
+        </span>
+        <span style="font-size:12px;color:#94A3B8">Pase Huésped Activo</span>
+      </div>
+      <div style="font-size:22px;font-weight:900;margin-bottom:4px;letter-spacing:-.02em">¡Bienvenido a ${esc(v.edificio)}!</div>
+      <div style="font-size:13px;color:#CBD5E1;line-height:1.4;margin-bottom:16px">
+        Alojado en depto <strong style="color:#FBBF24">${esc(v.departamento)}</strong>. Tenés acceso habilitado a reservas de amenities, timbre personal y Marcos IA 24/7.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <a href="/vecino/amenities" style="height:44px;border-radius:12px;background:#FBBF24;color:#0F172A;font-size:13.5px;font-weight:900;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none">
+          <i class="ph ph-swimming-pool" style="font-size:18px"></i>
+          <span>Amenities</span>
+        </a>
+        <a href="/vecino/chat" style="height:44px;border-radius:12px;background:rgba(255,255,255,0.15);color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid rgba(255,255,255,0.25);text-decoration:none">
+          <i class="ph ph-chat-circle-dots" style="font-size:18px"></i>
+          <span>Asistente 24/7</span>
+        </a>
+      </div>
+    </div>
+  `;
+
+  // 2. Tarjeta Mi Timbre Digital & Modo No Molestar
+  const tarjetaTimbre = `
+    <div class="card" style="padding:16px 18px;background:#ffffff;margin-bottom:14px;border-radius:20px;border:1px solid #E2E8F0;box-shadow:0 4px 14px rgba(15,23,42,.04)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div id="timbre-icono-box" style="width:42px;height:42px;border-radius:14px;background:${v.timbre_activo !== false ? '#DCFCE7' : '#FEE2E2'};color:${v.timbre_activo !== false ? '#15803D' : '#DC2626'};display:flex;align-items:center;justify-content:center;font-size:22px">
+            <i class="ph ${v.timbre_activo !== false ? 'ph-bell-ringing' : 'ph-bell-slash'}"></i>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:900;color:#0F172A">Mi Timbre Digital</div>
+            <div id="timbre-estado-lbl" style="font-size:12px;color:${v.timbre_activo !== false ? '#15803D' : '#DC2626'};font-weight:700">
+              ${v.timbre_activo !== false ? '● Activo · Suena en tu celu' : '○ Silenciado'}
+            </div>
+          </div>
+        </div>
+        <!-- Switch ON/OFF -->
+        <label style="position:relative;display:inline-block;width:50px;height:28px;cursor:pointer;margin:0">
+          <input type="checkbox" id="chk-timbre-activo" ${v.timbre_activo !== false ? 'checked' : ''} onchange="guardarConfigTimbre()" style="opacity:0;width:0;height:0">
+          <span class="slider-timbre" id="slider-timbre-bg" style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:${v.timbre_activo !== false ? '#10B981' : '#CBD5E1'};border-radius:28px;transition:.3s"></span>
+        </label>
+      </div>
+
+      <!-- Configuración No Molestar / Silencio Nocturno -->
+      <div style="background:#F8FAFC;border-radius:14px;padding:10px 14px;border:1px solid #E2E8F0;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#334155">
+          <span>🌙 Modo "No Molestar":</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px;color:#64748B;font-weight:600">De</span>
+          <input type="time" id="timbre-silencio-desde" value="${esc(v.timbre_silencio_desde || '23:00')}" onchange="guardarConfigTimbre()" style="border:1px solid #CBD5E1;border-radius:8px;padding:4px 8px;font-size:12px;font-weight:700;color:#0F172A;background:#fff">
+          <span style="font-size:11px;color:#64748B;font-weight:600">a</span>
+          <input type="time" id="timbre-silencio-hasta" value="${esc(v.timbre_silencio_hasta || '07:30')}" onchange="guardarConfigTimbre()" style="border:1px solid #CBD5E1;border-radius:8px;padding:4px 8px;font-size:12px;font-weight:700;color:#0F172A;background:#fff">
+        </div>
+      </div>
+      <div id="timbre-guardado-msg" style="display:none;font-size:11.5px;color:#16A34A;font-weight:800;margin-top:8px;text-align:right">
+        ✓ Preferencia de timbre guardada
+      </div>
+    </div>
+  `;
+
+  // 3. Tarjeta Gestión de Ocupantes y Huéspedes (Propietarios y Gestores)
+  const puedeGestionarOcupantes = (v.rol === 'propietario' || v.rol === 'asistente');
+  const tarjetaOcupantes = puedeGestionarOcupantes ? `
+    <div class="card" style="padding:18px 20px;background:#ffffff;margin-bottom:14px;border-radius:20px;border:1px solid #E2E8F0;box-shadow:0 4px 14px rgba(15,23,42,.04)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #F1F5F9;padding-bottom:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:38px;height:38px;border-radius:12px;background:#EFF6FF;color:#2563EB;display:flex;align-items:center;justify-content:center;font-size:20px">
+            <i class="ph ph-users-three"></i>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:900;color:#0F172A">Ocupantes del Depto ${esc(v.departamento)}</div>
+            <div style="font-size:11.5px;color:#64748B">Convivientes, Inquilinos y Huéspedes</div>
+          </div>
+        </div>
+        <button onclick="cargarOcupantes()" style="border:none;background:#F1F5F9;color:#475569;width:30px;height:30px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center">
+          <i class="ph ph-arrows-clockwise" style="font-size:16px"></i>
+        </button>
+      </div>
+
+      <!-- Lista de Integrantes -->
+      <div id="lista-ocupantes-box" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+        <div style="font-size:12px;color:#94A3B8;text-align:center;padding:10px">Cargando integrantes...</div>
+      </div>
+
+      <!-- Botones de Acción -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button onclick="abrirModalAgregarOcupante('conviviente')" style="padding:10px 8px;border:1px solid #CBD5E1;border-radius:12px;background:#F8FAFC;color:#0F172A;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <i class="ph ph-user-plus" style="font-size:16px;color:#2563EB"></i>
+          <span>+ Familiar / Inquilino</span>
+        </button>
+        <button onclick="abrirModalAgregarHuesped()" style="padding:10px 8px;border:1px solid #FCD34D;border-radius:12px;background:#FFFBEB;color:#92400E;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+          <i class="ph ph-suitcase" style="font-size:16px;color:#D97706"></i>
+          <span>+ Pase Huésped Turista</span>
+        </button>
+      </div>
+
+      <button onclick="abrirModalReubicarHuesped()" style="width:100%;margin-top:8px;padding:10px;border:1px dashed #6366F1;border-radius:12px;background:#EEF2FF;color:#4F46E5;font-size:12.5px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <i class="ph ph-arrows-left-right" style="font-size:16px"></i>
+        <span>🔄 Reubicar Huésped a Otra Unidad</span>
+      </button>
+    </div>
+  ` : '';
+
+  const content = `
+    ${tarjetaSuperior}
+    ${tarjetaTimbre}
+    ${tarjetaOcupantes}
 
     <!-- Servicios Rápidos en Fila (Estilo Mercado Pago Icons) -->
     <div style="margin-bottom:14px">
       <div style="font-size:13.5px;font-weight:800;color:#0F172A;margin-bottom:10px">Accesos Directos</div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
         
-        <a href="/porteria/San%20Patricio%20159" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
+        <a href="/porteria/${encodeURIComponent(v.edificio)}" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
           <div style="width:44px;height:44px;border-radius:14px;background:#FEF3C7;color:#D97706;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-qr-code"></i>
           </div>
@@ -2034,9 +2163,578 @@ router.get('/', (req, res) => {
       <div style="font-size:14px;font-weight:800;color:#0F172A;margin-bottom:4px">Limpieza programada de tanques</div>
       <div style="font-size:12.5px;color:#64748B;line-height:1.4">Se realizará el jueves de 08:00 a 14:00 hs. Habrá baja presión momentánea.</div>
     </div>
+
+    <!-- MODAL 1: Sumar Familiar / Conviviente -->
+    <div id="modal-agregar-familiar" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:16px">
+      <div style="background:#fff;border-radius:20px;max-width:440px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.2)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:16px;font-weight:900;color:#0F172A">Sumar Ocupante a la Unidad</div>
+          <button onclick="cerrarModal('modal-agregar-familiar')" style="border:none;background:#F1F5F9;border-radius:50%;width:30px;height:30px;font-size:16px;cursor:pointer;color:#64748B">✕</button>
+        </div>
+        <form onsubmit="guardarNuevoOcupante(event)">
+          <div style="margin-bottom:10px">
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Rol en el Depto</label>
+            <select id="inp-fam-rol" class="inp" style="background:#fff">
+              <option value="conviviente">Familiar / Conviviente</option>
+              <option value="inquilino">Inquilino (Alquiler Fijo)</option>
+            </select>
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Nombre y Apellido</label>
+            <input type="text" id="inp-fam-nombre" placeholder="Ej: Lucas Morales" class="inp" style="background:#fff" required>
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Email (para iniciar sesión)</label>
+            <input type="email" id="inp-fam-email" placeholder="lucas@gmail.com" class="inp" style="background:#fff" required>
+          </div>
+          <div style="margin-bottom:14px">
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Teléfono WhatsApp</label>
+            <input type="tel" id="inp-fam-tel" placeholder="11 2345-6789" class="inp" style="background:#fff">
+          </div>
+          <div style="font-size:11.5px;color:#64748B;line-height:1.4;margin-bottom:14px;background:#F8FAFC;padding:8px 12px;border-radius:8px">
+            ℹ️ Tendrá timbre digital personal independiente, acceso a amenities y expensas (ordinarias y extraordinarias).
+          </div>
+          <button type="submit" id="btn-fam-guardar" style="width:100%;height:44px;border:none;border-radius:12px;background:#0F326A;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer">Guardar Ocupante</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 2: Registrar Huésped / Turista (Airbnb) -->
+    <div id="modal-agregar-huesped" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:16px">
+      <div style="background:#fff;border-radius:20px;max-width:440px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.2)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:16px;font-weight:900;color:#0F172A">🧳 Registrar Huésped Temporal (Airbnb)</div>
+          <button onclick="cerrarModal('modal-agregar-huesped')" style="border:none;background:#F1F5F9;border-radius:50%;width:30px;height:30px;font-size:16px;cursor:pointer;color:#64748B">✕</button>
+        </div>
+        <form onsubmit="guardarNuevoHuesped(event)">
+          <div style="margin-bottom:10px">
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Nombre Completo del Huésped</label>
+            <input type="text" id="inp-hue-nombre" placeholder="Ej: John Doe" class="inp" style="background:#fff" required>
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Email (para acceso a la app)</label>
+            <input type="email" id="inp-hue-email" placeholder="john@airbnb.com" class="inp" style="background:#fff" required>
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Teléfono WhatsApp</label>
+            <input type="tel" id="inp-hue-tel" placeholder="+1 555-1234" class="inp" style="background:#fff">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <div>
+              <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Check-in</label>
+              <input type="date" id="inp-hue-desde" class="inp" style="background:#fff" required>
+            </div>
+            <div>
+              <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Check-out</label>
+              <input type="date" id="inp-hue-hasta" class="inp" style="background:#fff" required>
+            </div>
+          </div>
+          <div style="font-size:11.5px;color:#92400E;line-height:1.4;margin-bottom:14px;background:#FEF3C7;padding:8px 12px;border-radius:8px;border:1px solid #FCD34D">
+            🔒 <strong>Expensas 100% Ocultas:</strong> El huésped solo tendrá acceso al timbre personal, reservas de amenities y Marcos IA.
+          </div>
+          <button type="submit" id="btn-hue-guardar" style="width:100%;height:44px;border:none;border-radius:12px;background:#D97706;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer">Generar Pase Huésped</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 3: Reubicar Huésped a Otra Unidad -->
+    <div id="modal-reubicar-huesped" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:16px">
+      <div style="background:#fff;border-radius:20px;max-width:460px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.2)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:16px;font-weight:900;color:#0F172A">🔄 Reubicar Huésped a Otra Unidad</div>
+          <button onclick="cerrarModal('modal-reubicar-huesped')" style="border:none;background:#F1F5F9;border-radius:50%;width:30px;height:30px;font-size:16px;cursor:pointer;color:#64748B">✕</button>
+        </div>
+        <form onsubmit="ejecutarReubicacion(event)">
+          <div style="margin-bottom:10px">
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Huésped a Trasladar</label>
+            <select id="sel-reub-huesped" class="inp" style="background:#fff" required>
+              <option value="">Cargando huéspedes...</option>
+            </select>
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Unidad de Destino (Portafolio Disponible)</label>
+            <select id="sel-reub-destino" class="inp" style="background:#fff" required>
+              <option value="">Cargando unidades disponibles...</option>
+            </select>
+          </div>
+          <div style="margin-bottom:12px">
+            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Motivo del Traslado</label>
+            <input type="text" id="inp-reub-motivo" placeholder="Ej: Fuga de agua en el baño / Reparación urgente" class="inp" style="background:#fff" required>
+          </div>
+          <div style="font-size:11.5px;color:#4338CA;line-height:1.4;margin-bottom:14px;background:#EEF2FF;padding:10px 12px;border-radius:10px;border:1px solid #C7D2FE">
+            ✨ <strong>Efectos Inmediatos:</strong><br>
+            • El timbre digital del huésped se redirige al nuevo departamento.<br>
+            • Las reservas activas de amenities se trasladan automáticamente.<br>
+            • El incidente y la reubicación quedan documentados para administración y propietarios.
+          </div>
+          <button type="submit" id="btn-reub-ejecutar" style="width:100%;height:44px;border:none;border-radius:12px;background:#4F46E5;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer">Confirmar Reubicación Inmediata</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Scripts de Interacción -->
+    <script>
+      let _ocupantesActuales = [];
+
+      async function guardarConfigTimbre() {
+        const chk = document.getElementById('chk-timbre-activo');
+        const desde = document.getElementById('timbre-silencio-desde').value;
+        const hasta = document.getElementById('timbre-silencio-hasta').value;
+        const activo = chk.checked;
+
+        const icoBox = document.getElementById('timbre-icono-box');
+        const lbl = document.getElementById('timbre-estado-lbl');
+        const sBg = document.getElementById('slider-timbre-bg');
+        if (activo) {
+          icoBox.style.background = '#DCFCE7';
+          icoBox.style.color = '#15803D';
+          icoBox.innerHTML = '<i class="ph ph-bell-ringing"></i>';
+          lbl.style.color = '#15803D';
+          lbl.innerText = '● Activo · Suena en tu celu';
+          sBg.style.backgroundColor = '#10B981';
+        } else {
+          icoBox.style.background = '#FEE2E2';
+          icoBox.style.color = '#DC2626';
+          icoBox.innerHTML = '<i class="ph ph-bell-slash"></i>';
+          lbl.style.color = '#DC2626';
+          lbl.innerText = '○ Silenciado';
+          sBg.style.backgroundColor = '#CBD5E1';
+        }
+
+        try {
+          const res = await fetch('/vecino/api/timbre-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              timbre_activo: activo,
+              timbre_silencio_desde: desde,
+              timbre_silencio_hasta: hasta
+            })
+          });
+          const data = await res.json();
+          if (data.ok) {
+            const msg = document.getElementById('timbre-guardado-msg');
+            if (msg) {
+              msg.style.display = 'block';
+              setTimeout(() => { msg.style.display = 'none'; }, 3000);
+            }
+          }
+        } catch (_) {}
+      }
+
+      async function cargarOcupantes() {
+        const box = document.getElementById('lista-ocupantes-box');
+        if (!box) return;
+        box.innerHTML = '<div style="font-size:12px;color:#94A3B8;text-align:center;padding:10px">Cargando integrantes...</div>';
+        try {
+          const res = await fetch('/vecino/api/ocupantes-unidad');
+          const data = await res.json();
+          if (data.ok && data.ocupantes) {
+            _ocupantesActuales = data.ocupantes;
+            renderizarOcupantes(data.ocupantes);
+          } else {
+            box.innerHTML = '<div style="font-size:12px;color:#EF4444;text-align:center;padding:10px">No se pudieron cargar los ocupantes.</div>';
+          }
+        } catch (_) {
+          box.innerHTML = '<div style="font-size:12px;color:#94A3B8;text-align:center;padding:10px">Sin datos de ocupantes.</div>';
+        }
+      }
+
+      function renderizarOcupantes(lista) {
+        const box = document.getElementById('lista-ocupantes-box');
+        if (!box) return;
+        if (!lista || lista.length === 0) {
+          box.innerHTML = '<div style="font-size:12px;color:#64748B;text-align:center;padding:8px">No hay otros integrantes registrados en esta unidad.</div>';
+          return;
+        }
+        let html = '';
+        for (let i = 0; i < lista.length; i++) {
+          const o = lista[i];
+          const esTur = (o.rol === 'turista');
+          const badgeColor = esTur ? 'background:#FEF3C7;color:#92400E' : (o.rol === 'propietario' ? 'background:#DCFCE7;color:#15803D' : (o.rol === 'asistente' ? 'background:#E0E7FF;color:#3730A3' : 'background:#F1F5F9;color:#0F326A'));
+          const badgeTxt = esTur ? '🧳 Turista' : (o.rol === 'propietario' ? '👑 Propietario' : (o.rol === 'asistente' ? '🏢 Gestor' : (o.rol === 'inquilino' ? '🔑 Inquilino' : '👥 Familiar')));
+          const timbreTxt = o.timbre_activo !== false ? '🔔 Timbre ON' : '🔕 Timbre OFF';
+          let fechasTxt = '';
+          if (o.fecha_desde && o.fecha_hasta) {
+            fechasTxt = ' · ' + String(o.fecha_desde).slice(0, 10) + ' al ' + String(o.fecha_hasta).slice(0, 10);
+          }
+          const nom = (o.nombre || '') + ' ' + (o.apellido || '');
+          const contacto = o.email || o.telefono || 'Sin contacto';
+          const timbreColor = o.timbre_activo !== false ? '#15803D' : '#94A3B8';
+
+          html += '<div style="display:flex;align-items:center;justify-content:space-between;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:10px 12px;margin-bottom:6px">' +
+                    '<div>' +
+                      '<div style="display:flex;align-items:center;gap:6px">' +
+                        '<strong style="font-size:13px;color:#0F172A">' + nom + '</strong>' +
+                        '<span style="font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:999px;' + badgeColor + '">' + badgeTxt + '</span>' +
+                      '</div>' +
+                      '<div style="font-size:11px;color:#64748B;margin-top:2px">' + contacto + fechasTxt + '</div>' +
+                    '</div>' +
+                    '<div style="font-size:11px;font-weight:700;color:' + timbreColor + '">' + timbreTxt + '</div>' +
+                  '</div>';
+        }
+        box.innerHTML = html;
+      }
+
+      function abrirModalAgregarOcupante(rol) {
+        const m = document.getElementById('modal-agregar-familiar');
+        if (m) {
+          if (rol) document.getElementById('inp-fam-rol').value = rol;
+          m.style.display = 'flex';
+        }
+      }
+
+      async function guardarNuevoOcupante(e) {
+        e.preventDefault();
+        const btn = document.getElementById('btn-fam-guardar');
+        btn.disabled = true;
+        btn.innerText = 'Guardando...';
+
+        const payload = {
+          rol: document.getElementById('inp-fam-rol').value,
+          nombre: document.getElementById('inp-fam-nombre').value,
+          email: document.getElementById('inp-fam-email').value,
+          telefono: document.getElementById('inp-fam-tel').value
+        };
+
+        try {
+          const res = await fetch('/vecino/api/agregar-ocupante', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (data.ok) {
+            cerrarModal('modal-agregar-familiar');
+            cargarOcupantes();
+          } else {
+            alert(data.error || 'Error al guardar ocupante');
+          }
+        } catch (err) {
+          alert('Error de conexión');
+        } finally {
+          btn.disabled = false;
+          btn.innerText = 'Guardar Ocupante';
+        }
+      }
+
+      function abrirModalAgregarHuesped() {
+        const m = document.getElementById('modal-agregar-huesped');
+        if (m) {
+          const hoy = new Date().toISOString().split('T')[0];
+          document.getElementById('inp-hue-desde').value = hoy;
+          m.style.display = 'flex';
+        }
+      }
+
+      async function guardarNuevoHuesped(e) {
+        e.preventDefault();
+        const btn = document.getElementById('btn-hue-guardar');
+        btn.disabled = true;
+        btn.innerText = 'Generando pase...';
+
+        const payload = {
+          rol: 'turista',
+          nombre: document.getElementById('inp-hue-nombre').value,
+          email: document.getElementById('inp-hue-email').value,
+          telefono: document.getElementById('inp-hue-tel').value,
+          fecha_desde: document.getElementById('inp-hue-desde').value,
+          fecha_hasta: document.getElementById('inp-hue-hasta').value
+        };
+
+        try {
+          const res = await fetch('/vecino/api/agregar-ocupante', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (data.ok) {
+            cerrarModal('modal-agregar-huesped');
+            cargarOcupantes();
+          } else {
+            alert(data.error || 'Error al registrar huésped');
+          }
+        } catch (err) {
+          alert('Error de conexión');
+        } finally {
+          btn.disabled = false;
+          btn.innerText = 'Generar Pase Huésped';
+        }
+      }
+
+      async function abrirModalReubicarHuesped() {
+        const m = document.getElementById('modal-reubicar-huesped');
+        if (!m) return;
+        m.style.display = 'flex';
+
+        const selH = document.getElementById('sel-reub-huesped');
+        selH.innerHTML = '<option value="">Seleccionar huésped...</option>';
+        const turistas = _ocupantesActuales.filter(function(o) { return o.rol === 'turista'; });
+        if (turistas.length === 0) {
+          selH.innerHTML = '<option value="">No hay huéspedes turistas activos en este depto</option>';
+        } else {
+          for (let i = 0; i < turistas.length; i++) {
+            const t = turistas[i];
+            const opt = document.createElement('option');
+            opt.value = t.usuario_id;
+            opt.innerText = (t.nombre || 'Huésped') + ' (' + (t.email || t.telefono || ('ID: ' + t.usuario_id)) + ')';
+            selH.appendChild(opt);
+          }
+        }
+
+        const selD = document.getElementById('sel-reub-destino');
+        selD.innerHTML = '<option value="">Cargando unidades disponibles...</option>';
+        try {
+          const res = await fetch('/vecino/api/portafolio-asistente');
+          const data = await res.json();
+          selD.innerHTML = '<option value="">Seleccionar depto de destino...</option>';
+          if (data.ok && data.unidades && data.unidades.length > 0) {
+            for (let j = 0; j < data.unidades.length; j++) {
+              const u = data.unidades[j];
+              const opt = document.createElement('option');
+              opt.value = JSON.stringify({ edificio: u.edificio, depto: u.departamento });
+              const propInfo = u.propietario_nombre ? (' [Dueño: ' + u.propietario_nombre + ']') : '';
+              opt.innerText = u.edificio + ' - Depto ' + u.departamento + propInfo;
+              selD.appendChild(opt);
+            }
+          } else {
+            selD.innerHTML = '<option value="">No hay otras unidades asignadas en el portafolio</option>';
+          }
+        } catch (_) {
+          selD.innerHTML = '<option value="">Error al consultar portafolio</option>';
+        }
+      }
+
+      async function ejecutarReubicacion(e) {
+        e.preventDefault();
+        const btn = document.getElementById('btn-reub-ejecutar');
+        const uId = document.getElementById('sel-reub-huesped').value;
+        const destJson = document.getElementById('sel-reub-destino').value;
+        const motivo = document.getElementById('inp-reub-motivo').value;
+
+        if (!uId || !destJson) {
+          alert('Por favor seleccioná el huésped y el departamento de destino.');
+          return;
+        }
+
+        btn.disabled = true;
+        btn.innerText = 'Reubicando...';
+
+        try {
+          const dest = JSON.parse(destJson);
+          const res = await fetch('/vecino/api/reubicar-turista', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              usuario_id: uId,
+              nuevo_edificio: dest.edificio,
+              nuevo_departamento: dest.depto,
+              motivo: motivo
+            })
+          });
+          const data = await res.json();
+          if (data.ok) {
+            alert(data.mensaje || 'Huésped reubicado con éxito.');
+            cerrarModal('modal-reubicar-huesped');
+            cargarOcupantes();
+          } else {
+            alert(data.error || 'No se pudo reubicar al huésped.');
+          }
+        } catch (err) {
+          alert('Error de conexión');
+        } finally {
+          btn.disabled = false;
+          btn.innerText = 'Confirmar Reubicación Inmediata';
+        }
+      }
+
+      function cerrarModal(id) {
+        const m = document.getElementById(id);
+        if (m) m.style.display = 'none';
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        cargarOcupantes();
+      });
+    </script>
   `;
 
   res.send(shellVecino('Inicio', 'inicio', content, v));
+});
+
+// -------------------------------------------------------------------
+// ENDPOINTS API DE TIMBRE DIGITAL Y GESTIÓN MULTI-OCUPANTE
+// -------------------------------------------------------------------
+
+// 1. Configurar Timbre Personal (Switch ON/OFF & Horario No Molestar)
+router.post('/api/timbre-config', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const { timbre_activo, timbre_silencio_desde, timbre_silencio_hasta } = req.body || {};
+
+    // Actualizar en sesión activa
+    if (req.session && req.session.vecino) {
+      if (typeof timbre_activo !== 'undefined') req.session.vecino.timbre_activo = Boolean(timbre_activo);
+      if (timbre_silencio_desde) req.session.vecino.timbre_silencio_desde = timbre_silencio_desde;
+      if (timbre_silencio_hasta) req.session.vecino.timbre_silencio_hasta = timbre_silencio_hasta;
+    }
+
+    // Persistir en PostgreSQL si el usuario tiene ID
+    if (v.usuario_id) {
+      const { actualizarConfigTimbre } = require('./db-pg');
+      await actualizarConfigTimbre(v.usuario_id, v.edificio, v.departamento, {
+        timbre_activo: Boolean(timbre_activo),
+        timbre_silencio_desde,
+        timbre_silencio_hasta
+      });
+    }
+
+    res.json({ ok: true, mensaje: 'Preferencia de timbre guardada.' });
+  } catch (err) {
+    console.error('Error en /vecino/api/timbre-config:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 2. Obtener ocupantes de la unidad activa
+router.get('/api/ocupantes-unidad', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const { obtenerIntegrantesUnidad } = require('./db-pg');
+    let integrantes = [];
+    try {
+      integrantes = await obtenerIntegrantesUnidad(v.edificio, v.departamento);
+    } catch (_) {}
+
+    // Si no hay registrados en base, generar lista inicial basada en el usuario actual
+    if (!integrantes.length) {
+      integrantes = [
+        {
+          usuario_id: v.usuario_id || 1,
+          nombre: v.nombre,
+          apellido: '',
+          email: v.email,
+          telefono: v.telefono,
+          rol: v.rol || 'propietario',
+          timbre_activo: v.timbre_activo !== false,
+          puede_ver_expensas: v.puede_ver_expensas !== false
+        }
+      ];
+    }
+
+    res.json({ ok: true, ocupantes: integrantes });
+  } catch (err) {
+    console.error('Error en /vecino/api/ocupantes-unidad:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 3. Agregar familiar / inquilino o registrar pase huésped
+router.post('/api/agregar-ocupante', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    if (v.rol !== 'propietario' && v.rol !== 'asistente') {
+      return res.status(403).json({ ok: false, error: 'Solo propietarios o administradores pueden agregar ocupantes.' });
+    }
+
+    const { email, nombre, apellido, telefono, password, rol, fecha_desde, fecha_hasta } = req.body || {};
+    if (!email || !nombre) {
+      return res.status(400).json({ ok: false, error: 'Email y nombre son obligatorios.' });
+    }
+
+    const { registrarOUsuario, asignarUsuarioAUnidad } = require('./db-pg');
+
+    // Registrar o recuperar usuario
+    const user = await registrarOUsuario({
+      email,
+      password: password || 'consorcio123',
+      nombre,
+      apellido: apellido || '',
+      telefono: telefono || ''
+    });
+
+    const esTurista = (rol === 'turista');
+    const puedeVerExpensas = !esTurista;
+
+    await asignarUsuarioAUnidad({
+      usuario_id: user.id,
+      edificio: v.edificio,
+      departamento: v.departamento,
+      rol: rol || (esTurista ? 'turista' : 'conviviente'),
+      fecha_desde: fecha_desde || null,
+      fecha_hasta: fecha_hasta || null,
+      timbre_activo: true,
+      puede_ver_expensas: puedeVerExpensas,
+      asignado_por_usuario_id: v.usuario_id || null,
+      notas: esTurista ? 'Pase de huésped temporal' : 'Ocupante asignado por titular'
+    });
+
+    res.json({ ok: true, mensaje: esTurista ? 'Pase huésped emitido.' : 'Ocupante guardado con éxito.' });
+  } catch (err) {
+    console.error('Error en /vecino/api/agregar-ocupante:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 4. Portafolio de unidades del asistente (o del propietario) para reubicación
+router.get('/api/portafolio-asistente', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const { obtenerPortafolioAsistente, obtenerUnidadesDeUsuario } = require('./db-pg');
+
+    let unidades = [];
+    if (v.rol === 'asistente' && v.usuario_id) {
+      unidades = await obtenerPortafolioAsistente(v.usuario_id);
+    } else if (v.usuario_id) {
+      unidades = await obtenerUnidadesDeUsuario(v.usuario_id);
+    }
+
+    // Si aún no hay en BD, proveer unidades de la sesión
+    if (!unidades.length && v.unidades && v.unidades.length > 0) {
+      unidades = v.unidades.filter(u => !(u.edificio === v.edificio && u.departamento === v.departamento));
+    }
+
+    res.json({ ok: true, unidades });
+  } catch (err) {
+    console.error('Error en /vecino/api/portafolio-asistente:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 5. Reubicar huésped turista a otra unidad disponible del portafolio
+router.post('/api/reubicar-turista', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    if (v.rol !== 'asistente' && v.rol !== 'propietario') {
+      return res.status(403).json({ ok: false, error: 'No tenés permisos para reubicar huéspedes.' });
+    }
+
+    const { usuario_id, nuevo_edificio, nuevo_departamento, motivo } = req.body || {};
+    if (!usuario_id || !nuevo_departamento) {
+      return res.status(400).json({ ok: false, error: 'Faltan datos requeridos (huésped o departamento de destino).' });
+    }
+
+    const { reubicarHuesped } = require('./db-pg');
+    const resultado = await reubicarHuesped({
+      usuario_id: Number(usuario_id),
+      origen_edificio: v.edificio,
+      origen_departamento: v.departamento,
+      nuevo_edificio: nuevo_edificio || v.edificio,
+      nuevo_departamento,
+      motivo: motivo || 'Reubicación por gestión',
+      operador_usuario_id: v.usuario_id || null
+    });
+
+    if (!resultado) {
+      return res.status(400).json({ ok: false, error: 'No se pudo completar la reubicación.' });
+    }
+
+    res.json({ ok: true, mensaje: `Huésped reubicado exitosamente al departamento ${nuevo_departamento}.` });
+  } catch (err) {
+    console.error('Error en /vecino/api/reubicar-turista:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // Rutas PWA dentro del router del vecino
@@ -2277,6 +2975,9 @@ const _comprobantesEnMemoria = [
 
 router.get('/expensas', async (req, res) => {
   const v = getVecinoSession(req);
+  if (v.puede_ver_expensas === false) {
+    return res.redirect('/vecino');
+  }
 
   let expensas = [];
   let datosBanco = null;
