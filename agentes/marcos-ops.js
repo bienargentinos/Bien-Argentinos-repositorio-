@@ -22,14 +22,37 @@ if (!global.timersEscalacionProveedores) global.timersEscalacionProveedores = ne
 // Instruir a la IA no alcanza: los modelos obedecen casi siempre, y "casi siempre" no sirve cuando
 // el costo de una sola fuga es perder un cliente. Esto es el segundo cerrojo, determinístico.
 
-const INSULTOS = /\b(pelotud\w*|bolud\w*|forr\w+|hij\w+\s+de\s+put\w+|put\w+|mierd\w*|cag\w+|jod\w+|carajo|choto\w*|pajer\w*|in[úu]til(es)?|verg[üu]enza|estaf\w+|chorr\w+|ladr[oó]n\w*|ladrones|incompetent\w*|desastr\w*|inservible\w*|verg\w+)\b/i;
+// > [!CAUTION]
+// > **`\w` en JavaScript NO incluye las vocales acentuadas.**
+// > Estas expresiones usaban `\w` para las terminaciones, así que `estaf\w*` no matcheaba
+// > "estafó", ni `cag\w+` a "cagó", ni `jod\w+` a "jodió". Los insultos y quejas en pasado se
+// > colaban enteros por el filtro.
+// >
+// > Empezó a importar cuando Daniel mandó un AUDIO: la transcripción escribe español correcto,
+// > con acentos, mientras que lo tipeado a mano casi nunca los lleva. Todo esto se había escrito
+// > y probado contra texto tipeado.
+// >
+// > **Y `\b` al final del paréntesis es la mitad del mismo problema, más difícil de ver:**
+// > una palabra que TERMINA en vocal acentuada no tiene límite de palabra después. En "estafó",
+// > `estaf[…]+` se come la "ó" y detrás hay un espacio -- dos caracteres no-palabra seguidos, o
+// > sea ningún borde -- y la expresión entera falla. Por eso "jodió" SÍ matcheaba y "estafó" no:
+// > en "jodió" el `+` puede retroceder a "jodi", y entre la "i" y la "ó" sí hay borde. Un acento
+// > de más o de menos decidía si un insulto llegaba al técnico.
+// >
+// > Se reemplazan los dos bordes por miradas que sí conocen los acentos.
+
+// Los dos bordes de palabra, conscientes de los acentos. `\b` no sirve acá (ver arriba).
+const ANTES = '(?<![a-záéíóúüñ])';
+const DESPUES = '(?![a-záéíóúüñ])';
+
+const INSULTOS = new RegExp(`${ANTES}(pelotud[a-záéíóúüñ]*|bolud[a-záéíóúüñ]*|forr[a-záéíóúüñ]+|hij[a-záéíóúüñ]+\\s+de\\s+put[a-záéíóúüñ]+|put[a-záéíóúüñ]+|mierd[a-záéíóúüñ]*|cag[a-záéíóúüñ]+|jod[a-záéíóúüñ]+|carajo|choto[a-záéíóúüñ]*|pajer[a-záéíóúüñ]*|in[úu]til(es)?|verg[üu]enza|estaf[a-záéíóúüñ]+|chorr[a-záéíóúüñ]+|ladr[oó]n[a-záéíóúüñ]*|ladrones|incompetent[a-záéíóúüñ]*|desastr[a-záéíóúüñ]*|inservible[a-záéíóúüñ]*|verg[a-záéíóúüñ]+)${DESPUES}`, 'i');
 
 // Frases con las que alguien se queja del SERVICIO. No describen una falla técnica: describen una
 // relación. El técnico no tiene nada que hacer con esto.
-const QUEJAS = /\b(otra vez|una vez m[aá]s|siempre lo mismo|de nuevo lo mismo|nunca vien\w+|no vien\w+ nunca|nadie (me |nos )?(soluciona|responde|atiende|contesta|hace nada)|hace\s+\S+\s+(d[ií]as?|semanas?|meses?|horas?)\s+que|ya (te|les|le|lo) (dije|avis[eé]|reclam[eé])|no sirv\w+ para nada|(estoy|estamos|me tienen|nos tienen)\s+(cansad\w+|hart\w+|podrid\w+)|no se puede vivir|es (una|un) (falta de respeto|tomada de pelo))\b/i;
+const QUEJAS = new RegExp(`${ANTES}(otra vez|una vez m[aá]s|siempre lo mismo|de nuevo lo mismo|nunca vien[a-záéíóúüñ]+|no vien[a-záéíóúüñ]+ nunca|nadie (me |nos )?(soluciona|responde|atiende|contesta|hace nada)|hace\\s+\\S+\\s+(d[ií]as?|semanas?|meses?|horas?)\\s+que|ya (te|les|le|lo) (dije|avis[eé]|reclam[eé])|no sirv[a-záéíóúüñ]+ para nada|(estoy|estamos|me tienen|nos tienen)\\s+(cansad[a-záéíóúüñ]+|hart[a-záéíóúüñ]+|podrid[a-záéíóúüñ]+)|no se puede vivir|es (una|un) (falta de respeto|tomada de pelo))${DESPUES}`, 'i');
 
 // Marcas de que la oración está reproduciendo lo que dijo alguien, en vez de describir la falla.
-const CITA = /["“”«»]|\b(vecin\w+|propietari\w+|inquilin\w+|se[ñn]or\w*|se[ñn]ora|encargad\w+)\s+(dice|dijo|coment[oó]|manifiesta|manifest[oó]|expresa|expres[oó]|se queja|reclama|insiste|aclara|remarca)\b|\btextual(es|mente)?\b/i;
+const CITA = new RegExp(`["“”«»]|${ANTES}(vecin[a-záéíóúüñ]+|propietari[a-záéíóúüñ]+|inquilin[a-záéíóúüñ]+|se[ñn]or[a-záéíóúüñ]*|se[ñn]ora|encargad[a-záéíóúüñ]+)\\s+(dice|dijo|coment[oó]|manifiesta|manifest[oó]|expresa|expres[oó]|se queja|reclama|insiste|aclara|remarca)${DESPUES}|${ANTES}textual(es|mente)?${DESPUES}`, 'i');
 
 /**
  * Deja el texto en condiciones de ser leído por un tercero.

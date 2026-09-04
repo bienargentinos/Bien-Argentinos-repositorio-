@@ -675,6 +675,37 @@ contestó **la lista de facturas pendientes de pago**. Dos condiciones distintas
 
 Prueba: `node pruebas-consulta-pago.js`.
 
+### Un audio escribe los acentos, y ahí se cae medio código de decisión
+
+> [!CAUTION]
+> **Todo esto se escribió y se probó contra texto TIPEADO, que casi nunca lleva acentos.**
+> Con un audio, la transcripción escribe español correcto. Son dos agujeros distintos, los dos
+> invisibles al leer el código:
+>
+> 1. **`\w` en JavaScript no incluye las vocales acentuadas.** `llam\w*` se corta antes de la "ó"
+>    de "llamó", `estaf\w*` no llega a la de "estafó".
+> 2. **`\b` al final tampoco sirve.** Una palabra que TERMINA en vocal acentuada no tiene borde
+>    después: en "estafó", `estaf[…]+` se come la "ó" y detrás hay un espacio — dos caracteres
+>    no-palabra seguidos, o sea ningún borde — y la expresión **entera** falla.
+
+El segundo explica algo que si no se ve parece magia negra: **"jodió" sí se filtraba y "estafó"
+no.** En "jodió" el `+` puede retroceder a "jodi", y entre la "i" y la "ó" sí hay borde. Un acento
+de más o de menos decidía si el insulto llegaba al técnico.
+
+Dónde pegó, hasta ahora:
+
+| Dónde | Qué rompía |
+|---|---|
+| `avisaQueVa` en `index.js` | *"llamó el encargado de San Patricio 270"* —la forma más común de todas— no abría caso. El mensaje caía al camino genérico y Marcos contestaba sobre otra cosa. |
+| `INSULTOS` / `QUEJAS` / `CITA` en `agentes/marcos-ops.js` | "me estafó", "nos cagó", "ya te avisé dos veces" **pasaban el filtro y le llegaban al técnico**. El vecino nunca se entera de lo que le mandamos al proveedor: un roce social filtrado rompe una relación que él ni sabe que está en juego. |
+
+Los bordes de palabra pasaron a mirar los acentos: `(?<![a-záéíóúüñ])` adelante y
+`(?![a-záéíóúüñ])` atrás. `pruebas-filtro-terceros.js` prueba cada insulto y cada queja **en las
+dos formas**, con acento y sin él, y tiene un candado que **prohíbe que `\w` o `\b` vuelvan** a
+esas expresiones.
+
+Prueba: `node pruebas-filtro-terceros.js` y `node pruebas-confirma-visita.js`.
+
 ### El oficio de la persona no es el rubro del trabajo
 
 > [!CAUTION]
