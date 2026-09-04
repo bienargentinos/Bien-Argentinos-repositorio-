@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+const crypto = require('crypto');
 const { fechaHoraAR, fechaAR } = require('./fecha');
 
 const pool = new Pool({
@@ -132,12 +133,15 @@ async function _initPgSchema() {
                 usuario VARCHAR(100) UNIQUE,
                 contrasena TEXT,
                 email VARCHAR(150),
+                avatar TEXT,
                 edificios TEXT,
                 plan VARCHAR(50) DEFAULT 'Base',
                 activo BOOLEAN DEFAULT TRUE,
                 ultimo_acceso TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            ALTER TABLE clientes ADD COLUMN IF NOT EXISTS avatar TEXT;
 
             CREATE TABLE IF NOT EXISTS proveedores (
                 id SERIAL PRIMARY KEY,
@@ -295,6 +299,47 @@ async function _initPgSchema() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- ── USUARIOS, UNIDADES Y ROLES MULTI-PROPIEDAD ───────────────────────
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id SERIAL PRIMARY KEY,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password_hash TEXT,
+                nombre VARCHAR(150),
+                apellido VARCHAR(150),
+                telefono VARCHAR(50),
+                activo BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS usuario_unidades (
+                id SERIAL PRIMARY KEY,
+                usuario_id INT REFERENCES usuarios(id) ON DELETE CASCADE,
+                edificio VARCHAR(150) NOT NULL,
+                departamento VARCHAR(50) NOT NULL,
+                rol VARCHAR(50) NOT NULL, -- 'propietario', 'asistente', 'inquilino', 'conviviente', 'turista'
+                fecha_desde TIMESTAMP,
+                fecha_hasta TIMESTAMP,
+                timbre_activo BOOLEAN DEFAULT TRUE,
+                timbre_silencio_desde VARCHAR(10) DEFAULT '23:00',
+                timbre_silencio_hasta VARCHAR(10) DEFAULT '07:30',
+                puede_ver_expensas BOOLEAN DEFAULT TRUE,
+                asignado_por_usuario_id INT,
+                estado VARCHAR(50) DEFAULT 'activo', -- 'activo', 'reubicado', 'finalizado', 'cancelado'
+                notas TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS asistente_asignaciones (
+                id SERIAL PRIMARY KEY,
+                asistente_usuario_id INT REFERENCES usuarios(id) ON DELETE CASCADE,
+                propietario_usuario_id INT REFERENCES usuarios(id) ON DELETE CASCADE,
+                edificio VARCHAR(150) NOT NULL,
+                departamento VARCHAR(50) NOT NULL,
+                activo BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             -- ── TABLAS QUE EXISTEN EN LA PLANILLA Y FALTABAN ACA ──────────────────
             -- Sin estas cuatro, migrar a PostgreSQL dejaba a Marcos sin datos que usa todos los
             -- dias: buscarTecnicoSuplente() lee "tecnicos" y buscarPersonalDeTurno() lee
@@ -443,7 +488,38 @@ async function _initPgSchema() {
             -- tienen caso asignado: los dos caminos necesitan índice propio.
             CREATE INDEX IF NOT EXISTS idx_pg_mensajes_tel ON mensajes(telefono);
             CREATE INDEX IF NOT EXISTS idx_pg_mensajes_sin_caso ON mensajes(telefono) WHERE evento_id IS NULL;
+
+            CREATE INDEX IF NOT EXISTS idx_pg_usuarios_email ON usuarios(LOWER(email));
+            CREATE INDEX IF NOT EXISTS idx_pg_usuario_unidades_usr ON usuario_unidades(usuario_id);
+            CREATE INDEX IF NOT EXISTS idx_pg_usuario_unidades_edif_dto ON usuario_unidades(LOWER(edificio), LOWER(departamento));
+            CREATE INDEX IF NOT EXISTS idx_pg_asistente_asign_asist ON asistente_asignaciones(asistente_usuario_id);
         `);
+
+        // Seeding de usuario demo si aún no existe
+        try {
+            const demoEmail = 'daniel@consorcio.ai';
+            const resChk = await client.query('SELECT id FROM usuarios WHERE email = $1', [demoEmail]);
+            if (!resChk.rows.length) {
+                const demoSalt = crypto.randomBytes(16).toString('hex');
+                const demoHash = `${demoSalt}:${crypto.pbkdf2Sync('admin123', demoSalt, 1000, 64, 'sha512').toString('hex')}`;
+                const insU = await client.query(
+                    `INSERT INTO usuarios (email, password_hash, nombre, apellido, telefono, created_at, updated_at)
+                     VALUES ($1, $2, 'Daniel', 'Morales', '+5491150542005', NOW(), NOW()) RETURNING id`,
+                    [demoEmail, demoHash]
+                );
+                const uId = insU.rows[0].id;
+                // Asignarle 2 departamentos para probar el selector multi-unidad
+                await client.query(
+                    `INSERT INTO usuario_unidades (usuario_id, edificio, departamento, rol, puede_ver_expensas, timbre_activo, created_at)
+                     VALUES ($1, 'San Patricio 159', '1° A', 'propietario', TRUE, TRUE, NOW()),
+                            ($1, 'San Patricio 159', '4° C', 'propietario', TRUE, TRUE, NOW())`,
+                    [uId]
+                );
+            }
+        } catch (eSeed) {
+            console.warn('Seed usuarios:', eSeed.message);
+        }
+
         console.log('✅ Esquema PostgreSQL con pgvector inicializado exitosamente.');
     } catch (e) {
         console.error('⚠️ Info conector PostgreSQL:', e.message);

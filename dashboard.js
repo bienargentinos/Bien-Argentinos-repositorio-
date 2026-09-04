@@ -45,6 +45,26 @@ const uploadMulter = multer({
   limits: { fileSize: 20 * 1024 * 1024 }
 });
 
+const storageAvatars = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = path.join(__dirname, 'almacenamiento', 'avatars');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const cleanUser = String(req.session && req.session.user ? req.session.user : 'user').replace(/[^a-zA-Z0-9_]/g, '');
+    const name = 'avatar_' + cleanUser + '_' + Date.now() + ext;
+    cb(null, name);
+  }
+});
+const uploadAvatarMulter = multer({
+  storage: storageAvatars,
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
 // Logo de marca (design/assets/logo.png). Servido cacheable, sin sesion.
 router.use('/assets', express.static(path.join(__dirname, 'design', 'assets'), {
   maxAge: '7d',
@@ -305,6 +325,7 @@ function mapCliente(r) {
     pass: pick(r, ['contrasena', 'password', 'pass', 'clave']),
     email: pick(r, ['email', 'correo', 'mail']),
     wsp: pick(r, ['whatsapp', 'wsp', 'telefono_wsp', 'telefono']),
+    avatar: pick(r, ['avatar', 'foto', 'foto_perfil', 'imagen_perfil', 'avatar_url', 'img']),
     notif_email: String(pick(r, ['notif_email'], 'si')).toLowerCase() !== 'no',
     notif_wsp: String(pick(r, ['notif_wsp'], 'no')).toLowerCase() === 'si',
     edificios: pick(r, ['edificios', 'edificio'])
@@ -2461,23 +2482,32 @@ function valEl(id){
   return el ? el.value : '';
 }
 // --- menus del topbar ---
-function toggleMenu(id){
+function cerrarTodosLosMenus(){
+  document.querySelectorAll('.menu-pop.open').forEach(function(x){x.classList.remove('open');});
+}
+function toggleMenu(id, e){
+  if(e){
+    if(e.stopPropagation) e.stopPropagation();
+    if(e.cancelBubble !== undefined) e.cancelBubble = true;
+  }
   var m=document.getElementById(id);
   if(!m)return;
-  document.querySelectorAll('.menu-pop.open').forEach(function(x){if(x!==m)x.classList.remove('open');});
   var willOpen=!m.classList.contains('open');
-  m.classList.toggle('open',willOpen);
+  cerrarTodosLosMenus();
   if(willOpen){
-    setTimeout(function(){
-      document.addEventListener('click',function closeIt(e){
-        if(!m.contains(e.target)){m.classList.remove('open');document.removeEventListener('click',closeIt);}
-      });
-    },0);
+    m.classList.add('open');
   }
+}
+if(typeof document !== 'undefined'){
+  document.addEventListener('click',function(e){
+    if(!e.target.closest('.menu-pop') && !e.target.closest('[onclick*="toggleMenu"]')){
+      cerrarTodosLosMenus();
+    }
+  });
 }
 // --- modales genericos ---
 function abrirModal(id){
-  document.querySelectorAll('.menu-pop.open').forEach(function(x){x.classList.remove('open');});
+  cerrarTodosLosMenus();
   var m=document.getElementById(id);
   if(m){
     m.classList.add('open');
@@ -5789,7 +5819,60 @@ async function guardarDatosBancarios(btn) {
   }
 }
 
-// --- mi cuenta y preferencias ---
+// --- mi cuenta, avatar y preferencias ---
+async function subirAvatarPerfil(inp){
+  if(!inp.files||!inp.files[0])return;
+  var file=inp.files[0];
+  if(!file.type||!file.type.startsWith('image/')){
+    toast('Por favor seleccioná una imagen válida (PNG, JPG, WEBP, GIF)','err');
+    inp.value='';
+    return;
+  }
+  if(file.size>10*1024*1024){
+    toast('La imagen no puede pesar más de 10 MB','err');
+    inp.value='';
+    return;
+  }
+  var label=inp.closest('label');
+  var oldH=label?label.innerHTML:'';
+  if(label)label.innerHTML='<span>⏳ Subiendo...</span>';
+  try{
+    var fd=new FormData();
+    fd.append('avatar',file);
+    var r=await fetch('/admin/api/subir-avatar',{method:'POST',body:fd});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error al subir imagen');
+    var pBox=document.getElementById('avatar-preview-box');
+    if(pBox){
+      pBox.innerHTML='<img id="account-avatar-img" src="'+j.url+'" style="width:100%;height:100%;object-fit:cover">';
+    }
+    toast('Foto de perfil actualizada','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){
+    toast('Error: '+e.message,'err');
+  }finally{
+    if(label)label.innerHTML=oldH;
+    inp.value='';
+  }
+}
+
+async function eliminarAvatarPerfil(btn){
+  if(!confirm('¿Deseás quitar tu foto de perfil?'))return;
+  btn.disabled=true;
+  try{
+    var r=await fetch('/admin/api/actualizar-perfil',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({avatar:''})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error al eliminar foto');
+    toast('Foto de perfil eliminada','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){
+    toast('Error: '+e.message,'err');
+  }finally{
+    btn.disabled=false;
+  }
+}
+
 async function guardarMiCuenta(btn){
   var pass=valEl('account-pass');
   var email=valEl('account-email');
@@ -6606,6 +6689,10 @@ function shell(req, d, activeKey, contenido) {
   const userInitial = String(displayName || 'M').split(' ').filter(Boolean).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join('');
   const userGrad = dueno ? 'linear-gradient(140deg,#17408B,#2E6FC0)' : 'linear-gradient(140deg,#B4841C,#D99B1F)';
   const userMeta = dueno ? `Dueño del sistema · ${d.edificios.length} edificios` : `Administrador · ${d.propios.length} edificio${d.propios.length === 1 ? '' : 's'}`;
+  const userAvatar = (!dueno && d.clienteActual && d.clienteActual.avatar) ? d.clienteActual.avatar : '';
+  const userAvatarHtml = userAvatar
+    ? `<img src="${esc(userAvatar)}" alt="${esc(displayName)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:1.5px solid #2E6FC0;flex-shrink:0" onerror="this.onerror=null;this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='flex';"><span style="width:36px;height:36px;border-radius:50%;background:${userGrad};color:#fff;display:none;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">${esc(userInitial)}</span>`
+    : `<span style="width:36px;height:36px;border-radius:50%;background:${userGrad};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">${esc(userInitial)}</span>`;
 
   // --- nav ---
   const nuevosCliente = filtrarPorEdificio(d.eventos, req).filter((e) => estadoNormalizado(e.estado) !== 'resuelto').length;
@@ -6662,7 +6749,7 @@ function shell(req, d, activeKey, contenido) {
         <div style="padding:12px;max-height:60vh;overflow-y:auto">
           ${d.clientes.map((c) => `
             <a href="/admin/preview?cliente=${encodeURIComponent(c.usuario)}" style="width:100%;display:flex;align-items:center;gap:13px;padding:13px;border:1px solid #EEF1F6;background:#fff;border-radius:12px;text-align:left;margin-bottom:8px" class="hv-selbtn">
-              <span style="width:44px;height:44px;border-radius:11px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;flex-shrink:0">${esc(c.nombre.charAt(0).toUpperCase())}</span>
+              <span style="width:44px;height:44px;border-radius:11px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;flex-shrink:0;overflow:hidden">${c.avatar ? `<img src="${esc(c.avatar)}" alt="${esc(c.nombre)}" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='${esc(c.nombre.charAt(0).toUpperCase())}'">` : esc(c.nombre.charAt(0).toUpperCase())}</span>
               <span style="flex:1;min-width:0">
                 <span style="display:block;font-size:15px;font-weight:800;color:#16233B">${esc(c.nombre)}</span>
                 <span style="display:block;font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.edificios.join(', ') || 'Sin edificios')}</span>
@@ -6726,18 +6813,23 @@ function shell(req, d, activeKey, contenido) {
     <div style="flex:1"></div>
     ${notifHtml}
     <div style="position:relative">
-      <button onclick="toggleMenu('menu-user')" style="display:flex;align-items:center;gap:10px;height:44px;padding:0 8px 0 6px;border:1px solid transparent;border-radius:12px;background:none;cursor:pointer" class="hv-soft">
-        <span style="width:36px;height:36px;border-radius:50%;background:${userGrad};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px">${esc(userInitial)}</span>
+      <button onclick="toggleMenu('menu-user', event)" style="display:flex;align-items:center;gap:10px;height:44px;padding:0 8px 0 6px;border:1px solid transparent;border-radius:12px;background:none;cursor:pointer" class="hv-soft">
+        ${userAvatarHtml}
         <span style="text-align:left;line-height:1.15" class="username">
           <span style="display:block;font-size:13.5px;font-weight:700;color:#16233B">${esc(displayName)}</span>
           <span style="display:block;font-size:11px;color:#8595AD">${esc(userSub)}</span>
         </span>
         <span style="color:#8595AD;font-size:11px">▾</span>
       </button>
-      <div id="menu-user" class="menu-pop" style="position:absolute;top:52px;right:0;width:220px;background:#fff;border:1px solid #E4E9F1;border-radius:14px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);padding:7px;z-index:50;animation:mPop .16s ease both">
-        <div style="padding:10px 11px 12px;border-bottom:1px solid #EEF1F6;margin-bottom:6px">
-          <div style="font-size:14px;font-weight:700">${esc(displayName)}</div>
-          <div style="font-size:12px;color:#8595AD">${esc(userMeta)}</div>
+      <div id="menu-user" class="menu-pop" style="position:absolute;top:52px;right:0;width:240px;background:#fff;border:1px solid #E4E9F1;border-radius:14px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);padding:7px;z-index:50;animation:mPop .16s ease both">
+        <div style="padding:10px 11px 12px;border-bottom:1px solid #EEF1F6;margin-bottom:6px;display:flex;align-items:center;gap:10px">
+          <div style="width:38px;height:38px;border-radius:50%;overflow:hidden;flex-shrink:0;background:${userGrad};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:14px;border:1.5px solid #2E6FC0">
+            ${userAvatar ? `<img src="${esc(userAvatar)}" alt="${esc(displayName)}" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='${esc(userInitial)}'">` : esc(userInitial)}
+          </div>
+          <div style="min-width:0;flex:1">
+            <div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(displayName)}</div>
+            <div style="font-size:12px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(userMeta)}</div>
+          </div>
         </div>
         ${verComoCliente}
         <a href="https://bienargentinos.com" target="_blank" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#2E6FC0;font-weight:700;display:block;text-decoration:none" class="hv-soft">🌐&nbsp;&nbsp;BienArgentinos.com ↗</a>
@@ -6831,6 +6923,24 @@ ${(() => {
           <div style="font-size:12.5px;color:#8595AD;margin-top:2px">${esc(userMeta)}</div>
         </div>
         <div style="padding:20px 24px">
+          ${dueno ? '' : `
+          <div style="display:flex;align-items:center;gap:16px;background:#F8FAFD;padding:14px 16px;border-radius:14px;border:1px solid #E4E9F1;margin-bottom:18px">
+            <div id="avatar-preview-box" style="position:relative;width:58px;height:58px;border-radius:50%;overflow:hidden;flex-shrink:0;background:${userGrad};display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:800;border:2px solid #2E6FC0;box-shadow:0 2px 8px rgba(46,111,192,.2)">
+              ${userAvatar ? `<img id="account-avatar-img" src="${esc(userAvatar)}" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='<span id=\\'account-avatar-init\\'>${esc(userInitial)}</span>'">` : `<span id="account-avatar-init">${esc(userInitial)}</span>`}
+            </div>
+            <div style="flex:1">
+              <div style="font-size:13.5px;font-weight:700;color:#16233B;margin-bottom:2px">Foto de perfil</div>
+              <div style="font-size:12px;color:#8595AD;margin-bottom:8px">Cargá una foto o logo para personalizar tu cuenta en el panel.</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <label style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid #2E6FC0;border-radius:8px;background:#EAF1FB;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer" class="hv-blue">
+                  <span>📷 Subir foto</span>
+                  <input type="file" id="account-avatar-file" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" onchange="subirAvatarPerfil(this)">
+                </label>
+                ${userAvatar ? `<button type="button" onclick="eliminarAvatarPerfil(this)" style="height:32px;padding:0 10px;border:1px solid #FCA5A5;border-radius:8px;background:#FEF2F2;color:#DC2626;font-size:12px;font-weight:700;cursor:pointer" class="hv-red">Eliminar</button>` : ''}
+              </div>
+            </div>
+          </div>
+          `}
           <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email de contacto</div>
           <input id="account-email" value="${esc(currentEmail)}" placeholder="tuemail@ejemplo.com" class="inp" style="margin-bottom:14px">
           
@@ -10125,7 +10235,7 @@ router.get('/clientes', async (req, res) => {
       cuerpo = `
         <a href="/admin/clientes" style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border:1px solid #E1E7F1;border-radius:9px;background:#fff;color:#5A6B85;font-weight:700;font-size:13px;margin-bottom:16px" class="hv-soft">← Clientes</a>
         <div style="display:flex;align-items:center;gap:14px;background:linear-gradient(120deg,#0F326A,#2E6FC0);border-radius:16px;padding:18px 22px;color:#fff;margin-bottom:18px;flex-wrap:wrap">
-          <span style="width:52px;height:52px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;flex-shrink:0">${esc(clienteSel.nombre.charAt(0).toUpperCase())}</span>
+          <span style="width:52px;height:52px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;flex-shrink:0;overflow:hidden">${clienteSel.avatar ? `<img src="${esc(clienteSel.avatar)}" alt="${esc(clienteSel.nombre)}" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='${esc(clienteSel.nombre.charAt(0).toUpperCase())}'">` : esc(clienteSel.nombre.charAt(0).toUpperCase())}</span>
           <div style="flex:1;min-width:180px">
             <div style="font-size:20px;font-weight:800;letter-spacing:-.01em">${esc(clienteSel.nombre)}</div>
             <div style="font-size:13.5px;color:rgba(255,255,255,.82)">${mis.length} edificio${mis.length === 1 ? '' : 's'}${unidades ? ' · ' + unidades + ' unidades' : ''}</div>
@@ -10148,7 +10258,7 @@ router.get('/clientes', async (req, res) => {
         return `
           <a href="/admin/clientes?cliente=${encodeURIComponent(c.usuario)}" style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px" class="hv-card">
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
-              <span style="width:46px;height:46px;border-radius:12px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;flex-shrink:0">${esc(c.nombre.charAt(0).toUpperCase())}</span>
+              <span style="width:46px;height:46px;border-radius:12px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;flex-shrink:0;overflow:hidden">${c.avatar ? `<img src="${esc(c.avatar)}" alt="${esc(c.nombre)}" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='${esc(c.nombre.charAt(0).toUpperCase())}'">` : esc(c.nombre.charAt(0).toUpperCase())}</span>
               <div style="flex:1;min-width:0">
                 <div style="font-size:16px;font-weight:800;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.nombre)}</div>
                 <div style="font-size:12.5px;color:#8595AD">${mis.length} edificios · ${unidades} un.</div>
@@ -11373,7 +11483,7 @@ router.post('/api/cliente-editar', async (req, res) => {
 // Actualizar perfil de mi cuenta (dueño o cliente)
 router.post('/api/actualizar-perfil', async (req, res) => {
   try {
-    const { pass, email, wsp, notif_email, notif_wsp } = req.body || {};
+    const { pass, email, wsp, notif_email, notif_wsp, avatar } = req.body || {};
     const currentUser = req.session.user;
     if (!currentUser) return res.status(401).json({ error: 'No autenticado' });
 
@@ -11400,9 +11510,49 @@ router.post('/api/actualizar-perfil', async (req, res) => {
       await saveField(['whatsapp', 'wsp', 'telefono_wsp', 'telefono'], wsp, 'wsp');
       await saveField(['notif_email'], notif_email !== undefined ? (notif_email ? 'si' : 'no') : undefined, 'notif_email');
       await saveField(['notif_wsp'], notif_wsp !== undefined ? (notif_wsp ? 'si' : 'no') : undefined, 'notif_wsp');
+      await saveField(['avatar', 'foto', 'foto_perfil', 'imagen_perfil'], avatar, 'avatar');
+
+      if (avatar !== undefined) {
+        try {
+          await queryPg('UPDATE clientes SET avatar = $1 WHERE lower(usuario) = lower($2)', [avatar || null, currentUser]);
+        } catch (_) {}
+      }
 
       res.json({ ok: true });
     }
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Subir foto / avatar de perfil
+router.post('/api/subir-avatar', uploadAvatarMulter.single('avatar'), async (req, res) => {
+  try {
+    const currentUser = req.session.user;
+    if (!currentUser) return res.status(401).json({ error: 'No autenticado' });
+    if (!req.file) return res.status(400).json({ error: 'No se envió ninguna imagen' });
+
+    const avatarUrl = '/archivos/avatars/' + req.file.filename;
+
+    if (!esDuenoReal(req)) {
+      const { rows: cliRows, headers: cliHeaders } = await readTab(TAB_CLIENTES);
+      const c = cliRows.map(mapCliente).find((x) => x.usuario === currentUser);
+      if (c) {
+        let workingHeaders = cliHeaders.slice();
+        const saveField = async (candidates, value, defaultName) => {
+          let idx = workingHeaders.findIndex((h) => candidates.includes(h));
+          let col = idx >= 0 ? columnLetter(idx + 1) : columnLetter(workingHeaders.length + 1);
+          if (idx < 0) { await ensureHeader(TAB_CLIENTES, col, defaultName, false); workingHeaders.push(defaultName); }
+          await writeCell(TAB_CLIENTES, col, c._row, value);
+        };
+        await saveField(['avatar', 'foto', 'foto_perfil', 'imagen_perfil'], avatarUrl, 'avatar');
+        try {
+          await queryPg('UPDATE clientes SET avatar = $1 WHERE lower(usuario) = lower($2)', [avatarUrl, currentUser]);
+        } catch (_) {}
+      }
+    }
+
+    res.json({ ok: true, url: avatarUrl });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
