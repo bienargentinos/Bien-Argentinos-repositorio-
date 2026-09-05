@@ -67,8 +67,9 @@ const CITA = new RegExp(`["“”«»]|${ANTES}(vecin[a-záéíóúüñ]+|propie
 function limpiarParaTerceros(texto) {
     if (!texto) return '';
 
-    const oraciones = String(texto)
-        .replace(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):[^\]]+\]/gi, '')
+    // Las etiquetas de multimedia se sacan con la lista compartida (`etiquetas-media.js`), no con
+    // una copia local: llegó a estar escrita tres veces el mismo día.
+    const oraciones = require('../etiquetas-media').soloTexto(texto)
         .replace(/\s+/g, ' ')
         .split(/(?<=[.;!?])\s+|\n+/)
         .map(o => o.trim())

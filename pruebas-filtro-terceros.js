@@ -44,8 +44,13 @@ if (iniFiltros === -1) throw new Error('No encontré los bordes de palabra en ag
 const filtros = SRC.slice(iniFiltros, bloque('const CITA = ', "'i');").fin);
 const funcion = bloque('function limpiarParaTerceros(texto) {', '\n}').texto;
 
+// `limpiarParaTerceros` hace `require('../etiquetas-media')` -- la ruta es relativa a `agentes/`,
+// y adentro de un `new Function` no existe `require`. Se le pasa uno que resuelve desde acá.
+const req = (p) => require(p.replace(/^\.\.\//, './'));
+
 // eslint-disable-next-line no-new-func
-const limpiarParaTerceros = new Function(`${filtros}\n${funcion}\nreturn limpiarParaTerceros;`)();
+const limpiarParaTerceros = new Function('require',
+    `${filtros}\n${funcion}\nreturn limpiarParaTerceros;`)(req);
 // eslint-disable-next-line no-new-func
 const filtra = new Function('o',
     `${filtros}\nreturn INSULTOS.test(o) || QUEJAS.test(o) || CITA.test(o);`);
@@ -149,6 +154,45 @@ console.log('\n── LA ORACIÓN SE DESCARTA ENTERA, NO SE RECORTA LA PALABRA �
     // Si NO sobrevive nada utilizable devuelve '', y el llamador pone un genérico por rubro.
     verificar('sin nada limpio devuelve vacío',
         limpiarParaTerceros('Me estafó el plomero. Este tipo nos cagó.'), '');
+}
+
+console.log('\n── LA LISTA DE ETIQUETAS DE MULTIMEDIA VIVE EN UN SOLO LUGAR ──');
+{
+    // El mismo día, dos personas arreglaron por separado que la etiqueta `[AUDIO:/archivos/…]` no
+    // salga hacia afuera, y quedó escrita TRES veces: en `etiquetas-media.js`, en
+    // `limpiarTextoProblema` de index.js y adentro de `limpiarParaTerceros` acá.
+    //
+    // En este repo ya sabemos cómo termina eso: `buscarPerfilEdificio` estaba duplicado y arreglar
+    // una copia no cambiaba nada en producción, porque la que corría era la otra.
+    const fs = require('fs');
+    const path = require('path');
+
+    // Lo que se busca es la LISTA escrita como alternativa (`AUDIO|AUDIO_URL|…`), que es la forma
+    // que toma una copia. Escribir una etiqueta suelta (`[AUDIO:${url}]`) es otra cosa y está
+    // bien: alguien tiene que ponerlas.
+    const copia = /AUDIO\s*\|/;
+
+    // `dashboard.js` queda afuera a propósito: su copia vive adentro del JavaScript que corre en
+    // el NAVEGADOR, donde no existe `require`. Y además no limpia — arma los reproductores a
+    // partir de las etiquetas, que es el trabajo opuesto.
+    for (const archivo of ['index.js', 'agentes/marcos-ops.js', 'sheets.js', 'datos.js']) {
+        const ruta = path.join(__dirname, archivo);
+        if (!fs.existsSync(ruta)) continue;
+        const sinComentarios = fs.readFileSync(ruta, 'utf8')
+            .split('\n').filter(l => !/^\s*(\/\/|\*|\/\*|--)/.test(l)).join('\n');
+        verificar(`${archivo} no tiene su propia lista de etiquetas`, copia.test(sinComentarios), false);
+    }
+
+    // Y que la compartida efectivamente las saque, incluidas las que agregó AY.
+    const { soloTexto } = require('./etiquetas-media');
+    verificar('saca [AUDIO:…]',
+        soloTexto('[AUDIO:/archivos/x/media_446.ogg] saltó la térmica'), 'saltó la térmica');
+    verificar('saca [FOTO:…] y [PDF:…]',
+        soloTexto('[FOTO:/a/b.jpg] mirá [PDF:/c/d.pdf] esto'), 'mirá esto');
+    verificar('sin etiquetas no toca nada',
+        soloTexto('saltó la térmica del hall'), 'saltó la térmica del hall');
+    verificar('si no queda texto, devuelve vacío',
+        soloTexto('[AUDIO:/archivos/x.ogg]'), '');
 }
 
 console.log('\n── QUE `\\w` Y `\\b` NO VUELVAN A ESTAS EXPRESIONES ──');

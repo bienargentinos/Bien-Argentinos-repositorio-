@@ -24,8 +24,16 @@
 // La regla es simple y va en un solo lugar para que no haya dos versiones: **lo que se guarda
 // lleva la etiqueta; lo que sale hacia una persona, no.**
 
-// Las cuatro que escribe el motor. El contenido puede ser una URL, una ruta o un id de Meta.
-const ETIQUETA = /\[(AUDIO|IMAGEN|VIDEO|DOCUMENTO):[^\]]*\]/gi;
+// Todas las que escribe el motor, en cualquiera de sus formas. El contenido puede ser una URL,
+// una ruta del disco o un id de Meta.
+//
+// La lista va acá y en ningún otro lado. Cuando este arreglo se hizo, quedó escrito tres veces
+// --en este archivo, en `limpiarTextoProblema` de index.js y adentro de `limpiarParaTerceros` de
+// marcos-ops.js-- porque dos personas lo arreglaron el mismo día en lugares distintos. Con tres
+// copias, agregar una etiqueta nueva significa acordarse de tres lugares, y en este repo ya
+// sabemos cómo termina eso: `buscarPerfilEdificio` estaba duplicado y arreglar una copia no
+// cambiaba nada en producción.
+const ETIQUETA = /\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):[^\]]*\]/gi;
 
 /**
  * El texto como lo tiene que leer una persona: sin las etiquetas internas.

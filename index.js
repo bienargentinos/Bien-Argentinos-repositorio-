@@ -41,12 +41,11 @@ function logDebug(msg) {
     fs.appendFileSync('debug_marcos.log', `[${t}] ${msg}\n`);
 }
 
+// La lista de etiquetas vive en `etiquetas-media.js` y en ningún otro lado: llegó a estar escrita
+// tres veces el mismo día, y con tres copias agregar una etiqueta nueva es acordarse de tres
+// lugares.
 function limpiarTextoProblema(p) {
-    if (!p) return '';
-    return String(p)
-        .replace(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):[^\]]+\]/gi, '')
-        .replace(/\s+/g, ' ')
-        .trim();
+    return require('./etiquetas-media').soloTexto(p);
 }
 
 /**
