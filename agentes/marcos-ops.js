@@ -68,6 +68,7 @@ function limpiarParaTerceros(texto) {
     if (!texto) return '';
 
     const oraciones = String(texto)
+        .replace(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):[^\]]+\]/gi, '')
         .replace(/\s+/g, ' ')
         .split(/(?<=[.;!?])\s+|\n+/)
         .map(o => o.trim())

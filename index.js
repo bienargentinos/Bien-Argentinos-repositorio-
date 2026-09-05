@@ -41,6 +41,14 @@ function logDebug(msg) {
     fs.appendFileSync('debug_marcos.log', `[${t}] ${msg}\n`);
 }
 
+function limpiarTextoProblema(p) {
+    if (!p) return '';
+    return String(p)
+        .replace(/\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):[^\]]+\]/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 /**
  * La confirmación del técnico puede haber llegado antes de que existiera la sesión de este vecino,
  * o después de un reinicio de PM2. En ese caso vive en el estado del proveedor: se la busca ahí por
@@ -1533,7 +1541,9 @@ function validarYSanitizarNombre(nombre) {
             const { marcarCasoResueltoPorId } = require('./datos');
             const resData = await marcarCasoResueltoPorId(casoElegido.id_evento);
             session.esperandoSeleccionCasoResuelto = null;
-            const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, he marcado el caso *[${casoElegido.id_evento}]* (${casoElegido.problema}) como *RESUELTO* en *${casoElegido.edificio || session.nombreEdificio || 'el edificio'}*.\n\n¡Muchas gracias por confirmarnos!`;
+            const probLimpio = limpiarTextoProblema(casoElegido.problema);
+            const probStr = probLimpio ? ` (${probLimpio})` : '';
+            const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, he marcado el caso *[${casoElegido.id_evento}]*${probStr} como *RESUELTO* en *${casoElegido.edificio || session.nombreEdificio || 'el edificio'}*.\n\n¡Muchas gracias por confirmarnos!`;
             await despacharRespuesta(recipient, confirmMsg, msgTypeRespuesta);
 
             if (resData && resData.telefono && resData.telefono !== from) {
@@ -1580,8 +1590,9 @@ function validarYSanitizarNombre(nombre) {
                 return;
             }
 
+            const detalleCaso = limpiarTextoProblema(caso.problema) || 'Sin detalle registrado';
             let resp = `*${caso.id_evento}* — ${caso.edificio || 'consorcio'}\n\n` +
-                `📋 ${caso.problema || 'Sin detalle registrado'}\n`;
+                `📋 ${detalleCaso}\n`;
 
             if (caso.cerrado) {
                 resp += `\n✅ Estado: *RESUELTO*.`;
@@ -1639,7 +1650,9 @@ function validarYSanitizarNombre(nombre) {
             const resData = await marcarCasoResueltoPorId(cUnico.id_evento);
             // El nombre del edificio sale del CASO, no de la sesión: es el dato que efectivamente
             // se resolvió, y sobrevive aunque la sesión llegara vacía.
-            const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, he marcado el caso *[${cUnico.id_evento}]* (${cUnico.problema}) como *RESUELTO* en *${cUnico.edificio || edificioParaCierre || 'el edificio'}*.\n\n¡Muchas gracias por tu confirmación!`;
+            const probLimpio = limpiarTextoProblema(cUnico.problema);
+            const probStr = probLimpio ? ` (${probLimpio})` : '';
+            const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, he marcado el caso *[${cUnico.id_evento}]*${probStr} como *RESUELTO* en *${cUnico.edificio || edificioParaCierre || 'el edificio'}*.\n\n¡Muchas gracias por tu confirmación!`;
             await despacharRespuesta(recipient, confirmMsg, msgTypeRespuesta);
 
             if (resData && resData.telefono && resData.telefono !== from) {
@@ -1657,7 +1670,9 @@ function validarYSanitizarNombre(nombre) {
 
             if (coincidenciaDirecta) {
                 const resData = await marcarCasoResueltoPorId(coincidenciaDirecta.id_evento);
-                const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, asocié tu mensaje al caso *[${coincidenciaDirecta.id_evento}]* (${coincidenciaDirecta.problema}) y lo he marcado como *RESUELTO* en *${coincidenciaDirecta.edificio || session.nombreEdificio || 'el edificio'}*.\n\nLos demás reclamos del edificio continúan en curso.`;
+                const probLimpio = limpiarTextoProblema(coincidenciaDirecta.problema);
+                const probStr = probLimpio ? ` (${probLimpio})` : '';
+                const confirmMsg = `✅ *RECLAMO SOLUCIONADO*\n\nExcelente, asocié tu mensaje al caso *[${coincidenciaDirecta.id_evento}]*${probStr} y lo he marcado como *RESUELTO* en *${coincidenciaDirecta.edificio || session.nombreEdificio || 'el edificio'}*.\n\nLos demás reclamos del edificio continúan en curso.`;
                 await despacharRespuesta(recipient, confirmMsg, msgTypeRespuesta);
 
                 if (resData && resData.telefono && resData.telefono !== from) {
@@ -1671,7 +1686,8 @@ function validarYSanitizarNombre(nombre) {
                 session.esperandoSeleccionCasoResuelto = casosAbiertos;
                 let listaOpciones = `📋 *MARCOS — SELECCIÓN DE RECLAMO SOLUCIONADO*\n\nExcelente. En *${session.nombreEdificio}* tenemos los siguientes reclamos abiertos en curso:\n\n`;
                 casosAbiertos.forEach((c, idx) => {
-                    listaOpciones += `${idx + 1}️⃣ *[${c.id_evento}]*: ${c.problema} (Depto: ${c.depto || '—'})\n`;
+                    const pLimpio = limpiarTextoProblema(c.problema);
+                    listaOpciones += `${idx + 1}️⃣ *[${c.id_evento}]*: ${pLimpio} (Depto: ${c.depto || '—'})\n`;
                 });
                 listaOpciones += `\n¿Cuál de estos inconvenientes es el que quedó solucionado? Podés responder con el número (ej: 1 o 2).`;
 
