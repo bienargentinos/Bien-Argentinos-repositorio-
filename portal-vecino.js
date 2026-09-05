@@ -423,6 +423,60 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   color: #FBBF24 !important;
 }
 
+/* Caja Informativa de Arancel (Azul con letras blancas de alto contraste) */
+.arancel-box.arancel-pago {
+  background: linear-gradient(135deg, #1E40AF, #2563EB) !important;
+  border: 1.5px solid #60A5FA !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25) !important;
+}
+.arancel-box.arancel-pago strong,
+.arancel-box.arancel-pago span,
+.arancel-box.arancel-pago div {
+  color: #FFFFFF !important;
+}
+.arancel-box.arancel-pago .txt-destacado-oro {
+  color: #FEF08A !important;
+  font-weight: 900 !important;
+}
+
+.dark-theme .arancel-box.arancel-pago {
+  background: linear-gradient(135deg, #0F2554, #1E3A8A) !important;
+  border: 1.5px solid #3B82F6 !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+.dark-theme .arancel-box.arancel-pago strong,
+.dark-theme .arancel-box.arancel-pago span,
+.dark-theme .arancel-box.arancel-pago div {
+  color: #FFFFFF !important;
+}
+.dark-theme .arancel-box.arancel-pago .txt-destacado-oro {
+  color: #FDE047 !important;
+  font-weight: 900 !important;
+}
+
+.arancel-box.arancel-gratis {
+  background: linear-gradient(135deg, #065F46, #047857) !important;
+  border: 1.5px solid #34D399 !important;
+  color: #FFFFFF !important;
+}
+.arancel-box.arancel-gratis strong,
+.arancel-box.arancel-gratis span,
+.arancel-box.arancel-gratis div {
+  color: #FFFFFF !important;
+}
+.dark-theme .arancel-box.arancel-gratis {
+  background: linear-gradient(135deg, #064E3B, #047857) !important;
+  border: 1.5px solid #10B981 !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .arancel-box.arancel-gratis strong,
+.dark-theme .arancel-box.arancel-gratis span,
+.dark-theme .arancel-box.arancel-gratis div {
+  color: #FFFFFF !important;
+}
+
 /* Inputs, textareas y selects en modo oscuro */
 .dark-theme input.inp,
 .dark-theme input[type="text"],
@@ -4681,7 +4735,7 @@ router.get('/amenities', async (req, res) => {
         </div>
 
         <!-- Caja Informativa de Arancel y CBU / Gratuito -->
-        <div id="box-info-arancel" style="margin-bottom:16px;padding:12px 14px;border-radius:12px;background:#EFF6FF;border:1px solid #BFDBFE;font-size:12.5px;color:#1E40AF;line-height:1.5">
+        <div id="box-info-arancel" class="arancel-box" style="margin-bottom:16px;padding:12px 14px;border-radius:12px;display:none;line-height:1.5">
           <!-- Completado dinámicamente por JS -->
         </div>
 
@@ -4848,19 +4902,15 @@ router.get('/amenities', async (req, res) => {
       function actualizarCajaArancel(amObj) {
         var box = document.getElementById('box-info-arancel');
         if (!box) return;
+        box.style.display = 'block';
         if (amObj && amObj.arancelado && amObj.precio > 0) {
-          box.style.display = 'block';
-          box.style.background = '#FEF3C7';
-          box.style.border = '1px solid #FCD34D';
-          box.style.color = '#92400E';
-          box.innerHTML = '💰 <strong>Arancel de Reserva requerido: $' + Number(amObj.precio).toLocaleString('es-AR') + '</strong><br>' +
-            '<span style="font-size:11.5px;display:block;margin-top:3px">Una vez confirmada la reserva, podrás transferir a la cuenta del consorcio (Alias: <strong>${escJs(datosBanco.alias || '')}</strong>) y adjuntar el comprobante desde "Mis Reservas" o la sección Expensas para su validación oficial.</span>';
+          box.className = 'arancel-box arancel-pago';
+          box.innerHTML = '<div style="font-size:13.5px;font-weight:800;margin-bottom:4px">💰 Arancel de Reserva requerido: <span class="txt-destacado-oro">$' + Number(amObj.precio).toLocaleString('es-AR') + '</span></div>' +
+            '<div style="font-size:12px;line-height:1.45">Una vez confirmada la reserva, podrás transferir a la cuenta del consorcio (Alias: <strong class="txt-destacado-oro">${escJs(datosBanco.alias || '')}</strong>) y adjuntar el comprobante desde "Mis Reservas" o la sección Expensas para su validación oficial.</div>';
         } else {
-          box.style.display = 'block';
-          box.style.background = '#EFF6FF';
-          box.style.border = '1px solid #BFDBFE';
-          box.style.color = '#1E40AF';
-          box.innerHTML = '🟢 <strong>Espacio sin costo adicional:</strong> El uso de este amenity está incluido en el mantenimiento ordinario de las expensas.';
+          box.className = 'arancel-box arancel-gratis';
+          box.innerHTML = '<div style="font-size:13px;font-weight:800;margin-bottom:2px">🟢 Espacio sin costo adicional</div>' +
+            '<div style="font-size:12px;line-height:1.4">El uso de este amenity está incluido en el mantenimiento ordinario de las expensas.</div>';
         }
       }
 
