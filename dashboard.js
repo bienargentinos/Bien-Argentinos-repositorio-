@@ -3411,6 +3411,10 @@ function separarConversacionesEvento(datos) {
         str = str.substring(colonIdx + 1).trim();
       }
     }
+
+    // Quitar prefijos comunes redundantes embebidos en el mensaje (ej: "tecnico: ", "Marcos (a Proveedor): ")
+    str = str.replace(/^(vecino|usuario|cliente|titular|familiar|pariente|marcos ia|marcos|susana|ia|bot|asistente|sistema|proveedor|técnico|tecnico|plomero|electricista|gasista|instalador|encargado|seguridad|portero|portería|admin|administración)(\s*\([^)]*\))?:\s*/i, '').trim();
+
     var rolNorm = 'marcos';
     if (/vecino|usuario|cliente|titular|familiar|pariente/i.test(sender)) rolNorm = 'vecino';
     else if (/tecnico|técnico|proveedor|plomero|electricista|gasista|instalador/i.test(sender)) rolNorm = 'tecnico';
@@ -3584,7 +3588,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var colonIdx = str.indexOf(':');
       if (colonIdx !== -1 && colonIdx < 40) {
         var prefix = str.substring(0, colonIdx).trim();
-        if (/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería|Admin|Administración)/i.test(prefix)) {
+        if (/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|tecnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería|Admin|Administración)/i.test(prefix)) {
           cleanText = str.substring(colonIdx + 1).trim();
         }
       }
