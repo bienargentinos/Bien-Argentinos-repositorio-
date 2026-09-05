@@ -341,6 +341,33 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
   font-weight: 700 !important;
 }
 
+.amenity-badge-arancel {
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: #EFF6FF;
+  color: #1E40AF;
+  border: 1px solid #BFDBFE;
+  margin-top: 4px;
+  display: inline-block;
+}
+.amenity-card-item.selected .amenity-badge-arancel {
+  background: #78350F;
+  color: #FEF08A;
+  border: 1px solid #78350F;
+}
+.dark-theme .amenity-badge-arancel {
+  background: rgba(30, 95, 180, 0.25);
+  color: #93C5FD;
+  border: 1px solid rgba(147, 197, 253, 0.35);
+}
+.dark-theme .amenity-card-item.selected .amenity-badge-arancel {
+  background: rgba(251, 191, 36, 0.25);
+  color: #FDE047;
+  border: 1px solid #FBBF24;
+}
+
 /* Botones de selección de horas (estilo butacas) */
 .hora-slot-btn {
   padding: 10px 6px;
@@ -4576,9 +4603,6 @@ router.post('/api/reclamos', async (req, res) => {
 // -------------------------------------------------------------------
 // 6. RESERVA DE AMENITIES Y SUM
 // -------------------------------------------------------------------
-// -------------------------------------------------------------------
-// 6. RESERVA DE AMENITIES Y SUM (SELECTOR POR HORAS ESTILO CINE)
-// -------------------------------------------------------------------
 router.get('/amenities', async (req, res) => {
   const v = getVecinoSession(req);
   let misReservas = [];
@@ -4604,6 +4628,7 @@ router.get('/amenities', async (req, res) => {
           hora_apertura: a.hora_apertura || '08:00',
           hora_cierre: a.hora_cierre || '23:00',
           arancelado: Boolean(a.arancelado),
+          tipo_arancel: a.tipo_arancel || 'por_hora',
           precio: Number(a.precio || 0),
           moneda: a.moneda || 'ARS'
         }));
@@ -4628,8 +4653,15 @@ router.get('/amenities', async (req, res) => {
       const resEd = await pool.query(qEd, [v.edificio]);
       if (resEd && resEd.rows && resEd.rows.length > 0) {
         const r = resEd.rows[0];
-        if (r.cbu || r.alias) {
-          datosBanco = r;
+        try {
+          const { pool: p } = require('./db-pg');
+          const qB = `SELECT * FROM cuentas_bancarias WHERE edificio_id = $1 LIMIT 1`;
+          const resB = await p.query(qB, [r.id]);
+          if (resB && resB.rows && resB.rows.length > 0) {
+            datosBanco = resB.rows[0];
+          }
+        } catch (errB) {
+          console.warn('Carga datos banco:', errB.message);
         }
       }
     }
@@ -4650,12 +4682,12 @@ router.get('/amenities', async (req, res) => {
   // Si aún no se configuraron amenities en este edificio, usar catálogo estándar con aranceles sugeridos
   if (!amenitiesList.length) {
     amenitiesList = [
-      { id: 'sum', nombre: 'SUM (Salón de Eventos)', icon: '🎉', desc: 'Capacidad 35 personas · Parrilla, vajilla, TV y aire frío/calor', reglamento: 'Música permitida hasta 01:00 hs. Seña de $15.000 para limpieza. Dejar vajilla limpia. Prohibido fumar adentro.', hora_apertura: '09:00', hora_cierre: '23:00', arancelado: true, precio: 15000, moneda: 'ARS' },
-      { id: 'parrilla', nombre: 'Parrilla / Quincho', icon: '🥩', desc: 'Capacidad 15 personas · Parrilla a leña, mesa exterior y bacha', reglamento: 'Uso de carbón o leña propios. Apagar brasas y limpiar la parrilla al finalizar.', hora_apertura: '10:00', hora_cierre: '23:00', arancelado: false, precio: 0, moneda: 'ARS' },
-      { id: 'pileta', nombre: 'Pileta & Solarium', icon: '🏊', desc: 'Solarium con reposeras · Temporada habilitada', reglamento: 'Uso obligatorio de gorro. Revisación médica previa. Menores de 12 años acompañados por un adulto.', hora_apertura: '09:00', hora_cierre: '20:00', arancelado: false, precio: 0, moneda: 'ARS' },
-      { id: 'gimnasio', nombre: 'Gimnasio', icon: '🏋️', desc: 'Cinta para correr, mancuernas, polea y bicicleta estática', reglamento: 'Uso de toalla obligatorio para las máquinas. Limpiar y desinfectar el equipamiento tras su uso.', hora_apertura: '07:00', hora_cierre: '22:00', arancelado: false, precio: 0, moneda: 'ARS' },
-      { id: 'cochera', nombre: 'Cochera de Cortesía', icon: '🚗', desc: 'Espacio de estacionamiento para visitas', reglamento: 'Máximo 48 hs continuas por visitante. Identificar vehículo con patente en portería.', hora_apertura: '08:00', hora_cierre: '23:00', arancelado: true, precio: 5000, moneda: 'ARS' },
-      { id: 'laundry', nombre: 'Laundry / Lavadero', icon: '🧺', desc: 'Lavarropas y secarropas automáticos', reglamento: 'Utilizar jabón para lavarropas automáticos. Retirar prendas al terminar el ciclo.', hora_apertura: '08:00', hora_cierre: '21:00', arancelado: false, precio: 0, moneda: 'ARS' }
+      { id: 'sum', nombre: 'SUM (Salón de Eventos)', icon: '🎉', desc: 'Capacidad 35 personas · Parrilla, vajilla, TV y aire frío/calor', reglamento: 'Música permitida hasta 01:00 hs. Seña de $15.000 para limpieza. Dejar vajilla limpia. Prohibido fumar adentro.', hora_apertura: '09:00', hora_cierre: '23:00', arancelado: true, tipo_arancel: 'por_hora', precio: 15000, moneda: 'ARS' },
+      { id: 'parrilla', nombre: 'Parrilla / Quincho', icon: '🥩', desc: 'Capacidad 15 personas · Parrilla a leña, mesa exterior y bacha', reglamento: 'Uso de carbón o leña propios. Apagar brasas y limpiar la parrilla al finalizar.', hora_apertura: '10:00', hora_cierre: '23:00', arancelado: false, tipo_arancel: 'por_hora', precio: 0, moneda: 'ARS' },
+      { id: 'pileta', nombre: 'Pileta & Solarium', icon: '🏊', desc: 'Solarium con reposeras · Temporada habilitada', reglamento: 'Uso obligatorio de gorro. Revisación médica previa. Menores de 12 años acompañados por un adulto.', hora_apertura: '09:00', hora_cierre: '20:00', arancelado: false, tipo_arancel: 'por_hora', precio: 0, moneda: 'ARS' },
+      { id: 'gimnasio', nombre: 'Gimnasio', icon: '🏋️', desc: 'Cinta para correr, mancuernas, polea y bicicleta estática', reglamento: 'Uso de toalla obligatorio para las máquinas. Limpiar y desinfectar el equipamiento tras su uso.', hora_apertura: '07:00', hora_cierre: '22:00', arancelado: false, tipo_arancel: 'por_hora', precio: 0, moneda: 'ARS' },
+      { id: 'cochera', nombre: 'Cochera de Cortesía', icon: '🚗', desc: 'Espacio de estacionamiento para visitas', reglamento: 'Máximo 48 hs continuas por visitante. Identificar vehículo con patente en portería.', hora_apertura: '08:00', hora_cierre: '23:00', arancelado: true, tipo_arancel: 'por_reserva', precio: 5000, moneda: 'ARS' },
+      { id: 'laundry', nombre: 'Laundry / Lavadero', icon: '🧺', desc: 'Lavarropas y secarropas automáticos', reglamento: 'Utilizar jabón para lavarropas automáticos. Retirar prendas al terminar el ciclo.', hora_apertura: '08:00', hora_cierre: '21:00', arancelado: false, tipo_arancel: 'por_hora', precio: 0, moneda: 'ARS' }
     ];
   }
 
@@ -4725,8 +4757,8 @@ router.get('/amenities', async (req, res) => {
                 <div class="amenity-title">${esc(a.nombre)}</div>
                 <div class="amenity-time">${esc(a.hora_apertura)} a ${esc(a.hora_cierre)} hs</div>
                 ${a.arancelado && a.precio > 0 
-                  ? `<div style="font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,0.15);color:#FBBF24;border:1px solid rgba(251,191,36,0.35);margin-top:4px;display:inline-block">💰 $${Number(a.precio).toLocaleString('es-AR')}</div>`
-                  : `<div style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(74,222,128,0.12);color:#4ADE80;border:1px solid rgba(74,222,128,0.3);margin-top:4px;display:inline-block">🟢 Sin costo</div>`
+                  ? `<div class="amenity-badge-arancel">💰 $${Number(a.precio).toLocaleString('es-AR')} ${a.tipo_arancel === 'por_reserva' ? 'fijo' : '/ h'}</div>`
+                  : `<div style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(74,222,128,0.12);color:#15803D;border:1px solid rgba(74,222,128,0.3);margin-top:4px;display:inline-block">🟢 Sin costo</div>`
                 }
               </div>
             `).join('')}
@@ -4758,6 +4790,7 @@ router.get('/amenities', async (req, res) => {
           </div>
           <div id="resumen-seleccion-horas" style="display:none;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:10px 14px;font-size:13px;color:#1E40AF">
             🕒 Horario seleccionado: <strong id="txt-rango-seleccion"></strong> (<span id="txt-duracion-horas"></span>)
+            <div id="txt-total-arancel-resumen" style="margin-top:5px;font-weight:800;color:#1E3A8A"></div>
           </div>
         </div>
 
@@ -4905,8 +4938,14 @@ router.get('/amenities', async (req, res) => {
         box.style.display = 'block';
         if (amObj && amObj.arancelado && amObj.precio > 0) {
           box.className = 'arancel-box arancel-pago';
-          box.innerHTML = '<div style="font-size:13.5px;font-weight:800;margin-bottom:4px">💰 Arancel de Reserva requerido: <span class="txt-destacado-oro">$' + Number(amObj.precio).toLocaleString('es-AR') + '</span></div>' +
-            '<div style="font-size:12px;line-height:1.45">Una vez confirmada la reserva, podrás transferir a la cuenta del consorcio (Alias: <strong class="txt-destacado-oro">${escJs(datosBanco.alias || '')}</strong>) y adjuntar el comprobante desde "Mis Reservas" o la sección Expensas para su validación oficial.</div>';
+          var esFijo = amObj.tipo_arancel === 'por_reserva';
+          var modoTexto = esFijo ? 'tarifa fija por reserva' : 'por hora reservada';
+          var calculoNota = esFijo 
+            ? 'El arancel total es fijo independientemente de la cantidad de horas elegidas.' 
+            : 'El costo total se calculará automáticamente multiplicando el arancel por la cantidad de horas que selecciones.';
+          box.innerHTML = '<div style="font-size:13.5px;font-weight:800;margin-bottom:4px">💰 Arancel: <span class="txt-destacado-oro">$' + Number(amObj.precio).toLocaleString('es-AR') + '</span> <span style="font-size:12px;font-weight:600;opacity:0.9">(' + modoTexto + ')</span></div>' +
+            '<div style="font-size:12px;line-height:1.45;margin-bottom:6px">' + calculoNota + '</div>' +
+            '<div style="font-size:11.5px;line-height:1.4;opacity:0.95">Una vez confirmada la reserva, podrás transferir a la cuenta del consorcio (Alias: <strong class="txt-destacado-oro">${escJs(datosBanco.alias || '')}</strong>) y adjuntar el comprobante desde "Mis Reservas" para su validación oficial.</div>';
         } else {
           box.className = 'arancel-box arancel-gratis';
           box.innerHTML = '<div style="font-size:13px;font-weight:800;margin-bottom:2px">🟢 Espacio sin costo adicional</div>' +
@@ -5035,6 +5074,8 @@ router.get('/amenities', async (req, res) => {
         var btn = document.getElementById('btn-submit-reserva');
         var inpHoraDesde = document.getElementById('inp-hora-desde');
         var inpHoraHasta = document.getElementById('inp-hora-hasta');
+        var inpHoraSel = document.getElementById('inp-amenity-sel');
+        var txtTotal = document.getElementById('txt-total-arancel-resumen');
 
         if (_horasSeleccionadas.length === 0) {
           box.style.display = 'none';
@@ -5057,14 +5098,37 @@ router.get('/amenities', async (req, res) => {
         inpHoraDesde.value = strDesde;
         inpHoraHasta.value = strHasta;
 
+        var amenityNombre = inpHoraSel ? inpHoraSel.value : '';
+        var amObj = _amenitiesList.find(function(a){ 
+          return a.nombre && amenityNombre && a.nombre.toLowerCase() === amenityNombre.toLowerCase(); 
+        }) || _amenitiesList[0];
+
+        var total = 0;
+        var detallePrecio = '';
+        if (amObj && amObj.arancelado && amObj.precio > 0) {
+          if (amObj.tipo_arancel === 'por_reserva') {
+            total = Number(amObj.precio);
+            detallePrecio = '💰 Total a abonar: $' + total.toLocaleString('es-AR') + ' (tarifa fija por reserva)';
+          } else {
+            total = Number(amObj.precio) * duracion;
+            detallePrecio = '💰 Total a abonar: $' + total.toLocaleString('es-AR') + ' (' + duracion + (duracion === 1 ? ' hora' : ' horas') + ' × $' + Number(amObj.precio).toLocaleString('es-AR') + ')';
+          }
+        } else {
+          detallePrecio = '🟢 Espacio sin costo adicional';
+        }
+
         box.style.display = 'block';
         document.getElementById('txt-rango-seleccion').textContent = strDesde + ' a ' + strHasta + ' hs';
         document.getElementById('txt-duracion-horas').textContent = duracion + (duracion === 1 ? ' hora' : ' horas');
+        if (txtTotal) {
+          txtTotal.textContent = detallePrecio;
+        }
 
         btn.disabled = false;
         btn.style.opacity = '1';
         btn.style.cursor = 'pointer';
-        btn.innerHTML = '<i class="ph ph-check-circle" style="font-size:18px"></i><span>Confirmar Reserva (' + strDesde + ' a ' + strHasta + ' hs)</span>';
+        var btnSubTexto = total > 0 ? (' · $' + total.toLocaleString('es-AR')) : ' · Sin costo';
+        btn.innerHTML = '<i class="ph ph-check-circle" style="font-size:18px"></i><span>Confirmar Reserva (' + duracion + (duracion === 1 ? ' hr' : ' hrs') + btnSubTexto + ')</span>';
       }
 
       async function guardarReserva(e) {
@@ -5260,27 +5324,45 @@ router.post('/api/reservar-amenity', async (req, res) => {
     let estado_pago = 'no_requiere';
 
     if (pool) {
-      // 1. Averiguar si el amenity es arancelado y su precio
+      // 1. Averiguar si el amenity es arancelado, tipo de arancel y su precio
       try {
-        const qAm = `SELECT arancelado, precio FROM edificio_amenities 
+        const qAm = `SELECT arancelado, precio, tipo_arancel FROM edificio_amenities 
                      WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
                      AND LOWER(nombre) = LOWER($3) AND activo = TRUE LIMIT 1`;
         const amRes = await pool.query(qAm, [v.edificio, '%' + v.edificio + '%', amenity]);
+        let precioBase = 0;
+        let tipoArancel = 'por_hora';
+        let esArancelado = false;
+
         if (amRes && amRes.rows && amRes.rows.length > 0) {
           const amRow = amRes.rows[0];
-          if (amRow.arancelado && Number(amRow.precio) > 0) {
-            monto = Number(amRow.precio);
-            estado_pago = 'pendiente';
-          }
+          esArancelado = Boolean(amRow.arancelado);
+          precioBase = Number(amRow.precio || 0);
+          tipoArancel = amRow.tipo_arancel || 'por_hora';
         } else {
           // Fallback para SUM ($15000) y Cochera ($5000) si no estaban en DB
           if (/sum|salón|salon/i.test(amenity)) {
-            monto = 15000;
-            estado_pago = 'pendiente';
+            esArancelado = true;
+            precioBase = 15000;
+            tipoArancel = 'por_hora';
           } else if (/cochera|estacionamiento/i.test(amenity)) {
-            monto = 5000;
-            estado_pago = 'pendiente';
+            esArancelado = true;
+            precioBase = 5000;
+            tipoArancel = 'por_reserva';
           }
+        }
+
+        if (esArancelado && precioBase > 0) {
+          const hDesdeNum = parseInt(hora_desde.split(':')[0], 10) + (parseInt(hora_desde.split(':')[1] || 0, 10) / 60);
+          const hHastaNum = parseInt(hora_hasta.split(':')[0], 10) + (parseInt(hora_hasta.split(':')[1] || 0, 10) / 60);
+          const duracionHoras = Math.max(1, Math.round(hHastaNum - hDesdeNum));
+
+          if (tipoArancel === 'por_reserva') {
+            monto = precioBase;
+          } else {
+            monto = precioBase * duracionHoras;
+          }
+          estado_pago = 'pendiente';
         }
       } catch (errAm) {
         console.warn('Verificación arancel amenity:', errAm.message);

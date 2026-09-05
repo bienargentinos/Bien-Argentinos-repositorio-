@@ -4755,6 +4755,7 @@ async function guardarAmenityNuevo(btn) {
   var chkArancel = document.getElementById('amenity-nuevo-arancelado');
   var arancelado = chkArancel ? chkArancel.checked : false;
   var precio = valEl('amenity-nuevo-precio') || '0';
+  var tipoArancel = valEl('amenity-nuevo-tipo-arancel') || 'por_hora';
 
   if (!nombre.trim()) {
     toast('Ingresá el nombre del espacio común (ej: SUM, Piscina, Gimnasio)', 'err');
@@ -4779,7 +4780,8 @@ async function guardarAmenityNuevo(btn) {
         descripcion: descripcion.trim(),
         reglamento: reglamento.trim(),
         arancelado: Boolean(arancelado),
-        precio: parseFloat(precio) || 0
+        precio: parseFloat(precio) || 0,
+        tipo_arancel: tipoArancel
       })
     });
     var j = await r.json();
@@ -4796,7 +4798,7 @@ async function guardarAmenityNuevo(btn) {
 }
 window.guardarAmenityNuevo = guardarAmenityNuevo;
 
-function abrirModalAmenityEditar(id, nombre, icono, apertura, cierre, capacidad, desc, reglamento, arancelado, precio) {
+function abrirModalAmenityEditar(id, nombre, icono, apertura, cierre, capacidad, desc, reglamento, arancelado, precio, tipoArancel) {
   var idEl = document.getElementById('amenity-edit-id');
   if (idEl) idEl.value = id || '';
   var nEl = document.getElementById('amenity-edit-nombre');
@@ -4820,6 +4822,8 @@ function abrirModalAmenityEditar(id, nombre, icono, apertura, cierre, capacidad,
   if (boxP) boxP.style.display = arancelado ? 'block' : 'none';
   var pEl = document.getElementById('amenity-edit-precio');
   if (pEl) pEl.value = precio || 0;
+  var tEl = document.getElementById('amenity-edit-tipo-arancel');
+  if (tEl) tEl.value = tipoArancel || 'por_hora';
 
   abrirModal('modal-amenity-editar');
 }
@@ -4838,6 +4842,7 @@ async function guardarAmenityEditado(btn) {
   var chkArancel = document.getElementById('amenity-edit-arancelado');
   var arancelado = chkArancel ? chkArancel.checked : false;
   var precio = valEl('amenity-edit-precio') || '0';
+  var tipoArancel = valEl('amenity-edit-tipo-arancel') || 'por_hora';
 
   if (!id || !nombre.trim()) {
     toast('Ingresá el nombre del espacio común', 'err');
@@ -4863,7 +4868,8 @@ async function guardarAmenityEditado(btn) {
         descripcion: descripcion.trim(),
         reglamento: reglamento.trim(),
         arancelado: Boolean(arancelado),
-        precio: parseFloat(precio) || 0
+        precio: parseFloat(precio) || 0,
+        tipo_arancel: tipoArancel
       })
     });
     var j = await r.json();
@@ -8539,12 +8545,12 @@ router.get('/mi-edificio', async (req, res) => {
                     <div style="font-size:14px;font-weight:800;color:#0F172A">${esc(a.nombre)}</div>
                     <div style="font-size:12px;color:#64748B">⏰ ${esc(a.hora_apertura || '08:00')} a ${esc(a.hora_cierre || '23:00')} hs · Cap. ${esc(a.capacidad || 20)} pers.</div>
                     <div style="font-size:11.5px;font-weight:700;margin-top:3px">
-                      ${a.arancelado && Number(a.precio) > 0 ? `<span style="color:#D97706;background:#FEF3C7;padding:2px 8px;border-radius:6px">💰 Arancel: $${Number(a.precio).toLocaleString('es-AR')}</span>` : `<span style="color:#15803D;background:#DCFCE7;padding:2px 8px;border-radius:6px">🟢 Sin costo adicional</span>`}
+                      ${a.arancelado && Number(a.precio) > 0 ? `<span style="color:#D97706;background:#FEF3C7;padding:2px 8px;border-radius:6px">💰 Arancel: $${Number(a.precio).toLocaleString('es-AR')} ${a.tipo_arancel === 'por_reserva' ? 'fijo (por reserva)' : '/ hora'}</span>` : `<span style="color:#15803D;background:#DCFCE7;padding:2px 8px;border-radius:6px">🟢 Sin costo adicional</span>`}
                     </div>
                   </div>
                 </div>
                 <div style="display:flex;align-items:center;gap:4px">
-                  <button onclick="abrirModalAmenityEditar(${a.id}, '${escJs(a.nombre)}', '${escJs(a.icono || '🎉')}', '${escJs(a.hora_apertura || '08:00')}', '${escJs(a.hora_cierre || '23:00')}', ${a.capacidad || 20}, '${escJs(a.descripcion || '')}', '${escJs(a.reglamento || '')}', ${a.arancelado ? 'true' : 'false'}, ${Number(a.precio) || 0})" style="border:1px solid #CBD5E1;background:#fff;color:#2E6FC0;font-size:11.5px;font-weight:700;border-radius:6px;padding:3px 8px;cursor:pointer" class="hv-blue">✏️ Editar</button>
+                  <button onclick="abrirModalAmenityEditar(${a.id}, '${escJs(a.nombre)}', '${escJs(a.icono || '🎉')}', '${escJs(a.hora_apertura || '08:00')}', '${escJs(a.hora_cierre || '23:00')}', ${a.capacidad || 20}, '${escJs(a.descripcion || '')}', '${escJs(a.reglamento || '')}', ${a.arancelado ? 'true' : 'false'}, ${Number(a.precio) || 0}, '${escJs(a.tipo_arancel || 'por_hora')}')" style="border:1px solid #CBD5E1;background:#fff;color:#2E6FC0;font-size:11.5px;font-weight:700;border-radius:6px;padding:3px 8px;cursor:pointer" class="hv-blue">✏️ Editar</button>
                   <button onclick="eliminarAmenity(${a.id}, '${escJs(a.nombre)}')" style="border:none;background:none;color:#EF4444;font-size:13px;font-weight:700;cursor:pointer;padding:4px" title="Eliminar amenity">✕</button>
                 </div>
               </div>
@@ -8644,8 +8650,19 @@ router.get('/mi-edificio', async (req, res) => {
                 <span>¿Requiere pago / arancel de reserva o seña?</span>
               </label>
               <div id="box-precio-nuevo" style="display:none;margin-top:10px">
-                <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto / Seña ($ ARS)</label>
-                <input type="number" id="amenity-nuevo-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp" style="background:#fff">
+                <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:10px">
+                  <div>
+                    <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto ($ ARS)</label>
+                    <input type="number" id="amenity-nuevo-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp" style="background:#fff">
+                  </div>
+                  <div>
+                    <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Modalidad de Cobro</label>
+                    <select id="amenity-nuevo-tipo-arancel" class="inp" style="background:#fff">
+                      <option value="por_hora">⏱️ Por Hora (horas × monto)</option>
+                      <option value="por_reserva">🎟️ Fijo por Reserva (tarifa plana)</option>
+                    </select>
+                  </div>
+                </div>
               </div>
             </div>
             <div style="margin-bottom:14px">
@@ -8715,8 +8732,19 @@ router.get('/mi-edificio', async (req, res) => {
                 <span>¿Requiere pago / arancel de reserva o seña?</span>
               </label>
               <div id="box-precio-edit" style="display:none;margin-top:10px">
-                <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto / Seña ($ ARS)</label>
-                <input type="number" id="amenity-edit-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp" style="background:#fff">
+                <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:10px">
+                  <div>
+                    <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto ($ ARS)</label>
+                    <input type="number" id="amenity-edit-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp" style="background:#fff">
+                  </div>
+                  <div>
+                    <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Modalidad de Cobro</label>
+                    <select id="amenity-edit-tipo-arancel" class="inp" style="background:#fff">
+                      <option value="por_hora">⏱️ Por Hora (horas × monto)</option>
+                      <option value="por_reserva">🎟️ Fijo por Reserva (tarifa plana)</option>
+                    </select>
+                  </div>
+                </div>
               </div>
             </div>
             <div style="margin-bottom:14px">
@@ -12909,15 +12937,15 @@ router.get('/api/busqueda-global', async (req, res) => {
 router.post('/api/edificio-amenity-guardar', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio } = req.body || {};
+    const { edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio, tipo_arancel } = req.body || {};
     if (!edificio || !nombre) {
       return res.status(400).json({ error: 'Faltan datos obligatorios (edificio, nombre)' });
     }
 
     const { pool } = require('./db-pg');
     if (pool) {
-      const q = `INSERT INTO edificio_amenities (edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio, activo, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, NOW()) RETURNING id`;
+      const q = `INSERT INTO edificio_amenities (edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio, tipo_arancel, activo, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, NOW()) RETURNING id`;
       const result = await pool.query(q, [
         edificio,
         nombre,
@@ -12928,7 +12956,8 @@ router.post('/api/edificio-amenity-guardar', async (req, res) => {
         descripcion || '',
         reglamento || '',
         Boolean(arancelado),
-        Number(precio) || 0
+        Number(precio) || 0,
+        tipo_arancel === 'por_reserva' ? 'por_reserva' : 'por_hora'
       ]);
       return res.json({ ok: true, mensaje: 'Amenity configurado con éxito', id: result.rows[0].id });
     }
@@ -12941,7 +12970,7 @@ router.post('/api/edificio-amenity-guardar', async (req, res) => {
 router.post('/api/edificio-amenity-editar', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { id, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio } = req.body || {};
+    const { id, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio, tipo_arancel } = req.body || {};
     if (!id || !nombre) {
       return res.status(400).json({ error: 'Faltan datos obligatorios (id, nombre)' });
     }
@@ -12949,8 +12978,8 @@ router.post('/api/edificio-amenity-editar', async (req, res) => {
     const { pool } = require('./db-pg');
     if (pool) {
       const q = `UPDATE edificio_amenities 
-                 SET nombre = $1, icono = $2, hora_apertura = $3, hora_cierre = $4, capacidad = $5, descripcion = $6, reglamento = $7, arancelado = $8, precio = $9
-                 WHERE id = $10`;
+                 SET nombre = $1, icono = $2, hora_apertura = $3, hora_cierre = $4, capacidad = $5, descripcion = $6, reglamento = $7, arancelado = $8, precio = $9, tipo_arancel = $10
+                 WHERE id = $11`;
       await pool.query(q, [
         nombre,
         icono || '🎉',
@@ -12961,6 +12990,7 @@ router.post('/api/edificio-amenity-editar', async (req, res) => {
         reglamento || '',
         Boolean(arancelado),
         Number(precio) || 0,
+        tipo_arancel === 'por_reserva' ? 'por_reserva' : 'por_hora',
         id
       ]);
       return res.json({ ok: true, mensaje: 'Amenity y reglamento actualizados con éxito' });

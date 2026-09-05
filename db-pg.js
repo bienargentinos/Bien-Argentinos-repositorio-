@@ -232,6 +232,7 @@ async function _initPgSchema() {
             ALTER TABLE edificio_amenities ADD COLUMN IF NOT EXISTS reglamento TEXT;
             ALTER TABLE edificio_amenities ADD COLUMN IF NOT EXISTS arancelado BOOLEAN DEFAULT FALSE;
             ALTER TABLE edificio_amenities ADD COLUMN IF NOT EXISTS precio NUMERIC DEFAULT 0;
+            ALTER TABLE edificio_amenities ADD COLUMN IF NOT EXISTS tipo_arancel VARCHAR(30) DEFAULT 'por_hora';
             ALTER TABLE edificio_amenities ADD COLUMN IF NOT EXISTS moneda VARCHAR(10) DEFAULT 'ARS';
 
             CREATE TABLE IF NOT EXISTS reservas_amenities (
