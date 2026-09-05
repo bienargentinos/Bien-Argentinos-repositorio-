@@ -20,7 +20,10 @@ const path = require('path');
 
 const SRC = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
 
-const ini = SRC.indexOf('const avisaQueVa = ');
+// Desde que el ruteo lo decide el modelo (`ruteo-proveedor.js`), esta condición es el RESPALDO:
+// la que corre con `RUTEO_IA=off`, o si el modelo falla o tarda. Sigue teniendo que estar bien --
+// es el piso al que cae Marcos cuando la IA no está disponible.
+const ini = SRC.indexOf('const avisaQueVaPorTexto = ');
 if (ini === -1) throw new Error('No encontré la detección del aviso en index.js.');
 const marca = "|| /\\b(aviso que|te aviso que|les aviso que)\\b/i.test(txtLow);";
 const fin = SRC.indexOf(marca, ini);
@@ -28,7 +31,7 @@ if (fin === -1) throw new Error('No encontré el final de la detección en index
 const cuerpo = SRC.slice(ini, fin + marca.length);
 
 // eslint-disable-next-line no-new-func
-const avisa = new Function('txtLow', `${cuerpo}; return avisaQueVa;`);
+const avisa = new Function('txtLow', `${cuerpo}; return avisaQueVaPorTexto;`);
 
 let fallos = 0;
 function verificar(titulo, real, esperado) {

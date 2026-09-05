@@ -35,9 +35,12 @@ function condicion(nombre) {
     return new Function('txtLow', `${cuerpo}; return ${nombre};`);
 }
 
-const avisaQueVa = condicion('avisaQueVa');
-const confirmaQueVa = condicion('confirmaQueVa');
-const pareceRespuestaDeAgenda = condicion('pareceRespuestaDeAgenda');
+// Desde que el ruteo lo decide el modelo (`ruteo-proveedor.js`), estas condiciones son el
+// RESPALDO: las que corren con `RUTEO_IA=off`, o si el modelo falla o tarda. Siguen teniendo que
+// estar bien -- son el piso al que cae Marcos cuando la IA no está disponible.
+const avisaQueVa = condicion('avisaQueVaPorTexto');
+const confirmaQueVa = condicion('confirmaQueVaPorTexto');
+const pareceRespuestaDeAgenda = condicion('pareceRespuestaDeAgendaPorTexto');
 
 let fallos = 0;
 function verificar(titulo, real, esperado) {

@@ -1254,6 +1254,31 @@ function validarYSanitizarNombre(nombre) {
         // Va antes de contestarle: si el técnico escribió "¿qué pasó?", tiene que ver la foto y no
         // una explicación de por qué no la tiene.
         if (stProv.eventoActivoId && stProv.pendientesResueltosDe !== stProv.eventoActivoId) {
+            // > [!CAUTION]
+            // > **La pregunta de si el técnico entra solo se hacía DOS MIL LÍNEAS más abajo que
+            // > el envío.** `tieneAccesoPropio` vive en la línea ~3300; este envío está acá.
+            //
+            // Visto en producción: Daniel escribió *"Tengo llave. Y que no necesito nada, voy en
+            // 2hs"* y un segundo después le llegó el contacto de ingreso igual. La detección
+            // funcionaba perfecto --devuelve `true` con esa frase exacta-- pero corría después de
+            // que el mensaje ya había salido. Marcos no dejó de entenderlo: nunca se lo preguntó
+            // a tiempo.
+            //
+            // Se pregunta acá, sobre ESTE mensaje, que es el que lo dice.
+            let entraSoloAhora = false;
+            try {
+                const { tieneAccesoPropio } = require('./contacto-ingreso');
+                entraSoloAhora = tieneAccesoPropio(textoFinal);
+                if (entraSoloAhora) {
+                    console.log(`🔑 ${datosEmisor.nombre || telTech} dijo que entra solo: no se le manda el contacto de ingreso del [${stProv.eventoActivoId}].`);
+                    // Se marca como resuelto para que tampoco vuelva a salir en el próximo
+                    // mensaje: preguntar y después no escuchar la respuesta le enseña al técnico
+                    // que a Marcos no vale la pena contestarle.
+                    const { marcarContactoAccesoAvisado } = require('./datos');
+                    await marcarContactoAccesoAvisado(stProv.eventoActivoId).catch(() => {});
+                }
+            } catch (e) { console.error('No se pudo evaluar si el técnico entra solo:', e.message); }
+
             const quedaPendiente = await entregarPendientesAlTecnico({
                 telTecnico:    telTech,
                 nombreTecnico: datosEmisor.nombre,
@@ -2565,6 +2590,46 @@ function validarYSanitizarNombre(nombre) {
 
         const txtLow = (msgBody || '').toLowerCase();
 
+        // ── DE QUÉ ESTÁ HABLANDO EL TÉCNICO ─────────────────────────────────────────────────
+        //
+        // > [!CAUTION]
+        // > **Acá abajo empieza la cadena de condiciones por texto, y la primera que matchea
+        // > CORTA.** Un mensaje que cae en el ramal equivocado no llega a ningún otro: Marcos
+        // > contesta otra cosa y listo.
+        //
+        // Antes eso lo decidían solo las expresiones regulares, y el modelo era el último de la
+        // fila. La frase *"no te estoy pidiendo fotos de nada"* contiene "foto", así que se leyó
+        // como un pedido de fotos — dos veces seguidas, mientras Daniel escribía en mayúsculas
+        // que no estaba pidiendo nada.
+        //
+        // Ahora se le pregunta al modelo PRIMERO, con el contexto de la conversación. Cada
+        // condición de abajo queda escrita igual, como respaldo: si el ruteo está apagado, falla
+        // o tarda, se sigue exactamente como antes. Y cuando los dos no coinciden queda un `🧭`
+        // en el log con las dos opiniones, que es la única forma de saber si esto mejoró algo
+        // sin esperar a que un técnico se queje.
+        let ruteoIA = null;
+        try {
+            const { clasificarMensajeProveedor } = require('./ruteo-proveedor');
+            const stRuteo = global.colasProveedores?.get(from) || {};
+            ruteoIA = await clasificarMensajeProveedor({
+                texto: textoFinal,
+                contexto: {
+                    ultimaPreguntaDeMarcos: [...historial].reverse().find(l => l.startsWith('Marcos'))?.slice(0, 200) || '',
+                    casoAbierto: stRuteo.eventoActivoId || '',
+                    edificioDelCaso: session.nombreEdificio || '',
+                    rubroDelCaso: stRuteo.rubroActivo || '',
+                    facturaEsperandoObra: !!session.esperandoEdificioDeFactura,
+                    mandoAdjunto: !!media,
+                },
+            });
+            if (ruteoIA) {
+                console.log(`🧭 ${datosEmisor.nombre || from}: "${String(textoFinal).replace(/\s+/g, ' ').slice(0, 60)}" → ${ruteoIA.intencion} (${ruteoIA.confianza}) — ${ruteoIA.motivo}`);
+            }
+        } catch (e) {
+            console.error('🧭 No se pudo rutear el mensaje del proveedor:', e.message);
+        }
+        const { seActiva } = require('./ruteo-proveedor');
+
 
         // A2. CONSULTA DE ESTADO DE PAGO ("¿ya me pagaron la factura X?", "¿cuándo cobro?", etc.)
         // Es una pregunta sobre un comprobante YA ENVIADO antes -- no se confunde con "esFacturaODoc"
@@ -2589,7 +2654,7 @@ function validarYSanitizarNombre(nombre) {
         // cable de cobre casi nunca -- cable es cable, no hay otro que no sea de cobre"*. O sea que
         // el falso positivo era imaginario, y excluirlo sí costaba caro: **"¿ya cobre?" sin tilde**
         // es como se escribe de verdad en WhatsApp, y quedaba afuera. Se deja `\bcobr` a secas.
-        const esConsultaPago = parecePreguntaSinAdjunto && (
+        const esConsultaPagoPorTexto = parecePreguntaSinAdjunto && (
             /\bpag/i.test(txtLow) ||
             /\bcobr/i.test(txtLow) ||
             /\babon/i.test(txtLow) ||
@@ -2598,6 +2663,7 @@ function validarYSanitizarNombre(nombre) {
             /deposit(aron|aste|ó|aban|ada|ado|an)\b/i.test(txtLow) ||
             /transfi(r|er)|transferenc|acredit|liquid(ar|aron)|cheque|giro banc/i.test(txtLow)
         );
+        const esConsultaPago = seActiva('consulta_pago', esConsultaPagoPorTexto, ruteoIA, textoFinal);
 
         if (esConsultaPago) {
             const numeroMencionado = (txtLow.match(/\b\d{3,}\b/) || [])[0] || '';
@@ -2803,10 +2869,15 @@ function validarYSanitizarNombre(nombre) {
         // camino, y tomarlo como respuesta le imputaría una factura por error. Los ramales que
         // vienen más abajo (pedir fotos al vecino, avisar que llegó a la puerta) tienen que poder
         // atender esos mensajes.
-        const pareceRespuestaDeEdificio = !esFacturaODoc
+        const pareceRespuestaDeEdificioPorTexto = !esFacturaODoc
             && String(textoFinal || '').trim().length <= 60
             && !/solicitar|m.s datos|mas datos|detalles|pedir|foto|imagen|video|cerradura|especifi|aclarar/i.test(txtLow)
             && !/llegu|llegue|estoy (aca|acá|afuera|en la puerta|abajo)|no hay nadie|no me abre|nadie (me )?abre|no sale nadie|toqu[eé] timbre|voy en camino|estoy yendo|salgo para/i.test(txtLow);
+
+        // El adjunto lo decide el tipo de archivo, no el texto: eso NO se rutea. Una factura es
+        // una factura aunque el modelo lea otra cosa en lo que vino escrito al lado.
+        const pareceRespuestaDeEdificio = !esFacturaODoc
+            && seActiva('responde_de_que_obra', pareceRespuestaDeEdificioPorTexto, ruteoIA, textoFinal);
 
         if (pareceRespuestaDeEdificio) {
             try {
@@ -3088,12 +3159,22 @@ function validarYSanitizarNombre(nombre) {
             // Ojo con `\w`: en JavaScript NO incluye las vocales acentuadas, así que `llam\w*` se
             // corta antes de la "ó" de "llamó" y la frase más común de todas --"llamó el
             // encargado"-- no matcheaba. Por eso las clases se escriben a mano con los acentos.
-            const avisaQueVa = /\b(me|nos)\s+(?:[a-z0-9áéíóúüñ]+\s+){0,3}(llam|avis|convoc|pidi|mand|contact|solicit)/i.test(txtLow)
+            const avisaQueVaPorTexto = /\b(me|nos)\s+(?:[a-z0-9áéíóúüñ]+\s+){0,3}(llam|avis|convoc|pidi|mand|contact|solicit)/i.test(txtLow)
                 || /\b(acab[a-záéíóúüñ]*|termin[a-záéíóúüñ]*)\s+de\s+(llamar|llamarme|avisar|avisarme|contactar|escribir)/i.test(txtLow)
                 || /\b(llam|avis|convoc|contact)[a-záéíóúüñ]*\s+(el|la|los|las|un|una)?\s*(encargad|administrad|porter|seguridad|vecin|consorcio|edificio)/i.test(txtLow)
                 || /\b(llamaron|avisaron|convocaron|contactaron|me escribieron)\b/i.test(txtLow)
                 || /\b(voy a (pasar|ir|estar|acercarme)|estoy yendo|voy para|paso (hoy|ma[nñ]ana|luego|m[aá]s tarde)|me acerco|salgo para)\b/i.test(txtLow)
                 || /\b(aviso que|te aviso que|les aviso que)\b/i.test(txtLow);
+
+            // Confirmar que va es TAMBIÉN un aviso: si el técnico arranca por "voy mañana a las
+            // 10" sin contar que lo llamaron, el caso tiene que abrirse igual. Por eso las dos
+            // intenciones cuentan para esta condición.
+            const avisaQueVa = ruteoIA
+                ? (ruteoIA.intencion === 'avisa_que_lo_convocaron' || ruteoIA.intencion === 'confirma_que_va')
+                : avisaQueVaPorTexto;
+            if (ruteoIA && avisaQueVa !== avisaQueVaPorTexto) {
+                console.log(`🧭 "${String(textoFinal).replace(/\s+/g, ' ').slice(0, 60)}" → avisaQueVa: el texto decía ${avisaQueVaPorTexto ? 'SÍ' : 'no'}, la IA dice ${avisaQueVa ? 'SÍ' : 'no'} (leyó "${ruteoIA.intencion}"). Gana la IA.`);
+            }
 
             // AVISAR QUE LO LLAMARON NO ES DECIR QUE VA.
             //
@@ -3105,17 +3186,25 @@ function validarYSanitizarNombre(nombre) {
             // Daniel: "si no digo que voy, que Marcos pregunte: ok gracias por avisarme, ¿vas a
             // pasar? ¿cuándo? ¿necesitás algo que gestione? Así no espera que el tipo le diga --
             // que indague".
-            const confirmaQueVa = /\b(voy a (pasar|ir|estar|acercarme)|estoy yendo|voy para|voy ma[nñ]ana|voy hoy|paso (hoy|ma[nñ]ana|luego|m[aá]s tarde|por la)|me acerco|salgo para|ya salgo|estoy en camino|en camino)\b/i.test(txtLow)
+            const confirmaQueVaPorTexto = /\b(voy a (pasar|ir|estar|acercarme)|estoy yendo|voy para|voy ma[nñ]ana|voy hoy|paso (hoy|ma[nñ]ana|luego|m[aá]s tarde|por la)|me acerco|salgo para|ya salgo|estoy en camino|en camino)\b/i.test(txtLow)
                 || /\b(voy|paso|llego|estar[eé]|ir[eé])\b[^.]{0,30}\b(hoy|ma[nñ]ana|a las?\s*\d|en \d+\s*(min|hs?|hora))/i.test(txtLow);
+            const confirmaQueVa = seActiva('confirma_que_va', confirmaQueVaPorTexto, ruteoIA, textoFinal);
 
             // Y cómo se contesta de verdad "¿vas a pasar? ¿cuándo?": "sí, mañana a las 10",
             // "dale, voy", "a las 9". Sin verbo y sin repetir la dirección, porque la acaba de
             // decir. Esto NO abre nada por sí solo: solo sirve para reconocer la respuesta cuando
             // hay un caso esperando confirmación, y si no lo hay el mensaje sigue su camino.
-            const pareceRespuestaDeAgenda = /^\s*(s[ií]|dale|ok|oka|okey|listo|perfecto|claro|obvio|de una|joya|b[aá]rbaro)\b/i.test(txtLow)
+            const pareceRespuestaDeAgendaPorTexto = /^\s*(s[ií]|dale|ok|oka|okey|listo|perfecto|claro|obvio|de una|joya|b[aá]rbaro)\b/i.test(txtLow)
                 || /\ba\s+las?\s*\d{1,2}\b/i.test(txtLow)
                 || /\b(hoy|ma[nñ]ana|pasado ma[nñ]ana|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i.test(txtLow)
                 || /\ben\s+\d+\s*(min|minutos?|hs?|horas?)\b/i.test(txtLow);
+
+            // ESTA es la única que SUMA en vez de reemplazar, y es a propósito: no corta ningún
+            // camino ni abre nada por sí sola -- solo permite enganchar la respuesta con un caso
+            // que ya está esperando confirmación. El costo de que sobre es cero; el de que falte
+            // es volver a preguntarle al técnico algo que acaba de contestar.
+            const pareceRespuestaDeAgenda = pareceRespuestaDeAgendaPorTexto
+                || ruteoIA?.intencion === 'confirma_que_va';
 
             // Tiene que nombrar el edificio: sin eso no se sabe a qué consorcio imputarle nada, y
             // abrir el caso en el edificio equivocado es peor que no abrirlo.
@@ -3197,7 +3286,7 @@ function validarYSanitizarNombre(nombre) {
                         notas_ia: (confirmaQueVa
                                     ? `El técnico ${datosEmisor.nombre} avisó que lo convocaron directamente y que va a ir. `
                                     : `El técnico ${datosEmisor.nombre} avisó que lo convocaron. TODAVÍA NO CONFIRMÓ si va ni cuándo: se le preguntó. `) +
-                                  `No hubo reclamo previo por este canal. Textual: "${msgBodyParaRegistro}"`,
+                                  `No hubo reclamo previo por este canal. Textual: "${require('./etiquetas-media').soloTexto(msgBodyParaRegistro)}"`,
                         historial_chat: JSON.stringify([`Proveedor (${datosEmisor.nombre}): ${msgBodyParaRegistro}`]),
                     });
                     const idAviso = resAviso?.id_evento || '';
@@ -3222,7 +3311,7 @@ function validarYSanitizarNombre(nombre) {
                                 `📍 Dirección: ${dirAviso}\n` +
                                 `🔧 Quién: ${datosEmisor.nombre}${datosEmisor.especialidad ? ` (${datosEmisor.especialidad})` : ''}\n` +
                                 `📱 Teléfono: ${from}\n` +
-                                `\n🗣️ Textual:\n"${msgBodyParaRegistro}"\n` +
+                                `\n🗣️ Textual:\n"${require('./etiquetas-media').soloTexto(msgBodyParaRegistro)}"\n` +
                                 (idAviso ? `\n🤖 Quedó abierto como ${idAviso} en el panel.` : '') +
                                 `\n\nSi este trabajo no corresponde, comuníquese con él antes de que vaya.`,
                             phoneNumberId: WHATSAPP_PHONE_NUMBER_ID,
@@ -3405,7 +3494,16 @@ function validarYSanitizarNombre(nombre) {
         // - **`cerradura` suelta**, que es vocabulario diario de quien hace control de acceso.
         //   Nombrar una cerradura no es pedir nada; "necesito ver la cerradura" ya entra por
         //   "necesito ver".
-        const esSolicitudDatos = /\bsolicitar|m[aá]s datos|mas datos|\bdetalles\b|\bpedirle?\b|\bped[ií]le\b|\bfoto|\bimagen|\bvideo|especifi|aclarar|\b(necesito|quiero|dejame|d[eé]jame|podr[ií]a|puedo|pod[eé]s|me deja) ver\b|\bver (bien|de cerca|mejor)\b/.test(txtLow);
+        // > [!CAUTION]
+        // > **Esta es la condición que produjo el bucle de las fotos.** Busca la palabra `foto` y
+        // > nada más, así que *"la foto también es del caso"* y *"NO TE ESTOY PIDIENDO FOTOS DE
+        // > NADA"* entraron las dos acá, y Marcos le contestó dos veces seguidas que iba a
+        // > pedirle una foto al vecino.
+        // >
+        // > Es el ejemplo más claro de por qué el ruteo lo decide el modelo: para saber si esto
+        // > es un PEDIDO hay que entender la oración, no encontrar una palabra adentro.
+        const esSolicitudDatosPorTexto = /\bsolicitar|m[aá]s datos|mas datos|\bdetalles\b|\bpedirle?\b|\bped[ií]le\b|\bfoto|\bimagen|\bvideo|especifi|aclarar|\b(necesito|quiero|dejame|d[eé]jame|podr[ií]a|puedo|pod[eé]s|me deja) ver\b|\bver (bien|de cerca|mejor)\b/.test(txtLow);
+        const esSolicitudDatos = seActiva('pide_datos_al_vecino', esSolicitudDatosPorTexto, ruteoIA, textoFinal);
 
         if (esSolicitudDatos) {
             const vecinoActivo = await obtenerVecinoActivoDeProveedor({

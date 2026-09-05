@@ -684,6 +684,97 @@ notaba porque CASO-1001 no se cerraba y **cada prueba del mismo día caía adent
   dos y le muestra al administrador dos reclamos donde hay uno.
 - Prueba: `node pruebas-caso-nuevo-o-mismo.js`.
 
+### Quién decide de qué habla el técnico: el modelo, no las palabras
+
+> [!CAUTION]
+> **Hasta acá el modelo era el ÚLTIMO de la fila.** La rama del proveedor decidía con una cadena
+> de condiciones por coincidencia de texto —69 en `index.js`— y la primera que matcheaba cortaba.
+> El modelo (línea 3590) solo atendía lo que ninguna condición había reclamado.
+
+El caso que lo agotó, textual del chat:
+
+```
+Daniel: "La foto también es del caso"
+Marcos: "ya mismo me contacto con el vecino para pedirle la foto…"
+Daniel: "No... te acabo de mandar una foto, NO TE ESTOY PIDIENDO FOTOS DE NADA"
+Marcos: "ya mismo me contacto con el vecino para pedirle la foto…"
+```
+
+La condición buscaba la palabra `foto`. Las dos frases la contienen.
+
+Y no era un caso aislado. **En los cuatro bugs anteriores el modelo no se equivocó ni una vez:
+nunca se le preguntó.**
+
+| Se escribió | Se leyó como | Por qué |
+|---|---|---|
+| "1001 es el caso" | nada | pedía `CASO` pegado adelante |
+| "una cámara apagada" | consulta de pago | `/pag/` adentro de "aPAGada" |
+| "llamó el encargado" | nada | `\w` no incluye la "ó" |
+| "hay que ver la cámara" | pedido de datos | `ver` suelto |
+
+`ruteo-proveedor.js` da vuelta el orden: el modelo lee el mensaje **con el contexto** (qué le acaba
+de preguntar Marcos, si hay un caso abierto, si hay una factura esperando obra) y dice de qué se
+trata. Recién con eso se elige el ramal.
+
+- **Las condiciones de texto quedan escritas**, renombradas a `*PorTexto`. Son el respaldo: si el
+  ruteo está apagado, el modelo falla o tarda más de 6 segundos, se sigue **exactamente** como
+  antes. Sus pruebas siguen corriendo — es el piso al que cae Marcos sin IA.
+- **Se apaga sin tocar código**: `RUTEO_IA=off` en el `.env` y `pm2 restart marcos-ai`. Igual que
+  `LECTURA_PG`. Es la salida de emergencia de un domingo a la noche.
+- **Los desacuerdos quedan en el log** con las dos opiniones y la frase que los causó:
+  `🧭 "la foto también es del caso" → pide_datos_al_vecino: el texto decía SÍ, la IA dice no…`.
+  Sin eso, la única forma de saber si el cambio mejoró algo sería esperar a que un técnico se queje.
+
+**Lo que NO se rutea, y a propósito.** Donde equivocarse cuesta plata o una relación, un `if` no es
+pereza: es un cerrojo, y un modelo que obedece "casi siempre" no alcanza.
+
+- El cambio de CBU, que no se aplica solo.
+- El filtro de insultos y quejas hacia el técnico.
+- La ventana de 24hs de Meta.
+- Si el mensaje trae adjunto (`esFacturaODoc`): eso lo dice el tipo de archivo, no el texto.
+
+**Una intención que no está en el catálogo no activa nada**, y eso es deliberado: el mensaje cae al
+camino libre —donde Marcos lo lee y contesta— en vez de activar un ramal al azar.
+
+```bash
+node probar-ruteo.js        # solo lee: le pasa frases reales al modelo y muestra qué entendió
+pm2 logs marcos-ai --lines 300 --nostream | grep "🧭"
+```
+
+Pruebas: `node pruebas-ruteo-proveedor.js` (el mecanismo, sin llamar a Gemini) y
+`node probar-ruteo.js` (la clasificación de verdad, necesita la clave y corre en el VPS).
+
+### El contacto de ingreso salía antes de leer la respuesta
+
+`entregarPendientesAlTecnico` manda el contacto de quien abre en la **línea 1257**.
+`tieneAccesoPropio` —la función que pregunta si el técnico dijo que entra solo— se consultaba en la
+**línea 3249**. Dos mil líneas después.
+
+Daniel escribió *"Tengo llave. Y que no necesito nada, voy en 2hs"* y un segundo más tarde le llegó
+el contacto del encargado igual. La detección funcionaba perfecto —devuelve `true` con esa frase
+exacta— pero corría **después** de que el mensaje ya había salido.
+
+> **Marcos no dejó de entenderlo: nunca se lo preguntó a tiempo.** Es el mismo defecto de fondo que
+> el ruteo, en otra forma — la información estaba, el orden no.
+
+Ahora se pregunta sobre **ese** mensaje, antes de mandar, y se marca el ingreso como resuelto para
+que tampoco salga en el siguiente.
+
+### Las etiquetas de multimedia son para el panel, no para una persona
+
+Al administrador le llegó por WhatsApp, adentro del aviso de un caso:
+
+```
+🗣️ Textual: "[AUDIO:/archivos/administracion_general/edificio_general/audios/
+media_4465773590357338.ogg] Hola, ¿qué tal? Buenas noches. Me llamaron de San Patricio 270…"
+```
+
+Una ruta de archivo del servidor metida en la frase del técnico. La etiqueta hace falta —es lo que
+le permite al panel mostrar el reproductor y lo que deja recuperar la foto de un caso después de un
+reinicio— pero **lo que se guarda la lleva y lo que sale hacia una persona, no**.
+
+`etiquetas-media.js` (`soloTexto`) es el único lugar donde se saca, para que no haya dos versiones.
+
 ### Una palabra suelta adentro de una expresión se come mensajes enteros
 
 > [!CAUTION]

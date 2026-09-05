@@ -22,14 +22,16 @@ const path = require('path');
 
 const SRC = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
 
-const ini = SRC.indexOf('const esConsultaPago = parecePreguntaSinAdjunto && (');
+// Desde que el ruteo lo decide el modelo (`ruteo-proveedor.js`), estas condiciones son el
+// RESPALDO: las que corren con `RUTEO_IA=off`, o si el modelo falla o tarda.
+const ini = SRC.indexOf('const esConsultaPagoPorTexto = parecePreguntaSinAdjunto && (');
 if (ini === -1) throw new Error('No encontré esConsultaPago en index.js.');
 const fin = SRC.indexOf('        );', ini);
 if (fin === -1) throw new Error('No encontré el final de esConsultaPago en index.js.');
 const cuerpo = SRC.slice(ini, fin + '        );'.length);
 
 // eslint-disable-next-line no-new-func
-const evaluar = new Function('parecePreguntaSinAdjunto', 'txtLow', `${cuerpo}; return esConsultaPago;`);
+const evaluar = new Function('parecePreguntaSinAdjunto', 'txtLow', `${cuerpo}; return esConsultaPagoPorTexto;`);
 
 // La otra mitad de la condición: sin `?` ni palabra de pregunta, nada de esto se activa. Se copia
 // tal cual de index.js para probar el gesto completo.
@@ -89,12 +91,12 @@ console.log('\n── LA OTRA RAMA QUE SE COMÍA EL MISMO MENSAJE ──');
     // `esSolicitudDatos` es para cuando el técnico le pide a Marcos que le saque más información
     // al vecino. Tenía `ver` suelto y `cerradura` suelta: apenas se arreglaba lo del pago, "hay
     // que VER una cámara" se iba por acá, que es igual de equivocado.
-    const iniB = SRC.indexOf('const esSolicitudDatos = ');
+    const iniB = SRC.indexOf('const esSolicitudDatosPorTexto = ');
     if (iniB === -1) throw new Error('No encontré esSolicitudDatos en index.js.');
     const finB = SRC.indexOf(';', iniB);
     const cuerpoB = SRC.slice(iniB, finB + 1);
     // eslint-disable-next-line no-new-func
-    const evalB = new Function('txtLow', `${cuerpoB}; return esSolicitudDatos;`);
+    const evalB = new Function('txtLow', `${cuerpoB}; return esSolicitudDatosPorTexto;`);
     const esSolicitudDatos = (t) => evalB(t.toLowerCase());
 
     verificar('"hay que ver una cámara en san patricio 270" NO es un pedido de datos',
