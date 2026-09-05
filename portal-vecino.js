@@ -2911,7 +2911,7 @@ router.get('/integrantes', (req, res) => {
 
           let btnDesvincular = '';
           if (o.usuario_id && o.usuario_id !== _miUsuarioId && o.rol !== 'propietario') {
-            btnDesvincular = '<button type="button" onclick="desvincular(' + o.usuario_id + ', \'' + (o.nombre || 'el usuario') + '\')" style="padding:4px 8px;border-radius:8px;background:#FEE2E2;border:1px solid #FCA5A5;color:#DC2626;font-size:11px;font-weight:800;cursor:pointer;margin-top:6px" title="Desvincular">' +
+            btnDesvincular = '<button type="button" onclick="desvincular(' + o.usuario_id + ')" style="padding:4px 8px;border-radius:8px;background:#FEE2E2;border:1px solid #FCA5A5;color:#DC2626;font-size:11px;font-weight:800;cursor:pointer;margin-top:6px" title="Desvincular">' +
                                '✕ Desvincular' +
                              '</button>';
           }
@@ -2931,7 +2931,9 @@ router.get('/integrantes', (req, res) => {
         box.innerHTML = html;
       }
 
-      async function desvincular(usuarioId, nombre) {
+      async function desvincular(usuarioId) {
+        const integrante = _integrantesActuales.find(function(x) { return x.usuario_id === usuarioId; });
+        const nombre = integrante ? (integrante.nombre || 'el integrante') : 'el integrante';
         if (!confirm('¿Estás seguro de que querés desvincular a ' + nombre + ' de este departamento?')) return;
         try {
           const res = await fetch('/vecino/api/desvincular-integrante', {
@@ -5041,7 +5043,7 @@ router.get('/amenities', async (req, res) => {
           var data = await res.json();
           if (data.ok) {
             if (data.monto && Number(data.monto) > 0) {
-              alert('✓ ¡Reserva registrada de ' + horaDesde + ' a ' + horaHasta + ' hs!\n\nEste espacio requiere un arancel de $' + Number(data.monto).toLocaleString('es-AR') + '.\nPodés transferir y adjuntar el comprobante ahora mismo o más tarde desde "Mis Reservas".');
+              alert('✓ ¡Reserva registrada de ' + horaDesde + ' a ' + horaHasta + ' hs!\\n\\nEste espacio requiere un arancel de $' + Number(data.monto).toLocaleString('es-AR') + '.\\nPodés transferir y adjuntar el comprobante ahora mismo o más tarde desde "Mis Reservas".');
               abrirModalPagarReserva(data.id, amenity, data.monto);
             } else {
               alert('✓ ¡Reserva confirmada de ' + horaDesde + ' a ' + horaHasta + ' hs con éxito!');
