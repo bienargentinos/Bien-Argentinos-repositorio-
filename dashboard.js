@@ -1305,12 +1305,24 @@ html.dark-theme, body.dark-theme {
 }
 .dark-theme div[style*="background:#F8FAFD"],
 .dark-theme div[style*="background: #F8FAFD"],
+.dark-theme div[style*="background:#F1F5FB"],
+.dark-theme div[style*="background: #F1F5FB"],
 .dark-theme div[style*="background:#F7F9FC"],
 .dark-theme div[style*="background: #F7F9FC"],
 .dark-theme div[style*="background:#EEF2F8"],
 .dark-theme div[style*="background: #EEF2F8"],
 .dark-theme div[style*="background:#F1F4F9"],
-.dark-theme div[style*="background: #F1F4F9"] {
+.dark-theme div[style*="background: #F1F4F9"],
+.dark-theme div[style*="background:#EAF1FB"],
+.dark-theme div[style*="background: #EAF1FB"],
+.dark-theme div[style*="background:#EBF3FC"],
+.dark-theme div[style*="background: #EBF3FC"],
+.dark-theme div[style*="background:#F0F4FA"],
+.dark-theme div[style*="background: #F0F4FA"],
+.dark-theme div[style*="background:#FFF7ED"],
+.dark-theme div[style*="background: #FFF7ED"],
+.dark-theme div[style*="background:#FFEDD5"],
+.dark-theme div[style*="background: #FFEDD5"] {
   background: #1C2B4E !important;
   border-color: #2A3A5E !important;
   color: #F1F5F9 !important;
@@ -1331,14 +1343,54 @@ html.dark-theme, body.dark-theme {
   border-color: #2A3A5E !important;
   color: #F1F5F9 !important;
 }
+.dark-theme span[style*="color:#0F326A"],
+.dark-theme span[style*="color: #0F326A"],
+.dark-theme div[style*="color:#0F326A"],
+.dark-theme div[style*="color: #0F326A"],
+.dark-theme label[style*="color:#0F326A"],
+.dark-theme label[style*="color: #0F326A"],
+.dark-theme span[style*="color:#0F172A"],
+.dark-theme span[style*="color: #0F172A"],
+.dark-theme div[style*="color:#0F172A"],
+.dark-theme div[style*="color: #0F172A"],
+.dark-theme label[style*="color:#0F172A"],
+.dark-theme label[style*="color: #0F172A"],
+.dark-theme span[style*="color:#17408B"],
+.dark-theme span[style*="color: #17408B"],
+.dark-theme div[style*="color:#17408B"],
+.dark-theme div[style*="color: #17408B"],
+.dark-theme span[style*="color:#1E3A6B"],
+.dark-theme span[style*="color: #1E3A6B"],
+.dark-theme div[style*="color:#1E3A6B"],
+.dark-theme div[style*="color: #1E3A6B"],
+.dark-theme span[style*="color:#1E3A8A"],
+.dark-theme span[style*="color: #1E3A8A"],
+.dark-theme div[style*="color:#1E3A8A"],
+.dark-theme div[style*="color: #1E3A8A"],
+.dark-theme span[style*="color:#1E40AF"],
+.dark-theme span[style*="color: #1E40AF"],
+.dark-theme div[style*="color:#1E40AF"],
+.dark-theme div[style*="color: #1E40AF"],
+.dark-theme span[style*="color:#0F2554"],
+.dark-theme span[style*="color: #0F2554"],
+.dark-theme div[style*="color:#0F2554"],
+.dark-theme div[style*="color: #0F2554"],
 .dark-theme span[style*="color:#16233B"],
 .dark-theme span[style*="color: #16233B"],
 .dark-theme div[style*="color:#16233B"],
 .dark-theme div[style*="color: #16233B"],
+.dark-theme label[style*="color:#16233B"],
+.dark-theme label[style*="color: #16233B"],
 .dark-theme p[style*="color:#16233B"],
 .dark-theme p[style*="color: #16233B"],
+.dark-theme span[style*="color:#334259"],
+.dark-theme span[style*="color: #334259"],
+.dark-theme div[style*="color:#334259"],
+.dark-theme div[style*="color: #334259"],
+.dark-theme label[style*="color:#334259"],
+.dark-theme label[style*="color: #334259"],
 .dark-theme h1, .dark-theme h2, .dark-theme h3, .dark-theme h4 {
-  color: #F8FAFC !important;
+  color: #FFFFFF !important;
 }
 .dark-theme span[style*="color:#475569"],
 .dark-theme span[style*="color: #475569"],
@@ -1347,7 +1399,11 @@ html.dark-theme, body.dark-theme {
 .dark-theme div[style*="color:#475569"],
 .dark-theme div[style*="color: #475569"],
 .dark-theme div[style*="color:#64748B"],
-.dark-theme div[style*="color: #64748B"] {
+.dark-theme div[style*="color: #64748B"],
+.dark-theme label[style*="color:#475569"],
+.dark-theme label[style*="color: #475569"],
+.dark-theme label[style*="color:#64748B"],
+.dark-theme label[style*="color: #64748B"] {
   color: #CBD5E1 !important;
 }
 .dark-theme span[style*="color:#8595AD"],
@@ -1355,7 +1411,13 @@ html.dark-theme, body.dark-theme {
 .dark-theme span[style*="color:#9AA7BD"],
 .dark-theme span[style*="color: #9AA7BD"],
 .dark-theme div[style*="color:#8595AD"],
-.dark-theme div[style*="color: #8595AD"] {
+.dark-theme div[style*="color: #8595AD"],
+.dark-theme div[style*="color:#9AA7BD"],
+.dark-theme div[style*="color: #9AA7BD"],
+.dark-theme label[style*="color:#8595AD"],
+.dark-theme label[style*="color: #8595AD"],
+.dark-theme label[style*="color:#9AA7BD"],
+.dark-theme label[style*="color: #9AA7BD"] {
   color: #94A3B8 !important;
 }
 
@@ -1522,10 +1584,27 @@ html.dark-theme, body.dark-theme {
 }
 
 /* Universal: Textos oscuros en Modo Oscuro -> Texto Blanco / Gris Claro */
+.dark-theme [style*="color:#0F326A"],
+.dark-theme [style*="color: #0F326A"],
+.dark-theme [style*="color:#0F172A"],
+.dark-theme [style*="color: #0F172A"],
+.dark-theme [style*="color:#17408B"],
+.dark-theme [style*="color: #17408B"],
+.dark-theme [style*="color:#1E3A6B"],
+.dark-theme [style*="color: #1E3A6B"],
+.dark-theme [style*="color:#1E3A8A"],
+.dark-theme [style*="color: #1E3A8A"],
+.dark-theme [style*="color:#1E40AF"],
+.dark-theme [style*="color: #1E40AF"],
+.dark-theme [style*="color:#0F2554"],
+.dark-theme [style*="color: #0F2554"],
 .dark-theme [style*="color:#16233B"],
 .dark-theme [style*="color: #16233B"],
 .dark-theme [style*="color:#334259"],
-.dark-theme [style*="color: #334259"],
+.dark-theme [style*="color: #334259"] {
+  color: #FFFFFF !important;
+}
+
 .dark-theme [style*="color:#475569"],
 .dark-theme [style*="color: #475569"],
 .dark-theme [style*="color:#64748B"],
@@ -1535,6 +1614,65 @@ html.dark-theme, body.dark-theme {
 .dark-theme [style*="color:#8595AD"],
 .dark-theme [style*="color: #8595AD"] {
   color: #CBD5E1 !important;
+}
+
+/* Modales en Modo Oscuro - Asegurar alto contraste en cajas internas y campos */
+.dark-theme .modal-box {
+  background: #151F38 !important;
+  border: 1px solid #2A3A5E !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box label {
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box label span {
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box .modal-subcard,
+.dark-theme .modal-box label[style*="background"],
+.dark-theme .modal-box div[style*="background:#F1F5FB"],
+.dark-theme .modal-box div[style*="background: #F1F5FB"],
+.dark-theme .modal-box div[style*="background:#F8FAFD"],
+.dark-theme .modal-box div[style*="background: #F8FAFD"],
+.dark-theme .modal-box div[style*="background:#F7F9FC"],
+.dark-theme .modal-box div[style*="background: #F7F9FC"],
+.dark-theme .modal-box div[style*="background:#EEF2F8"],
+.dark-theme .modal-box div[style*="background: #EEF2F8"],
+.dark-theme .modal-box div[style*="background:#EAF1FB"],
+.dark-theme .modal-box div[style*="background: #EAF1FB"] {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box .modal-subcard label,
+.dark-theme .modal-box .modal-subcard span,
+.dark-theme .modal-box .modal-subcard div {
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box .modal-subcard label[style*="color:#475569"],
+.dark-theme .modal-box .modal-subcard label[style*="color: #475569"],
+.dark-theme .modal-box label.modal-field-label {
+  color: #93C5FD !important;
+}
+.dark-theme .modal-box .inp,
+.dark-theme .modal-box input.inp,
+.dark-theme .modal-box select.inp,
+.dark-theme .modal-box textarea.inp {
+  background: #151F38 !important;
+  border: 1.5px solid #2A3A5E !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box .inp:focus,
+.dark-theme .modal-box input.inp:focus,
+.dark-theme .modal-box select.inp:focus,
+.dark-theme .modal-box textarea.inp:focus {
+  border-color: #38BDF8 !important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25) !important;
+}
+.dark-theme .amenity-title-dash,
+.dark-theme .amenity-reg-title,
+.dark-theme .reserva-title-dash {
+  color: #FFFFFF !important;
 }
 
 /* Universal: Hover para Botones, Enlaces, Filas y Tarjetas en Modo Oscuro (Previene que se pasen a blanco o modo claro) */
@@ -3258,100 +3396,128 @@ function separarConversacionesEvento(datos) {
     return false;
   }
 
-  // 1. Obtener lista específica de Vecino
-  var rawVecino = parseList(datos.chat_vecino_json);
-  if (!rawVecino.length) rawVecino = parseList(datos.historial_chat_vecino);
+  function normalizarClaveMensaje(item) {
+    if (!item) return '';
+    var str = '';
+    var sender = '';
+    if (typeof item === 'object') {
+      sender = String(item.remitente || item.emisor || item.sender || '').toLowerCase().trim();
+      str = String(item.mensaje || item.texto || item.text || '').trim();
+    } else {
+      str = String(item).trim();
+      var colonIdx = str.indexOf(':');
+      if (colonIdx !== -1 && colonIdx < 40) {
+        sender = str.substring(0, colonIdx).toLowerCase().trim();
+        str = str.substring(colonIdx + 1).trim();
+      }
+    }
 
-  // 2. Obtener lista específica de Proveedor
-  var rawProveedor = parseList(datos.chat_proveedor_json);
-  if (!rawProveedor.length) rawProveedor = parseList(datos.historial_chat_proveedor);
+    // Quitar prefijos comunes redundantes embebidos en el mensaje (ej: "tecnico: ", "Marcos (a Proveedor): ")
+    str = str.replace(/^(vecino|usuario|cliente|titular|familiar|pariente|marcos ia|marcos|susana|ia|bot|asistente|sistema|proveedor|técnico|tecnico|plomero|electricista|gasista|instalador|encargado|seguridad|portero|portería|admin|administración)(\s*\([^)]*\))?:\s*/i, '').trim();
+
+    var rolNorm = 'marcos';
+    if (/vecino|usuario|cliente|titular|familiar|pariente/i.test(sender)) rolNorm = 'vecino';
+    else if (/tecnico|técnico|proveedor|plomero|electricista|gasista|instalador/i.test(sender)) rolNorm = 'tecnico';
+    else if (/encargado|portero|seguridad/i.test(sender)) rolNorm = 'encargado';
+    else if (/admin|administraci/i.test(sender)) rolNorm = 'admin';
+
+    var clean = str.toLowerCase()
+      .replace(/\[(audio|audio_url|imagen|foto|video|documento|doc|pdf|factura):[^\]]+\]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    var fileMatch = str.match(/\.(ogg|mp3|wav|m4a|aac|opus|webm|jpg|jpeg|png|webp|gif|pdf)/i);
+    var fileSuffix = fileMatch ? fileMatch[0].toLowerCase() : '';
+
+    return rolNorm + '::' + clean.slice(0, 150) + (fileSuffix ? '::' + fileSuffix : '');
+  }
 
   var chatVecino = [];
   var chatProveedor = [];
   var seenV = new Set();
   var seenP = new Set();
 
-  if (rawVecino.length > 0) {
-    rawVecino.forEach(function(item) {
-      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (!k) return;
+  function agregarMensaje(item, forzarDestino) {
+    if (!item) return;
+    var kNorm = normalizarClaveMensaje(item);
+    if (!kNorm) return;
 
-      if (esMensajeDeProveedor(item)) {
-        if (!seenP.has(k)) {
-          seenP.add(k);
-          chatProveedor.push(item);
-        }
-      } else {
-        if (!seenV.has(k)) {
-          seenV.add(k);
-          chatVecino.push(item);
-        }
+    var isProv = forzarDestino === 'proveedor' ? true : (forzarDestino === 'vecino' ? false : esMensajeDeProveedor(item));
+
+    if (isProv) {
+      if (!seenP.has(kNorm)) {
+        seenP.add(kNorm);
+        chatProveedor.push(item);
       }
-    });
+    } else {
+      if (!seenV.has(kNorm)) {
+        seenV.add(kNorm);
+        chatVecino.push(item);
+      }
+    }
   }
 
-  if (rawProveedor.length > 0) {
-    rawProveedor.forEach(function(item) {
-      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (!k) return;
-
-      if (esMensajeDeVecino(item) && !esMensajeDeProveedor(item)) {
-        if (!seenV.has(k)) {
-          seenV.add(k);
-          chatVecino.push(item);
-        }
+  // 1. Si hay mensajes de PostgreSQL (chat_pg), es la fuente en vivo más completa y ordenada
+  var rawPg = parseList(datos.chat_pg);
+  if (rawPg.length > 0) {
+    var lastWasProv = false;
+    rawPg.forEach(function(item) {
+      var isP = esMensajeDeProveedor(item);
+      var isV = esMensajeDeVecino(item);
+      if (isP) {
+        lastWasProv = true;
+        agregarMensaje(item, 'proveedor');
+      } else if (isV) {
+        lastWasProv = false;
+        agregarMensaje(item, 'vecino');
       } else {
-        if (!seenP.has(k)) {
-          seenP.add(k);
-          chatProveedor.push(item);
-        }
-      }
-    });
-  }
-
-  // 3. Fallback solo si alguna lista está vacía o incompleta
-  var fallbackList = [].concat(parseList(datos.chat_pg), parseList(datos.historial_chat));
-  if (fallbackList.length > 0) {
-    var lastWasProvMsg = false;
-
-    fallbackList.forEach(function(item) {
-      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (!k) return;
-
-      var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
-      var strLower = str.toLowerCase();
-
-      var isProv = esMensajeDeProveedor(item);
-      var isVec = esMensajeDeVecino(item);
-
-      if (isProv) {
-        lastWasProvMsg = true;
-        if (!seenP.has(k)) {
-          seenP.add(k);
-          chatProveedor.push(item);
-        }
-      } else if (isVec) {
-        lastWasProvMsg = false;
-        if (!seenV.has(k)) {
-          seenV.add(k);
-          chatVecino.push(item);
-        }
-      } else {
-        var isContactoCompartidoProv = strLower.indexOf('(contacto compartido') !== -1 && lastWasProvMsg;
+        var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+        var strLower = str.toLowerCase();
+        var isContactoCompartidoProv = strLower.indexOf('(contacto compartido') !== -1 && lastWasProv;
         var isMarcosToTech = isContactoCompartidoProv || /al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
-
         if (isMarcosToTech) {
-          lastWasProvMsg = true;
-          if (!seenP.has(k)) {
-            seenP.add(k);
-            chatProveedor.push(item);
-          }
+          lastWasProv = true;
+          agregarMensaje(item, 'proveedor');
         } else {
-          lastWasProvMsg = false;
-          if (!seenV.has(k)) {
-            seenV.add(k);
-            chatVecino.push(item);
-          }
+          lastWasProv = false;
+          agregarMensaje(item, 'vecino');
+        }
+      }
+    });
+  }
+
+  // 2. Incorporar listas de Google Sheets si hay mensajes no presentes en PostgreSQL
+  var rawVecino = parseList(datos.chat_vecino_json);
+  if (!rawVecino.length) rawVecino = parseList(datos.historial_chat_vecino);
+  rawVecino.forEach(function(item) { agregarMensaje(item, 'vecino'); });
+
+  var rawProveedor = parseList(datos.chat_proveedor_json);
+  if (!rawProveedor.length) rawProveedor = parseList(datos.historial_chat_proveedor);
+  rawProveedor.forEach(function(item) { agregarMensaje(item, 'proveedor'); });
+
+  // 3. Fallback adicional de historial_chat
+  var rawHist = parseList(datos.historial_chat);
+  if (rawHist.length > 0) {
+    var lastProvH = false;
+    rawHist.forEach(function(item) {
+      var isP = esMensajeDeProveedor(item);
+      var isV = esMensajeDeVecino(item);
+      if (isP) {
+        lastProvH = true;
+        agregarMensaje(item, 'proveedor');
+      } else if (isV) {
+        lastProvH = false;
+        agregarMensaje(item, 'vecino');
+      } else {
+        var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+        var strLower = str.toLowerCase();
+        var isMarcosToTech = /al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
+        if (isMarcosToTech || lastProvH) {
+          lastProvH = true;
+          agregarMensaje(item, 'proveedor');
+        } else {
+          lastProvH = false;
+          agregarMensaje(item, 'vecino');
         }
       }
     });
@@ -3359,13 +3525,8 @@ function separarConversacionesEvento(datos) {
 
   // Limpieza final de seguridad: asegurar que NINGÚN mensaje de proveedor quede en chatVecino
   chatVecino = chatVecino.filter(function(item) {
-    var isProv = esMensajeDeProveedor(item);
-    if (isProv) {
-      var k = typeof item === 'object' ? JSON.stringify(item) : String(item).trim();
-      if (k && !seenP.has(k)) {
-        seenP.add(k);
-        chatProveedor.push(item);
-      }
+    if (esMensajeDeProveedor(item)) {
+      agregarMensaje(item, 'proveedor');
       return false;
     }
     return true;
@@ -3427,7 +3588,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var colonIdx = str.indexOf(':');
       if (colonIdx !== -1 && colonIdx < 40) {
         var prefix = str.substring(0, colonIdx).trim();
-        if (/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería|Admin|Administración)/i.test(prefix)) {
+        if (/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|tecnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería|Admin|Administración)/i.test(prefix)) {
           cleanText = str.substring(colonIdx + 1).trim();
         }
       }
@@ -3478,6 +3639,16 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var audioUrl = mediaRes.audioUrl || '';
       var audioFilename = mediaRes.audioFilename || '';
 
+      var isMarcosIA = !isVecino && !isFamiliar && !isProveedor && !isEncargado && !isAdmin;
+      if (isMarcosIA) {
+        // En mensajes de Marcos IA: si el texto citaba un caso resuelto con audio previo,
+        // no debe renderizarse un reproductor de audio en la burbuja de respuesta de Marcos
+        if (audioUrl && !/tts|marcos_voz|audio_marcos/i.test(audioUrl) && !(typeof line === 'object' && line.tipo_canal === 'audio')) {
+          audioUrl = '';
+          audioFilename = '';
+        }
+      }
+
       var rawObjMedia = typeof line === 'object' ? (line.url_media || line.audio_url || line.url || line.audio || '') : '';
       if (rawObjMedia && !audioUrl && !visualUrl) {
         var lastSlashObj = rawObjMedia.lastIndexOf('/');
@@ -3487,6 +3658,8 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var _LBR_IMG = String.fromCharCode(92) + String.fromCharCode(91);
         var isLineExplicitImage = /imagen|foto/i.test(cleanText) || (new RegExp(_LBR_IMG + '(IMAGEN|FOTO):', 'i')).test(String(line.mensaje || line.texto || ''));
         var isLineExplicitVideo = /video/i.test(cleanText) || (new RegExp(_LBR_IMG + 'VIDEO:', 'i')).test(String(line.mensaje || line.texto || ''));
+        var isLineExplicitDoc = /documento|factura|pdf/i.test(cleanText) || (new RegExp(_LBR_IMG + '(DOCUMENTO|DOC|PDF|FACTURA):', 'i')).test(String(line.mensaje || line.texto || ''));
+        var isAudioExt = ['ogg', 'mp3', 'wav', 'm4a', 'aac', 'opus', 'webm'].indexOf(extObj) !== -1;
 
         if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
@@ -3496,14 +3669,18 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'video');
           visualType = 'video';
           visualFilename = fnObj;
-        } else {
+        } else if (isLineExplicitDoc || extObj === 'pdf' || rawObjMedia.indexOf('/facturas/') !== -1 || rawObjMedia.indexOf('/documentos/') !== -1) {
+          visualUrl = normalizarUrlAudio(rawObjMedia, 'pdf');
+          visualType = 'pdf';
+          visualFilename = fnObj;
+        } else if (isAudioExt || rawObjMedia.indexOf('/audios/') !== -1) {
           audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
           audioFilename = fnObj;
         }
       }
 
       if (!audioUrl && !visualUrl && datos.audio_url && !audioFallbackUsado && (isVecino || isFamiliar || isProveedor)) {
-        var isAudioMentioned = /audio|voz|nota de voz|escuchar|grabación/i.test(str) && !/imagen|foto|video/i.test(str);
+        var isAudioMentioned = /audio|voz|nota de voz|escuchar|grabación/i.test(str) && !/imagen|foto|video|documento|factura|pdf/i.test(str);
         if (isAudioMentioned) {
           var rawAudioUrl = String(datos.audio_url).trim();
           if (rawAudioUrl.length > 3) {
@@ -8608,12 +8785,12 @@ router.get('/mi-edificio', async (req, res) => {
             <input type="hidden" id="amenity-nuevo-edificio" value="${esc(cur ? cur.nombre : '')}">
             <div style="margin-bottom:14px">
               <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Nombre del espacio común</label>
-              <input id="amenity-nuevo-nombre" placeholder="Ej: SUM, Piscina, Gimnasio, Coworking, Cancha de Tenis" class="inp" style="background:#fff">
+              <input id="amenity-nuevo-nombre" placeholder="Ej: SUM, Piscina, Gimnasio, Coworking, Cancha de Tenis" class="inp">
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
               <div>
                 <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Ícono</label>
-                <select id="amenity-nuevo-icono" class="inp" style="background:#fff">
+                <select id="amenity-nuevo-icono" class="inp">
                   <option value="🎉">🎉 Salón / SUM</option>
                   <option value="🥩">🥩 Parrilla / Quincho</option>
                   <option value="🏊">🏊 Piscina / Solarium</option>
@@ -8627,37 +8804,37 @@ router.get('/mi-edificio', async (req, res) => {
               </div>
               <div>
                 <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Capacidad (personas)</label>
-                <input type="number" id="amenity-nuevo-capacidad" value="20" min="1" max="500" class="inp" style="background:#fff">
+                <input type="number" id="amenity-nuevo-capacidad" value="20" min="1" max="500" class="inp">
               </div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
               <div>
                 <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Horario Apertura</label>
-                <input type="time" id="amenity-nuevo-apertura" value="08:00" class="inp" style="background:#fff">
+                <input type="time" id="amenity-nuevo-apertura" value="08:00" class="inp">
               </div>
               <div>
                 <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Horario Cierre</label>
-                <input type="time" id="amenity-nuevo-cierre" value="23:00" class="inp" style="background:#fff">
+                <input type="time" id="amenity-nuevo-cierre" value="23:00" class="inp">
               </div>
             </div>
             <div style="margin-bottom:14px">
               <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Descripción o Equipamiento</label>
-              <textarea id="amenity-nuevo-desc" placeholder="Ej: Aire acondicionado, vajilla para 30 personas, heladera y parrilla." class="inp" style="height:55px;resize:vertical;background:#fff"></textarea>
+              <textarea id="amenity-nuevo-desc" placeholder="Ej: Aire acondicionado, vajilla para 30 personas, heladera y parrilla." class="inp" style="height:55px;resize:vertical"></textarea>
             </div>
-            <div style="background:#F1F5FB;border:1px solid #DCE4F0;border-radius:12px;padding:12px 14px;margin-bottom:14px">
-              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:800;color:#0F326A">
+            <div class="modal-subcard" style="background:#F1F5FB;border:1px solid #DCE4F0;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13.5px;font-weight:800;color:#0F326A">
                 <input type="checkbox" id="amenity-nuevo-arancelado" onchange="document.getElementById('box-precio-nuevo').style.display=this.checked?'block':'none'" style="width:18px;height:18px">
-                <span>¿Requiere pago / arancel de reserva o seña?</span>
+                <span class="txt-subcard-title">¿Requiere pago / arancel de reserva o seña?</span>
               </label>
               <div id="box-precio-nuevo" style="display:none;margin-top:10px">
                 <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:10px">
                   <div>
-                    <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto ($ ARS)</label>
-                    <input type="number" id="amenity-nuevo-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp" style="background:#fff">
+                    <label class="modal-field-label" style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto ($ ARS)</label>
+                    <input type="number" id="amenity-nuevo-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp">
                   </div>
                   <div>
-                    <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Modalidad de Cobro</label>
-                    <select id="amenity-nuevo-tipo-arancel" class="inp" style="background:#fff">
+                    <label class="modal-field-label" style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Modalidad de Cobro</label>
+                    <select id="amenity-nuevo-tipo-arancel" class="inp">
                       <option value="por_hora">⏱️ Por Hora (horas × monto)</option>
                       <option value="por_reserva">🎟️ Fijo por Reserva (tarifa plana)</option>
                     </select>
@@ -8666,9 +8843,9 @@ router.get('/mi-edificio', async (req, res) => {
               </div>
             </div>
             <div style="margin-bottom:14px">
-              <label style="font-size:13px;font-weight:700;color:#0F326A;display:block;margin-bottom:4px">📜 Reglamento y Normas del Sector</label>
-              <div style="font-size:11.5px;color:#64748B;margin-bottom:6px">Marcos IA usará estas reglas para responder dudas específicas de vecinos (música, depósitos, limpieza, etc.).</div>
-              <textarea id="amenity-nuevo-reglamento" placeholder="Ej: Música hasta 01:00 hs. Seña de $15.000 para limpieza. Dejar vajilla limpia. Prohibido fumar adentro." class="inp" style="height:80px;resize:vertical;background:#fff"></textarea>
+              <label class="modal-section-title" style="font-size:13.5px;font-weight:800;color:#0F326A;display:block;margin-bottom:4px">📜 Reglamento y Normas del Sector</label>
+              <div class="modal-hint-text" style="font-size:11.5px;color:#64748B;margin-bottom:6px">Marcos IA usará estas reglas para responder dudas específicas de vecinos (música, depósitos, limpieza, etc.).</div>
+              <textarea id="amenity-nuevo-reglamento" placeholder="Ej: Música permitida hasta 01:00 hs. Seña de $15.000 para limpieza. Dejar vajilla limpia. Prohibido fumar adentro." class="inp" style="height:80px;resize:vertical"></textarea>
             </div>
           </div>
           <div style="display:flex;gap:10px;padding:0 24px 20px">
@@ -8690,12 +8867,12 @@ router.get('/mi-edificio', async (req, res) => {
             <input type="hidden" id="amenity-edit-edificio" value="${esc(cur ? cur.nombre : '')}">
             <div style="margin-bottom:14px">
               <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Nombre del espacio común</label>
-              <input id="amenity-edit-nombre" class="inp" style="background:#fff">
+              <input id="amenity-edit-nombre" class="inp">
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
               <div>
                 <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Ícono</label>
-                <select id="amenity-edit-icono" class="inp" style="background:#fff">
+                <select id="amenity-edit-icono" class="inp">
                   <option value="🎉">🎉 Salón / SUM</option>
                   <option value="🥩">🥩 Parrilla / Quincho</option>
                   <option value="🏊">🏊 Piscina / Solarium</option>
@@ -8709,37 +8886,37 @@ router.get('/mi-edificio', async (req, res) => {
               </div>
               <div>
                 <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Capacidad (personas)</label>
-                <input type="number" id="amenity-edit-capacidad" class="inp" style="background:#fff">
+                <input type="number" id="amenity-edit-capacidad" class="inp">
               </div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
               <div>
                 <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Horario Apertura</label>
-                <input type="time" id="amenity-edit-apertura" class="inp" style="background:#fff">
+                <input type="time" id="amenity-edit-apertura" class="inp">
               </div>
               <div>
                 <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Horario Cierre</label>
-                <input type="time" id="amenity-edit-cierre" class="inp" style="background:#fff">
+                <input type="time" id="amenity-edit-cierre" class="inp">
               </div>
             </div>
             <div style="margin-bottom:14px">
               <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Descripción o Equipamiento</label>
-              <textarea id="amenity-edit-desc" class="inp" style="height:55px;resize:vertical;background:#fff"></textarea>
+              <textarea id="amenity-edit-desc" class="inp" style="height:55px;resize:vertical"></textarea>
             </div>
-            <div style="background:#F1F5FB;border:1px solid #DCE4F0;border-radius:12px;padding:12px 14px;margin-bottom:14px">
-              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:800;color:#0F326A">
+            <div class="modal-subcard" style="background:#F1F5FB;border:1px solid #DCE4F0;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13.5px;font-weight:800;color:#0F326A">
                 <input type="checkbox" id="amenity-edit-arancelado" onchange="document.getElementById('box-precio-edit').style.display=this.checked?'block':'none'" style="width:18px;height:18px">
-                <span>¿Requiere pago / arancel de reserva o seña?</span>
+                <span class="txt-subcard-title">¿Requiere pago / arancel de reserva o seña?</span>
               </label>
               <div id="box-precio-edit" style="display:none;margin-top:10px">
                 <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:10px">
                   <div>
-                    <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto ($ ARS)</label>
-                    <input type="number" id="amenity-edit-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp" style="background:#fff">
+                    <label class="modal-field-label" style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto ($ ARS)</label>
+                    <input type="number" id="amenity-edit-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp">
                   </div>
                   <div>
-                    <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Modalidad de Cobro</label>
-                    <select id="amenity-edit-tipo-arancel" class="inp" style="background:#fff">
+                    <label class="modal-field-label" style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Modalidad de Cobro</label>
+                    <select id="amenity-edit-tipo-arancel" class="inp">
                       <option value="por_hora">⏱️ Por Hora (horas × monto)</option>
                       <option value="por_reserva">🎟️ Fijo por Reserva (tarifa plana)</option>
                     </select>
@@ -8748,12 +8925,11 @@ router.get('/mi-edificio', async (req, res) => {
               </div>
             </div>
             <div style="margin-bottom:14px">
-              <label style="font-size:13px;font-weight:700;color:#0F326A;display:block;margin-bottom:4px">📜 Reglamento y Normas del Sector</label>
-              <div style="font-size:11.5px;color:#64748B;margin-bottom:6px">Marcos IA usará estas reglas para responder dudas específicas de vecinos (música, depósitos, limpieza, gorro de pileta, etc.).</div>
-              <textarea id="amenity-edit-reglamento" placeholder="Ej: Música permitida hasta 01:00 hs. Seña de $15.000 para limpieza. Prohibido fumar adentro. Dejar vajilla limpia." class="inp" style="height:80px;resize:vertical;background:#fff"></textarea>
+              <label class="modal-section-title" style="font-size:13.5px;font-weight:800;color:#0F326A;display:block;margin-bottom:4px">📜 Reglamento y Normas del Sector</label>
+              <div class="modal-hint-text" style="font-size:11.5px;color:#64748B;margin-bottom:6px">Marcos IA usará estas reglas para responder dudas específicas de vecinos (música, depósitos, limpieza, gorro de pileta, etc.).</div>
+              <textarea id="amenity-edit-reglamento" placeholder="Ej: Música permitida hasta 01:00 hs. Seña de $15.000 para limpieza. Prohibido fumar adentro. Dejar vajilla limpia." class="inp" style="height:80px;resize:vertical"></textarea>
             </div>
           </div>
-          <div style="display:flex;gap:10px;padding:0 24px 20px">
             <button onclick="cerrarModal('modal-amenity-editar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarAmenityEditado(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar Cambios</button>
           </div>
