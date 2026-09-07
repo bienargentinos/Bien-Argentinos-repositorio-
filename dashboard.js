@@ -5099,12 +5099,12 @@ async function guardarAmenityEditado(btn) {
 }
 window.guardarAmenityEditado = guardarAmenityEditado;
 
-async function cambiarEstadoPagoReserva(id, estado_pago) {
+async function cambiarEstadoPagoReserva(id, estado_pago, motivo) {
   try {
     var r = await fetch('/admin/api/reserva-amenity-pago', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: id, estado_pago: estado_pago })
+      body: JSON.stringify({ id: id, estado_pago: estado_pago, motivo_rechazo: motivo || '' })
     });
     var j = await r.json();
     if (!r.ok || j.error) throw new Error(j.error || 'Error al actualizar estado de pago');
@@ -5115,6 +5115,164 @@ async function cambiarEstadoPagoReserva(id, estado_pago) {
   }
 }
 window.cambiarEstadoPagoReserva = cambiarEstadoPagoReserva;
+
+function abrirModalRevisarComprobante(id, amenity, depto, vecino, tel, fecha, horario, monto, compUrl, estadoPago, motivo) {
+  document.getElementById('rev-comp-id').value = id;
+  document.getElementById('rev-comp-amenity').textContent = amenity || 'Amenity';
+  document.getElementById('rev-comp-vecino').textContent = (vecino || 'Vecino') + ' (' + (depto || 'Depto') + ')';
+  document.getElementById('rev-comp-fecha-horario').textContent = (fecha || '') + ' · ' + (horario || '') + ' hs';
+  document.getElementById('rev-comp-monto').textContent = '$' + (Number(monto) || 0).toLocaleString('es-AR');
+
+  var telEl = document.getElementById('rev-comp-tel');
+  var waEl = document.getElementById('rev-comp-btn-wa');
+  if (tel && tel.trim()) {
+    telEl.textContent = tel;
+    var cleanTel = tel.replace(/[^0-9]/g, '');
+    var waMsg = encodeURIComponent('Hola ' + (vecino || '') + ', te contacto desde la administración sobre tu reserva de ' + (amenity || 'amenity') + ' para el día ' + (fecha || '') + '.');
+    waEl.href = 'https://wa.me/' + cleanTel + '?text=' + waMsg;
+    waEl.style.display = 'inline-flex';
+  } else {
+    telEl.textContent = 'No registrado';
+    waEl.style.display = 'none';
+  }
+
+  var boxImg = document.getElementById('rev-comp-preview-img');
+  var boxPdf = document.getElementById('rev-comp-preview-pdf');
+  var linkOpen = document.getElementById('rev-comp-link-open');
+
+  linkOpen.href = compUrl || '#';
+  var isPdf = (compUrl || '').toLowerCase().indexOf('.pdf') !== -1;
+  if (compUrl) {
+    if (isPdf) {
+      boxImg.style.display = 'none';
+      boxPdf.style.display = 'block';
+      boxPdf.src = compUrl;
+    } else {
+      boxPdf.style.display = 'none';
+      boxImg.style.display = 'block';
+      boxImg.src = compUrl;
+    }
+  } else {
+    boxImg.style.display = 'none';
+    boxPdf.style.display = 'none';
+  }
+
+  var stEl = document.getElementById('rev-comp-estado-actual');
+  if (estadoPago === 'aprobado') {
+    stEl.innerHTML = '<span style="color:#15803D;background:#DCFCE7;padding:3px 8px;border-radius:6px;font-weight:800;font-size:12px">✅ Pago Aprobado</span>';
+  } else if (estadoPago === 'comprobante_subido') {
+    stEl.innerHTML = '<span style="color:#0369A1;background:#E0F2FE;padding:3px 8px;border-radius:6px;font-weight:800;font-size:12px">🧾 Comprobante Subido (Por Revisar)</span>';
+  } else if (estadoPago === 'rechazado') {
+    stEl.innerHTML = '<span style="color:#DC2626;background:#FEE2E2;padding:3px 8px;border-radius:6px;font-weight:800;font-size:12px">❌ Rechazado' + (motivo ? ': ' + motivo : '') + '</span>';
+  } else {
+    stEl.innerHTML = '<span style="color:#92400E;background:#FEF3C7;padding:3px 8px;border-radius:6px;font-weight:800;font-size:12px">⏳ Pendiente de Pago</span>';
+  }
+
+  document.getElementById('rev-comp-box-rechazo').style.display = 'none';
+  document.getElementById('rev-comp-motivo').value = motivo || '';
+  abrirModal('modal-revisar-comprobante-reserva');
+}
+window.abrirModalRevisarComprobante = abrirModalRevisarComprobante;
+
+function toggleRechazoComprobante() {
+  var b = document.getElementById('rev-comp-box-rechazo');
+  b.style.display = (b.style.display === 'none' || !b.style.display) ? 'block' : 'none';
+  if (b.style.display === 'block') {
+    document.getElementById('rev-comp-motivo').focus();
+  }
+}
+window.toggleRechazoComprobante = toggleRechazoComprobante;
+
+function setMotivoRapido(txt) {
+  document.getElementById('rev-comp-motivo').value = txt;
+}
+window.setMotivoRapido = setMotivoRapido;
+
+async function aprobarPagoDesdeModal(btn) {
+  var id = document.getElementById('rev-comp-id').value;
+  if (!id) return;
+  btn.disabled = true;
+  btn.textContent = 'Aprobando...';
+  await cambiarEstadoPagoReserva(id, 'aprobado');
+}
+window.aprobarPagoDesdeModal = aprobarPagoDesdeModal;
+
+async function rechazarPagoDesdeModal(btn) {
+  var id = document.getElementById('rev-comp-id').value;
+  var b = document.getElementById('rev-comp-box-rechazo');
+  if (b.style.display === 'none' || !b.style.display) {
+    b.style.display = 'block';
+    document.getElementById('rev-comp-motivo').focus();
+    return;
+  }
+  var motivo = (document.getElementById('rev-comp-motivo').value || '').trim();
+  if (!motivo) {
+    alert('Por favor indicá un motivo de rechazo para orientar al vecino.');
+    document.getElementById('rev-comp-motivo').focus();
+    return;
+  }
+  if (!confirm('¿Confirmás rechazar este comprobante?\\n\\nMotivo: ' + motivo)) return;
+  btn.disabled = true;
+  btn.textContent = 'Rechazando...';
+  await cambiarEstadoPagoReserva(id, 'rechazado', motivo);
+}
+window.rechazarPagoDesdeModal = rechazarPagoDesdeModal;
+
+async function marcarPagoManual(id, amenity, monto) {
+  var mFmt = Number(monto || 0).toLocaleString('es-AR');
+  if (!confirm('¿Registrar pago manual en efectivo o transferencia para la reserva de ' + amenity + ' ($' + mFmt + ')?')) return;
+  await cambiarEstadoPagoReserva(id, 'aprobado');
+}
+window.marcarPagoManual = marcarPagoManual;
+
+async function cancelarReservaAdmin(id, amenity, fecha, horario) {
+  if (!confirm('¿Estás seguro de cancelar esta reserva de ' + amenity + ' (' + fecha + ' ' + horario + ')?\\n\\nEl turno quedará liberado inmediatamente para otros vecinos.')) return;
+  try {
+    var r = await fetch('/admin/api/reserva-amenity-cancelar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al cancelar reserva');
+    toast('Reserva cancelada y horario liberado', 'ok');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+window.cancelarReservaAdmin = cancelarReservaAdmin;
+
+function filtrarReservasAmenities(tab) {
+  var rows = document.querySelectorAll('.fila-reserva-amenity');
+  var tabs = document.querySelectorAll('.tab-reserva-amenity');
+  tabs.forEach(function(t) {
+    if (t.getAttribute('data-tab') === tab) {
+      t.style.background = '#1E5FB4';
+      t.style.color = '#fff';
+      t.style.borderColor = '#1E5FB4';
+    } else {
+      t.style.background = '#F8FAFC';
+      t.style.color = '#475569';
+      t.style.borderColor = '#CBD5E1';
+    }
+  });
+
+  rows.forEach(function(row) {
+    var estado = row.getAttribute('data-estado-pago') || '';
+    var estadoReserva = row.getAttribute('data-estado-reserva') || '';
+    if (tab === 'todas') {
+      row.style.display = 'flex';
+    } else if (tab === 'revisar') {
+      row.style.display = (estado === 'comprobante_subido') ? 'flex' : 'none';
+    } else if (tab === 'aprobadas') {
+      row.style.display = (estado === 'aprobado') ? 'flex' : 'none';
+    } else if (tab === 'pendientes') {
+      row.style.display = (estado === 'pendiente' && estadoReserva !== 'cancelada') ? 'flex' : 'none';
+    }
+  });
+}
+window.filtrarReservasAmenities = filtrarReservasAmenities;
 
 async function eliminarAmenity(id, nombre) {
   if (!confirm('¿Estás seguro de eliminar el amenity "' + nombre + '" de este edificio?')) return;
@@ -8733,11 +8891,16 @@ router.get('/mi-edificio', async (req, res) => {
         const resAm = await pool.query(qAm, [cur.nombre, '%' + cur.nombre + '%']);
         if (resAm && resAm.rows) amenitiesEdificio = resAm.rows;
 
-        const qR = `SELECT * FROM reservas_amenities WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) AND estado != 'cancelada' ORDER BY fecha DESC, hora_desde ASC, id DESC LIMIT 20`;
+        const qR = `SELECT * FROM reservas_amenities WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) ORDER BY fecha DESC, hora_desde ASC, id DESC LIMIT 50`;
         const resR = await pool.query(qR, [cur.nombre, '%' + cur.nombre + '%']);
         if (resR && resR.rows) reservasEdificio = resR.rows;
       }
     } catch (_) {}
+
+    const totalReservas = reservasEdificio.length;
+    const porRevisarCount = reservasEdificio.filter(r => r.estado_pago === 'comprobante_subido' && r.estado !== 'cancelada').length;
+    const aprobadasCount = reservasEdificio.filter(r => r.estado_pago === 'aprobado' && r.estado !== 'cancelada').length;
+    const pendientesCount = reservasEdificio.filter(r => (r.estado_pago === 'pendiente' || !r.estado_pago) && Number(r.monto) > 0 && r.estado !== 'cancelada').length;
 
     const amenitiesCard = `
       <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
@@ -8785,33 +8948,70 @@ router.get('/mi-edificio', async (req, res) => {
           `}
         </div>
 
-        <!-- Historial de Reservas Activas -->
+        <!-- Historial y Gestión de Reservas -->
         <div style="border-top:1px solid #EEF1F6;padding-top:14px">
-          <div style="font-size:14px;font-weight:800;color:#16233B;margin-bottom:8px">📅 Reservas Activas (${reservasEdificio.length})</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+            <div style="font-size:14px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:6px">
+              <span>📅</span> <span>Reservas de Amenities (${totalReservas})</span>
+              ${porRevisarCount > 0 ? `<span style="font-size:11px;font-weight:800;background:#FEF3C7;color:#B45309;padding:2px 8px;border-radius:999px;border:1px solid #FCD34D">⚠️ ${porRevisarCount} por revisar</span>` : ''}
+            </div>
+            <!-- Filtros Rápidos -->
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button type="button" class="tab-reserva-amenity" data-tab="todas" onclick="filtrarReservasAmenities('todas')" style="padding:4px 10px;border-radius:8px;font-size:11.5px;font-weight:700;border:1px solid #1E5FB4;background:#1E5FB4;color:#fff;cursor:pointer">Todas (${totalReservas})</button>
+              <button type="button" class="tab-reserva-amenity" data-tab="revisar" onclick="filtrarReservasAmenities('revisar')" style="padding:4px 10px;border-radius:8px;font-size:11.5px;font-weight:700;border:1px solid #CBD5E1;background:#F8FAFC;color:#475569;cursor:pointer">⏳ Por Revisar (${porRevisarCount})</button>
+              <button type="button" class="tab-reserva-amenity" data-tab="aprobadas" onclick="filtrarReservasAmenities('aprobadas')" style="padding:4px 10px;border-radius:8px;font-size:11.5px;font-weight:700;border:1px solid #CBD5E1;background:#F8FAFC;color:#475569;cursor:pointer">✅ Aprobadas (${aprobadasCount})</button>
+              <button type="button" class="tab-reserva-amenity" data-tab="pendientes" onclick="filtrarReservasAmenities('pendientes')" style="padding:4px 10px;border-radius:8px;font-size:11.5px;font-weight:700;border:1px solid #CBD5E1;background:#F8FAFC;color:#475569;cursor:pointer">⚠️ Sin Pagar (${pendientesCount})</button>
+            </div>
+          </div>
+
           ${reservasEdificio.length ? `
-          <div style="display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto">
-            ${reservasEdificio.map(r => `
-              <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #E2E8F0;border-radius:10px;background:#fff;gap:10px;flex-wrap:wrap">
-                <div style="display:flex;align-items:center;gap:8px">
-                  <span style="font-size:18px">🎉</span>
+          <div style="display:flex;flex-direction:column;gap:8px;max-height:360px;overflow-y:auto;padding-right:2px">
+            ${reservasEdificio.map(r => {
+              const montoNum = Number(r.monto || 0);
+              const esGratis = montoNum <= 0;
+              const estadoPago = r.estado_pago || (esGratis ? 'no_requiere' : 'pendiente');
+              const esCancelada = r.estado === 'cancelada';
+
+              return `
+              <div class="fila-reserva-amenity" data-estado-pago="${esc(estadoPago)}" data-estado-reserva="${esc(r.estado || 'confirmada')}" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid ${estadoPago === 'comprobante_subido' && !esCancelada ? '#93C5FD' : '#E2E8F0'};border-radius:10px;background:${estadoPago === 'comprobante_subido' && !esCancelada ? '#F0F7FF' : '#fff'};gap:10px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:10px;min-width:260px;flex:1">
+                  <span style="font-size:20px">🎉</span>
                   <div>
-                    <div style="font-size:13px;font-weight:800;color:#0F172A">${esc(r.amenity)} · <span style="color:#1E5FB4">${esc(r.departamento || 'Depto')} (${esc(r.nombre_vecino || 'Vecino')})</span></div>
-                    <div style="font-size:12px;color:#64748B">📆 ${esc(r.fecha)} · ⏰ <strong>${esc(r.hora_desde || '00:00')} a ${esc(r.hora_hasta || '00:00')} hs</strong>${r.notas ? ' · 📝 ' + esc(r.notas) : ''}</div>
+                    <div style="font-size:13px;font-weight:800;color:#0F172A">
+                      ${esc(r.amenity)} · <span style="color:#1E5FB4">${esc(r.departamento || 'Depto')} (${esc(r.nombre_vecino || 'Vecino')})</span>
+                    </div>
+                    <div style="font-size:12px;color:#64748B">
+                      📆 ${esc(r.fecha)} · ⏰ <strong>${esc(r.hora_desde || '00:00')} a ${esc(r.hora_hasta || '00:00')} hs</strong>${r.notas ? ' · 📝 ' + esc(r.notas) : ''}
+                    </div>
                   </div>
                 </div>
-                <div style="display:flex;align-items:center;gap:8px">
-                  ${r.monto > 0 ? `
-                    ${r.estado_pago === 'aprobado' ? `<span style="font-size:11px;font-weight:800;background:#DCFCE7;color:#15803D;padding:3px 8px;border-radius:6px">✅ Pago Aprobado ($${Number(r.monto).toLocaleString('es-AR')})</span>` :
-                      r.estado_pago === 'comprobante_subido' ? `
-                        <span style="font-size:11px;font-weight:800;background:#E0F2FE;color:#0369A1;padding:3px 8px;border-radius:6px">🧾 Comprobante Recibido</span>
-                        ${r.comprobante_url ? `<a href="${r.comprobante_url}" target="_blank" style="font-size:11px;color:#2E6FC0;font-weight:700;text-decoration:underline">Ver</a>` : ''}
-                        <button onclick="cambiarEstadoPagoReserva(${r.id}, 'aprobado')" style="border:none;background:#15803D;color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer">✓ Aprobar</button>` :
-                        `<span style="font-size:11px;font-weight:800;background:#FEF3C7;color:#92400E;padding:3px 8px;border-radius:6px">⏳ Pendiente ($${Number(r.monto).toLocaleString('es-AR')})</span>`
-                    }
-                  ` : `<span style="font-size:11px;font-weight:700;color:#15803D;background:#DCFCE7;padding:2px 7px;border-radius:6px">Sin costo</span>`}
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                  ${esCancelada ? `
+                    <span style="font-size:11px;font-weight:800;background:#FEE2E2;color:#991B1B;padding:3px 8px;border-radius:6px">✕ Cancelada</span>
+                  ` : esGratis ? `
+                    <span style="font-size:11px;font-weight:700;color:#15803D;background:#DCFCE7;padding:3px 8px;border-radius:6px">🟢 Sin costo</span>
+                    <button onclick="cancelarReservaAdmin(${r.id}, '${escJs(r.amenity)}', '${escJs(r.fecha)}', '${escJs(r.hora_desde || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#64748B;font-size:11px;padding:3px 7px;border-radius:6px;cursor:pointer" title="Cancelar reserva">✕</button>
+                  ` : estadoPago === 'aprobado' ? `
+                    <span style="font-size:11px;font-weight:800;background:#DCFCE7;color:#15803D;padding:3px 8px;border-radius:6px">✅ Aprobado ($${montoNum.toLocaleString('es-AR')})</span>
+                    ${r.comprobante_url ? `<button onclick="abrirModalRevisarComprobante(${r.id}, '${escJs(r.amenity)}', '${escJs(r.departamento || '')}', '${escJs(r.nombre_vecino || '')}', '${escJs(r.telefono || '')}', '${escJs(r.fecha || '')}', '${escJs((r.hora_desde || '') + ' a ' + (r.hora_hasta || ''))}', ${montoNum}, '${escJs(r.comprobante_url || '')}', '${escJs(estadoPago)}', '${escJs(r.motivo_rechazo || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;cursor:pointer">👁️ Comprobante</button>` : ''}
+                    <button onclick="cancelarReservaAdmin(${r.id}, '${escJs(r.amenity)}', '${escJs(r.fecha)}', '${escJs(r.hora_desde || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#64748B;font-size:11px;padding:3px 7px;border-radius:6px;cursor:pointer" title="Cancelar reserva">✕</button>
+                  ` : estadoPago === 'comprobante_subido' ? `
+                    <span style="font-size:11px;font-weight:800;background:#E0F2FE;color:#0369A1;padding:3px 8px;border-radius:6px">🧾 Comprobante Recibido</span>
+                    <button onclick="abrirModalRevisarComprobante(${r.id}, '${escJs(r.amenity)}', '${escJs(r.departamento || '')}', '${escJs(r.nombre_vecino || '')}', '${escJs(r.telefono || '')}', '${escJs(r.fecha || '')}', '${escJs((r.hora_desde || '') + ' a ' + (r.hora_hasta || ''))}', ${montoNum}, '${escJs(r.comprobante_url || '')}', '${escJs(estadoPago)}', '${escJs(r.motivo_rechazo || '')}')" style="border:none;background:linear-gradient(135deg,#1E5FB4,#2E6FC0);color:#fff;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:6px;cursor:pointer;box-shadow:0 2px 6px rgba(30,95,180,0.25)">🔍 Revisar Comprobante</button>
+                    <button onclick="cambiarEstadoPagoReserva(${r.id}, 'aprobado')" style="border:none;background:#15803D;color:#fff;font-size:11px;font-weight:700;padding:4px 8px;border-radius:6px;cursor:pointer" title="Aprobar rápidamente">✓</button>
+                    <button onclick="cancelarReservaAdmin(${r.id}, '${escJs(r.amenity)}', '${escJs(r.fecha)}', '${escJs(r.hora_desde || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#64748B;font-size:11px;padding:3px 7px;border-radius:6px;cursor:pointer" title="Cancelar reserva">✕</button>
+                  ` : estadoPago === 'rechazado' ? `
+                    <span style="font-size:11px;font-weight:800;background:#FEE2E2;color:#DC2626;padding:3px 8px;border-radius:6px" title="${esc(r.motivo_rechazo || 'Comprobante observado')}">❌ Rechazado ($${montoNum.toLocaleString('es-AR')})</span>
+                    ${r.comprobante_url ? `<button onclick="abrirModalRevisarComprobante(${r.id}, '${escJs(r.amenity)}', '${escJs(r.departamento || '')}', '${escJs(r.nombre_vecino || '')}', '${escJs(r.telefono || '')}', '${escJs(r.fecha || '')}', '${escJs((r.hora_desde || '') + ' a ' + (r.hora_hasta || ''))}', ${montoNum}, '${escJs(r.comprobante_url || '')}', '${escJs(estadoPago)}', '${escJs(r.motivo_rechazo || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;cursor:pointer">👁️ Detalle</button>` : ''}
+                    <button onclick="cancelarReservaAdmin(${r.id}, '${escJs(r.amenity)}', '${escJs(r.fecha)}', '${escJs(r.hora_desde || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#64748B;font-size:11px;padding:3px 7px;border-radius:6px;cursor:pointer" title="Cancelar reserva">✕</button>
+                  ` : `
+                    <span style="font-size:11px;font-weight:800;background:#FEF3C7;color:#92400E;padding:3px 8px;border-radius:6px">⏳ Pendiente ($${montoNum.toLocaleString('es-AR')})</span>
+                    <button onclick="marcarPagoManual(${r.id}, '${escJs(r.amenity)}', ${montoNum})" style="border:1px solid #16A34A;background:#F0FDF4;color:#16A34A;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;cursor:pointer" title="Registrar pago recibido en mano o transferencia directa">💵 Pago Manual</button>
+                    <button onclick="cancelarReservaAdmin(${r.id}, '${escJs(r.amenity)}', '${escJs(r.fecha)}', '${escJs(r.hora_desde || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#64748B;font-size:11px;padding:3px 7px;border-radius:6px;cursor:pointer" title="Cancelar reserva">✕</button>
+                  `}
                 </div>
-              </div>
-            `).join('')}
+              </div>`;
+            }).join('')}
           </div>` : '<div style="font-size:12.5px;color:#8595AD;padding:4px 0">No hay reservas registradas para este edificio todavía.</div>'}
         </div>
       </div>`;
@@ -8972,8 +9172,93 @@ router.get('/mi-edificio', async (req, res) => {
               <textarea id="amenity-edit-reglamento" placeholder="Ej: Música permitida hasta 01:00 hs. Seña de $15.000 para limpieza. Prohibido fumar adentro. Dejar vajilla limpia." class="inp" style="height:80px;resize:vertical"></textarea>
             </div>
           </div>
+          <div style="padding:16px 24px;border-top:1px solid #EEF1F6;display:flex;gap:10px">
             <button onclick="cerrarModal('modal-amenity-editar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarAmenityEditado(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar Cambios</button>
+          </div>
+        </div>
+      </div>`;
+
+    const modalRevisarComprobanteHtml = `
+      <div id="modal-revisar-comprobante-reserva" class="modal-overlay" onclick="cerrarModal('modal-revisar-comprobante-reserva')">
+        <div class="modal-box" style="max-width:700px;width:100%" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Auditoría de Pagos</div>
+              <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🔍 Comprobante de Reserva de Amenity</div>
+            </div>
+            <button onclick="cerrarModal('modal-revisar-comprobante-reserva')" style="border:none;background:#F1F5F9;color:#64748B;font-size:18px;font-weight:700;width:32px;height:32px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+          </div>
+          
+          <div style="padding:20px 24px;max-height:75vh;overflow-y:auto">
+            <input type="hidden" id="rev-comp-id">
+
+            <!-- Ficha de Datos de la Reserva -->
+            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Amenity / Espacio</div>
+                  <div id="rev-comp-amenity" style="font-size:14px;font-weight:800;color:#0F172A;margin-top:2px">-</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Vecino y Unidad</div>
+                  <div id="rev-comp-vecino" style="font-size:14px;font-weight:800;color:#1E5FB4;margin-top:2px">-</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Fecha y Horario</div>
+                  <div id="rev-comp-fecha-horario" style="font-size:13.5px;font-weight:700;color:#334155;margin-top:2px">-</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Monto de la Reserva</div>
+                  <div id="rev-comp-monto" style="font-size:16px;font-weight:800;color:#059669;margin-top:2px">$0</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Estado Actual</div>
+                  <div id="rev-comp-estado-actual" style="margin-top:3px">-</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Contacto Vecino</div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+                    <span id="rev-comp-tel" style="font-size:13px;font-weight:700;color:#334155">-</span>
+                    <a id="rev-comp-btn-wa" href="#" target="_blank" style="display:none;align-items:center;gap:4px;font-size:11px;font-weight:800;background:#25D366;color:#fff;padding:2px 8px;border-radius:6px;text-decoration:none">
+                      <span>💬 WhatsApp</span>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Previsualización de Comprobante -->
+            <div style="margin-bottom:16px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <div style="font-size:13px;font-weight:800;color:#0F172A">📄 Comprobante Adjunto:</div>
+                <a id="rev-comp-link-open" href="#" target="_blank" style="font-size:12px;font-weight:700;color:#1E5FB4;text-decoration:underline">↗️ Abrir en pestaña nueva</a>
+              </div>
+              <div style="background:#0F172A;border-radius:12px;overflow:hidden;min-height:240px;max-height:380px;display:flex;align-items:center;justify-content:center;position:relative;border:1px solid #CBD5E1">
+                <img id="rev-comp-preview-img" src="" alt="Comprobante" style="max-width:100%;max-height:380px;object-fit:contain;display:none">
+                <iframe id="rev-comp-preview-pdf" src="" style="width:100%;height:380px;border:none;display:none"></iframe>
+              </div>
+            </div>
+
+            <!-- Caja de Rechazo (Oculta por defecto) -->
+            <div id="rev-comp-box-rechazo" style="display:none;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:12px;padding:14px 16px;margin-bottom:10px">
+              <div style="font-size:13px;font-weight:800;color:#991B1B;margin-bottom:6px">❌ Indicar Motivo del Rechazo:</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+                <button type="button" onclick="setMotivoRapido('Comprobante ilegible o borroso')" style="font-size:11px;padding:3px 8px;border:1px solid #FCA5A5;background:#fff;border-radius:6px;cursor:pointer;color:#991B1B">Ilegible / Borroso</button>
+                <button type="button" onclick="setMotivoRapido('Monto transferido no coincide con el total')" style="font-size:11px;padding:3px 8px;border:1px solid #FCA5A5;background:#fff;border-radius:6px;cursor:pointer;color:#991B1B">Monto no coincide</button>
+                <button type="button" onclick="setMotivoRapido('Transferencia aún no acreditada en la cuenta bancaria')" style="font-size:11px;padding:3px 8px;border:1px solid #FCA5A5;background:#fff;border-radius:6px;cursor:pointer;color:#991B1B">No acreditada</button>
+                <button type="button" onclick="setMotivoRapido('Falta número de operación o comprobante truncado')" style="font-size:11px;padding:3px 8px;border:1px solid #FCA5A5;background:#fff;border-radius:6px;cursor:pointer;color:#991B1B">Faltan datos</button>
+              </div>
+              <textarea id="rev-comp-motivo" placeholder="Escribí una breve explicación para el vecino..." style="width:100%;box-sizing:border-box;border:1px solid #F87171;border-radius:8px;padding:8px 10px;font-size:12.5px;min-height:60px;font-family:inherit;resize:vertical"></textarea>
+            </div>
+          </div>
+
+          <div style="padding:14px 24px;border-top:1px solid #EEF1F6;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <button type="button" onclick="cerrarModal('modal-revisar-comprobante-reserva')" style="padding:10px 16px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Cerrar</button>
+            <div style="display:flex;align-items:center;gap:10px">
+              <button type="button" onclick="rechazarPagoDesdeModal(this)" style="padding:10px 16px;border:1px solid #EF4444;border-radius:10px;background:#FEF2F2;color:#DC2626;font-weight:700;font-size:13px;cursor:pointer">✕ Rechazar Comprobante</button>
+              <button type="button" onclick="aprobarPagoDesdeModal(this)" style="padding:10px 20px;border:none;border-radius:10px;background:#15803D;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;box-shadow:0 2px 6px rgba(21,128,61,0.3)">✓ Aprobar Pago</button>
+            </div>
           </div>
         </div>
       </div>`;
@@ -9311,6 +9596,7 @@ router.get('/mi-edificio', async (req, res) => {
       ${modalAccesoNuevoHtml}
       ${modalAmenityNuevoHtml}
       ${modalAmenityEditarHtml}
+      ${modalRevisarComprobanteHtml}
       ${modalPlanesAcHtml(planesList, d.propios)}
       <script>window.__CUR_BUILDING__=${JSON.stringify(cur)};window.__EDIFICIOS__=${JSON.stringify(d.propios)};window.__ES_DUENO__=false;</script>`;
 
@@ -13238,18 +13524,102 @@ router.post('/api/edificio-amenity-eliminar', async (req, res) => {
 router.post('/api/reserva-amenity-pago', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { id, estado_pago } = req.body || {};
+    const { id, estado_pago, motivo_rechazo } = req.body || {};
     if (!id || !estado_pago) return res.status(400).json({ error: 'ID y estado_pago requeridos' });
 
     const { pool } = require('./db-pg');
+    let reservaActualizada = null;
     if (pool) {
-      const resReserva = await pool.query('UPDATE reservas_amenities SET estado_pago = $1 WHERE id = $2 RETURNING comprobante_url', [estado_pago, id]);
-      if (resReserva && resReserva.rows && resReserva.rows[0] && resReserva.rows[0].comprobante_url) {
-        const compUrl = resReserva.rows[0].comprobante_url;
-        await pool.query('UPDATE facturas SET estado = $1 WHERE url = $2', [estado_pago, compUrl]).catch(() => {});
+      const qUp = `UPDATE reservas_amenities 
+                   SET estado_pago = $1, 
+                       motivo_rechazo = $2 
+                   WHERE id = $3 
+                   RETURNING id, edificio, amenity, departamento, nombre_vecino, telefono, fecha, hora_desde, hora_hasta, monto, comprobante_url`;
+      const resReserva = await pool.query(qUp, [estado_pago, motivo_rechazo || null, id]);
+      if (resReserva && resReserva.rows && resReserva.rows[0]) {
+        reservaActualizada = resReserva.rows[0];
+        const compUrl = reservaActualizada.comprobante_url;
+        if (compUrl) {
+          await pool.query('UPDATE facturas SET estado = $1 WHERE url = $2', [estado_pago, compUrl]).catch(() => {});
+        }
       }
     }
+
+    // Notificar al vecino por WhatsApp si tiene teléfono
+    if (reservaActualizada && reservaActualizada.telefono) {
+      try {
+        const marcosOps = require('./agentes/marcos-ops');
+        if (marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
+          const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+          const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
+          const amNombre = reservaActualizada.amenity || 'el espacio común';
+          const fechaStr = reservaActualizada.fecha ? String(reservaActualizada.fecha).split('T')[0] : '';
+          const horaStr = (reservaActualizada.hora_desde || '') + ' a ' + (reservaActualizada.hora_hasta || '') + ' hs';
+
+          let msgVecino = '';
+          if (estado_pago === 'aprobado') {
+            msgVecino = `✅ *PAGO DE RESERVA APROBADO*\n\n` +
+              `Hola ${reservaActualizada.nombre_vecino || ''}, te confirmamos que tu comprobante de pago para la reserva de *${amNombre}* ha sido verificado y aprobado por la administración.\n\n` +
+              `📅 *Fecha:* ${fechaStr}\n` +
+              `⏰ *Horario:* ${horaStr}\n\n` +
+              `¡Que disfrutes del espacio común!`;
+          } else if (estado_pago === 'rechazado') {
+            msgVecino = `⚠️ *COMPROBANTE DE RESERVA OBSERVADO*\n\n` +
+              `Hola ${reservaActualizada.nombre_vecino || ''}, la administración ha revisado tu comprobante de reserva para *${amNombre}* (${fechaStr} ${horaStr}) pero no pudo ser aprobado.\n\n` +
+              `📝 *Motivo:* ${motivo_rechazo || 'Comprobante no válido o ilegible'}\n\n` +
+              `👉 Por favor ingresá al Portal del Vecino para adjuntar un nuevo comprobante o comunicate con la administración.`;
+          }
+          if (msgVecino) {
+            await marcosOps.enviarWhatsApp(reservaActualizada.telefono, msgVecino, phoneId, token).catch(() => {});
+          }
+        }
+      } catch (_) {}
+    }
+
     res.json({ ok: true, mensaje: 'Estado de pago actualizado con éxito' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/reserva-amenity-cancelar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { id } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'ID de reserva requerido' });
+
+    const { pool } = require('./db-pg');
+    let reserva = null;
+    if (pool) {
+      const resR = await pool.query(
+        `UPDATE reservas_amenities 
+         SET estado = 'cancelada', 
+             notas = COALESCE(notas, '') || ' [Cancelada por administración]' 
+         WHERE id = $1 
+         RETURNING id, edificio, amenity, departamento, nombre_vecino, telefono, fecha, hora_desde, hora_hasta`,
+        [id]
+      );
+      if (resR && resR.rows && resR.rows[0]) {
+        reserva = resR.rows[0];
+      }
+    }
+
+    if (reserva && reserva.telefono) {
+      try {
+        const marcosOps = require('./agentes/marcos-ops');
+        if (marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
+          const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+          const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
+          const fechaStr = reserva.fecha ? String(reserva.fecha).split('T')[0] : '';
+          const msgCancel = `ℹ️ *RESERVA DE AMENITY CANCELADA*\n\n` +
+            `Hola ${reserva.nombre_vecino || ''}, tu reserva de *${reserva.amenity || 'amenity'}* para el ${fechaStr} (${reserva.hora_desde} a ${reserva.hora_hasta} hs) ha sido cancelada por la administración.\n\n` +
+            `El horario ha quedado liberado. Ante cualquier duda, por favor comunicate con la administración.`;
+          await marcosOps.enviarWhatsApp(reserva.telefono, msgCancel, phoneId, token).catch(() => {});
+        }
+      } catch (_) {}
+    }
+
+    res.json({ ok: true, mensaje: 'Reserva cancelada con éxito y horario liberado' });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }

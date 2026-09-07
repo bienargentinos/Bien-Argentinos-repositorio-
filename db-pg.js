@@ -257,6 +257,7 @@ async function _initPgSchema() {
             ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS estado_pago VARCHAR(50) DEFAULT 'no_requiere';
             ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS comprobante_url TEXT;
             ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS comprobante_id INT;
+            ALTER TABLE reservas_amenities ADD COLUMN IF NOT EXISTS motivo_rechazo TEXT;
 
             CREATE TABLE IF NOT EXISTS sugerencias (
                 id SERIAL PRIMARY KEY,

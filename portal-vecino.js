@@ -4716,6 +4716,9 @@ router.get('/amenities', async (req, res) => {
             } else if (estadoPago === 'comprobante_subido') {
               badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D">⏳ Pago en Revisión ($' + montoNum.toLocaleString('es-AR') + ')</span>' +
                 (r.comprobante_url ? ' <a href="' + r.comprobante_url + '" target="_blank" style="font-size:11px;font-weight:700;color:#1E5FB4;text-decoration:underline;margin-left:4px">👁️ Ver Comprobante</a>' : '');
+            } else if (estadoPago === 'rechazado') {
+              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#FEE2E2;color:#DC2626;border:1px solid #FCA5A5">❌ Comprobante Observado ($' + montoNum.toLocaleString('es-AR') + ')</span>' +
+                ' <button onclick="abrirModalPagarReserva(' + r.id + ', \'' + escJs(r.amenity) + '\', ' + montoNum + ')" style="border:none;background:linear-gradient(135deg,#DC2626,#EF4444);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;cursor:pointer;margin-left:6px;box-shadow:0 2px 6px rgba(220,38,38,0.25)">🔄 Subir Nuevo Comprobante</button>';
             } else {
               badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#FEE2E2;color:#DC2626;border:1px solid #FCA5A5">⚠️ Pago Pendiente ($' + montoNum.toLocaleString('es-AR') + ')</span>' +
                 ' <button onclick="abrirModalPagarReserva(' + r.id + ', \'' + escJs(r.amenity) + '\', ' + montoNum + ')" style="border:none;background:linear-gradient(135deg,#1E5FB4,#2E6FC0);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;cursor:pointer;margin-left:6px;box-shadow:0 2px 6px rgba(30,95,180,0.25)">💳 Subir Comprobante</button>';
@@ -4732,6 +4735,11 @@ router.get('/amenities', async (req, res) => {
                 ${badgePago}
               </div>
               <div style="font-size:12px;color:#64748B">📆 ${esc(r.fecha)} · ⏰ <strong>${esc(r.hora_desde || '00:00')} a ${esc(r.hora_hasta || '00:00')} hs</strong>${r.notas ? ' · ' + esc(r.notas) : ''}</div>
+              ${estadoPago === 'rechazado' ? `
+                <div style="background:#FFF1F2;border-left:3px solid #E11D48;border-radius:0 6px 6px 0;padding:6px 10px;margin-top:6px;font-size:11.5px;color:#9F1239">
+                  <strong>⚠️ Observación de administración:</strong> ${esc(r.motivo_rechazo || 'El comprobante previo no pudo ser verificado. Por favor adjuntá uno nuevo legible.')}
+                </div>
+              ` : ''}
             </div>
             <button onclick="cancelarReserva(${r.id})" style="border:1px solid #FCA5A5;background:#FEF2F2;color:#DC2626;font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:6px;cursor:pointer">Cancelar</button>
           </div>`;
@@ -5456,7 +5464,7 @@ router.post('/api/comprobante-reserva', uploadComprobante.single('comprobante'),
           }
           await pool.query(
             `UPDATE reservas_amenities 
-             SET estado_pago = 'comprobante_subido', comprobante_url = $1 
+             SET estado_pago = 'comprobante_subido', comprobante_url = $1, motivo_rechazo = NULL 
              WHERE id = $2`, 
             [archivoUrl, reserva_id]
           );
