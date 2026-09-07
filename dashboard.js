@@ -1156,12 +1156,12 @@ function modalAltaEdificioHtml(eyebrow, clienteUsuario, planesList) {
     </div>`;
   return `
       <div id="modal-edificio" class="modal-overlay" onclick="cerrarModal('modal-edificio')">
-        <div class="modal-box" style="width:560px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="width:560px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">${esc(eyebrow)}</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Alta de consorcio</div>
           </div>
-          <div style="padding:20px 24px;max-height:60vh;overflow-y:auto">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             ${campo('ed-nombre', 'Nombre del consorcio', 'Ej: Av. Corrientes 3000', ' style="margin-bottom:14px"')}
             <div style="display:flex;gap:12px;margin-bottom:14px">
               ${campo('ed-direccion', 'Dirección', 'Calle y número (legal)', ' style="flex:1.5"')}
@@ -1191,7 +1191,7 @@ function modalAltaEdificioHtml(eyebrow, clienteUsuario, planesList) {
               ${optionsHtml}
             </select>
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-edificio')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="crearEdificio(this${clienteUsuario ? `,'${escJs(clienteUsuario)}'` : ''})" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Agregar edificio</button>
           </div>
@@ -1364,9 +1364,9 @@ a{color:inherit;text-decoration:none}
 .drawer-panel{display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:#F6F8FB;overflow-y:auto;z-index:61}
 .drawer-panel.open{display:block;animation:mSlideR .28s cubic-bezier(.2,.8,.2,1) both}
 /* modales */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;align-items:center;justify-content:center;padding:20px}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;align-items:center;justify-content:center;padding:20px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
 .modal-overlay.open{display:flex;animation:mFade .2s ease both}
-.modal-box{width:440px;max-width:100%;background:#fff;border-radius:18px;overflow:hidden;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5)}
+.modal-box{width:440px;max-width:100%;max-height:calc(100vh - 40px);background:#fff;border-radius:18px;overflow:hidden;display:flex;flex-direction:column;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5);margin:auto}
 /* inputs (style-focus del prototipo) */
 .inp{width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;color:#16233B;outline:none;background:#F8FAFD}
 .inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)}
@@ -9907,12 +9907,12 @@ router.get('/mi-edificio', async (req, res) => {
 
     const modalVecinoNuevoHtml = `
       <div id="modal-vecino-nuevo" class="modal-overlay" onclick="cerrarModal('modal-vecino-nuevo')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Padrón de Vecinos</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">👥 Agregar Vecino</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="vec-edificio">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
             <input id="vec-nombre" class="inp" placeholder="Ej: Lucía Gómez" style="margin-bottom:14px">
@@ -9930,7 +9930,7 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas / Observaciones (opcional)</div>
             <input id="vec-notas" class="inp" placeholder="Ej: Inquilino / Propietario">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-vecino-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarVecinoNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar vecino</button>
           </div>
@@ -9939,12 +9939,12 @@ router.get('/mi-edificio', async (req, res) => {
 
     const modalVecinoEditarHtml = `
       <div id="modal-vecino-editar" class="modal-overlay" onclick="cerrarModal('modal-vecino-editar')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Padrón de Vecinos</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Vecino</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="edit-vec-row">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
             <input id="edit-vec-nombre" class="inp" style="margin-bottom:14px">
@@ -9961,7 +9961,7 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
             <input id="edit-vec-notas" class="inp">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-vecino-editar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarEditarVecino(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
           </div>
@@ -10002,12 +10002,12 @@ router.get('/mi-edificio', async (req, res) => {
 
     const modalConsejoNuevoHtml = `
       <div id="modal-consejo-nuevo" class="modal-overlay" onclick="cerrarModal('modal-consejo-nuevo')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Consejo de Administración</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏛️ Agregar Integrante</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="cons-edificio">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
             <input id="cons-nombre" class="inp" placeholder="Ej: Roberto Gómez" style="margin-bottom:14px">
@@ -10033,7 +10033,7 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas / Observaciones (opcional)</div>
             <input id="cons-notas" class="inp" placeholder="Ej: tiene firma autorizada">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-consejo-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarConsejoNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar integrante</button>
           </div>
@@ -10042,12 +10042,12 @@ router.get('/mi-edificio', async (req, res) => {
 
     const modalConsejoEditarHtml = `
       <div id="modal-consejo-editar" class="modal-overlay" onclick="cerrarModal('modal-consejo-editar')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Consejo de Administración</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Integrante</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="edit-cons-row">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
             <input id="edit-cons-nombre" class="inp" style="margin-bottom:14px">
@@ -10073,7 +10073,7 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
             <input id="edit-cons-notas" class="inp">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-consejo-editar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarEditarConsejo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
           </div>
@@ -10263,12 +10263,12 @@ router.get('/proveedores', async (req, res) => {
 
     const modalEditarProveedorHtml = `
       <div id="modal-editar-proveedor" class="modal-overlay" onclick="cerrarModal('modal-editar-proveedor')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Lista Maestra de Proveedores</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Proveedor</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="edit-prov-row">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Rubro / Especialidad</div>
             <select id="edit-prov-rubro" class="inp" style="margin-bottom:14px">${rubroOptions}</select>
@@ -10283,7 +10283,7 @@ router.get('/proveedores', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
             <input id="edit-prov-notas" class="inp" placeholder="Ej: Atiende 24hs">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-editar-proveedor')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarEditarProveedor(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
           </div>
@@ -10294,12 +10294,12 @@ router.get('/proveedores', async (req, res) => {
     // con los dígitos verificadores: un número mal tipeado acá termina en un pago rechazado.
     const modalDatosCobroHtml = `
       <div id="modal-datos-cobro" class="modal-overlay" onclick="cerrarModal('modal-datos-cobro')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Datos de cobro</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏦 <span id="cobro-nombre">Proveedor</span></div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="cobro-row">
 
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">CBU (22 dígitos)</div>
@@ -10320,7 +10320,7 @@ router.get('/proveedores', async (req, res) => {
               había otros cargados, ese cambio queda esperando su aprobación en vez de aplicarse solo.
             </div>
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-datos-cobro')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarDatosCobro(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar</button>
           </div>
