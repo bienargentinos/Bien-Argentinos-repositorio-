@@ -7113,6 +7113,20 @@ window.addEventListener('DOMContentLoaded', function() {
   }
 });
 
+function desarmarCientificaClient(val) {
+  if (!val) return '';
+  var s = String(val).trim();
+  if (/^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s)) {
+    try {
+      var n = Number(s);
+      if (!isNaN(n) && isFinite(n)) {
+        return BigInt(Math.round(n)).toString();
+      }
+    } catch (_) {}
+  }
+  return s;
+}
+
 function abrirModalVecinoNuevo(edificio) {
   var elEd = document.getElementById('vec-edificio');
   if (elEd) elEd.value = edificio || '';
@@ -7136,7 +7150,7 @@ function abrirEditarVecino(row, nombre, unidad, tel, email, notas) {
   var elUni = document.getElementById('edit-vec-unidad');
   if (elUni) elUni.value = unidad || '';
   var elTel = document.getElementById('edit-vec-tel');
-  if (elTel) elTel.value = tel || '';
+  if (elTel) elTel.value = desarmarCientificaClient(tel || '');
   var elEmail = document.getElementById('edit-vec-email');
   if (elEmail) elEmail.value = email || '';
   var elNotas = document.getElementById('edit-vec-notas');
@@ -7170,7 +7184,7 @@ async function guardarVecinoNuevo(btn) {
   var elUni = document.getElementById('vec-unidad');
   var unidad = elUni ? elUni.value.trim() : '';
   var elTel = document.getElementById('vec-tel');
-  var telefono = elTel ? elTel.value.trim() : '';
+  var telefono = elTel ? desarmarCientificaClient(elTel.value.trim()) : '';
   var elEmail = document.getElementById('vec-email');
   var email = elEmail ? elEmail.value.trim() : '';
   var elNotas = document.getElementById('vec-notas');
@@ -7212,7 +7226,7 @@ async function guardarEditarVecino(btn) {
   var elUni = document.getElementById('edit-vec-unidad');
   var unidad = elUni ? elUni.value.trim() : '';
   var elTel = document.getElementById('edit-vec-tel');
-  var telefono = elTel ? elTel.value.trim() : '';
+  var telefono = elTel ? desarmarCientificaClient(elTel.value.trim()) : '';
   var elEmail = document.getElementById('edit-vec-email');
   var email = elEmail ? elEmail.value.trim() : '';
   var elNotas = document.getElementById('edit-vec-notas');
@@ -7353,11 +7367,12 @@ function procesarTextoVecinosImportar(rawText) {
 
     partes.forEach(function(p) {
       if (!p) return;
-      var cleanDigits = p.replace(/[^0-9]/g, '');
+      var cleanP = desarmarCientificaClient(p);
+      var cleanDigits = cleanP.replace(/[^0-9]/g, '');
       if (p.indexOf('@') !== -1) {
         emailsDetectados.push(p);
-      } else if (cleanDigits.length >= 7 && p.length <= 25) {
-        telsDetectados.push(p);
+      } else if (cleanDigits.length >= 7 && (cleanP.length <= 25 || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(p))) {
+        telsDetectados.push(cleanP);
       } else if (!deptoDetectado && p.length <= 8 && (cleanDigits.length > 0 || p.toUpperCase() === 'PB')) {
         deptoDetectado = p;
       } else {
@@ -7366,7 +7381,7 @@ function procesarTextoVecinosImportar(rawText) {
     });
 
     if (emailsDetectados.length) email = emailsDetectados[0];
-    if (telsDetectados.length) telefono = telsDetectados[0];
+    if (telsDetectados.length) telefono = desarmarCientificaClient(telsDetectados[0]);
 
     if (deptoDetectado) {
       unidad = deptoDetectado;
@@ -9382,6 +9397,32 @@ router.get('/mi-edificio', async (req, res) => {
     try {
       const { rows: vRows } = await readTab(TAB_VECINOS);
       vecinos = vRows.map(mapVecino).filter((v) => cur && compararEdificios(v.edificio, cur.nombre) && v.estado !== 'eliminado');
+      if (cur && cur.nombre && vecinos.length > 0) {
+        (async () => {
+          try {
+            const { pool } = require('./db-pg');
+            if (pool) {
+              for (const v of vecinos) {
+                const dep = v.departamento || v.unidad || '';
+                if (!dep && !v.nombre) continue;
+                const resUpd = await pool.query(
+                  `UPDATE vecinos SET nombre = $1, telefono = $2, email = $3, notas = $4, estado = 'activo'
+                   WHERE (LOWER(edificio) = LOWER($5) OR LOWER(edificio) LIKE LOWER($6))
+                     AND LOWER(departamento) = LOWER($7)`,
+                  [v.nombre || '', v.telefono || '', v.email || '', v.notas || '', cur.nombre, '%' + cur.nombre + '%', dep]
+                );
+                if (resUpd.rowCount === 0) {
+                  await pool.query(
+                    `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+                     VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+                    [cur.nombre, v.nombre || '', dep, v.telefono || '', v.email || '', v.notas || '']
+                  );
+                }
+              }
+            }
+          } catch (_) {}
+        })();
+      }
     } catch (_) {}
 
     const vecinosFilas = vecinos.length ? vecinos.map((v, idx) => {
@@ -12052,11 +12093,20 @@ async function writeCell(tabName, col, row, value) {
   const rowNum = Number(row) || 1;
   await ensureGridDimensions(tabName, colNum, rowNum).catch(() => {});
   const sheets = await getSheetsClient();
+  let valToSend = value;
+  if (typeof valToSend === 'string' && valToSend.trim()) {
+    const s = valToSend.trim();
+    if (!s.startsWith("'")) {
+      if (/^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s) || /^\+\d{6,}$/.test(s) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(s.replace(/[\s\-]/g, '')))) {
+        valToSend = "'" + desarmarNotacionCientifica(s);
+      }
+    }
+  }
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
     range: `${tabName}!${colStr}${rowNum}`,
     valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [[value]] },
+    requestBody: { values: [[valToSend]] },
   });
 }
 
@@ -12091,11 +12141,22 @@ async function appendRow(tabName, rowData) {
   let existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
   if (existingHeaders.length === 0) {
     const headers = Object.keys(rowData);
+    const rowValues = headers.map((k) => {
+      let val = rowData[k] !== undefined && rowData[k] !== null ? rowData[k] : '';
+      if (typeof val === 'string' && val.trim()) {
+        const s = val.trim();
+        const key = normalizeKey(k);
+        if (!s.startsWith("'") && (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s) || /^\+\d{6,}$/.test(s) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(s.replace(/[\s\-]/g, ''))))) {
+          val = "'" + desarmarNotacionCientifica(s);
+        }
+      }
+      return val;
+    });
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: `${tabName}!A1`,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [headers, headers.map((k) => rowData[k] || '')] },
+      requestBody: { values: [headers, rowValues] },
     });
     return;
   }
@@ -12112,7 +12173,14 @@ async function appendRow(tabName, rowData) {
   const values = existingHeaders.map((h) => {
     const key = normalizeKey(h);
     const match = Object.keys(rowData).find((k) => normalizeKey(k) === key || k === h);
-    return match !== undefined ? rowData[match] : '';
+    let val = match !== undefined && rowData[match] !== null ? rowData[match] : '';
+    if (typeof val === 'string' && val.trim()) {
+      const s = val.trim();
+      if (!s.startsWith("'") && (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s) || /^\+\d{6,}$/.test(s) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(s.replace(/[\s\-]/g, ''))))) {
+        val = "'" + desarmarNotacionCientifica(s);
+      }
+    }
+    return val;
   });
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
@@ -12138,7 +12206,16 @@ async function appendRows(tabName, rowsArray) {
   let existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
   if (existingHeaders.length === 0) {
     const headers = Object.keys(rowsArray[0]);
-    const valuesMatrix = [headers].concat(rowsArray.map((r) => headers.map((k) => (r[k] !== undefined ? String(r[k]) : ''))));
+    const valuesMatrix = [headers].concat(rowsArray.map((r) => headers.map((k) => {
+      let val = r[k] !== undefined && r[k] !== null ? String(r[k]) : '';
+      if (val.trim() && !val.startsWith("'")) {
+        const key = normalizeKey(k);
+        if (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(val) || /^\+\d{6,}$/.test(val) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(val.replace(/[\s\-]/g, '')))) {
+          val = "'" + desarmarNotacionCientifica(val);
+        }
+      }
+      return val;
+    })));
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: `${tabName}!A1`,
@@ -12162,7 +12239,13 @@ async function appendRows(tabName, rowsArray) {
     return existingHeaders.map((h) => {
       const key = normalizeKey(h);
       const match = Object.keys(r).find((k) => normalizeKey(k) === key || k === h);
-      return match !== undefined ? String(r[match]) : '';
+      let val = match !== undefined && r[match] !== null ? String(r[match]) : '';
+      if (val.trim() && !val.startsWith("'")) {
+        if (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(val) || /^\+\d{6,}$/.test(val) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(val.replace(/[\s\-]/g, '')))) {
+          val = "'" + desarmarNotacionCientifica(val);
+        }
+      }
+      return val;
     });
   });
 
@@ -13835,16 +13918,31 @@ router.post('/api/vecino-crear', async (req, res) => {
   try {
     const { edificio, nombre, unidad, telefono, email, notas } = req.body || {};
     if (!edificio) return res.status(400).json({ error: 'Falta edificio' });
+    const cleanTel = normalizarTelefonoParaGuardar(telefono);
     await appendRow(TAB_VECINOS, {
       edificio: edificio || '',
       nombre: nombre || '',
       departamento: unidad || '',
       unidad: unidad || '',
-      telefono: telefono || '',
+      telefono: cleanTel ? ("'" + cleanTel) : '',
       email: email || '',
       notas: notas || '',
       estado: 'activo',
     });
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        await pool.query(
+          `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+           VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+          [edificio || '', nombre || '', unidad || '', cleanTel || '', email || '', notas || '']
+        );
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecino-crear en PostgreSQL:', errPg.message);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -13868,11 +13966,55 @@ router.post('/api/vecino-editar', async (req, res) => {
     if (cEmail.create) await ensureHeader(TAB_VECINOS, cEmail.col, 'email', false);
     if (cNotas.create) await ensureHeader(TAB_VECINOS, cNotas.col, 'notas', false);
 
+    const cleanTel = telefono !== undefined ? normalizarTelefonoParaGuardar(telefono) : undefined;
+
     if (nombre !== undefined) await writeCell(TAB_VECINOS, cNombre.col, Number(row), nombre);
     if (unidad !== undefined) await writeCell(TAB_VECINOS, cUnidad.col, Number(row), unidad);
-    if (telefono !== undefined) await writeCell(TAB_VECINOS, cTel.col, Number(row), telefono);
+    if (cleanTel !== undefined) await writeCell(TAB_VECINOS, cTel.col, Number(row), cleanTel ? ("'" + cleanTel) : '');
     if (email !== undefined) await writeCell(TAB_VECINOS, cEmail.col, Number(row), email);
     if (notas !== undefined) await writeCell(TAB_VECINOS, cNotas.col, Number(row), notas);
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        const { rows: vRows } = await readTab(TAB_VECINOS);
+        const vecinoActual = vRows.find((v) => Number(v._row) === Number(row));
+        if (vecinoActual && vecinoActual.edificio) {
+          const edif = vecinoActual.edificio;
+          const depto = unidad || vecinoActual.departamento || vecinoActual.unidad || '';
+          const resUpd = await pool.query(
+            `UPDATE vecinos SET nombre = COALESCE($1, nombre),
+                               departamento = COALESCE($2, departamento),
+                               telefono = COALESCE($3, telefono),
+                               email = COALESCE($4, email),
+                               notas = COALESCE($5, notas),
+                               estado = 'activo'
+             WHERE (LOWER(edificio) = LOWER($6) OR LOWER(edificio) LIKE LOWER($7))
+               AND (LOWER(departamento) = LOWER($8) OR (telefono IS NOT NULL AND telefono != '' AND telefono = $9))`,
+            [
+              nombre !== undefined ? nombre : null,
+              unidad !== undefined ? unidad : null,
+              cleanTel !== undefined ? cleanTel : null,
+              email !== undefined ? email : null,
+              notas !== undefined ? notas : null,
+              edif,
+              '%' + edif + '%',
+              depto,
+              vecinoActual.telefono || ''
+            ]
+          );
+          if (resUpd.rowCount === 0) {
+            await pool.query(
+              `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+               VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+              [edif, nombre || vecinoActual.nombre || '', depto, cleanTel || vecinoActual.telefono || '', email || vecinoActual.email || '', notas || vecinoActual.notas || '']
+            );
+          }
+        }
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecino-editar en PostgreSQL:', errPg.message);
+    }
 
     res.json({ ok: true });
   } catch (e) {
@@ -13885,9 +14027,32 @@ router.post('/api/vecino-eliminar', async (req, res) => {
   try {
     const { row } = req.body || {};
     if (!row) return res.status(400).json({ error: 'Falta fila' });
+
+    let vecinoActual = null;
+    try {
+      const { rows: vRows } = await readTab(TAB_VECINOS);
+      vecinoActual = vRows.find((v) => Number(v._row) === Number(row));
+    } catch (_) {}
+
     const plan = await findOrPlanColumn(TAB_VECINOS, ['estado']);
     if (plan.create) await ensureHeader(TAB_VECINOS, plan.col, 'estado', false);
     await writeCell(TAB_VECINOS, plan.col, Number(row), 'eliminado');
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool && vecinoActual && vecinoActual.edificio) {
+        const depto = vecinoActual.departamento || vecinoActual.unidad || '';
+        await pool.query(
+          `UPDATE vecinos SET estado = 'eliminado'
+           WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
+             AND (LOWER(departamento) = LOWER($3) OR (telefono IS NOT NULL AND telefono != '' AND telefono = $4))`,
+          [vecinoActual.edificio, '%' + vecinoActual.edificio + '%', depto, vecinoActual.telefono || '']
+        );
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecino-eliminar en PostgreSQL:', errPg.message);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -13903,18 +14068,46 @@ router.post('/api/vecinos-importar-masivo', async (req, res) => {
       return res.status(400).json({ error: 'No se recibieron vecinos para importar' });
     }
 
-    const rows = vecinos.map((v) => ({
-      edificio: edificio || '',
-      nombre: v.nombre || '',
-      departamento: v.unidad || v.departamento || '',
-      unidad: v.unidad || v.departamento || '',
-      telefono: v.telefono || '',
-      email: v.email || '',
-      notas: v.notas || '',
-      estado: 'activo',
-    }));
+    const rows = vecinos.map((v) => {
+      const cleanTel = normalizarTelefonoParaGuardar(v.telefono);
+      return {
+        edificio: edificio || '',
+        nombre: v.nombre || '',
+        departamento: v.unidad || v.departamento || '',
+        unidad: v.unidad || v.departamento || '',
+        telefono: cleanTel ? ("'" + cleanTel) : '',
+        email: v.email || '',
+        notas: v.notas || '',
+        estado: 'activo',
+      };
+    });
 
     await appendRows(TAB_VECINOS, rows);
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        for (const r of rows) {
+          const cleanTel = r.telefono.replace(/^'/, '');
+          const resUpd = await pool.query(
+            `UPDATE vecinos SET nombre = $1, telefono = $2, email = $3, notas = $4, estado = 'activo'
+             WHERE (LOWER(edificio) = LOWER($5) OR LOWER(edificio) LIKE LOWER($6))
+               AND LOWER(departamento) = LOWER($7)`,
+            [r.nombre, cleanTel, r.email, r.notas, edificio, '%' + edificio + '%', r.departamento]
+          );
+          if (resUpd.rowCount === 0) {
+            await pool.query(
+              `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+               VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+              [edificio, r.nombre, r.departamento, cleanTel, r.email, r.notas]
+            );
+          }
+        }
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecinos-importar-masivo en PostgreSQL:', errPg.message);
+    }
+
     res.json({ ok: true, importados: rows.length });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
