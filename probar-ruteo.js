@@ -42,8 +42,13 @@ const CASOS = [
     ['llamó el encargado de san patricio 270 por el tablero', 'avisa_que_lo_convocaron', {}, true],
 
     // ── LA LLAVE ─────────────────────────────────────────────────────────────
-    ['Tengo llave. Y que no necesito nada. Voy en 2hs a revisar y te aviso', 'entra_solo',
-        { casoAbierto: 'CASO-1001' }, true],
+    // Dice DOS cosas: cuándo va y que entra solo. La intención es la acción --cuándo va-- y lo de
+    // la llave viaja aparte en `entraSolo`, que es lo que apaga el mensaje de ingreso.
+    //
+    // La primera versión de esta prueba esperaba `entra_solo` y marcaba el resultado como MAL. El
+    // equivocado era el catálogo, no el modelo: obligaba a elegir una de dos cosas ciertas.
+    ['Tengo llave. Y que no necesito nada. Voy en 2hs a revisar y te aviso', 'confirma_que_va',
+        { casoAbierto: 'CASO-1001' }, false, true],
     ['no tengo llave, avisale al encargado', 'otro', { casoAbierto: 'CASO-1001' }, false],
 
     // ── AGENDA Y CIERRE ──────────────────────────────────────────────────────
@@ -69,7 +74,7 @@ const CASOS = [
 
     let bien = 0, mal = 0, arreglados = 0, rotos = 0;
 
-    for (const [frase, esperada, contexto, loViejoFallaba] of CASOS) {
+    for (const [frase, esperada, contexto, loViejoFallaba, esperaEntraSolo] of CASOS) {
         const r = await clasificarMensajeProveedor({ texto: frase, contexto });
 
         if (!r) {
@@ -79,15 +84,21 @@ const CASOS = [
             continue;
         }
 
-        const ok = r.intencion === esperada;
+        // `entraSolo` viaja aparte de la intención y también tiene que estar bien: es lo que
+        // decide si al técnico le llega o no el contacto de ingreso.
+        const okIntencion = r.intencion === esperada;
+        const okLlave = esperaEntraSolo === undefined || r.entraSolo === esperaEntraSolo;
+        const ok = okIntencion && okLlave;
+
         ok ? bien++ : mal++;
         if (ok && loViejoFallaba) arreglados++;
         if (!ok && !loViejoFallaba) rotos++;
 
         const marca = ok ? (loViejoFallaba ? '🎉 ARREGLA' : '✅ bien   ') : '❌ MAL    ';
         console.log(`  ${marca}  "${frase.slice(0, 55)}${frase.length > 55 ? '…' : ''}"`);
-        console.log(`      leyó: ${r.intencion} (${r.confianza}) — ${r.motivo}`);
-        if (!ok) console.log(`      esperaba: ${esperada}`);
+        console.log(`      leyó: ${r.intencion} (${r.confianza})${r.entraSolo ? ' · entra solo' : ''} — ${r.motivo}`);
+        if (!okIntencion) console.log(`      esperaba: ${esperada}`);
+        if (!okLlave) console.log(`      esperaba entraSolo=${esperaEntraSolo}, dio ${r.entraSolo}`);
         console.log('');
     }
 

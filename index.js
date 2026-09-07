@@ -3463,8 +3463,11 @@ function validarYSanitizarNombre(nombre) {
                     // del encargado. Preguntar y después no escuchar la respuesta es peor que no
                     // preguntar: le enseña al técnico que a Marcos se le puede contestar cualquier
                     // cosa porque no lo lee, y a partir de ahí deja de contestarle.
+                    // El `entraSolo` del ruteo va aparte de la intención: "tengo llave y voy en
+                    // 2hs" dice las dos cosas, y la que tiene consecuencia --no mandarle el
+                    // contacto de ingreso-- se perdía si había que elegir una sola.
                     const { tieneAccesoPropio } = require('./contacto-ingreso');
-                    const entraSolo = tieneAccesoPropio(msgBodyParaRegistro);
+                    const entraSolo = tieneAccesoPropio(msgBodyParaRegistro) || ruteoIA?.entraSolo === true;
                     if (entraSolo) {
                         try {
                             const { marcarContactoAccesoAvisado } = require('./datos');

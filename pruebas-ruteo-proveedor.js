@@ -49,6 +49,26 @@ function capturando(fn) {
 
 const ia = (intencion, confianza = 0.9) => ({ intencion, confianza, motivo: 'prueba' });
 
+console.log('\n── "TENGO LLAVE Y VOY EN 2HS" DICE DOS COSAS ──');
+{
+    // La primera versión del catálogo obligaba a elegir una sola intención, y el modelo elegía
+    // --con razón-- "confirma que va". Pero lo que tiene consecuencia es la otra mitad: si no se
+    // registra que entra solo, le llega el contacto de ingreso a alguien que acaba de decir que no
+    // lo necesita. Y eso ya pasó en producción.
+    //
+    // Por eso `entraSolo` viaja APARTE de la intención, y no compite con ella.
+    const conLlave = { intencion: 'confirma_que_va', confianza: 0.9, entraSolo: true, motivo: 'prueba' };
+
+    verificar('la intención sigue siendo que va',
+        seActiva('confirma_que_va', false, conLlave), true);
+    verificar('y lo de la llave no se pierde', conLlave.entraSolo, true);
+
+    // `entra_solo` como intención también tiene que prender la bandera: son la misma información
+    // dicha de dos formas, y el ramal del ingreso pregunta por la bandera.
+    const { clasificarMensajeProveedor } = require('./ruteo-proveedor');
+    verificar('clasificarMensajeProveedor existe', typeof clasificarMensajeProveedor, 'function');
+}
+
 console.log('\n── SIN RUTEO, TODO QUEDA COMO ESTABA ──');
 {
     // Este es el contrato más importante del módulo. `RUTEO_IA=off` en el .env, Gemini caído, la

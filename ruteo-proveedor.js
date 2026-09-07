@@ -59,7 +59,21 @@ const ACTIVO = String(process.env.RUTEO_IA || 'on').toLowerCase() !== 'off';
 // Cuánto se espera al modelo antes de seguir con las condiciones de texto. Un técnico esperando
 // una respuesta no puede quedarse colgado porque Gemini tardó: mejor una respuesta por el camino
 // viejo que ninguna.
-const TIMEOUT_MS = Number(process.env.RUTEO_IA_TIMEOUT_MS || 6000);
+//
+// > [!CAUTION]
+// > **La PRIMERA llamada después de arrancar es mucho más lenta que las demás.**
+//
+// Medido en el VPS con `probar-ruteo.js`: la primera se pasó de 6 segundos y cayó al respaldo; las
+// quince siguientes contestaron en menos de dos. Es el arranque en frío --resolver el DNS, abrir
+// el TLS, levantar el cliente-- y se paga una sola vez por proceso.
+//
+// Con 6 segundos, eso significaba que **el primer mensaje después de cada reinicio de PM2 se
+// ruteaba por el texto viejo**, y PM2 reinicia seguido. Justo el mensaje con el que uno prueba.
+//
+// 12 segundos suena mucho para una respuesta de chat, pero acá no lo es: Marcos ya junta los
+// mensajes en ráfagas de 25 segundos antes de contestar. Esta espera entra holgada adentro de esa,
+// y solo se paga entera en la primera.
+const TIMEOUT_MS = Number(process.env.RUTEO_IA_TIMEOUT_MS || 12000);
 
 /**
  * Las intenciones. Son exactamente los ramales que ya existían: esto reemplaza CÓMO se elige el
@@ -79,7 +93,9 @@ const INTENCIONES = {
     confirma_que_va:
         'Dice que va a ir, o cuándo va a ir: "voy mañana a las 10", "paso en 2 horas", "estoy yendo".',
     entra_solo:
-        'Dice que no necesita que le abran: tiene llave, código, tarjeta o acceso propio. ' +
+        'Dice que no necesita que le abran: tiene llave, código, tarjeta o acceso propio, y NO ' +
+        'dice nada más. Si además dice cuándo va, la intención es "confirma_que_va" y lo de la ' +
+        'llave se marca aparte en `entraSolo`. ' +
         'OJO: "NO tengo llave" es lo contrario y NO es esto.',
     pide_datos_al_vecino:
         'Le PIDE A MARCOS que consiga algo del vecino: una foto, un video, más detalles, una ' +
@@ -114,8 +130,13 @@ LO MÁS IMPORTANTE: leé lo que la persona QUIERE, no las palabras que usó. Que
 "foto" no quiere decir que esté pidiendo una foto — puede estar mandándola, o diciendo que ya la
 mandó, o quejándose de que se la pediste al pedo.
 
+UN MENSAJE PUEDE DECIR DOS COSAS. "Tengo llave y voy en 2 horas" avisa cuándo va Y que entra
+solo. La intención es la acción principal --cuándo va--, y que entra solo se marca aparte en
+"entraSolo". Ponelo en true cada vez que diga que tiene con qué entrar o que no necesita que le
+abran, sea cual sea la intención. Si dice que NO tiene llave, va en false.
+
 Contestá SOLO un JSON, sin backticks ni explicación:
-{"intencion":"<una de la lista>","confianza":<0 a 1>,"motivo":"<en 10 palabras, por qué>"}
+{"intencion":"<una de la lista>","confianza":<0 a 1>,"entraSolo":<true o false>,"motivo":"<en 10 palabras, por qué>"}
 
 Si dudás entre dos, elegí la que mejor describa lo que la persona quiere que pase, y bajá la
 confianza. Si no encaja en ninguna con claridad, usá "otro" — es una respuesta válida y buena:
@@ -186,6 +207,10 @@ Devolvé el JSON.`;
         return {
             intencion: datos.intencion,
             confianza: Number(datos.confianza) || 0,
+            // Va aparte de la intención porque NO es excluyente: "tengo llave y voy en 2hs" dice
+            // las dos cosas, y obligar a elegir una perdía la que tiene consecuencia (mandarle o
+            // no el contacto de ingreso a alguien que acaba de decir que no lo necesita).
+            entraSolo: datos.entraSolo === true || datos.intencion === 'entra_solo',
             motivo: String(datos.motivo || '').slice(0, 120),
         };
     } catch (err) {
