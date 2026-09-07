@@ -118,14 +118,44 @@ const TAB_VECINOS = process.env.SHEET_TAB_VECINOS || 'vecinos';
 const TAB_SUSCRIPCIONES_PLANES = process.env.SHEET_TAB_SUSCRIPCIONES_PLANES || 'suscripciones_planes';
 const TAB_SUSCRIPCIONES_BANCO = process.env.SHEET_TAB_SUSCRIPCIONES_BANCO || 'suscripciones_banco';
 
+function desarmarNotacionCientifica(val) {
+  if (!val) return '';
+  let str = String(val).trim();
+  if (/^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(str)) {
+    try {
+      const num = Number(str);
+      if (!isNaN(num) && isFinite(num)) {
+        str = BigInt(Math.round(num)).toString();
+      }
+    } catch (_) {}
+  }
+  return str;
+}
+
+function normalizarTelefonoParaGuardar(tel) {
+  if (!tel) return '';
+  let s = desarmarNotacionCientifica(tel);
+  s = s.replace(/[\s\-\(\)]/g, '');
+  if (/^54\d{8,13}$/.test(s)) {
+    s = '+' + s;
+  } else if (/^15\d{8}$/.test(s)) {
+    s = '+54911' + s.slice(2);
+  } else if (/^11\d{8}$/.test(s)) {
+    s = '+54911' + s.slice(2);
+  }
+  return s;
+}
+
 function mapVecino(r) {
+  const rawTel = r.telefono || r.tel || '';
+  const cleanTel = desarmarNotacionCientifica(rawTel);
   return {
     _row: r._row,
     nombre: r.nombre || '',
     edificio: r.edificio || '',
     unidad: r.unidad || r.departamento || r.depto || '',
     departamento: r.departamento || r.unidad || r.depto || '',
-    telefono: r.telefono || r.tel || '',
+    telefono: cleanTel,
     email: r.email || r.mail || '',
     notas: r.notas || r.observaciones || '',
     estado: r.estado || 'activo',
@@ -581,28 +611,204 @@ const PRIORIDADES = [
   { key: 'segunda_urgencia', label: '2da Opción + Urgencias', bg: '#FEF3C7', fg: '#92400E' },
 ];
 
-// Serializa/parsea el horario del encargado. Guardado como JSON en la celda
-// encargado_horario para poder rearmar los selectores; el bot puede leerlo.
-function parseHorarioEnc(str) {
-  if (!str) return { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
-  try {
-    const o = JSON.parse(str);
-    return {
-      lv1: Array.isArray(o.lv1) ? o.lv1 : ['', ''],
-      lv2: Array.isArray(o.lv2) ? o.lv2 : ['', ''],
-      sab: Array.isArray(o.sab) ? o.sab : ['', ''],
-    };
-  } catch (_) {
-    return { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
-  }
+// Serializa/parsea el horario del personal (encargados, suplentes, limpieza, seguridad).
+// Soporta días específicos, combinaciones cruzadas y multi-turnos (cortados o descansos).
+const DIAS_KEYS = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+const DIAS_NOMBRES = { lun: 'Lun', mar: 'Mar', mie: 'Mié', jue: 'Jue', vie: 'Vie', sab: 'Sáb', dom: 'Dom' };
+
+function padHora(t) {
+  if (!t) return '';
+  const s = String(t).trim().replace(/hs?$/i, '');
+  const m = s.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return s;
+  const h = m[1].padStart(2, '0');
+  const min = m[2] ? m[2].padStart(2, '0') : '00';
+  return h + ':' + min;
 }
+
+function parseHorarioFlexible(str) {
+  if (!str || str === 'Sin horario' || str === '—' || str === 'Sin horario cargado') return [];
+  if (typeof str === 'object' && str !== null) {
+    if (Array.isArray(str)) return str;
+    if (str.lv1 || str.lv2 || str.sab) {
+      const arr = [];
+      if (str.lv1 && str.lv1[0] && str.lv1[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv1[0]), hasta: padHora(str.lv1[1]) });
+      if (str.lv2 && str.lv2[0] && str.lv2[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv2[0]), hasta: padHora(str.lv2[1]) });
+      if (str.sab && str.sab[0] && str.sab[1]) arr.push({ dias: ['sab'], desde: padHora(str.sab[0]), hasta: padHora(str.sab[1]) });
+      return arr;
+    }
+  }
+  const s = String(str).trim();
+  if (s.startsWith('{') || s.startsWith('[')) {
+    try {
+      const obj = JSON.parse(s);
+      return parseHorarioFlexible(obj);
+    } catch (_) {}
+  }
+  const partes = s.split(/[·;\n]+/).map(p => p.trim()).filter(Boolean);
+  const turnos = [];
+  for (const parte of partes) {
+    let dias = [];
+    const pLow = parte.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ');
+
+    if (/todos\s+los\s+dias|toda\s+la\s+semana|diario/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+    } else if (/l-v|lun\s*(?:a|al)\s*vie|lunes\s*(?:a|al)\s*viernes/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    } else if (/l-s|lun\s*(?:a|al)\s*sab|lunes\s*(?:a|al)\s*sabado/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab'];
+    } else if (/sab\s*y\s*dom|fines\s*de\s*semana/.test(pLow)) {
+      dias = ['sab', 'dom'];
+    } else {
+      if (/\blun(?:es)?\b/.test(pLow)) dias.push('lun');
+      if (/\bmar(?:tes)?\b/.test(pLow)) dias.push('mar');
+      if (/\bmie(?:rcoles)?\b/.test(pLow)) dias.push('mie');
+      if (/\bjue(?:ves)?\b/.test(pLow)) dias.push('jue');
+      if (/\bvie(?:rnes)?\b/.test(pLow)) dias.push('vie');
+      if (/\bsab(?:ado)?\b/.test(pLow)) dias.push('sab');
+      if (/\bdom(?:ingo)?\b/.test(pLow)) dias.push('dom');
+    }
+    if (dias.length === 0) {
+      if (/\bsab(?:ado)?\b/.test(pLow)) dias = ['sab'];
+      else if (/\bdom(?:ingo)?\b/.test(pLow)) dias = ['dom'];
+      else dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    }
+    const regexHoras = /(\d{1,2}(?::\d{2})?)\s*(?:hs?)?\s*(?:-|–|—|a|hasta)\s*(\d{1,2}(?::\d{2})?)\s*(?:hs?)?/gi;
+    let match;
+    let encontroHora = false;
+    while ((match = regexHoras.exec(parte)) !== null) {
+      encontroHora = true;
+      const d = padHora(match[1]);
+      const h = padHora(match[2]);
+      if (d && h) {
+        turnos.push({ dias: Array.from(new Set(dias)), desde: d, hasta: h });
+      }
+    }
+    if (!encontroHora) {
+      const mSingle = parte.match(/(\d{1,2}:\d{2})/g);
+      if (mSingle && mSingle.length >= 2) {
+        turnos.push({ dias: Array.from(new Set(dias)), desde: padHora(mSingle[0]), hasta: padHora(mSingle[1]) });
+      }
+    }
+  }
+  return turnos;
+}
+
+function formatearDias(dias) {
+  if (!dias || !dias.length) return 'Lun a Vie';
+  const orden = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  const ordenados = orden.filter(d => dias.includes(d));
+  if (ordenados.length === 7) return 'Todos los días';
+  if (ordenados.length === 6 && !ordenados.includes('dom')) return 'Lun a Sáb';
+  if (ordenados.length === 5 && !ordenados.includes('sab') && !ordenados.includes('dom')) return 'Lun a Vie';
+  if (ordenados.length === 2 && ordenados.includes('sab') && ordenados.includes('dom')) return 'Sáb y Dom';
+  const nombres = ordenados.map(d => DIAS_NOMBRES[d] || d);
+  if (nombres.length === 1) return nombres[0];
+  if (nombres.length === 2) return nombres[0] + ' y ' + nombres[1];
+  return nombres.slice(0, -1).join(', ') + ' y ' + nombres[nombres.length - 1];
+}
+
+function formatearHorarioTurnos(turnos) {
+  if (!turnos || !turnos.length) return 'Sin horario';
+  const validos = turnos.filter(t => t && t.desde && t.hasta && t.dias && t.dias.length > 0);
+  if (!validos.length) return 'Sin horario';
+  return validos.map(t => {
+    const dStr = formatearDias(t.dias);
+    return dStr + ' ' + t.desde + '–' + t.hasta;
+  }).join(' · ');
+}
+
+function parseHorarioEnc(str) {
+  const turnos = parseHorarioFlexible(str);
+  const res = { lv1: ['', ''], lv2: ['', ''], sab: ['', ''], turnos: turnos };
+  for (const t of turnos) {
+    const esSab = t.dias.length === 1 && t.dias[0] === 'sab';
+    const esLv = t.dias.some(d => ['lun','mar','mie','jue','vie'].includes(d));
+    if (esSab && !res.sab[0]) {
+      res.sab = [t.desde, t.hasta];
+    } else if (esLv) {
+      if (!res.lv1[0]) res.lv1 = [t.desde, t.hasta];
+      else if (!res.lv2[0]) res.lv2 = [t.desde, t.hasta];
+    }
+  }
+  return res;
+}
+
 function horarioTexto(str) {
-  const h = parseHorarioEnc(str);
-  const seg = [];
-  if (h.lv1[0] && h.lv1[1]) seg.push(`Lun a Vie ${h.lv1[0]}-${h.lv1[1]}`);
-  if (h.lv2[0] && h.lv2[1]) seg.push(`Lun a Vie ${h.lv2[0]}-${h.lv2[1]}`);
-  if (h.sab[0] && h.sab[1]) seg.push(`Sáb ${h.sab[0]}-${h.sab[1]}`);
-  return seg.join(' · ') || 'Sin horario cargado';
+  const turnos = parseHorarioFlexible(str);
+  return formatearHorarioTurnos(turnos);
+}
+
+function splitStaffItems(rawStr) {
+  if (!rawStr) return [];
+  const s = String(rawStr).trim();
+  const items = [];
+  let current = '';
+  let inBracket = false;
+  let inParen = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '[') inBracket = true;
+    else if (c === ']') inBracket = false;
+    else if (c === '(') inParen = true;
+    else if (c === ')') inParen = false;
+    if ((c === ',' || c === ';' || c === '\n' || c === '\r') && !inBracket && !inParen) {
+      if (current.trim()) items.push(current.trim());
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  if (current.trim()) items.push(current.trim());
+  return items;
+}
+
+function parseStaffList(namesStr, telsStr) {
+  if (!namesStr && !telsStr) return [];
+  const rawNames = splitStaffItems(namesStr);
+  const rawTels = splitStaffItems(telsStr);
+  const res = [];
+
+  for (let i = 0; i < rawNames.length; i++) {
+    let str = rawNames[i];
+    let tel = rawTels[i] || (rawTels.length === 1 ? rawTels[0] : '—');
+    let estado = 'activo';
+    let horario = '';
+
+    const matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
+    if (matchMeta) {
+      if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
+      if (matchMeta[2]) horario = matchMeta[2].trim();
+      str = str.replace(/\[[^\]]*\]/g, '').trim();
+    }
+
+    const matchTel = str.match(/\(([^)]+)\)/);
+    if (matchTel && (!tel || tel === '—')) {
+      tel = matchTel[1].trim();
+      str = str.replace(/\([^)]+\)/g, '').trim();
+    }
+
+    if (/^[\-+0-9\s()]+$/.test(str) && str.replace(/[^0-9]/g, '').length >= 7) {
+      if (!tel || tel === '—') {
+        tel = str;
+        str = '';
+      }
+    }
+
+    str = str.replace(/\[|\]/g, '').trim();
+
+    if (str || tel !== '—') {
+      res.push({
+        nombre: str || 'Personal',
+        tel: tel || '—',
+        estado: estado || 'activo',
+        horario: horario || 'Sin horario'
+      });
+    }
+  }
+  return res;
 }
 
 /* ===================================================================
@@ -1283,6 +1489,33 @@ textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-
   button, .inp, select, a.hv-selbtn { min-height: 40px; }
 }
 
+.staff-dia-btn {
+  height: 32px;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid #DCE4F0;
+  background: #F8FAFD;
+  color: #64748B;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s ease;
+}
+.staff-dia-btn:hover {
+  border-color: #2E6FC0;
+  color: #2E6FC0;
+}
+.staff-dia-btn.active {
+  border: 1.5px solid #2E6FC0 !important;
+  background: #2E6FC0 !important;
+  color: #FFFFFF !important;
+  font-weight: 800 !important;
+}
+
 /* Modo Oscuro / Dark Theme (High-Contrast & Ultra-Legible) */
 html.dark-theme, body.dark-theme {
   background: #0B132B !important;
@@ -1380,6 +1613,20 @@ html.dark-theme, body.dark-theme {
   background: #1C2B4E !important;
   border-color: #2A3A5E !important;
   color: #F1F5F9 !important;
+}
+.dark-theme .staff-dia-btn {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #94A3B8 !important;
+}
+.dark-theme .staff-dia-btn:hover {
+  border-color: #60A5FA !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .staff-dia-btn.active {
+  background: #2563EB !important;
+  border-color: #60A5FA !important;
+  color: #FFFFFF !important;
 }
 .dark-theme span[style*="color:#0F326A"],
 .dark-theme span[style*="color: #0F326A"],
@@ -5775,22 +6022,126 @@ async function guardarAsignacionAdmin(btn) {
 }
 
 // --- gestión multi-personal (encargados, suplentes, seguridad) ---
+var DIAS_KEYS_CLIENT = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+var DIAS_NOMBRES_CLIENT = { lun: 'Lun', mar: 'Mar', mie: 'Mié', jue: 'Jue', vie: 'Vie', sab: 'Sáb', dom: 'Dom' };
+
+function padHora(t) {
+  if (!t) return '';
+  var s = String(t).trim().replace(/hs?$/i, '');
+  var m = s.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return s;
+  var h = m[1].length === 1 ? '0' + m[1] : m[1];
+  var min = m[2] ? (m[2].length === 1 ? '0' + m[2] : m[2]) : '00';
+  return h + ':' + min;
+}
+
+function parseHorarioFlexible(str) {
+  if (!str || str === 'Sin horario' || str === '—' || str === 'Sin horario cargado') return [];
+  if (typeof str === 'object' && str !== null) {
+    if (Array.isArray(str)) return str;
+    if (str.lv1 || str.lv2 || str.sab) {
+      var arr = [];
+      if (str.lv1 && str.lv1[0] && str.lv1[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv1[0]), hasta: padHora(str.lv1[1]) });
+      if (str.lv2 && str.lv2[0] && str.lv2[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv2[0]), hasta: padHora(str.lv2[1]) });
+      if (str.sab && str.sab[0] && str.sab[1]) arr.push({ dias: ['sab'], desde: padHora(str.sab[0]), hasta: padHora(str.sab[1]) });
+      return arr;
+    }
+  }
+  var s = String(str).trim();
+  if (s.indexOf('{') === 0 || s.indexOf('[') === 0) {
+    try {
+      var obj = JSON.parse(s);
+      return parseHorarioFlexible(obj);
+    } catch (_) {}
+  }
+  var splitRx = new RegExp('[·;\\n]+');
+  var partes = s.split(splitRx).map(function(p){ return p.trim(); }).filter(Boolean);
+  var turnos = [];
+  for (var pi = 0; pi < partes.length; pi++) {
+    var parte = partes[pi];
+    var dias = [];
+    var pLow = parte.toLowerCase();
+
+    if (/todos\s+los\s+dias|toda\s+la\s+semana|diario/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+    } else if (/l-v|lun\s*(?:a|al)\s*vie|lunes\s*(?:a|al)\s*viernes/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    } else if (/l-s|lun\s*(?:a|al)\s*sab|lunes\s*(?:a|al)\s*sabado/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab'];
+    } else if (/sab\s*y\s*dom|fines\s*de\s*semana/.test(pLow)) {
+      dias = ['sab', 'dom'];
+    } else {
+      if (/\blun(?:es)?\b/.test(pLow)) dias.push('lun');
+      if (/\bmar(?:tes)?\b/.test(pLow)) dias.push('mar');
+      if (/\bmi[eé](?:rcoles)?\b/.test(pLow)) dias.push('mie');
+      if (/\bjue(?:ves)?\b/.test(pLow)) dias.push('jue');
+      if (/\bvie(?:rnes)?\b/.test(pLow)) dias.push('vie');
+      if (/\bs[aá]b(?:ado)?\b/.test(pLow)) dias.push('sab');
+      if (/\bdom(?:ingo)?\b/.test(pLow)) dias.push('dom');
+    }
+    if (dias.length === 0) {
+      if (/\bs[aá]b(?:ado)?\b/.test(pLow)) dias = ['sab'];
+      else if (/\bdom(?:ingo)?\b/.test(pLow)) dias = ['dom'];
+      else dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    }
+    var regexHoras = /(\d{1,2}(?::\d{2})?)\s*(?:hs?)?\s*(?:-|–|—|a|hasta)\s*(\d{1,2}(?::\d{2})?)\s*(?:hs?)?/gi;
+    var match;
+    var encontroHora = false;
+    while ((match = regexHoras.exec(parte)) !== null) {
+      encontroHora = true;
+      var d = padHora(match[1]);
+      var h = padHora(match[2]);
+      if (d && h) {
+        var uniqDias = [];
+        for (var di = 0; di < dias.length; di++) {
+          if (uniqDias.indexOf(dias[di]) === -1) uniqDias.push(dias[di]);
+        }
+        turnos.push({ dias: uniqDias, desde: d, hasta: h });
+      }
+    }
+    if (!encontroHora) {
+      var mSingle = parte.match(/(\d{1,2}:\d{2})/g);
+      if (mSingle && mSingle.length >= 2) {
+        var uniqDiasSingle = [];
+        for (var di2 = 0; di2 < dias.length; di2++) {
+          if (uniqDiasSingle.indexOf(dias[di2]) === -1) uniqDiasSingle.push(dias[di2]);
+        }
+        turnos.push({ dias: uniqDiasSingle, desde: padHora(mSingle[0]), hasta: padHora(mSingle[1]) });
+      }
+    }
+  }
+  return turnos;
+}
+
+function formatearDiasClient(dias) {
+  if (!dias || !dias.length) return 'Lun a Vie';
+  var orden = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  var ordenados = orden.filter(function(d){ return dias.indexOf(d) !== -1; });
+  if (ordenados.length === 7) return 'Todos los días';
+  if (ordenados.length === 6 && ordenados.indexOf('dom') === -1) return 'Lun a Sáb';
+  if (ordenados.length === 5 && ordenados.indexOf('sab') === -1 && ordenados.indexOf('dom') === -1) return 'Lun a Vie';
+  if (ordenados.length === 2 && ordenados.indexOf('sab') !== -1 && ordenados.indexOf('dom') !== -1) return 'Sáb y Dom';
+  var nombres = ordenados.map(function(d){ return DIAS_NOMBRES_CLIENT[d] || d; });
+  if (nombres.length === 1) return nombres[0];
+  if (nombres.length === 2) return nombres[0] + ' y ' + nombres[1];
+  return nombres.slice(0, -1).join(', ') + ' y ' + nombres[nombres.length - 1];
+}
+
+function formatearHorarioTurnos(turnos) {
+  if (!turnos || !turnos.length) return 'Sin horario';
+  var validos = turnos.filter(function(t){ return t && t.desde && t.hasta && t.dias && t.dias.length > 0; });
+  if (!validos.length) return 'Sin horario';
+  return validos.map(function(t){
+    var dStr = formatearDiasClient(t.dias);
+    return dStr + ' ' + t.desde + '–' + t.hasta;
+  }).join(' · ');
+}
+
 function formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb) {
   var partes = [];
-  function padTime(t) {
-    if (!t) return '';
-    var p = t.trim().split(':');
-    if (p.length === 2) {
-      var h = p[0].length === 1 ? '0' + p[0] : p[0];
-      var m = p[1].length === 1 ? '0' + p[1] : p[1];
-      return h + ':' + m;
-    }
-    return t.trim();
-  }
-  var l1a = padTime(lv1a), l1b = padTime(lv1b);
-  var l2a = padTime(lv2a), l2b = padTime(lv2b);
-  var sa = padTime(saba), sb = padTime(sabb);
-
+  var l1a = padHora(lv1a), l1b = padHora(lv1b);
+  var l2a = padHora(lv2a), l2b = padHora(lv2b);
+  var sa = padHora(saba), sb = padHora(sabb);
   if (l1a && l1b) partes.push('L-V ' + l1a + '-' + l1b);
   if (l2a && l2b) partes.push('L-V ' + l2a + '-' + l2b);
   if (sa && sb) partes.push('Sáb ' + sa + '-' + sb);
@@ -5800,52 +6151,48 @@ function formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb) {
 function parseHorario3Lineas(str) {
   var res = { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
   if (!str || str === 'Sin horario') return res;
-
-  function padTime(t) {
-    if (!t) return '';
-    var p = t.trim().split(':');
-    if (p.length === 2) {
-      var h = p[0].length === 1 ? '0' + p[0] : p[0];
-      var m = p[1].length === 1 ? '0' + p[1] : p[1];
-      return h + ':' + m;
+  var turnos = parseHorarioFlexible(str);
+  for (var i = 0; i < turnos.length; i++) {
+    var t = turnos[i];
+    var esSab = t.dias.length === 1 && t.dias[0] === 'sab';
+    var esLv = t.dias.some(function(d){ return ['lun','mar','mie','jue','vie'].indexOf(d) !== -1; });
+    if (esSab && !res.sab[0]) {
+      res.sab = [t.desde, t.hasta];
+    } else if (esLv) {
+      if (!res.lv1[0]) res.lv1 = [t.desde, t.hasta];
+      else if (!res.lv2[0]) res.lv2 = [t.desde, t.hasta];
     }
-    return t.trim();
   }
-
-  var partes = String(str).split(new RegExp('[·\\n,]', 'g')).map(function(s){ return s.trim(); }).filter(Boolean);
-  partes.forEach(function(p) {
-    var matchLv = p.match(/(?:L-V|Lun|Viernes|Lunes)\s*([0-9]{1,2}:[0-9]{2})\s*(?:[-–—]|a|hasta)\s*([0-9]{1,2}:[0-9]{2})/i);
-    if (matchLv) {
-      var t1 = padTime(matchLv[1]);
-      var t2 = padTime(matchLv[2]);
-      if (!res.lv1[0]) { res.lv1 = [t1, t2]; }
-      else { res.lv2 = [t1, t2]; }
-      return;
-    }
-    var matchSab = p.match(/(?:Sáb|Sabado|Sábado)\s*([0-9]{1,2}:[0-9]{2})\s*(?:[-–—]|a|hasta)\s*([0-9]{1,2}:[0-9]{2})/i);
-    if (matchSab) {
-      res.sab = [padTime(matchSab[1]), padTime(matchSab[2])];
-      return;
-    }
-    var matchTimes = p.match(/([0-9]{1,2}:[0-9]{2})\s*(?:[-–—]|a|hasta)\s*([0-9]{1,2}:[0-9]{2})/i);
-    if (matchTimes) {
-      var t1f = padTime(matchTimes[1]);
-      var t2f = padTime(matchTimes[2]);
-      if (!res.lv1[0]) { res.lv1 = [t1f, t2f]; }
-      else if (!res.lv2[0]) { res.lv2 = [t1f, t2f]; }
-      else { res.sab = [t1f, t2f]; }
-    }
-  });
   return res;
+}
+
+function splitStaffItems(rawStr) {
+  if (!rawStr) return [];
+  var s = String(rawStr).trim();
+  var items = [];
+  var current = '';
+  var inBracket = false;
+  var inParen = false;
+  for (var i = 0; i < s.length; i++) {
+    var c = s[i];
+    if (c === '[') inBracket = true;
+    else if (c === ']') inBracket = false;
+    var isSep = (c === ',' || c === ';' || c === String.fromCharCode(10) || c === String.fromCharCode(13));
+    if (isSep && !inBracket && !inParen) {
+      if (current.trim()) items.push(current.trim());
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  if (current.trim()) items.push(current.trim());
+  return items;
 }
 
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
-
-  var nlChars = String.fromCharCode(10) + String.fromCharCode(13);
-  var staffSplitRegex = new RegExp('[,;' + nlChars + ']+');
-  var rawNames = String(namesStr || '').split(staffSplitRegex).map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(staffSplitRegex).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawNames = splitStaffItems(namesStr);
+  var rawTels = splitStaffItems(telsStr);
   var res = [];
 
   for (var i = 0; i < rawNames.length; i++) {
@@ -5854,7 +6201,6 @@ function parseStaffClient(namesStr, telsStr) {
     var estado = 'activo';
     var horario = '';
 
-    // Extract bracket metadata: e.g. "Juan Perez [activo | L-V 8-16]"
     var openB = str.indexOf('[');
     var closeB = str.indexOf(']', openB);
     if (openB !== -1 && closeB > openB) {
@@ -5874,7 +6220,6 @@ function parseStaffClient(namesStr, telsStr) {
       }
     }
 
-    // Extract phone in parentheses: e.g. "Juan Perez (1167350436)"
     var openP = str.indexOf('(');
     var closeP = str.indexOf(')', openP);
     if (openP !== -1 && closeP > openP) {
@@ -5885,7 +6230,6 @@ function parseStaffClient(namesStr, telsStr) {
       str = (str.substring(0, openP) + ' ' + str.substring(closeP + 1)).trim();
     }
 
-    // If str is a pure phone number e.g. "1167350436" or "+5411...", assign to tel
     if (/^[\-+0-9\s()]+$/.test(str) && str.replace(/[^0-9]/g, '').length >= 7) {
       if (!tel || tel === '—') {
         tel = str;
@@ -5893,7 +6237,6 @@ function parseStaffClient(namesStr, telsStr) {
       }
     }
 
-    // Clean leftover brackets or parentheses if any
     str = str.replace(/[\[\]\(\)]/g, '').trim();
 
     if (str || tel !== '—') {
@@ -5906,6 +6249,155 @@ function parseStaffClient(namesStr, telsStr) {
     }
   }
   return res;
+}
+
+window._staffTurnos = [];
+
+function toggleDiaStaffTurnoBtn(btn) {
+  var card = btn.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  var dia = btn.getAttribute('data-dia') || '';
+  toggleDiaStaffTurno(idx, dia);
+}
+
+function setPresetDiasStaffTurnoBtn(btn) {
+  var card = btn.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  var preset = btn.getAttribute('data-preset') || '';
+  setPresetDiasStaffTurno(idx, preset);
+}
+
+function eliminarStaffTurnoBtn(btn) {
+  var card = btn.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  eliminarStaffTurno(idx);
+}
+
+function actualizarHoraStaffTurnoInput(inp) {
+  var card = inp.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  var field = inp.getAttribute('data-field') || 'desde';
+  actualizarHoraStaffTurno(idx, field, inp.value);
+}
+
+function renderStaffTurnos() {
+  var container = document.getElementById('staff-turnos-container');
+  if (!container) return;
+
+  if (!window._staffTurnos || !window._staffTurnos.length) {
+    window._staffTurnos = [{ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '08:00', hasta: '12:00' }];
+  }
+
+  var diasOrder = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  var diasNombres = { lun: 'Lun', mar: 'Mar', mie: 'Mié', jue: 'Jue', vie: 'Vie', sab: 'Sáb', dom: 'Dom' };
+
+  var html = window._staffTurnos.map(function(t, idx) {
+    var diasActuales = t.dias || [];
+
+    var btnsDias = diasOrder.map(function(d) {
+      var sel = diasActuales.indexOf(d) !== -1;
+      var cls = sel ? 'staff-dia-btn active' : 'staff-dia-btn';
+      return '<button type="button" class="' + cls + '" data-dia="' + d + '" onclick="toggleDiaStaffTurnoBtn(this)">' + diasNombres[d] + '</button>';
+    }).join('');
+
+    var btnQuitar = (window._staffTurnos.length > 1)
+      ? '<button type="button" onclick="eliminarStaffTurnoBtn(this)" style="font-size:12px;font-weight:700;color:#EF4444;background:none;border:none;cursor:pointer;padding:2px 6px;display:inline-flex;align-items:center;gap:3px" class="hv-red" title="Eliminar este turno">🗑️ Quitar</button>'
+      : '';
+
+    return '<div class="staff-turno-card" data-idx="' + idx + '" style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px;box-shadow:0 1px 3px rgba(0,0,0,0.03)">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap">' +
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+          '<span style="font-size:12px;font-weight:800;background:#EAF1FB;color:#2E6FC0;padding:3px 8px;border-radius:6px">Turno ' + (idx + 1) + '</span>' +
+          '<div style="display:flex;gap:4px;flex-wrap:wrap">' +
+            '<button type="button" data-preset="lv" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Lun-Vie</button>' +
+            '<button type="button" data-preset="ls" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Lun-Sáb</button>' +
+            '<button type="button" data-preset="sab" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Sáb</button>' +
+            '<button type="button" data-preset="todos" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Todos</button>' +
+          '</div>' +
+        '</div>' +
+        btnQuitar +
+      '</div>' +
+      '<div style="margin-bottom:10px">' +
+        '<div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">Días que asiste / atiende:</div>' +
+        '<div style="display:flex;gap:5px;flex-wrap:wrap">' + btnsDias + '</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<span style="font-size:12.5px;font-weight:700;color:#475569">Desde:</span>' +
+          '<input type="time" class="inp" data-field="desde" value="' + (t.desde || '') + '" onchange="actualizarHoraStaffTurnoInput(this)" style="height:36px;width:115px;font-size:13.5px;font-weight:700;padding:4px 8px">' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<span style="font-size:12.5px;font-weight:700;color:#475569">Hasta:</span>' +
+          '<input type="time" class="inp" data-field="hasta" value="' + (t.hasta || '') + '" onchange="actualizarHoraStaffTurnoInput(this)" style="height:36px;width:115px;font-size:13.5px;font-weight:700;padding:4px 8px">' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  container.innerHTML = html;
+  actualizarVistaPreviaHorarios();
+}
+
+function agregarStaffTurno() {
+  if (!window._staffTurnos) window._staffTurnos = [];
+  window._staffTurnos.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '', hasta: '' });
+  renderStaffTurnos();
+}
+
+function eliminarStaffTurno(idx) {
+  if (!window._staffTurnos) return;
+  if (idx >= 0 && idx < window._staffTurnos.length) {
+    window._staffTurnos.splice(idx, 1);
+  }
+  if (!window._staffTurnos.length) {
+    window._staffTurnos.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '', hasta: '' });
+  }
+  renderStaffTurnos();
+}
+
+function toggleDiaStaffTurno(idx, diaKey) {
+  if (!window._staffTurnos || !window._staffTurnos[idx]) return;
+  var dias = window._staffTurnos[idx].dias || [];
+  var pos = dias.indexOf(diaKey);
+  if (pos !== -1) {
+    dias.splice(pos, 1);
+  } else {
+    dias.push(diaKey);
+  }
+  window._staffTurnos[idx].dias = dias;
+  renderStaffTurnos();
+}
+
+function setPresetDiasStaffTurno(idx, preset) {
+  if (!window._staffTurnos || !window._staffTurnos[idx]) return;
+  if (preset === 'lv') {
+    window._staffTurnos[idx].dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+  } else if (preset === 'ls') {
+    window._staffTurnos[idx].dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab'];
+  } else if (preset === 'sab') {
+    window._staffTurnos[idx].dias = ['sab'];
+  } else if (preset === 'todos') {
+    window._staffTurnos[idx].dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  }
+  renderStaffTurnos();
+}
+
+function actualizarHoraStaffTurno(idx, field, val) {
+  if (!window._staffTurnos || !window._staffTurnos[idx]) return;
+  window._staffTurnos[idx][field] = val || '';
+  actualizarVistaPreviaHorarios();
+}
+
+function actualizarVistaPreviaHorarios() {
+  var prevTxt = document.getElementById('staff-horario-preview-txt');
+  if (!prevTxt) return;
+  var turnos = window._staffTurnos || [];
+  var txt = formatearHorarioTurnos(turnos);
+  prevTxt.textContent = txt;
 }
 
 function abrirModalStaffItem(fieldKey, idx, edNombre) {
@@ -5956,39 +6448,24 @@ function abrirModalStaffItem(fieldKey, idx, edNombre) {
 
   var items = parseStaffClient(namesStr, telsStr);
 
-  var lv1a = document.getElementById('staff-inp-lv1a');
-  var lv1b = document.getElementById('staff-inp-lv1b');
-  var lv2a = document.getElementById('staff-inp-lv2a');
-  var lv2b = document.getElementById('staff-inp-lv2b');
-  var saba = document.getElementById('staff-inp-saba');
-  var sabb = document.getElementById('staff-inp-sabb');
-
   if (idx >= 0 && items[idx]) {
     if (titleEl) titleEl.textContent = '✏️ Editar ' + labelTipo;
     inputNombre.value = items[idx].nombre;
     inputTel.value = items[idx].tel !== '—' ? items[idx].tel : '';
     if (inputEstado) inputEstado.value = items[idx].estado || 'activo';
-
-    var horParsed = parseHorario3Lineas(items[idx].horario);
-    if (lv1a) lv1a.value = horParsed.lv1[0] || '';
-    if (lv1b) lv1b.value = horParsed.lv1[1] || '';
-    if (lv2a) lv2a.value = horParsed.lv2[0] || '';
-    if (lv2b) lv2b.value = horParsed.lv2[1] || '';
-    if (saba) saba.value = horParsed.sab[0] || '';
-    if (sabb) sabb.value = horParsed.sab[1] || '';
+    window._staffTurnos = parseHorarioFlexible(items[idx].horario);
+    if (!window._staffTurnos.length) {
+      window._staffTurnos = [{ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '', hasta: '' }];
+    }
   } else {
     if (titleEl) titleEl.textContent = '➕ Añadir ' + labelTipo;
     inputNombre.value = '';
     inputTel.value = '';
     if (inputEstado) inputEstado.value = 'activo';
-    if (lv1a) lv1a.value = '';
-    if (lv1b) lv1b.value = '';
-    if (lv2a) lv2a.value = '';
-    if (lv2b) lv2b.value = '';
-    if (saba) saba.value = '';
-    if (sabb) sabb.value = '';
+    window._staffTurnos = [{ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '08:00', hasta: '12:00' }];
   }
 
+  renderStaffTurnos();
   abrirModal('modal-staff-edit');
 }
 
@@ -6000,14 +6477,7 @@ async function guardarStaffItem(btn) {
   var tel = (document.getElementById('staff-inp-tel') || {}).value || '';
   var estado = (document.getElementById('staff-inp-estado') || {}).value || 'activo';
 
-  var lv1a = (document.getElementById('staff-inp-lv1a') || {}).value || '';
-  var lv1b = (document.getElementById('staff-inp-lv1b') || {}).value || '';
-  var lv2a = (document.getElementById('staff-inp-lv2a') || {}).value || '';
-  var lv2b = (document.getElementById('staff-inp-lv2b') || {}).value || '';
-  var saba = (document.getElementById('staff-inp-saba') || {}).value || '';
-  var sabb = (document.getElementById('staff-inp-sabb') || {}).value || '';
-
-  var horario = formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb);
+  var horario = formatearHorarioTurnos(window._staffTurnos || []);
 
   if (!nombre.trim() && !tel.trim()) {
     toast('Ingresá al menos el nombre o teléfono', 'err');
@@ -8670,56 +9140,6 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
-    function parseStaffList(namesStr, telsStr) {
-      if (!namesStr && !telsStr) return [];
-      const rawNames = String(namesStr || '').split(/,|\n|;/).map(s => s.trim()).filter(Boolean);
-      const rawTels = String(telsStr || '').split(/,|\n|;/).map(s => s.trim()).filter(Boolean);
-      const res = [];
-
-      for (let i = 0; i < rawNames.length; i++) {
-        let str = rawNames[i];
-        let tel = rawTels[i] || (rawTels.length === 1 ? rawTels[0] : '—');
-        let estado = 'activo';
-        let horario = '';
-
-        const isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
-        if (isScheduleFragment && res.length > 0) {
-          const cleanHor = str.replace(/\[[^\]]*\]/g, '').replace(/\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
-          if (cleanHor) {
-            res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
-              ? cleanHor
-              : res[res.length - 1].horario + ' · ' + cleanHor;
-          }
-          continue;
-        }
-
-        const matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
-        if (matchMeta) {
-          if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
-          if (matchMeta[2]) horario = matchMeta[2].trim();
-          str = str.replace(/\[[^\]]*\]/g, '').trim();
-        }
-
-        const matchTel = str.match(/\(([^)]+)\)/);
-        if (matchTel && (!tel || tel === '—')) {
-          tel = matchTel[1].trim();
-          str = str.replace(/\([^)]+\)/g, '').trim();
-        }
-
-        str = str.replace(/\[|\]/g, '').trim();
-
-        if (str || tel !== '—') {
-          res.push({
-            nombre: str || 'Personal',
-            tel: tel || '—',
-            estado: estado || 'activo',
-            horario: horario || 'Sin horario'
-          });
-        }
-      }
-      return res;
-    }
-
     function renderStaffCards(namesStr, telsStr, fieldKey, icon, labelTitle, edNombre, edRow) {
       const list = parseStaffList(namesStr, telsStr);
       let html = '';
@@ -9645,33 +10065,22 @@ router.get('/mi-edificio', async (req, res) => {
               <option value="vacaciones">🔵 Vacaciones</option>
             </select>
 
-            <div style="font-size:13px;font-weight:700;color:#16233B;margin-bottom:8px">Horarios de Trabajo / Atención (3 Turnos)</div>
-            <div style="font-size:12px;color:#64748B;margin-bottom:12px">Especificá los rangos horarios exactos para que Marcos IA sepa cuándo está disponible.</div>
+            <div style="font-size:13.5px;font-weight:800;color:#16233B;margin-bottom:4px">🗓️ Días y Franjas Horarias de Atención</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:12px">Configurá los días y turnos exactos (ej: limpieza 2 o 3 veces por semana, turnos cortados con descansos, rotaciones de seguridad, etc.).</div>
 
-            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:12px">
-              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Lun a Vie (1° Turno)</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="time" id="staff-inp-lv1a" class="inp" style="height:40px;width:auto">
-                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
-                <input type="time" id="staff-inp-lv1b" class="inp" style="height:40px;width:auto">
-              </div>
+            <div id="staff-turnos-container" style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px"></div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+              <button type="button" onclick="agregarStaffTurno()" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border:1.5px dashed #2E6FC0;border-radius:10px;background:#F0F6FF;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-blue">
+                <span>➕ Añadir otro turno / franja horaria</span>
+              </button>
             </div>
 
-            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:12px">
-              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Lun a Vie (2° Turno / Cortado - Opcional)</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="time" id="staff-inp-lv2a" class="inp" style="height:40px;width:auto">
-                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
-                <input type="time" id="staff-inp-lv2b" class="inp" style="height:40px;width:auto">
-              </div>
-            </div>
-
-            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:14px">
-              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Sábados (Opcional)</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="time" id="staff-inp-saba" class="inp" style="height:40px;width:auto">
-                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
-                <input type="time" id="staff-inp-sabb" class="inp" style="height:40px;width:auto">
+            <div style="background:#F1F5FB;border:1px solid #DCE5F2;border-radius:10px;padding:10px 14px;font-size:12.5px;color:#334259;display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-size:16px;flex-shrink:0">🕒</span>
+              <div style="min-width:0;flex:1">
+                <span style="font-weight:700;color:#1E293B">Resumen de horarios:</span>
+                <span id="staff-horario-preview-txt" style="font-weight:700;color:#2E6FC0;margin-left:4px">Sin horario</span>
               </div>
             </div>
           </div>
