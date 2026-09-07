@@ -2208,6 +2208,96 @@ html.dark-theme, body.dark-theme {
   color: #FFFFFF !important;
 }
 
+/* 9. Tablas, Encabezados y Contenedores en Modo Oscuro */
+.dark-theme table {
+  background: transparent !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme .tbl-wrap,
+.dark-theme div[style*="overflow-x:auto"],
+.dark-theme div[style*="overflow-y:auto"],
+.dark-theme div[style*="overflow:hidden"][style*="background:#fff"],
+.dark-theme div[style*="overflow: hidden"][style*="background: #fff"],
+.dark-theme div[style*="overflow:hidden"][style*="background: #fff"],
+.dark-theme div[style*="border-radius:12px"][style*="background:#fff"],
+.dark-theme div[style*="border-radius: 12px"][style*="background: #fff"] {
+  background: #0B132B !important;
+  border-color: #2A3A5E !important;
+}
+.dark-theme .tbl-head-row,
+.dark-theme thead tr,
+.dark-theme thead th,
+.dark-theme th,
+.dark-theme tr[style*="background:#F8FAFD"],
+.dark-theme tr[style*="background: #F8FAFD"],
+.dark-theme tr[style*="background:#F8FAFC"],
+.dark-theme tr[style*="background: #F8FAFC"] {
+  background: #151F38 !important;
+  border-bottom-color: #2A3A5E !important;
+  color: #94A3B8 !important;
+}
+.dark-theme tr,
+.dark-theme tr[style*="border-bottom"] {
+  border-bottom-color: #2A3A5E !important;
+}
+.dark-theme td {
+  border-bottom-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme td div[style*="color:#16233B"],
+.dark-theme td span[style*="color:#16233B"],
+.dark-theme td[style*="color:#16233B"] {
+  color: #FFFFFF !important;
+}
+.dark-theme td div[style*="color:#334259"],
+.dark-theme td span[style*="color:#334259"],
+.dark-theme td[style*="color:#334259"] {
+  color: #CBD5E1 !important;
+}
+.dark-theme td div[style*="color:#64748B"],
+.dark-theme td span[style*="color:#64748B"],
+.dark-theme td[style*="color:#64748B"] {
+  color: #94A3B8 !important;
+}
+.dark-theme td div[style*="color:#2E6FC0"],
+.dark-theme td span[style*="color:#2E6FC0"],
+.dark-theme td[style*="color:#2E6FC0"] {
+  color: #38BDF8 !important;
+}
+
+/* 10. Tags de Origen de Accesos y Cajas de Relato en Modo Oscuro */
+.acceso-origen-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748B;
+  background: #F1F5FB;
+  border: 1px solid #E2E8F0;
+  padding: 2px 7px;
+  border-radius: 6px;
+  margin-left: 6px;
+  display: inline-block;
+}
+.dark-theme .acceso-origen-tag,
+.dark-theme span[style*="background:#F1F5FB"],
+.dark-theme span[style*="background: #F1F5FB"] {
+  background: #1C2B4E !important;
+  color: #93C5FD !important;
+  border-color: #2E6FC0 !important;
+}
+.dark-theme div[style*="background:#F8FAFD"],
+.dark-theme div[style*="background: #F8FAFD"],
+.dark-theme div[style*="background:#F8FAFC"],
+.dark-theme div[style*="background: #F8FAFC"] {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+}
+.dark-theme div[style*="background:#F8FAFD"] div[style*="color:#16233B"],
+.dark-theme div[style*="background:#F8FAFD"] p[style*="color:#64748B"],
+.dark-theme div[style*="background:#F8FAFC"] div[style*="color:#16233B"],
+.dark-theme div[style*="background:#F8FAFC"] p[style*="color:#64748B"] {
+  color: #F1F5F9 !important;
+}
+
 `;
 
 /* ===================================================================
@@ -2249,13 +2339,14 @@ window.renderTablaAccesosClient = function(lista) {
   }
   var filas = lista.map(function(a) {
     var origHtml = a.origen
-      ? '<span style="font-size:10px;font-weight:600;color:#64748B;background:#F1F5FB;border:1px solid #E2E8F0;padding:2px 7px;border-radius:6px;margin-left:6px" title="Origen del dato">' + escapeHtml(a.origen) + '</span>'
+      ? '<span class="acceso-origen-tag" style="font-size:10px;font-weight:600;color:#64748B;background:#F1F5FB;border:1px solid #E2E8F0;padding:2px 7px;border-radius:6px;margin-left:6px" title="Origen del dato">' + escapeHtml(a.origen) + '</span>'
       : '';
     var lugarEsc = escapeHtml(a.lugar || '—');
     var ubEsc = escapeHtml(a.ubicacion || '—');
     var qaEsc = escapeHtml(a.quienAbre || a.quien_abre || '—');
     var telEsc = escapeHtml(a.telefono || '—');
     var tipoEsc = escapeHtml(a.tipoAcceso || a.tipo_acceso || '—');
+    var notasEsc = escapeHtml(a.notas || '—');
     var lugarAttr = escapeHtml(a.lugar || '');
 
     return '<tr style="border-bottom:1px solid #EEF1F6">' +
@@ -2275,10 +2366,10 @@ window.renderTablaAccesosClient = function(lista) {
     '</tr>';
   }).join('');
 
-  return '<div style="overflow-x:auto;border:1px solid #E7ECF3;border-radius:12px;background:#fff">' +
+  return '<div style="overflow-x:auto;border:1px solid #E7ECF3;border-radius:12px;background:#fff" class="tbl-wrap">' +
     '<table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">' +
       '<thead>' +
-        '<tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em">' +
+        '<tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em" class="tbl-head-row">' +
           '<th style="padding:12px 14px">Lugar / Instalación</th>' +
           '<th style="padding:12px 14px">Dónde está</th>' +
           '<th style="padding:12px 14px">Quién abre</th>' +
@@ -8667,7 +8758,7 @@ router.get('/mi-edificio', async (req, res) => {
       }
       const filas = lista.map((a) => {
         const origHtml = a.origen
-          ? `<span style="font-size:10px;font-weight:600;color:#64748B;background:#F1F5FB;border:1px solid #E2E8F0;padding:2px 7px;border-radius:6px;margin-left:6px" title="Origen del dato">${esc(a.origen)}</span>`
+          ? `<span class="acceso-origen-tag" style="font-size:10px;font-weight:600;color:#64748B;background:#F1F5FB;border:1px solid #E2E8F0;padding:2px 7px;border-radius:6px;margin-left:6px" title="Origen del dato">${esc(a.origen)}</span>`
           : '';
         return `
           <tr style="border-bottom:1px solid #EEF1F6">
@@ -8689,10 +8780,10 @@ router.get('/mi-edificio', async (req, res) => {
       }).join('');
 
       return `
-        <div style="overflow-x:auto;border:1px solid #E7ECF3;border-radius:12px;background:#fff">
+        <div style="overflow-x:auto;border:1px solid #E7ECF3;border-radius:12px;background:#fff" class="tbl-wrap">
           <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
             <thead>
-              <tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em">
+              <tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em" class="tbl-head-row">
                 <th style="padding:12px 14px">Lugar / Instalación</th>
                 <th style="padding:12px 14px">Dónde está</th>
                 <th style="padding:12px 14px">Quién abre</th>
@@ -8726,7 +8817,7 @@ router.get('/mi-edificio', async (req, res) => {
             <span>🗣️</span> <span>Descripción hablada / relato del edificio</span>
           </div>
           <p style="font-size:12.5px;color:#64748B;margin:0 0 10px">Escribí en un párrafo cómo están distribuidas las instalaciones y llaves. Marcos IA extraerá automáticamente cada lugar y completará la tabla abajo.</p>
-          <textarea id="accesos-relato-texto" class="inp" style="width:100%;height:80px;resize:vertical;margin-bottom:10px;font-size:13px;background:#fff" placeholder="Contame cómo es el edificio: dónde están la sala de máquinas, los medidores, el tablero, las bombas, la llave de gas, y quién tiene la llave de cada una."></textarea>
+          <textarea id="accesos-relato-texto" class="inp" style="width:100%;height:80px;resize:vertical;margin-bottom:10px;font-size:13px" placeholder="Contame cómo es el edificio: dónde están la sala de máquinas, los medidores, el tablero, las bombas, la llave de gas, y quién tiene la llave de cada una."></textarea>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
             <div id="accesos-relato-msg" style="font-size:13px;font-weight:700;color:#1B7A43;display:none;background:#E7F4EC;padding:6px 12px;border-radius:8px;border:1px solid #A3D9B1"></div>
             <button onclick="guardarRelatoAccesos(this)" style="height:38px;padding:0 18px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13px;cursor:pointer;margin-left:auto" class="hv-primary">Guardar descripción</button>
