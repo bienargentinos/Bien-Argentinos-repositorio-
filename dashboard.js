@@ -1214,6 +1214,43 @@ textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-
   color: #38BDF8 !important;
 }
 
+/* Sidebar scrollbar suave y soporte para zoom / pantallas compactas */
+.sidebar-nav {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+.sidebar-nav::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.7);
+}
+
+@media (max-height: 800px) {
+  .sidebar-nav {
+    padding: 10px 8px 18px !important;
+    gap: 2px !important;
+  }
+  .sidebar-nav a {
+    padding: 7px 10px !important;
+    font-size: 13.5px !important;
+  }
+  .sidebar-help-card {
+    padding: 10px 12px !important;
+    margin: 6px 2px 0 !important;
+  }
+}
+
 @media (max-width: 980px) {
   .resgrid, .fichagrid { grid-template-columns: 1fr !important; }
 }
@@ -7316,9 +7353,9 @@ function shell(req, d, activeKey, contenido) {
   const navHtml = nav.map((n) => {
     const active = n.key === activeKey;
     return `
-      <a href="${n.href}" data-tour="nav-${n.key}" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;border-radius:11px;background:${active ? '#EAF1FB' : 'transparent'};color:${active ? '#17408B' : '#475569'};font-weight:${active ? '800' : '600'};font-size:14.5px;text-align:left;position:relative" class="hv-soft">
-        <span style="font-size:17px;width:22px;text-align:center">${n.icon}</span>
-        <span style="flex:1">${n.label}</span>
+      <a href="${n.href}" data-tour="nav-${n.key}" style="display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;border-radius:10px;background:${active ? '#EAF1FB' : 'transparent'};color:${active ? '#17408B' : '#475569'};font-weight:${active ? '800' : '600'};font-size:14px;text-align:left;position:relative;flex-shrink:0" class="hv-soft">
+        <span style="font-size:16px;width:22px;text-align:center">${n.icon}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.label}</span>
         ${n.badge ? `<span style="min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#E5484D;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${n.badge}</span>` : ''}
       </a>`;
   }).join('');
@@ -7438,15 +7475,15 @@ function shell(req, d, activeKey, contenido) {
 
   <div style="flex:1;display:flex;align-items:stretch">
     <!-- SIDEBAR -->
-    <nav class="sidebar-nav" style="width:236px;flex-shrink:0;background:#fff;border-right:1px solid #E4E9F1;padding:18px 14px;position:sticky;top:64px;height:calc(100vh - 64px);display:flex;flex-direction:column;gap:4px">
-      <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9AA7BD;padding:6px 12px 8px">Menú</div>
+    <nav class="sidebar-nav" style="width:236px;flex-shrink:0;background:#fff;border-right:1px solid #E4E9F1;padding:14px 10px 24px;position:sticky;top:64px;height:calc(100vh - 64px);display:flex;flex-direction:column;gap:3px;overflow-y:auto;overflow-x:hidden;box-sizing:border-box">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9AA7BD;padding:4px 10px 6px">Menú</div>
       ${navHtml}
-      <div style="flex:1"></div>
+      <div style="flex:1;min-height:12px"></div>
       ${dueno ? '' : `
-      <div style="margin:0 6px;padding:14px;background:linear-gradient(155deg,#0F326A,#2E6FC0);border-radius:14px;color:#fff">
-        <div style="font-size:13px;font-weight:800;margin-bottom:4px">¿Necesitás algo?</div>
-        <div style="font-size:12.5px;color:rgba(255,255,255,.8);line-height:1.45;margin-bottom:10px">Tu consorcio está siendo atendido las 24 horas.</div>
-        <a href="${sugerenciaHref}" style="display:flex;align-items:center;justify-content:center;width:100%;height:36px;border-radius:9px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:13px">Enviar sugerencia</a>
+      <div class="sidebar-help-card" style="margin:8px 4px 0;padding:12px 14px;background:linear-gradient(155deg,#0F326A,#2E6FC0);border-radius:14px;color:#fff;flex-shrink:0">
+        <div style="font-size:13px;font-weight:800;margin-bottom:3px">¿Necesitás algo?</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.8);line-height:1.4;margin-bottom:8px">Tu consorcio está siendo atendido las 24 horas.</div>
+        <a href="${sugerenciaHref}" style="display:flex;align-items:center;justify-content:center;width:100%;height:34px;border-radius:9px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:12.5px">Enviar sugerencia</a>
       </div>`}
     </nav>
 
