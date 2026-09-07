@@ -775,6 +775,45 @@ reinicio— pero **lo que se guarda la lleva y lo que sale hacia una persona, no
 
 `etiquetas-media.js` (`soloTexto`) es el único lugar donde se saca, para que no haya dos versiones.
 
+### Una reserva de amenity también es un evento, pero NO es un caso
+
+Cuando un vecino reserva el SUM o la parrilla, el administrador tiene que verlo en la sección
+Eventos junto con todo lo demás. Pero esa sección se alimenta de `reportes`, que es la misma tabla
+donde viven los reclamos — y ahí adentro una fila de más no es inocente.
+
+> [!CAUTION]
+> **Un caso ABIERTO sin rubro se traga los reclamos de todo el edificio.**
+
+`sheets.js` engancha cada mensaje al caso abierto del mismo vecino o del mismo edificio, y solo lo
+separa si los **rubros** no coinciden. Una reserva no tiene rubro, y la regla dice —con razón— *"el
+caso viejo no tiene rubro: no se puede afirmar"* → **no separa**. Con la reserva abierta, el vecino
+que reservó la parrilla y después avisa *"se cortó la luz del pasillo"* tendría su reclamo pegado
+adentro de la reserva; y por el paso 3, que busca por **edificio**, le pasaría lo mismo a cualquier
+vecino de ese edificio.
+
+Dos cerrojos, a propósito:
+
+1. La reserva se guarda con **`estado: 'resuelto'`**. El estado del pago va en el texto y su verdad
+   vive en `reservas_amenities`: `estado` en la tabla de casos significa "hay trabajo pendiente", y
+   una reserva impaga no es un trabajo pendiente para un técnico.
+2. Va marcada con **`tipo: 'reserva'`**, y las búsquedas de "caso abierto" la ignoran por esa marca
+   — por si mañana alguien decide que una reserva impaga sí quede abierta.
+
+> [!CAUTION]
+> **`'RES-' + Date.now().toString().slice(-4)` se repite cada 10 SEGUNDOS.**
+
+Los últimos cuatro dígitos de un timestamp en milisegundos cierran el ciclo a los 10.000 ms, y
+`codigo_caso` es **UNIQUE** en PostgreSQL. Dos reservas con diez segundos de diferencia —una familia
+reservando la parrilla y el SUM— y la segunda no entra: el evento se pierde en silencio.
+
+Por eso `reserva-evento.js` **no escribe la fila a mano**: llama a `guardarReporte`, que ya asigna
+códigos correlativos (`CASO-${maxNum + 1}`), escribe en Sheets **y** en PostgreSQL, y crea las
+columnas que falten. Y la llamada va **después** del `INSERT` de la reserva y sin cortar el
+endpoint: si el historial falla se pierde una fila del panel —molesto—; si por eso se le devolviera
+un error al vecino, se perdería la reserva.
+
+Prueba: `node pruebas-reserva-evento.js`.
+
 ### Una palabra suelta adentro de una expresión se come mensajes enteros
 
 > [!CAUTION]

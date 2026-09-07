@@ -1164,7 +1164,21 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
         const rubroEntrante = String(rubro_tecnico || '').trim();
         const traeProblemaPropio = Boolean(String(problema || '').trim());
 
+        // > [!CAUTION]
+        // > **Una reserva de amenity NO es un caso al que engancharle mensajes.**
+        //
+        // La separación de abajo se apoya en el RUBRO, y una reserva del SUM no tiene ninguno. La
+        // regla dice, con razón, "el caso viejo no tiene rubro: no se puede afirmar" → no separa.
+        // Con eso, el vecino que reservó la parrilla y después avisa que se cortó la luz tendría
+        // su reclamo pegado adentro de la reserva. Y por el paso 3 --que busca por EDIFICIO-- le
+        // pasaría lo mismo a cualquier vecino de ese edificio.
+        //
+        // Por eso una reserva nunca se elige como el caso al que enganchar. Se reconoce por
+        // `tipo`, que es lo que la distingue de un reclamo de verdad.
+        const { esReserva } = require('./reserva-evento');
+
         const esOtroCaso = (r) => {
+            if (esReserva(r)) return true;                            // una reserva nunca recibe un reclamo
             if (!traeProblemaPropio || !rubroEntrante) return false;  // sin con qué comparar, no se separa
             const rubroDelCaso = String(r.get('rubro_tecnico') || '').trim();
             if (!rubroDelCaso) return false;                          // el caso viejo no tiene rubro: no se puede afirmar

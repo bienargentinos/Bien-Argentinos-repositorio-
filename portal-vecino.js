@@ -5422,9 +5422,30 @@ router.post('/api/reservar-amenity', async (req, res) => {
         estado_pago
       ]);
 
-      return res.json({ 
-        ok: true, 
-        mensaje: 'Reserva confirmada con éxito', 
+      // La reserva también queda anotada como evento del edificio, para que el administrador la
+      // vea en el panel junto con todo lo demás y no tenga que ir a mirar otra tabla.
+      //
+      // Va DESPUÉS del INSERT y sin `await` que corte: la reserva del vecino ya está guardada y
+      // confirmada. Si el panel falla, se pierde una fila del historial -- molesto. Si por eso se
+      // le devolviera un error al vecino, se perdería la reserva, que no tiene ninguna
+      // justificación. `registrarReservaComoEvento` no lanza: atrapa y deja el error en el log.
+      require('./reserva-evento').registrarReservaComoEvento({
+        edificio:     v.edificio,
+        departamento: v.departamento,
+        vecino:       v.nombre,
+        telefono:     v.telefono || '',
+        amenity,
+        fecha,
+        horaDesde:    hora_desde,
+        horaHasta:    hora_hasta,
+        monto,
+        estadoPago:   estado_pago,
+        notas:        notas || '',
+      });
+
+      return res.json({
+        ok: true,
+        mensaje: 'Reserva confirmada con éxito',
         id: insRes.rows[0].id,
         monto,
         estado_pago

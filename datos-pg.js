@@ -455,8 +455,15 @@ async function obtenerCasosAbiertosEdificio(nombreEdificio) {
     const rows = await filas('reportes');
     const edifBuscado = String(nombreEdificio || '').toLowerCase().trim();
 
+    // Una reserva de amenity vive en esta misma tabla para aparecer en el panel, pero no es un
+    // reclamo: no se le manda un técnico ni se le hace seguimiento. Queda guardada como
+    // `resuelto`, así que hoy ya no entraría acá -- el filtro por `tipo` es el segundo cerrojo,
+    // por si mañana alguien decide que una reserva impaga quede abierta.
+    const { esReserva } = require('./reserva-evento');
+
     return rows
         .filter(r => {
+            if (esReserva(r)) return false;
             const rEst = String(r.get('estado') || '').toLowerCase().trim();
             if (CERRADOS.has(rEst)) return false;
             const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
