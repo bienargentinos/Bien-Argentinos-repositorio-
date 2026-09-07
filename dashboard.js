@@ -1143,6 +1143,7 @@ a{color:inherit;text-decoration:none}
 .ev-resuelto:hover { background: #DCFCE7 !important; }
 .ev-nuevo { border-left: 4px solid #2E6FC0 !important; }
 .ev-normal { border-left: 4px solid transparent !important; }
+.ev-id-badge { font-size: 11px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: #EEF2F6; color: #334155; font-family: monospace; letter-spacing: -.01em; border: 1px solid #CBD5E1; display: inline-block; }
 /* toast */
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#16233B;color:#fff;padding:12px 18px;border-radius:12px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);opacity:0;transition:.25s;z-index:90;font-weight:600;pointer-events:none}
 .toast.show{opacity:1;bottom:28px}
@@ -1701,49 +1702,82 @@ html.dark-theme, body.dark-theme {
   color: #FFFFFF !important;
 }
 
-/* Preservar legibilidad de Badges, Chips y Pills al hacer Hover en Tarjetas/Botones en Modo Oscuro */
+/* Preservar legibilidad de Badges, Chips, Pills e Iconos en Modo Oscuro (Tanto estático como en Hover) */
+.dark-theme span[style*="background:#E7F4EC"],
+.dark-theme span[style*="background: #E7F4EC"],
+.dark-theme span[style*="background:#EAF3EC"],
+.dark-theme span[style*="background: #EAF3EC"],
 .dark-theme *:hover span[style*="background:#E7F4EC"],
 .dark-theme *:hover span[style*="background: #E7F4EC"],
-.dark-theme *:hover .status-active,
-.dark-theme *:hover .prio-primera,
-.dark-theme *:hover .ev-resuelto {
+.dark-theme *:hover span[style*="background:#EAF3EC"],
+.dark-theme *:hover span[style*="background: #EAF3EC"],
+.dark-theme .status-active,
+.dark-theme .prio-primera,
+.dark-theme .ev-resuelto {
   background: #062C19 !important;
   color: #4ADE80 !important;
   border-color: #14532D !important;
 }
 
+.dark-theme span[style*="background:#FBF3DE"],
+.dark-theme span[style*="background: #FBF3DE"],
+.dark-theme span[style*="background:#FEF3C7"],
+.dark-theme span[style*="background: #FEF3C7"],
 .dark-theme *:hover span[style*="background:#FBF3DE"],
 .dark-theme *:hover span[style*="background: #FBF3DE"],
 .dark-theme *:hover span[style*="background:#FEF3C7"],
 .dark-theme *:hover span[style*="background: #FEF3C7"],
-.dark-theme *:hover .rubro-gasista,
-.dark-theme *:hover .rubro-electricista {
+.dark-theme .rubro-gasista,
+.dark-theme .rubro-electricista {
   background: #2A2415 !important;
   color: #FDE047 !important;
   border-color: #594D1A !important;
 }
 
+.dark-theme span[style*="background:#FDECEC"],
+.dark-theme span[style*="background: #FDECEC"],
+.dark-theme span[style*="background:#FEF2F2"],
+.dark-theme span[style*="background: #FEF2F2"],
 .dark-theme *:hover span[style*="background:#FDECEC"],
 .dark-theme *:hover span[style*="background: #FDECEC"],
 .dark-theme *:hover span[style*="background:#FEF2F2"],
 .dark-theme *:hover span[style*="background: #FEF2F2"],
-.dark-theme *:hover .status-inactive,
-.dark-theme *:hover .prio-urgencia,
-.dark-theme *:hover .ev-urgente {
+.dark-theme .status-inactive,
+.dark-theme .prio-urgencia,
+.dark-theme .ev-urgente {
   background: #3B1219 !important;
   color: #FCA5A5 !important;
   border-color: #7F1D1D !important;
 }
 
+.dark-theme span[style*="background:#EEF2F8"],
+.dark-theme span[style*="background: #EEF2F8"],
+.dark-theme span[style*="background:#EAF1FB"],
+.dark-theme span[style*="background: #EAF1FB"],
+.dark-theme span[style*="background:#EDEEFB"],
+.dark-theme span[style*="background: #EDEEFB"],
 .dark-theme *:hover span[style*="background:#EEF2F8"],
 .dark-theme *:hover span[style*="background: #EEF2F8"],
 .dark-theme *:hover span[style*="background:#EAF1FB"],
 .dark-theme *:hover span[style*="background: #EAF1FB"],
-.dark-theme *:hover .plan-base,
-.dark-theme *:hover .rubro-plomero {
+.dark-theme *:hover span[style*="background:#EDEEFB"],
+.dark-theme *:hover span[style*="background: #EDEEFB"],
+.dark-theme .plan-base,
+.dark-theme .rubro-plomero {
   background: #1C2B4E !important;
   color: #38BDF8 !important;
   border-color: #2E6FC0 !important;
+}
+
+.dark-theme .ev-id-badge,
+.dark-theme span[style*="background:#F1F5F9"],
+.dark-theme span[style*="background: #F1F5F9"],
+.dark-theme *:hover .ev-id-badge,
+.dark-theme *:hover span[style*="background:#F1F5F9"],
+.dark-theme *:hover span[style*="background: #F1F5F9"] {
+  background: #1E293B !important;
+  color: #93C5FD !important;
+  border-color: #3B82F6 !important;
 }
 
 .dark-theme .hv-red:hover {
@@ -1887,6 +1921,8 @@ html.dark-theme, body.dark-theme {
 .dark-theme .ev-urgente:hover { background:#4A1720 !important; }
 .dark-theme .ev-resuelto { background:#062C19 !important; border-left:4px solid #22C55E !important; }
 .dark-theme .ev-resuelto:hover { background:#0B3D23 !important; }
+.dark-theme .ev-nuevo { border-left:4px solid #38BDF8 !important; }
+.dark-theme .ev-normal { border-left:4px solid transparent !important; }
 
 /* Inputs, Textareas, Selects y Placeholders en Modo Oscuro (High Contrast) */
 .dark-theme .inp,
@@ -6883,7 +6919,7 @@ function filaEvento(v, idx, chipEdificio) {
       <span style="width:44px;height:44px;border-radius:12px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${v.catIcon}</span>
       <span style="flex:1;min-width:0">
         <span style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
-          <span style="font-size:11.5px;font-weight:800;padding:2px 7px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
+          <span class="ev-id-badge" style="font-size:11.5px;font-weight:800;padding:2px 7px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
           <span style="font-size:15px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
           ${badgeExternoHtml}
           <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
@@ -7764,7 +7800,7 @@ router.get('/', async (req, res) => {
           <span style="width:40px;height:40px;border-radius:11px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${v.catIcon}</span>
           <span style="flex:1;min-width:0">
             <span style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
-              <span style="font-size:11px;font-weight:800;padding:2px 6px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
+              <span class="ev-id-badge" style="font-size:11px;font-weight:800;padding:2px 6px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
               <span style="font-size:14.5px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
               <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
               <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 ${esc(v.edificio)}</span>
@@ -7861,12 +7897,17 @@ router.get('/', async (req, res) => {
     // feed de novedades (o ultimos eventos si no hay nuevos hoy)
     const feedVistas = (novedades.length ? novedades : vistas).slice(0, 4);
     const idxOffset = 0;
-    const novHtml = feedVistas.map((v, i) => `
-      <button onclick="abrirDrawerEvento(${i})" style="width:100%;display:flex;align-items:flex-start;gap:13px;padding:15px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left" class="hv-row">
+    const novHtml = feedVistas.map((v, i) => {
+      let rowClass = 'ev-normal';
+      if (v.estKey === 'resuelto') rowClass = 'ev-resuelto';
+      else if (v.urgKey === 'alta') rowClass = 'ev-urgente';
+      else if (v.nuevo) rowClass = 'ev-nuevo';
+      return `
+      <button onclick="abrirDrawerEvento(${i})" style="width:100%;display:flex;align-items:flex-start;gap:13px;padding:15px 20px 15px 16px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left" class="hv-row ${rowClass}">
         <span style="width:40px;height:40px;border-radius:11px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${v.catIcon}</span>
         <span style="flex:1;min-width:0">
           <span style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
-            <span style="font-size:11px;font-weight:800;padding:2px 6px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
+            <span class="ev-id-badge" style="font-size:11px;font-weight:800;padding:2px 6px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
             <span style="font-size:14.5px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
             <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
           </span>
@@ -7876,7 +7917,8 @@ router.get('/', async (req, res) => {
           </span>
         </span>
         <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:${v.estBg};color:${v.estFg};flex-shrink:0;margin-top:2px">${v.estLabel}</span>
-      </button>`).join('');
+      </button>`;
+    }).join('');
 
     // estado del edificio por tipo
     const tipoBreak = Object.keys(CATEGORIAS_EVENTO).map((k) => ({
