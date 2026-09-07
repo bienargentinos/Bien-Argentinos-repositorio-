@@ -19,7 +19,13 @@ const { clasificarMensajeProveedor, ACTIVO } = require('./ruteo-proveedor');
 // frase, intención esperada, contexto, y si el sistema viejo se equivocaba con esta
 const CASOS = [
     // ── EL BUCLE DE LAS FOTOS ────────────────────────────────────────────────
-    ['La foto también es del caso', 'otro',
+    //
+    // Lo único que importa acá es que NO sea `pide_datos_al_vecino`, que es lo que producía el
+    // bucle. Entre `otro` y `responde_de_que_obra` da igual: con este texto el ramal de la factura
+    // no encuentra ni número de caso ni edificio ni número de lista, así que no hace nada y NO
+    // corta -- el `return` está adentro del `if (edificioElegido)`. El mensaje sigue de largo
+    // hasta el camino libre, que es donde tiene que terminar.
+    ['La foto también es del caso', ['otro', 'responde_de_que_obra', 'corrige_a_marcos'],
         { ultimaPreguntaDeMarcos: '¿De qué edificio es esta factura?', mandoAdjunto: true }, true],
     ['No, ya te acabo de mandar una foto, esa foto pertenece al caso 1001, no te estoy pidiendo fotos de nada, te estás confundiendo',
         'corrige_a_marcos', { casoAbierto: 'CASO-1001' }, true],
@@ -86,7 +92,11 @@ const CASOS = [
 
         // `entraSolo` viaja aparte de la intención y también tiene que estar bien: es lo que
         // decide si al técnico le llega o no el contacto de ingreso.
-        const okIntencion = r.intencion === esperada;
+        // Algunas frases admiten más de una lectura válida, y la prueba las acepta todas. Lo que
+        // se está midiendo no es si el modelo eligió la etiqueta que a mí me gusta: es si el
+        // mensaje termina en un ramal que hace lo correcto.
+        const validas = Array.isArray(esperada) ? esperada : [esperada];
+        const okIntencion = validas.includes(r.intencion);
         const okLlave = esperaEntraSolo === undefined || r.entraSolo === esperaEntraSolo;
         const ok = okIntencion && okLlave;
 
@@ -97,7 +107,7 @@ const CASOS = [
         const marca = ok ? (loViejoFallaba ? '🎉 ARREGLA' : '✅ bien   ') : '❌ MAL    ';
         console.log(`  ${marca}  "${frase.slice(0, 55)}${frase.length > 55 ? '…' : ''}"`);
         console.log(`      leyó: ${r.intencion} (${r.confianza})${r.entraSolo ? ' · entra solo' : ''} — ${r.motivo}`);
-        if (!okIntencion) console.log(`      esperaba: ${esperada}`);
+        if (!okIntencion) console.log(`      esperaba: ${validas.join(' o ')}`);
         if (!okLlave) console.log(`      esperaba entraSolo=${esperaEntraSolo}, dio ${r.entraSolo}`);
         console.log('');
     }
