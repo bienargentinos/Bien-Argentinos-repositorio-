@@ -14120,12 +14120,29 @@ router.post('/api/proveedor-editar', async (req, res) => {
     if (cTel.create) await ensureHeader(TAB_PROVEEDORES, cTel.col, 'telefono', false);
     if (cNotas.create) await ensureHeader(TAB_PROVEEDORES, cNotas.col, 'notas', false);
 
+    const nombreViejo = String(prov.nombre || '').trim();
+    const nombreNuevo = nombre !== undefined ? String(nombre).trim() : nombreViejo;
+
     if (rubro !== undefined) await writeCell(TAB_PROVEEDORES, cRubro.col, Number(row), rubro);
     if (nombre !== undefined) await writeCell(TAB_PROVEEDORES, cNombre.col, Number(row), nombre);
     if (telefono !== undefined) await writeCell(TAB_PROVEEDORES, cTel.col, Number(row), telefono);
     if (notas !== undefined) await writeCell(TAB_PROVEEDORES, cNotas.col, Number(row), notas);
 
-    res.json({ ok: true });
+    let cambios = 0;
+    let fallidos = 0;
+
+    if (nombreNuevo && nombreViejo && nombreNuevo !== nombreViejo) {
+      const { renombrarProveedor } = require('./renombrar-proveedor');
+      const resRenombrar = await renombrarProveedor({
+        viejo: nombreViejo,
+        nuevo: nombreNuevo,
+        aplicar: true,
+      });
+      cambios = resRenombrar.cambios || 0;
+      fallidos = resRenombrar.fallidos || 0;
+    }
+
+    res.json({ ok: true, cambios, fallidos });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
