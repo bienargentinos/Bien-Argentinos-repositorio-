@@ -487,6 +487,49 @@ async function _initPgSchema() {
             ALTER TABLE facturas ADD COLUMN IF NOT EXISTS url TEXT;
             ALTER TABLE facturas ADD COLUMN IF NOT EXISTS notas TEXT;
 
+            -- ── LAS RESTRICCIONES DE facturas VIVEN ACA, NO EN EL SERVIDOR ───────────────
+            --
+            -- Estaban creadas A MANO en la base y en ningun archivo del repo. Eso rompe la regla
+            -- de oro (GitHub es la unica fuente de verdad) y ya costo caro:
+            --
+            --   new row for relation "facturas" violates check constraint "facturas_estado_chk"
+            --
+            -- Esa restriccion solo permitia 'Pendiente' y 'Pagada'. Pero cuando Marcos no sabe de
+            -- que edificio es una factura --que es el caso NORMAL, por eso le pregunta al
+            -- tecnico-- la guarda como 'Sin imputar' (index.js linea 2442). O sea que TODA factura
+            -- sin edificio se rechazaba al copiarse a PostgreSQL: quedaba en Sheets y no en la
+            -- base, que es justo la que el motor lee primero.
+            --
+            -- Se redefinen con DROP + ADD para que valga lo que dice el repo, aunque en el
+            -- servidor haya otra version. Las cuatro AMPLIAN lo que ya habia (o son equivalentes),
+            -- asi que ninguna fila existente puede quedar afuera. Es idempotente.
+            ALTER TABLE facturas DROP CONSTRAINT IF EXISTS facturas_estado_chk;
+            ALTER TABLE facturas ADD CONSTRAINT facturas_estado_chk
+                CHECK (estado IS NULL OR estado::text = ANY (ARRAY[
+                    'Pendiente',      -- ya se sabe a que edificio va; falta que la paguen
+                    'Sin imputar',    -- llego pero no se sabe de que obra es: se le pregunto al tecnico
+                    'Pagada'          -- la marca la Administracion desde el panel
+                ]::text[]));
+
+            -- Las otras tres van tal cual estaban en el servidor: no fallan hoy, pero si no estan
+            -- escritas aca, el proximo que levante Marcos en otra maquina tiene otra base.
+            ALTER TABLE facturas DROP CONSTRAINT IF EXISTS facturas_clase_chk;
+            ALTER TABLE facturas ADD CONSTRAINT facturas_clase_chk
+                CHECK (clase IS NULL OR clase::text = ANY (ARRAY['Proveedor', 'Gasto fijo']::text[]));
+
+            ALTER TABLE facturas DROP CONSTRAINT IF EXISTS facturas_tipo_chk;
+            ALTER TABLE facturas ADD CONSTRAINT facturas_tipo_chk
+                CHECK (tipo IS NULL OR tipo::text = ANY (ARRAY[
+                    'Factura PDF', 'Foto', 'Recibo', 'Presupuesto', 'Otro'
+                ]::text[]));
+
+            ALTER TABLE facturas DROP CONSTRAINT IF EXISTS facturas_origen_chk;
+            ALTER TABLE facturas ADD CONSTRAINT facturas_origen_chk
+                CHECK (origen IS NULL OR origen::text = ANY (ARRAY[
+                    'Encargado', 'Consejo', 'Administrador',
+                    'Marcos IA', 'Susana IA', 'Proveedor'
+                ]::text[]));
+
             CREATE INDEX IF NOT EXISTS idx_pg_vecinos_tel ON vecinos(telefono);
             CREATE INDEX IF NOT EXISTS idx_pg_reportes_codigo ON reportes(codigo_caso);
             CREATE INDEX IF NOT EXISTS idx_pg_mensajes_evento ON mensajes(evento_id);
