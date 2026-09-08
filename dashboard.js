@@ -4947,7 +4947,159 @@ async function enviarConsejoFacturaKey(encodedKey) {
 }
 
 function abrirModalSubirDocumento() {
-  toast('Modal de subida listo. Podés arrastrar o seleccionar archivos.', 'info');
+  var fileInput = document.getElementById('factura-subir-archivo');
+  if (fileInput) fileInput.value = '';
+  var prev = document.getElementById('factura-subir-preview');
+  if (prev) prev.style.display = 'none';
+  var dropText = document.getElementById('factura-subir-droptext');
+  if (dropText) dropText.style.display = 'block';
+  var imgPrev = document.getElementById('factura-subir-imgprev');
+  if (imgPrev) { imgPrev.src = ''; imgPrev.style.display = 'none'; }
+  var conceptoInp = document.getElementById('factura-subir-concepto');
+  if (conceptoInp) conceptoInp.value = '';
+  var provInp = document.getElementById('factura-subir-proveedor');
+  if (provInp) provInp.value = '';
+  var montoInp = document.getElementById('factura-subir-monto');
+  if (montoInp) montoInp.value = '';
+  var numInp = document.getElementById('factura-subir-numero');
+  if (numInp) numInp.value = '';
+  var catInp = document.getElementById('factura-subir-categoria');
+  if (catInp) catInp.value = '';
+
+  var urlParams = new URLSearchParams(window.location.search);
+  var edParam = urlParams.get('edificio');
+  var edSelect = document.getElementById('factura-subir-edificio');
+  if (edSelect && edParam && edParam !== 'todos') {
+    edSelect.value = edParam;
+  }
+
+  abrirModal('modal-subir-documento');
+}
+
+function onFacturaArchivoSeleccionado(input) {
+  var file = input && input.files ? input.files[0] : null;
+  var prev = document.getElementById('factura-subir-preview');
+  var dropText = document.getElementById('factura-subir-droptext');
+  var nameEl = document.getElementById('factura-subir-filename');
+  var badgeEl = document.getElementById('factura-subir-typebadge');
+  var imgPrev = document.getElementById('factura-subir-imgprev');
+  var tipoSelect = document.getElementById('factura-subir-tipo');
+
+  if (!file) {
+    if (prev) prev.style.display = 'none';
+    if (dropText) dropText.style.display = 'block';
+    return;
+  }
+
+  var sizeKb = Math.round(file.size / 1024);
+  var sizeText = sizeKb < 1024 ? sizeKb + ' KB' : (sizeKb / 1024).toFixed(1) + ' MB';
+  if (nameEl) nameEl.textContent = file.name + ' (' + sizeText + ')';
+
+  var isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  var isImg = file.type.indexOf('image/') === 0 || /\.(jpg|jpeg|png|webp|heic|gif)$/i.test(file.name);
+
+  if (isPdf) {
+    if (tipoSelect) tipoSelect.value = 'Factura PDF';
+    if (badgeEl) badgeEl.innerHTML = '<span style="background:#FEF3C7;color:#D97706;padding:3px 8px;border-radius:6px;font-size:11.5px;font-weight:700">📄 Factura PDF</span>';
+    if (imgPrev) imgPrev.style.display = 'none';
+  } else if (isImg) {
+    if (tipoSelect) tipoSelect.value = 'Foto';
+    if (badgeEl) badgeEl.innerHTML = '<span style="background:#DCFCE7;color:#15803D;padding:3px 8px;border-radius:6px;font-size:11.5px;font-weight:700">📸 Foto / Imagen</span>';
+    if (imgPrev) {
+      imgPrev.style.display = 'block';
+      var reader = new FileReader();
+      reader.onload = function(e) { imgPrev.src = e.target.result; };
+      reader.readAsDataURL(file);
+    }
+  } else {
+    if (tipoSelect) tipoSelect.value = 'Otro';
+    if (badgeEl) badgeEl.innerHTML = '<span style="background:#F1F5F9;color:#475569;padding:3px 8px;border-radius:6px;font-size:11.5px;font-weight:700">📎 Archivo</span>';
+    if (imgPrev) imgPrev.style.display = 'none';
+  }
+
+  if (dropText) dropText.style.display = 'none';
+  if (prev) prev.style.display = 'flex';
+}
+
+function onClaseFacturaCambiada(clase) {
+  var provLabel = document.getElementById('label-subir-proveedor');
+  if (provLabel) {
+    provLabel.textContent = clase === 'Gasto fijo' ? 'Servicio o Empresa (ej: Edenor, Metrogas, Seguros)' : 'Proveedor o Técnico (ej: Ferretería, Plomero)';
+  }
+}
+
+async function subirFacturaSubmit() {
+  var fileInput = document.getElementById('factura-subir-archivo');
+  var file = fileInput && fileInput.files ? fileInput.files[0] : null;
+  if (!file) {
+    toast('Por favor seleccioná una factura en PDF o una foto de comprobante', 'err');
+    return;
+  }
+
+  var edificio = (document.getElementById('factura-subir-edificio').value || '').trim();
+  if (!edificio) {
+    toast('Seleccioná el edificio correspondiente', 'err');
+    return;
+  }
+
+  var concepto = (document.getElementById('factura-subir-concepto').value || '').trim();
+  if (!concepto) {
+    toast('Ingresá el concepto o detalle del comprobante', 'err');
+    return;
+  }
+
+  var clase = document.getElementById('factura-subir-clase').value || 'Proveedor';
+  var proveedor = (document.getElementById('factura-subir-proveedor').value || '').trim();
+  var categoria = (document.getElementById('factura-subir-categoria').value || '').trim();
+  var monto = (document.getElementById('factura-subir-monto').value || '').trim();
+  var numero_factura = (document.getElementById('factura-subir-numero').value || '').trim();
+  var origen = document.getElementById('factura-subir-origen').value || 'Administrador';
+  var tipo = document.getElementById('factura-subir-tipo').value || 'Otro';
+
+  if (clase === 'Gasto fijo' && !categoria && !proveedor) {
+    categoria = 'Servicios generales';
+  }
+
+  var btn = document.getElementById('btn-subir-factura-enviar');
+  var prevTxt = btn ? btn.innerText : 'Subir Comprobante';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = '⏳ Subiendo archivo...';
+  }
+
+  try {
+    var fd = new FormData();
+    fd.append('archivo', file);
+    fd.append('edificio', edificio);
+    fd.append('clase', clase);
+    fd.append('concepto', concepto);
+    fd.append('proveedor', proveedor);
+    fd.append('categoria', categoria);
+    fd.append('monto', monto);
+    fd.append('numero_factura', numero_factura);
+    fd.append('origen', origen);
+    fd.append('tipo', tipo);
+
+    var res = await fetch('/admin/api/facturas', {
+      method: 'POST',
+      body: fd
+    });
+    var data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.mensaje || data.error || 'Error al guardar el comprobante');
+    }
+
+    toast('Comprobante archivado con éxito', 'ok');
+    cerrarModal('modal-subir-documento');
+    cargarFacturasDesdeApi();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = prevTxt;
+    }
+  }
 }
 
 function abrirModalEditarDocumento(encodedKey) {
@@ -7578,6 +7730,9 @@ window.moverClaseFacturaKey = moverClaseFacturaKey;
 window.eliminarFacturaKey = eliminarFacturaKey;
 window.enviarConsejoFacturaKey = enviarConsejoFacturaKey;
 window.abrirModalSubirDocumento = abrirModalSubirDocumento;
+window.onFacturaArchivoSeleccionado = onFacturaArchivoSeleccionado;
+window.onClaseFacturaCambiada = onClaseFacturaCambiada;
+window.subirFacturaSubmit = subirFacturaSubmit;
 window.abrirModalEditarDocumento = abrirModalEditarDocumento;
 window.abrirModalCambiarOrigen = abrirModalCambiarOrigen;
 window.abrirModalFiltrosAvanzados = abrirModalFiltrosAvanzados;
@@ -11093,8 +11248,9 @@ router.post('/api/facturas', uploadMulter.single('archivo'), async (req, res) =>
   try {
     const { edificio, clase, concepto, fecha, origen, proveedor, categoria, numero_factura, monto, origen_nombre, codigo_caso } = req.body || {};
 
-    if (!edificio || !clase || !concepto || !origen || !req.file) {
-      return res.status(400).json({ error: 'param_invalido', mensaje: 'Faltan campos requeridos (edificio, clase, concepto, origen, archivo)' });
+    const origenUsar = origen || 'Administrador';
+    if (!edificio || !clase || !concepto || !req.file) {
+      return res.status(400).json({ error: 'param_invalido', mensaje: 'Faltan campos requeridos (edificio, clase, concepto, archivo)' });
     }
 
     const scope = await obtenerEdificiosPermitidosUsuario(req);
@@ -11106,8 +11262,9 @@ router.post('/api/facturas', uploadMulter.single('archivo'), async (req, res) =>
       }
     }
 
-    if (clase === 'Gasto fijo' && !categoria && !proveedor) {
-      return res.status(422).json({ error: 'validacion', mensaje: 'Indicá el servicio o la categoría' });
+    let categoriaUsar = categoria || '';
+    if (clase === 'Gasto fijo' && !categoriaUsar && !proveedor) {
+      categoriaUsar = 'Servicios generales';
     }
 
     const mime = req.file.mimetype;
@@ -11128,12 +11285,12 @@ router.post('/api/facturas', uploadMulter.single('archivo'), async (req, res) =>
     const montoUsar = (monto && monto.trim()) ? monto.trim() : 'Según comprobante';
 
     const insQuery = `
-      INSERT INTO facturas (edificio, clase, concepto, fecha, origen, proveedor, categoria, numero_factura, monto, origen_nombre, codigo_caso, tipo, url_archivo, estado, requiere_revision)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'Pendiente', 'no')
+      INSERT INTO facturas (edificio, clase, concepto, fecha, origen, proveedor, categoria, numero_factura, monto, origen_nombre, codigo_caso, tipo, url_archivo, url, estado, requiere_revision)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'Pendiente', 'no')
       RETURNING *
     `;
     const insRes = await queryPg(insQuery, [
-      edificio, clase, concepto, fechaUsar, origen, proveedor || '', categoria || '', numero_factura || 'Sin comprobante', montoUsar, origen_nombre || '', codigo_caso || '', tipo, webPath
+      edificio, clase, concepto, fechaUsar, origenUsar, proveedor || '', categoriaUsar, numero_factura || 'Sin comprobante', montoUsar, origen_nombre || '', codigo_caso || '', tipo, webPath, webPath
     ]);
     const nuevaFactura = insRes.rows[0];
 
@@ -11219,7 +11376,7 @@ router.get('/archivos', async (req, res) => {
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button type="button" class="btn-factura-sec" onclick="abrirModalFiltrosAvanzados()"><i class="ph ph-funnel" style="font-size: 16px; color: #475569;"></i>Filtros avanzados</button>
-            <button type="button" class="btn-factura-pri" onclick="abrirModalSubirDocumento()"><i class="ph ph-upload-simple" style="font-size: 16px;"></i>Subir documento</button>
+            <button type="button" class="btn-factura-pri" onclick="abrirModalSubirDocumento()" title="Subir factura en PDF o foto de comprobante"><i class="ph ph-upload-simple" style="font-size: 16px;"></i>Subir Factura o Foto</button>
           </div>
         </div>
 
@@ -11287,11 +11444,131 @@ router.get('/archivos', async (req, res) => {
       </div>
     `;
 
-    res.send(shell(req, d, 'facturas', contenido));
+    res.send(shell(req, d, 'facturas', contenido + modalSubirDocumentoHtml(d)));
   } catch (e) {
     res.status(500).send(paginaError(e));
   }
 });
+
+function modalSubirDocumentoHtml(d) {
+  const edList = (d && (d.propios && d.propios.length ? d.propios : d.edificios)) || [];
+  const curEd = (d && d.curBuilding && d.curBuilding.nombre) ? d.curBuilding.nombre : '';
+
+  let edOptions = edList.map((e) => {
+    const n = typeof e === 'string' ? e : (e.nombre || '');
+    const sel = curEd && n && n.toLowerCase() === curEd.toLowerCase() ? ' selected' : '';
+    return `<option value="${esc(n)}"${sel}>${esc(n)}</option>`;
+  }).join('');
+
+  if (!edOptions) {
+    edOptions = '<option value="Edificio Principal">Edificio Principal</option>';
+  }
+
+  return `
+    <div id="modal-subir-documento" class="modal-overlay" onclick="cerrarModal('modal-subir-documento')">
+      <div class="modal-box" style="max-width:540px" onclick="stopEv(event)">
+        <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+          <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Archivo de Comprobantes</div>
+          <div style="font-size:19px;font-weight:800;letter-spacing:-.01em;color:#0F172A">📤 Subir Factura, Comprobante o Foto</div>
+          <div style="font-size:12.5px;color:#64748B;margin-top:3px">Subí facturas oficiales en PDF, o fotos de tickets, remitos y comprobantes de compras o arreglos.</div>
+        </div>
+        <div style="padding:20px 24px;max-height:76vh;overflow-y:auto">
+          <!-- Dropzone / Selector de archivo o foto -->
+          <div style="margin-bottom:16px">
+            <input type="file" id="factura-subir-archivo" accept=".pdf,image/*,.jpg,.jpeg,.png,.webp,.heic" onchange="onFacturaArchivoSeleccionado(this)" style="display:none">
+            <div onclick="document.getElementById('factura-subir-archivo').click()" style="border:2px dashed #CBD5E1;border-radius:14px;padding:20px 16px;text-align:center;background:#F8FAFD;cursor:pointer;transition:all .15s ease" class="hv-soft" id="factura-subir-dropzone">
+              <div id="factura-subir-droptext">
+                <div style="font-size:32px;margin-bottom:6px">📄 📸</div>
+                <div style="font-size:14px;font-weight:700;color:#1E3A8A;margin-bottom:4px">Hacé clic para seleccionar Factura (PDF) o Foto (JPG/PNG)</div>
+                <div style="font-size:12px;color:#64748B">Acepta archivos PDF de servicios o fotos de boletas y tickets (hasta 20 MB)</div>
+              </div>
+              <div id="factura-subir-preview" style="display:none;flex-direction:column;align-items:center;gap:8px">
+                <img id="factura-subir-imgprev" src="" style="display:none;max-height:100px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1);object-fit:contain">
+                <div id="factura-subir-filename" style="font-size:13.5px;font-weight:700;color:#0F172A;word-break:break-all"></div>
+                <div id="factura-subir-typebadge"></div>
+                <span style="font-size:11.5px;color:#2E6FC0;font-weight:700;text-decoration:underline;margin-top:2px">Cambiar archivo</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Edificio -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Edificio o Consorcio *</label>
+            <select id="factura-subir-edificio" class="inp">
+              ${edOptions}
+            </select>
+          </div>
+
+          <!-- Tipo y Clase -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+            <div>
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Tipo de comprobante *</label>
+              <select id="factura-subir-tipo" class="inp">
+                <option value="Factura PDF">📄 Factura PDF</option>
+                <option value="Foto">📸 Foto (Ticket / Remito)</option>
+                <option value="Recibo">🧾 Recibo de Pago</option>
+                <option value="Presupuesto">📋 Presupuesto</option>
+                <option value="Otro">📎 Otro Comprobante</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Clase de gasto *</label>
+              <select id="factura-subir-clase" class="inp" onchange="onClaseFacturaCambiada(this.value)">
+                <option value="Proveedor">🔧 Proveedor / Reparación</option>
+                <option value="Gasto fijo">⚡ Gasto Fijo / Servicio</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Concepto -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Concepto o Detalle *</label>
+            <input id="factura-subir-concepto" placeholder="Ej: Factura Edenor consorcio, Compra repuestos ferretería..." class="inp">
+          </div>
+
+          <!-- Proveedor / Servicio y Categoría -->
+          <div style="display:grid;grid-template-columns:1.2fr 0.8fr;gap:12px;margin-bottom:14px">
+            <div>
+              <label id="label-subir-proveedor" style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Proveedor o Empresa</label>
+              <input id="factura-subir-proveedor" placeholder="Ej: Edenor, Ferretería El Puente, Otis" class="inp">
+            </div>
+            <div>
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Categoría / Rubro</label>
+              <input id="factura-subir-categoria" placeholder="Ej: Electricidad, Gas, Plomería..." class="inp">
+            </div>
+          </div>
+
+          <!-- Monto y N° Comprobante -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+            <div>
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Importe ($ ARS / USD)</label>
+              <input id="factura-subir-monto" placeholder="Ej: 35000 (o vacío)" class="inp">
+            </div>
+            <div>
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">N° Factura / Ticket</label>
+              <input id="factura-subir-numero" placeholder="Ej: B-0001-00049214" class="inp">
+            </div>
+          </div>
+
+          <!-- Origen / Quién lo cargó -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Cargado por</label>
+            <select id="factura-subir-origen" class="inp">
+              <option value="Administrador" selected>👔 Administrador</option>
+              <option value="Encargado">👷 Encargado</option>
+              <option value="Consejo">👥 Consejo de Propietarios</option>
+              <option value="Proveedor">🔧 Proveedor</option>
+            </select>
+          </div>
+        </div>
+        <div style="padding:14px 24px;border-top:1px solid #EEF1F6;display:flex;justify-content:flex-end;gap:10px;background:#FAFCFF">
+          <button type="button" onclick="cerrarModal('modal-subir-documento')" style="height:38px;padding:0 16px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Cancelar</button>
+          <button type="button" id="btn-subir-factura-enviar" onclick="subirFacturaSubmit()" style="height:38px;padding:0 18px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:13px;cursor:pointer" class="hv-primary">📤 Subir Comprobante</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
 
 /* ===================================================================
  * EXPENSAS (cliente)
