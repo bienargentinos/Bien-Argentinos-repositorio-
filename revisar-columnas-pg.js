@@ -23,12 +23,23 @@
 
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
-const { pool } = require('./db-pg');
+const { pool, initPgSchema } = require('./db-pg');
 
 const soloEsta = (process.argv[2] || '').trim().toLowerCase();
 
 (async () => {
     try {
+        // > [!CAUTION]
+        // > **Hay que ESPERAR a que el esquema termine de aplicarse antes de leerlo.**
+        //
+        // `require('./db-pg')` dispara `initPgSchema()` al cargarse, y esa función redefine las
+        // restricciones con `DROP` + `ADD`. Sin este `await`, la consulta llegaba en el medio: las
+        // constraints aparecían con la definición en `null` --el instante exacto en que estaban
+        // borradas y todavía no recreadas-- y el informe decía que faltaban cuando estaban bien.
+        //
+        // Un verificador que informa mal es peor que no tener verificador: manda a arreglar algo
+        // que no está roto.
+        if (typeof initPgSchema === 'function') await initPgSchema();
         const tablas = await pool.query(`
             SELECT table_name FROM information_schema.tables
             WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
