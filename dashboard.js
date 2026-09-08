@@ -118,14 +118,44 @@ const TAB_VECINOS = process.env.SHEET_TAB_VECINOS || 'vecinos';
 const TAB_SUSCRIPCIONES_PLANES = process.env.SHEET_TAB_SUSCRIPCIONES_PLANES || 'suscripciones_planes';
 const TAB_SUSCRIPCIONES_BANCO = process.env.SHEET_TAB_SUSCRIPCIONES_BANCO || 'suscripciones_banco';
 
+function desarmarNotacionCientifica(val) {
+  if (!val) return '';
+  let str = String(val).trim();
+  if (/^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(str)) {
+    try {
+      const num = Number(str);
+      if (!isNaN(num) && isFinite(num)) {
+        str = BigInt(Math.round(num)).toString();
+      }
+    } catch (_) {}
+  }
+  return str;
+}
+
+function normalizarTelefonoParaGuardar(tel) {
+  if (!tel) return '';
+  let s = desarmarNotacionCientifica(tel);
+  s = s.replace(/[\s\-\(\)]/g, '');
+  if (/^54\d{8,13}$/.test(s)) {
+    s = '+' + s;
+  } else if (/^15\d{8}$/.test(s)) {
+    s = '+54911' + s.slice(2);
+  } else if (/^11\d{8}$/.test(s)) {
+    s = '+54911' + s.slice(2);
+  }
+  return s;
+}
+
 function mapVecino(r) {
+  const rawTel = r.telefono || r.tel || '';
+  const cleanTel = desarmarNotacionCientifica(rawTel);
   return {
     _row: r._row,
     nombre: r.nombre || '',
     edificio: r.edificio || '',
     unidad: r.unidad || r.departamento || r.depto || '',
     departamento: r.departamento || r.unidad || r.depto || '',
-    telefono: r.telefono || r.tel || '',
+    telefono: cleanTel,
     email: r.email || r.mail || '',
     notas: r.notas || r.observaciones || '',
     estado: r.estado || 'activo',
@@ -581,28 +611,204 @@ const PRIORIDADES = [
   { key: 'segunda_urgencia', label: '2da Opción + Urgencias', bg: '#FEF3C7', fg: '#92400E' },
 ];
 
-// Serializa/parsea el horario del encargado. Guardado como JSON en la celda
-// encargado_horario para poder rearmar los selectores; el bot puede leerlo.
-function parseHorarioEnc(str) {
-  if (!str) return { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
-  try {
-    const o = JSON.parse(str);
-    return {
-      lv1: Array.isArray(o.lv1) ? o.lv1 : ['', ''],
-      lv2: Array.isArray(o.lv2) ? o.lv2 : ['', ''],
-      sab: Array.isArray(o.sab) ? o.sab : ['', ''],
-    };
-  } catch (_) {
-    return { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
-  }
+// Serializa/parsea el horario del personal (encargados, suplentes, limpieza, seguridad).
+// Soporta días específicos, combinaciones cruzadas y multi-turnos (cortados o descansos).
+const DIAS_KEYS = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+const DIAS_NOMBRES = { lun: 'Lun', mar: 'Mar', mie: 'Mié', jue: 'Jue', vie: 'Vie', sab: 'Sáb', dom: 'Dom' };
+
+function padHora(t) {
+  if (!t) return '';
+  const s = String(t).trim().replace(/hs?$/i, '');
+  const m = s.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return s;
+  const h = m[1].padStart(2, '0');
+  const min = m[2] ? m[2].padStart(2, '0') : '00';
+  return h + ':' + min;
 }
+
+function parseHorarioFlexible(str) {
+  if (!str || str === 'Sin horario' || str === '—' || str === 'Sin horario cargado') return [];
+  if (typeof str === 'object' && str !== null) {
+    if (Array.isArray(str)) return str;
+    if (str.lv1 || str.lv2 || str.sab) {
+      const arr = [];
+      if (str.lv1 && str.lv1[0] && str.lv1[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv1[0]), hasta: padHora(str.lv1[1]) });
+      if (str.lv2 && str.lv2[0] && str.lv2[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv2[0]), hasta: padHora(str.lv2[1]) });
+      if (str.sab && str.sab[0] && str.sab[1]) arr.push({ dias: ['sab'], desde: padHora(str.sab[0]), hasta: padHora(str.sab[1]) });
+      return arr;
+    }
+  }
+  const s = String(str).trim();
+  if (s.startsWith('{') || s.startsWith('[')) {
+    try {
+      const obj = JSON.parse(s);
+      return parseHorarioFlexible(obj);
+    } catch (_) {}
+  }
+  const partes = s.split(/[·;\n]+/).map(p => p.trim()).filter(Boolean);
+  const turnos = [];
+  for (const parte of partes) {
+    let dias = [];
+    const pLow = parte.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ');
+
+    if (/todos\s+los\s+dias|toda\s+la\s+semana|diario/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+    } else if (/l-v|lun\s*(?:a|al)\s*vie|lunes\s*(?:a|al)\s*viernes/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    } else if (/l-s|lun\s*(?:a|al)\s*sab|lunes\s*(?:a|al)\s*sabado/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab'];
+    } else if (/sab\s*y\s*dom|fines\s*de\s*semana/.test(pLow)) {
+      dias = ['sab', 'dom'];
+    } else {
+      if (/\blun(?:es)?\b/.test(pLow)) dias.push('lun');
+      if (/\bmar(?:tes)?\b/.test(pLow)) dias.push('mar');
+      if (/\bmie(?:rcoles)?\b/.test(pLow)) dias.push('mie');
+      if (/\bjue(?:ves)?\b/.test(pLow)) dias.push('jue');
+      if (/\bvie(?:rnes)?\b/.test(pLow)) dias.push('vie');
+      if (/\bsab(?:ado)?\b/.test(pLow)) dias.push('sab');
+      if (/\bdom(?:ingo)?\b/.test(pLow)) dias.push('dom');
+    }
+    if (dias.length === 0) {
+      if (/\bsab(?:ado)?\b/.test(pLow)) dias = ['sab'];
+      else if (/\bdom(?:ingo)?\b/.test(pLow)) dias = ['dom'];
+      else dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    }
+    const regexHoras = /(\d{1,2}(?::\d{2})?)\s*(?:hs?)?\s*(?:-|–|—|a|hasta)\s*(\d{1,2}(?::\d{2})?)\s*(?:hs?)?/gi;
+    let match;
+    let encontroHora = false;
+    while ((match = regexHoras.exec(parte)) !== null) {
+      encontroHora = true;
+      const d = padHora(match[1]);
+      const h = padHora(match[2]);
+      if (d && h) {
+        turnos.push({ dias: Array.from(new Set(dias)), desde: d, hasta: h });
+      }
+    }
+    if (!encontroHora) {
+      const mSingle = parte.match(/(\d{1,2}:\d{2})/g);
+      if (mSingle && mSingle.length >= 2) {
+        turnos.push({ dias: Array.from(new Set(dias)), desde: padHora(mSingle[0]), hasta: padHora(mSingle[1]) });
+      }
+    }
+  }
+  return turnos;
+}
+
+function formatearDias(dias) {
+  if (!dias || !dias.length) return 'Lun a Vie';
+  const orden = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  const ordenados = orden.filter(d => dias.includes(d));
+  if (ordenados.length === 7) return 'Todos los días';
+  if (ordenados.length === 6 && !ordenados.includes('dom')) return 'Lun a Sáb';
+  if (ordenados.length === 5 && !ordenados.includes('sab') && !ordenados.includes('dom')) return 'Lun a Vie';
+  if (ordenados.length === 2 && ordenados.includes('sab') && ordenados.includes('dom')) return 'Sáb y Dom';
+  const nombres = ordenados.map(d => DIAS_NOMBRES[d] || d);
+  if (nombres.length === 1) return nombres[0];
+  if (nombres.length === 2) return nombres[0] + ' y ' + nombres[1];
+  return nombres.slice(0, -1).join(', ') + ' y ' + nombres[nombres.length - 1];
+}
+
+function formatearHorarioTurnos(turnos) {
+  if (!turnos || !turnos.length) return 'Sin horario';
+  const validos = turnos.filter(t => t && t.desde && t.hasta && t.dias && t.dias.length > 0);
+  if (!validos.length) return 'Sin horario';
+  return validos.map(t => {
+    const dStr = formatearDias(t.dias);
+    return dStr + ' ' + t.desde + '–' + t.hasta;
+  }).join(' · ');
+}
+
+function parseHorarioEnc(str) {
+  const turnos = parseHorarioFlexible(str);
+  const res = { lv1: ['', ''], lv2: ['', ''], sab: ['', ''], turnos: turnos };
+  for (const t of turnos) {
+    const esSab = t.dias.length === 1 && t.dias[0] === 'sab';
+    const esLv = t.dias.some(d => ['lun','mar','mie','jue','vie'].includes(d));
+    if (esSab && !res.sab[0]) {
+      res.sab = [t.desde, t.hasta];
+    } else if (esLv) {
+      if (!res.lv1[0]) res.lv1 = [t.desde, t.hasta];
+      else if (!res.lv2[0]) res.lv2 = [t.desde, t.hasta];
+    }
+  }
+  return res;
+}
+
 function horarioTexto(str) {
-  const h = parseHorarioEnc(str);
-  const seg = [];
-  if (h.lv1[0] && h.lv1[1]) seg.push(`Lun a Vie ${h.lv1[0]}-${h.lv1[1]}`);
-  if (h.lv2[0] && h.lv2[1]) seg.push(`Lun a Vie ${h.lv2[0]}-${h.lv2[1]}`);
-  if (h.sab[0] && h.sab[1]) seg.push(`Sáb ${h.sab[0]}-${h.sab[1]}`);
-  return seg.join(' · ') || 'Sin horario cargado';
+  const turnos = parseHorarioFlexible(str);
+  return formatearHorarioTurnos(turnos);
+}
+
+function splitStaffItems(rawStr) {
+  if (!rawStr) return [];
+  const s = String(rawStr).trim();
+  const items = [];
+  let current = '';
+  let inBracket = false;
+  let inParen = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '[') inBracket = true;
+    else if (c === ']') inBracket = false;
+    else if (c === '(') inParen = true;
+    else if (c === ')') inParen = false;
+    if ((c === ',' || c === ';' || c === '\n' || c === '\r') && !inBracket && !inParen) {
+      if (current.trim()) items.push(current.trim());
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  if (current.trim()) items.push(current.trim());
+  return items;
+}
+
+function parseStaffList(namesStr, telsStr) {
+  if (!namesStr && !telsStr) return [];
+  const rawNames = splitStaffItems(namesStr);
+  const rawTels = splitStaffItems(telsStr);
+  const res = [];
+
+  for (let i = 0; i < rawNames.length; i++) {
+    let str = rawNames[i];
+    let tel = rawTels[i] || (rawTels.length === 1 ? rawTels[0] : '—');
+    let estado = 'activo';
+    let horario = '';
+
+    const matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
+    if (matchMeta) {
+      if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
+      if (matchMeta[2]) horario = matchMeta[2].trim();
+      str = str.replace(/\[[^\]]*\]/g, '').trim();
+    }
+
+    const matchTel = str.match(/\(([^)]+)\)/);
+    if (matchTel && (!tel || tel === '—')) {
+      tel = matchTel[1].trim();
+      str = str.replace(/\([^)]+\)/g, '').trim();
+    }
+
+    if (/^[\-+0-9\s()]+$/.test(str) && str.replace(/[^0-9]/g, '').length >= 7) {
+      if (!tel || tel === '—') {
+        tel = str;
+        str = '';
+      }
+    }
+
+    str = str.replace(/\[|\]/g, '').trim();
+
+    if (str || tel !== '—') {
+      res.push({
+        nombre: str || 'Personal',
+        tel: tel || '—',
+        estado: estado || 'activo',
+        horario: horario || 'Sin horario'
+      });
+    }
+  }
+  return res;
 }
 
 /* ===================================================================
@@ -950,12 +1156,12 @@ function modalAltaEdificioHtml(eyebrow, clienteUsuario, planesList) {
     </div>`;
   return `
       <div id="modal-edificio" class="modal-overlay" onclick="cerrarModal('modal-edificio')">
-        <div class="modal-box" style="width:560px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="width:560px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">${esc(eyebrow)}</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Alta de consorcio</div>
           </div>
-          <div style="padding:20px 24px;max-height:60vh;overflow-y:auto">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             ${campo('ed-nombre', 'Nombre del consorcio', 'Ej: Av. Corrientes 3000', ' style="margin-bottom:14px"')}
             <div style="display:flex;gap:12px;margin-bottom:14px">
               ${campo('ed-direccion', 'Dirección', 'Calle y número (legal)', ' style="flex:1.5"')}
@@ -985,7 +1191,7 @@ function modalAltaEdificioHtml(eyebrow, clienteUsuario, planesList) {
               ${optionsHtml}
             </select>
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-edificio')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="crearEdificio(this${clienteUsuario ? `,'${escJs(clienteUsuario)}'` : ''})" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Agregar edificio</button>
           </div>
@@ -1158,9 +1364,9 @@ a{color:inherit;text-decoration:none}
 .drawer-panel{display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:#F6F8FB;overflow-y:auto;z-index:61}
 .drawer-panel.open{display:block;animation:mSlideR .28s cubic-bezier(.2,.8,.2,1) both}
 /* modales */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;align-items:center;justify-content:center;padding:20px}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;align-items:center;justify-content:center;padding:20px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
 .modal-overlay.open{display:flex;animation:mFade .2s ease both}
-.modal-box{width:440px;max-width:100%;background:#fff;border-radius:18px;overflow:hidden;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5)}
+.modal-box{width:440px;max-width:100%;max-height:calc(100vh - 40px);background:#fff;border-radius:18px;overflow:hidden;display:flex;flex-direction:column;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5);margin:auto}
 /* inputs (style-focus del prototipo) */
 .inp{width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;color:#16233B;outline:none;background:#F8FAFD}
 .inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)}
@@ -1283,6 +1489,33 @@ textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-
   button, .inp, select, a.hv-selbtn { min-height: 40px; }
 }
 
+.staff-dia-btn {
+  height: 32px;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid #DCE4F0;
+  background: #F8FAFD;
+  color: #64748B;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s ease;
+}
+.staff-dia-btn:hover {
+  border-color: #2E6FC0;
+  color: #2E6FC0;
+}
+.staff-dia-btn.active {
+  border: 1.5px solid #2E6FC0 !important;
+  background: #2E6FC0 !important;
+  color: #FFFFFF !important;
+  font-weight: 800 !important;
+}
+
 /* Modo Oscuro / Dark Theme (High-Contrast & Ultra-Legible) */
 html.dark-theme, body.dark-theme {
   background: #0B132B !important;
@@ -1380,6 +1613,20 @@ html.dark-theme, body.dark-theme {
   background: #1C2B4E !important;
   border-color: #2A3A5E !important;
   color: #F1F5F9 !important;
+}
+.dark-theme .staff-dia-btn {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #94A3B8 !important;
+}
+.dark-theme .staff-dia-btn:hover {
+  border-color: #60A5FA !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .staff-dia-btn.active {
+  background: #2563EB !important;
+  border-color: #60A5FA !important;
+  color: #FFFFFF !important;
 }
 .dark-theme span[style*="color:#0F326A"],
 .dark-theme span[style*="color: #0F326A"],
@@ -5775,22 +6022,126 @@ async function guardarAsignacionAdmin(btn) {
 }
 
 // --- gestión multi-personal (encargados, suplentes, seguridad) ---
+var DIAS_KEYS_CLIENT = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+var DIAS_NOMBRES_CLIENT = { lun: 'Lun', mar: 'Mar', mie: 'Mié', jue: 'Jue', vie: 'Vie', sab: 'Sáb', dom: 'Dom' };
+
+function padHora(t) {
+  if (!t) return '';
+  var s = String(t).trim().replace(/hs?$/i, '');
+  var m = s.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return s;
+  var h = m[1].length === 1 ? '0' + m[1] : m[1];
+  var min = m[2] ? (m[2].length === 1 ? '0' + m[2] : m[2]) : '00';
+  return h + ':' + min;
+}
+
+function parseHorarioFlexible(str) {
+  if (!str || str === 'Sin horario' || str === '—' || str === 'Sin horario cargado') return [];
+  if (typeof str === 'object' && str !== null) {
+    if (Array.isArray(str)) return str;
+    if (str.lv1 || str.lv2 || str.sab) {
+      var arr = [];
+      if (str.lv1 && str.lv1[0] && str.lv1[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv1[0]), hasta: padHora(str.lv1[1]) });
+      if (str.lv2 && str.lv2[0] && str.lv2[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv2[0]), hasta: padHora(str.lv2[1]) });
+      if (str.sab && str.sab[0] && str.sab[1]) arr.push({ dias: ['sab'], desde: padHora(str.sab[0]), hasta: padHora(str.sab[1]) });
+      return arr;
+    }
+  }
+  var s = String(str).trim();
+  if (s.indexOf('{') === 0 || s.indexOf('[') === 0) {
+    try {
+      var obj = JSON.parse(s);
+      return parseHorarioFlexible(obj);
+    } catch (_) {}
+  }
+  var splitRx = new RegExp('[·;\\n]+');
+  var partes = s.split(splitRx).map(function(p){ return p.trim(); }).filter(Boolean);
+  var turnos = [];
+  for (var pi = 0; pi < partes.length; pi++) {
+    var parte = partes[pi];
+    var dias = [];
+    var pLow = parte.toLowerCase();
+
+    if (/todos\s+los\s+dias|toda\s+la\s+semana|diario/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+    } else if (/l-v|lun\s*(?:a|al)\s*vie|lunes\s*(?:a|al)\s*viernes/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    } else if (/l-s|lun\s*(?:a|al)\s*sab|lunes\s*(?:a|al)\s*sabado/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab'];
+    } else if (/sab\s*y\s*dom|fines\s*de\s*semana/.test(pLow)) {
+      dias = ['sab', 'dom'];
+    } else {
+      if (/\blun(?:es)?\b/.test(pLow)) dias.push('lun');
+      if (/\bmar(?:tes)?\b/.test(pLow)) dias.push('mar');
+      if (/\bmi[eé](?:rcoles)?\b/.test(pLow)) dias.push('mie');
+      if (/\bjue(?:ves)?\b/.test(pLow)) dias.push('jue');
+      if (/\bvie(?:rnes)?\b/.test(pLow)) dias.push('vie');
+      if (/\bs[aá]b(?:ado)?\b/.test(pLow)) dias.push('sab');
+      if (/\bdom(?:ingo)?\b/.test(pLow)) dias.push('dom');
+    }
+    if (dias.length === 0) {
+      if (/\bs[aá]b(?:ado)?\b/.test(pLow)) dias = ['sab'];
+      else if (/\bdom(?:ingo)?\b/.test(pLow)) dias = ['dom'];
+      else dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    }
+    var regexHoras = /(\d{1,2}(?::\d{2})?)\s*(?:hs?)?\s*(?:-|–|—|a|hasta)\s*(\d{1,2}(?::\d{2})?)\s*(?:hs?)?/gi;
+    var match;
+    var encontroHora = false;
+    while ((match = regexHoras.exec(parte)) !== null) {
+      encontroHora = true;
+      var d = padHora(match[1]);
+      var h = padHora(match[2]);
+      if (d && h) {
+        var uniqDias = [];
+        for (var di = 0; di < dias.length; di++) {
+          if (uniqDias.indexOf(dias[di]) === -1) uniqDias.push(dias[di]);
+        }
+        turnos.push({ dias: uniqDias, desde: d, hasta: h });
+      }
+    }
+    if (!encontroHora) {
+      var mSingle = parte.match(/(\d{1,2}:\d{2})/g);
+      if (mSingle && mSingle.length >= 2) {
+        var uniqDiasSingle = [];
+        for (var di2 = 0; di2 < dias.length; di2++) {
+          if (uniqDiasSingle.indexOf(dias[di2]) === -1) uniqDiasSingle.push(dias[di2]);
+        }
+        turnos.push({ dias: uniqDiasSingle, desde: padHora(mSingle[0]), hasta: padHora(mSingle[1]) });
+      }
+    }
+  }
+  return turnos;
+}
+
+function formatearDiasClient(dias) {
+  if (!dias || !dias.length) return 'Lun a Vie';
+  var orden = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  var ordenados = orden.filter(function(d){ return dias.indexOf(d) !== -1; });
+  if (ordenados.length === 7) return 'Todos los días';
+  if (ordenados.length === 6 && ordenados.indexOf('dom') === -1) return 'Lun a Sáb';
+  if (ordenados.length === 5 && ordenados.indexOf('sab') === -1 && ordenados.indexOf('dom') === -1) return 'Lun a Vie';
+  if (ordenados.length === 2 && ordenados.indexOf('sab') !== -1 && ordenados.indexOf('dom') !== -1) return 'Sáb y Dom';
+  var nombres = ordenados.map(function(d){ return DIAS_NOMBRES_CLIENT[d] || d; });
+  if (nombres.length === 1) return nombres[0];
+  if (nombres.length === 2) return nombres[0] + ' y ' + nombres[1];
+  return nombres.slice(0, -1).join(', ') + ' y ' + nombres[nombres.length - 1];
+}
+
+function formatearHorarioTurnos(turnos) {
+  if (!turnos || !turnos.length) return 'Sin horario';
+  var validos = turnos.filter(function(t){ return t && t.desde && t.hasta && t.dias && t.dias.length > 0; });
+  if (!validos.length) return 'Sin horario';
+  return validos.map(function(t){
+    var dStr = formatearDiasClient(t.dias);
+    return dStr + ' ' + t.desde + '–' + t.hasta;
+  }).join(' · ');
+}
+
 function formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb) {
   var partes = [];
-  function padTime(t) {
-    if (!t) return '';
-    var p = t.trim().split(':');
-    if (p.length === 2) {
-      var h = p[0].length === 1 ? '0' + p[0] : p[0];
-      var m = p[1].length === 1 ? '0' + p[1] : p[1];
-      return h + ':' + m;
-    }
-    return t.trim();
-  }
-  var l1a = padTime(lv1a), l1b = padTime(lv1b);
-  var l2a = padTime(lv2a), l2b = padTime(lv2b);
-  var sa = padTime(saba), sb = padTime(sabb);
-
+  var l1a = padHora(lv1a), l1b = padHora(lv1b);
+  var l2a = padHora(lv2a), l2b = padHora(lv2b);
+  var sa = padHora(saba), sb = padHora(sabb);
   if (l1a && l1b) partes.push('L-V ' + l1a + '-' + l1b);
   if (l2a && l2b) partes.push('L-V ' + l2a + '-' + l2b);
   if (sa && sb) partes.push('Sáb ' + sa + '-' + sb);
@@ -5800,52 +6151,48 @@ function formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb) {
 function parseHorario3Lineas(str) {
   var res = { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
   if (!str || str === 'Sin horario') return res;
-
-  function padTime(t) {
-    if (!t) return '';
-    var p = t.trim().split(':');
-    if (p.length === 2) {
-      var h = p[0].length === 1 ? '0' + p[0] : p[0];
-      var m = p[1].length === 1 ? '0' + p[1] : p[1];
-      return h + ':' + m;
+  var turnos = parseHorarioFlexible(str);
+  for (var i = 0; i < turnos.length; i++) {
+    var t = turnos[i];
+    var esSab = t.dias.length === 1 && t.dias[0] === 'sab';
+    var esLv = t.dias.some(function(d){ return ['lun','mar','mie','jue','vie'].indexOf(d) !== -1; });
+    if (esSab && !res.sab[0]) {
+      res.sab = [t.desde, t.hasta];
+    } else if (esLv) {
+      if (!res.lv1[0]) res.lv1 = [t.desde, t.hasta];
+      else if (!res.lv2[0]) res.lv2 = [t.desde, t.hasta];
     }
-    return t.trim();
   }
-
-  var partes = String(str).split(new RegExp('[·\\n,]', 'g')).map(function(s){ return s.trim(); }).filter(Boolean);
-  partes.forEach(function(p) {
-    var matchLv = p.match(/(?:L-V|Lun|Viernes|Lunes)\s*([0-9]{1,2}:[0-9]{2})\s*(?:[-–—]|a|hasta)\s*([0-9]{1,2}:[0-9]{2})/i);
-    if (matchLv) {
-      var t1 = padTime(matchLv[1]);
-      var t2 = padTime(matchLv[2]);
-      if (!res.lv1[0]) { res.lv1 = [t1, t2]; }
-      else { res.lv2 = [t1, t2]; }
-      return;
-    }
-    var matchSab = p.match(/(?:Sáb|Sabado|Sábado)\s*([0-9]{1,2}:[0-9]{2})\s*(?:[-–—]|a|hasta)\s*([0-9]{1,2}:[0-9]{2})/i);
-    if (matchSab) {
-      res.sab = [padTime(matchSab[1]), padTime(matchSab[2])];
-      return;
-    }
-    var matchTimes = p.match(/([0-9]{1,2}:[0-9]{2})\s*(?:[-–—]|a|hasta)\s*([0-9]{1,2}:[0-9]{2})/i);
-    if (matchTimes) {
-      var t1f = padTime(matchTimes[1]);
-      var t2f = padTime(matchTimes[2]);
-      if (!res.lv1[0]) { res.lv1 = [t1f, t2f]; }
-      else if (!res.lv2[0]) { res.lv2 = [t1f, t2f]; }
-      else { res.sab = [t1f, t2f]; }
-    }
-  });
   return res;
+}
+
+function splitStaffItems(rawStr) {
+  if (!rawStr) return [];
+  var s = String(rawStr).trim();
+  var items = [];
+  var current = '';
+  var inBracket = false;
+  var inParen = false;
+  for (var i = 0; i < s.length; i++) {
+    var c = s[i];
+    if (c === '[') inBracket = true;
+    else if (c === ']') inBracket = false;
+    var isSep = (c === ',' || c === ';' || c === String.fromCharCode(10) || c === String.fromCharCode(13));
+    if (isSep && !inBracket && !inParen) {
+      if (current.trim()) items.push(current.trim());
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  if (current.trim()) items.push(current.trim());
+  return items;
 }
 
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
-
-  var nlChars = String.fromCharCode(10) + String.fromCharCode(13);
-  var staffSplitRegex = new RegExp('[,;' + nlChars + ']+');
-  var rawNames = String(namesStr || '').split(staffSplitRegex).map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(staffSplitRegex).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawNames = splitStaffItems(namesStr);
+  var rawTels = splitStaffItems(telsStr);
   var res = [];
 
   for (var i = 0; i < rawNames.length; i++) {
@@ -5854,7 +6201,6 @@ function parseStaffClient(namesStr, telsStr) {
     var estado = 'activo';
     var horario = '';
 
-    // Extract bracket metadata: e.g. "Juan Perez [activo | L-V 8-16]"
     var openB = str.indexOf('[');
     var closeB = str.indexOf(']', openB);
     if (openB !== -1 && closeB > openB) {
@@ -5874,7 +6220,6 @@ function parseStaffClient(namesStr, telsStr) {
       }
     }
 
-    // Extract phone in parentheses: e.g. "Juan Perez (1167350436)"
     var openP = str.indexOf('(');
     var closeP = str.indexOf(')', openP);
     if (openP !== -1 && closeP > openP) {
@@ -5885,7 +6230,6 @@ function parseStaffClient(namesStr, telsStr) {
       str = (str.substring(0, openP) + ' ' + str.substring(closeP + 1)).trim();
     }
 
-    // If str is a pure phone number e.g. "1167350436" or "+5411...", assign to tel
     if (/^[\-+0-9\s()]+$/.test(str) && str.replace(/[^0-9]/g, '').length >= 7) {
       if (!tel || tel === '—') {
         tel = str;
@@ -5893,7 +6237,6 @@ function parseStaffClient(namesStr, telsStr) {
       }
     }
 
-    // Clean leftover brackets or parentheses if any
     str = str.replace(/[\[\]\(\)]/g, '').trim();
 
     if (str || tel !== '—') {
@@ -5906,6 +6249,155 @@ function parseStaffClient(namesStr, telsStr) {
     }
   }
   return res;
+}
+
+window._staffTurnos = [];
+
+function toggleDiaStaffTurnoBtn(btn) {
+  var card = btn.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  var dia = btn.getAttribute('data-dia') || '';
+  toggleDiaStaffTurno(idx, dia);
+}
+
+function setPresetDiasStaffTurnoBtn(btn) {
+  var card = btn.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  var preset = btn.getAttribute('data-preset') || '';
+  setPresetDiasStaffTurno(idx, preset);
+}
+
+function eliminarStaffTurnoBtn(btn) {
+  var card = btn.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  eliminarStaffTurno(idx);
+}
+
+function actualizarHoraStaffTurnoInput(inp) {
+  var card = inp.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  var field = inp.getAttribute('data-field') || 'desde';
+  actualizarHoraStaffTurno(idx, field, inp.value);
+}
+
+function renderStaffTurnos() {
+  var container = document.getElementById('staff-turnos-container');
+  if (!container) return;
+
+  if (!window._staffTurnos || !window._staffTurnos.length) {
+    window._staffTurnos = [{ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '08:00', hasta: '12:00' }];
+  }
+
+  var diasOrder = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  var diasNombres = { lun: 'Lun', mar: 'Mar', mie: 'Mié', jue: 'Jue', vie: 'Vie', sab: 'Sáb', dom: 'Dom' };
+
+  var html = window._staffTurnos.map(function(t, idx) {
+    var diasActuales = t.dias || [];
+
+    var btnsDias = diasOrder.map(function(d) {
+      var sel = diasActuales.indexOf(d) !== -1;
+      var cls = sel ? 'staff-dia-btn active' : 'staff-dia-btn';
+      return '<button type="button" class="' + cls + '" data-dia="' + d + '" onclick="toggleDiaStaffTurnoBtn(this)">' + diasNombres[d] + '</button>';
+    }).join('');
+
+    var btnQuitar = (window._staffTurnos.length > 1)
+      ? '<button type="button" onclick="eliminarStaffTurnoBtn(this)" style="font-size:12px;font-weight:700;color:#EF4444;background:none;border:none;cursor:pointer;padding:2px 6px;display:inline-flex;align-items:center;gap:3px" class="hv-red" title="Eliminar este turno">🗑️ Quitar</button>'
+      : '';
+
+    return '<div class="staff-turno-card" data-idx="' + idx + '" style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px;box-shadow:0 1px 3px rgba(0,0,0,0.03)">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap">' +
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+          '<span style="font-size:12px;font-weight:800;background:#EAF1FB;color:#2E6FC0;padding:3px 8px;border-radius:6px">Turno ' + (idx + 1) + '</span>' +
+          '<div style="display:flex;gap:4px;flex-wrap:wrap">' +
+            '<button type="button" data-preset="lv" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Lun-Vie</button>' +
+            '<button type="button" data-preset="ls" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Lun-Sáb</button>' +
+            '<button type="button" data-preset="sab" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Sáb</button>' +
+            '<button type="button" data-preset="todos" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Todos</button>' +
+          '</div>' +
+        '</div>' +
+        btnQuitar +
+      '</div>' +
+      '<div style="margin-bottom:10px">' +
+        '<div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">Días que asiste / atiende:</div>' +
+        '<div style="display:flex;gap:5px;flex-wrap:wrap">' + btnsDias + '</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<span style="font-size:12.5px;font-weight:700;color:#475569">Desde:</span>' +
+          '<input type="time" class="inp" data-field="desde" value="' + (t.desde || '') + '" onchange="actualizarHoraStaffTurnoInput(this)" style="height:36px;width:115px;font-size:13.5px;font-weight:700;padding:4px 8px">' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<span style="font-size:12.5px;font-weight:700;color:#475569">Hasta:</span>' +
+          '<input type="time" class="inp" data-field="hasta" value="' + (t.hasta || '') + '" onchange="actualizarHoraStaffTurnoInput(this)" style="height:36px;width:115px;font-size:13.5px;font-weight:700;padding:4px 8px">' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  container.innerHTML = html;
+  actualizarVistaPreviaHorarios();
+}
+
+function agregarStaffTurno() {
+  if (!window._staffTurnos) window._staffTurnos = [];
+  window._staffTurnos.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '', hasta: '' });
+  renderStaffTurnos();
+}
+
+function eliminarStaffTurno(idx) {
+  if (!window._staffTurnos) return;
+  if (idx >= 0 && idx < window._staffTurnos.length) {
+    window._staffTurnos.splice(idx, 1);
+  }
+  if (!window._staffTurnos.length) {
+    window._staffTurnos.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '', hasta: '' });
+  }
+  renderStaffTurnos();
+}
+
+function toggleDiaStaffTurno(idx, diaKey) {
+  if (!window._staffTurnos || !window._staffTurnos[idx]) return;
+  var dias = window._staffTurnos[idx].dias || [];
+  var pos = dias.indexOf(diaKey);
+  if (pos !== -1) {
+    dias.splice(pos, 1);
+  } else {
+    dias.push(diaKey);
+  }
+  window._staffTurnos[idx].dias = dias;
+  renderStaffTurnos();
+}
+
+function setPresetDiasStaffTurno(idx, preset) {
+  if (!window._staffTurnos || !window._staffTurnos[idx]) return;
+  if (preset === 'lv') {
+    window._staffTurnos[idx].dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+  } else if (preset === 'ls') {
+    window._staffTurnos[idx].dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab'];
+  } else if (preset === 'sab') {
+    window._staffTurnos[idx].dias = ['sab'];
+  } else if (preset === 'todos') {
+    window._staffTurnos[idx].dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  }
+  renderStaffTurnos();
+}
+
+function actualizarHoraStaffTurno(idx, field, val) {
+  if (!window._staffTurnos || !window._staffTurnos[idx]) return;
+  window._staffTurnos[idx][field] = val || '';
+  actualizarVistaPreviaHorarios();
+}
+
+function actualizarVistaPreviaHorarios() {
+  var prevTxt = document.getElementById('staff-horario-preview-txt');
+  if (!prevTxt) return;
+  var turnos = window._staffTurnos || [];
+  var txt = formatearHorarioTurnos(turnos);
+  prevTxt.textContent = txt;
 }
 
 function abrirModalStaffItem(fieldKey, idx, edNombre) {
@@ -5956,39 +6448,24 @@ function abrirModalStaffItem(fieldKey, idx, edNombre) {
 
   var items = parseStaffClient(namesStr, telsStr);
 
-  var lv1a = document.getElementById('staff-inp-lv1a');
-  var lv1b = document.getElementById('staff-inp-lv1b');
-  var lv2a = document.getElementById('staff-inp-lv2a');
-  var lv2b = document.getElementById('staff-inp-lv2b');
-  var saba = document.getElementById('staff-inp-saba');
-  var sabb = document.getElementById('staff-inp-sabb');
-
   if (idx >= 0 && items[idx]) {
     if (titleEl) titleEl.textContent = '✏️ Editar ' + labelTipo;
     inputNombre.value = items[idx].nombre;
     inputTel.value = items[idx].tel !== '—' ? items[idx].tel : '';
     if (inputEstado) inputEstado.value = items[idx].estado || 'activo';
-
-    var horParsed = parseHorario3Lineas(items[idx].horario);
-    if (lv1a) lv1a.value = horParsed.lv1[0] || '';
-    if (lv1b) lv1b.value = horParsed.lv1[1] || '';
-    if (lv2a) lv2a.value = horParsed.lv2[0] || '';
-    if (lv2b) lv2b.value = horParsed.lv2[1] || '';
-    if (saba) saba.value = horParsed.sab[0] || '';
-    if (sabb) sabb.value = horParsed.sab[1] || '';
+    window._staffTurnos = parseHorarioFlexible(items[idx].horario);
+    if (!window._staffTurnos.length) {
+      window._staffTurnos = [{ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '', hasta: '' }];
+    }
   } else {
     if (titleEl) titleEl.textContent = '➕ Añadir ' + labelTipo;
     inputNombre.value = '';
     inputTel.value = '';
     if (inputEstado) inputEstado.value = 'activo';
-    if (lv1a) lv1a.value = '';
-    if (lv1b) lv1b.value = '';
-    if (lv2a) lv2a.value = '';
-    if (lv2b) lv2b.value = '';
-    if (saba) saba.value = '';
-    if (sabb) sabb.value = '';
+    window._staffTurnos = [{ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '08:00', hasta: '12:00' }];
   }
 
+  renderStaffTurnos();
   abrirModal('modal-staff-edit');
 }
 
@@ -6000,14 +6477,7 @@ async function guardarStaffItem(btn) {
   var tel = (document.getElementById('staff-inp-tel') || {}).value || '';
   var estado = (document.getElementById('staff-inp-estado') || {}).value || 'activo';
 
-  var lv1a = (document.getElementById('staff-inp-lv1a') || {}).value || '';
-  var lv1b = (document.getElementById('staff-inp-lv1b') || {}).value || '';
-  var lv2a = (document.getElementById('staff-inp-lv2a') || {}).value || '';
-  var lv2b = (document.getElementById('staff-inp-lv2b') || {}).value || '';
-  var saba = (document.getElementById('staff-inp-saba') || {}).value || '';
-  var sabb = (document.getElementById('staff-inp-sabb') || {}).value || '';
-
-  var horario = formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb);
+  var horario = formatearHorarioTurnos(window._staffTurnos || []);
 
   if (!nombre.trim() && !tel.trim()) {
     toast('Ingresá al menos el nombre o teléfono', 'err');
@@ -6643,6 +7113,20 @@ window.addEventListener('DOMContentLoaded', function() {
   }
 });
 
+function desarmarCientificaClient(val) {
+  if (!val) return '';
+  var s = String(val).trim();
+  if (/^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s)) {
+    try {
+      var n = Number(s);
+      if (!isNaN(n) && isFinite(n)) {
+        return BigInt(Math.round(n)).toString();
+      }
+    } catch (_) {}
+  }
+  return s;
+}
+
 function abrirModalVecinoNuevo(edificio) {
   var elEd = document.getElementById('vec-edificio');
   if (elEd) elEd.value = edificio || '';
@@ -6666,7 +7150,7 @@ function abrirEditarVecino(row, nombre, unidad, tel, email, notas) {
   var elUni = document.getElementById('edit-vec-unidad');
   if (elUni) elUni.value = unidad || '';
   var elTel = document.getElementById('edit-vec-tel');
-  if (elTel) elTel.value = tel || '';
+  if (elTel) elTel.value = desarmarCientificaClient(tel || '');
   var elEmail = document.getElementById('edit-vec-email');
   if (elEmail) elEmail.value = email || '';
   var elNotas = document.getElementById('edit-vec-notas');
@@ -6700,7 +7184,7 @@ async function guardarVecinoNuevo(btn) {
   var elUni = document.getElementById('vec-unidad');
   var unidad = elUni ? elUni.value.trim() : '';
   var elTel = document.getElementById('vec-tel');
-  var telefono = elTel ? elTel.value.trim() : '';
+  var telefono = elTel ? desarmarCientificaClient(elTel.value.trim()) : '';
   var elEmail = document.getElementById('vec-email');
   var email = elEmail ? elEmail.value.trim() : '';
   var elNotas = document.getElementById('vec-notas');
@@ -6742,7 +7226,7 @@ async function guardarEditarVecino(btn) {
   var elUni = document.getElementById('edit-vec-unidad');
   var unidad = elUni ? elUni.value.trim() : '';
   var elTel = document.getElementById('edit-vec-tel');
-  var telefono = elTel ? elTel.value.trim() : '';
+  var telefono = elTel ? desarmarCientificaClient(elTel.value.trim()) : '';
   var elEmail = document.getElementById('edit-vec-email');
   var email = elEmail ? elEmail.value.trim() : '';
   var elNotas = document.getElementById('edit-vec-notas');
@@ -6883,11 +7367,12 @@ function procesarTextoVecinosImportar(rawText) {
 
     partes.forEach(function(p) {
       if (!p) return;
-      var cleanDigits = p.replace(/[^0-9]/g, '');
+      var cleanP = desarmarCientificaClient(p);
+      var cleanDigits = cleanP.replace(/[^0-9]/g, '');
       if (p.indexOf('@') !== -1) {
         emailsDetectados.push(p);
-      } else if (cleanDigits.length >= 7 && p.length <= 25) {
-        telsDetectados.push(p);
+      } else if (cleanDigits.length >= 7 && (cleanP.length <= 25 || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(p))) {
+        telsDetectados.push(cleanP);
       } else if (!deptoDetectado && p.length <= 8 && (cleanDigits.length > 0 || p.toUpperCase() === 'PB')) {
         deptoDetectado = p;
       } else {
@@ -6896,7 +7381,7 @@ function procesarTextoVecinosImportar(rawText) {
     });
 
     if (emailsDetectados.length) email = emailsDetectados[0];
-    if (telsDetectados.length) telefono = telsDetectados[0];
+    if (telsDetectados.length) telefono = desarmarCientificaClient(telsDetectados[0]);
 
     if (deptoDetectado) {
       unidad = deptoDetectado;
@@ -8670,56 +9155,6 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
-    function parseStaffList(namesStr, telsStr) {
-      if (!namesStr && !telsStr) return [];
-      const rawNames = String(namesStr || '').split(/,|\n|;/).map(s => s.trim()).filter(Boolean);
-      const rawTels = String(telsStr || '').split(/,|\n|;/).map(s => s.trim()).filter(Boolean);
-      const res = [];
-
-      for (let i = 0; i < rawNames.length; i++) {
-        let str = rawNames[i];
-        let tel = rawTels[i] || (rawTels.length === 1 ? rawTels[0] : '—');
-        let estado = 'activo';
-        let horario = '';
-
-        const isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
-        if (isScheduleFragment && res.length > 0) {
-          const cleanHor = str.replace(/\[[^\]]*\]/g, '').replace(/\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
-          if (cleanHor) {
-            res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
-              ? cleanHor
-              : res[res.length - 1].horario + ' · ' + cleanHor;
-          }
-          continue;
-        }
-
-        const matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
-        if (matchMeta) {
-          if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
-          if (matchMeta[2]) horario = matchMeta[2].trim();
-          str = str.replace(/\[[^\]]*\]/g, '').trim();
-        }
-
-        const matchTel = str.match(/\(([^)]+)\)/);
-        if (matchTel && (!tel || tel === '—')) {
-          tel = matchTel[1].trim();
-          str = str.replace(/\([^)]+\)/g, '').trim();
-        }
-
-        str = str.replace(/\[|\]/g, '').trim();
-
-        if (str || tel !== '—') {
-          res.push({
-            nombre: str || 'Personal',
-            tel: tel || '—',
-            estado: estado || 'activo',
-            horario: horario || 'Sin horario'
-          });
-        }
-      }
-      return res;
-    }
-
     function renderStaffCards(namesStr, telsStr, fieldKey, icon, labelTitle, edNombre, edRow) {
       const list = parseStaffList(namesStr, telsStr);
       let html = '';
@@ -8962,6 +9397,32 @@ router.get('/mi-edificio', async (req, res) => {
     try {
       const { rows: vRows } = await readTab(TAB_VECINOS);
       vecinos = vRows.map(mapVecino).filter((v) => cur && compararEdificios(v.edificio, cur.nombre) && v.estado !== 'eliminado');
+      if (cur && cur.nombre && vecinos.length > 0) {
+        (async () => {
+          try {
+            const { pool } = require('./db-pg');
+            if (pool) {
+              for (const v of vecinos) {
+                const dep = v.departamento || v.unidad || '';
+                if (!dep && !v.nombre) continue;
+                const resUpd = await pool.query(
+                  `UPDATE vecinos SET nombre = $1, telefono = $2, email = $3, notas = $4, estado = 'activo'
+                   WHERE (LOWER(edificio) = LOWER($5) OR LOWER(edificio) LIKE LOWER($6))
+                     AND LOWER(departamento) = LOWER($7)`,
+                  [v.nombre || '', v.telefono || '', v.email || '', v.notas || '', cur.nombre, '%' + cur.nombre + '%', dep]
+                );
+                if (resUpd.rowCount === 0) {
+                  await pool.query(
+                    `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+                     VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+                    [cur.nombre, v.nombre || '', dep, v.telefono || '', v.email || '', v.notas || '']
+                  );
+                }
+              }
+            }
+          } catch (_) {}
+        })();
+      }
     } catch (_) {}
 
     const vecinosFilas = vecinos.length ? vecinos.map((v, idx) => {
@@ -9446,12 +9907,12 @@ router.get('/mi-edificio', async (req, res) => {
 
     const modalVecinoNuevoHtml = `
       <div id="modal-vecino-nuevo" class="modal-overlay" onclick="cerrarModal('modal-vecino-nuevo')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Padrón de Vecinos</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">👥 Agregar Vecino</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="vec-edificio">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
             <input id="vec-nombre" class="inp" placeholder="Ej: Lucía Gómez" style="margin-bottom:14px">
@@ -9469,7 +9930,7 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas / Observaciones (opcional)</div>
             <input id="vec-notas" class="inp" placeholder="Ej: Inquilino / Propietario">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-vecino-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarVecinoNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar vecino</button>
           </div>
@@ -9478,12 +9939,12 @@ router.get('/mi-edificio', async (req, res) => {
 
     const modalVecinoEditarHtml = `
       <div id="modal-vecino-editar" class="modal-overlay" onclick="cerrarModal('modal-vecino-editar')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Padrón de Vecinos</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Vecino</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="edit-vec-row">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
             <input id="edit-vec-nombre" class="inp" style="margin-bottom:14px">
@@ -9500,7 +9961,7 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
             <input id="edit-vec-notas" class="inp">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-vecino-editar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarEditarVecino(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
           </div>
@@ -9541,12 +10002,12 @@ router.get('/mi-edificio', async (req, res) => {
 
     const modalConsejoNuevoHtml = `
       <div id="modal-consejo-nuevo" class="modal-overlay" onclick="cerrarModal('modal-consejo-nuevo')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Consejo de Administración</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏛️ Agregar Integrante</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="cons-edificio">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
             <input id="cons-nombre" class="inp" placeholder="Ej: Roberto Gómez" style="margin-bottom:14px">
@@ -9572,7 +10033,7 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas / Observaciones (opcional)</div>
             <input id="cons-notas" class="inp" placeholder="Ej: tiene firma autorizada">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-consejo-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarConsejoNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar integrante</button>
           </div>
@@ -9581,12 +10042,12 @@ router.get('/mi-edificio', async (req, res) => {
 
     const modalConsejoEditarHtml = `
       <div id="modal-consejo-editar" class="modal-overlay" onclick="cerrarModal('modal-consejo-editar')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Consejo de Administración</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Integrante</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="edit-cons-row">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
             <input id="edit-cons-nombre" class="inp" style="margin-bottom:14px">
@@ -9612,7 +10073,7 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
             <input id="edit-cons-notas" class="inp">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-consejo-editar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarEditarConsejo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
           </div>
@@ -9645,33 +10106,22 @@ router.get('/mi-edificio', async (req, res) => {
               <option value="vacaciones">🔵 Vacaciones</option>
             </select>
 
-            <div style="font-size:13px;font-weight:700;color:#16233B;margin-bottom:8px">Horarios de Trabajo / Atención (3 Turnos)</div>
-            <div style="font-size:12px;color:#64748B;margin-bottom:12px">Especificá los rangos horarios exactos para que Marcos IA sepa cuándo está disponible.</div>
+            <div style="font-size:13.5px;font-weight:800;color:#16233B;margin-bottom:4px">🗓️ Días y Franjas Horarias de Atención</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:12px">Configurá los días y turnos exactos (ej: limpieza 2 o 3 veces por semana, turnos cortados con descansos, rotaciones de seguridad, etc.).</div>
 
-            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:12px">
-              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Lun a Vie (1° Turno)</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="time" id="staff-inp-lv1a" class="inp" style="height:40px;width:auto">
-                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
-                <input type="time" id="staff-inp-lv1b" class="inp" style="height:40px;width:auto">
-              </div>
+            <div id="staff-turnos-container" style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px"></div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+              <button type="button" onclick="agregarStaffTurno()" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border:1.5px dashed #2E6FC0;border-radius:10px;background:#F0F6FF;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-blue">
+                <span>➕ Añadir otro turno / franja horaria</span>
+              </button>
             </div>
 
-            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:12px">
-              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Lun a Vie (2° Turno / Cortado - Opcional)</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="time" id="staff-inp-lv2a" class="inp" style="height:40px;width:auto">
-                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
-                <input type="time" id="staff-inp-lv2b" class="inp" style="height:40px;width:auto">
-              </div>
-            </div>
-
-            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:14px">
-              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Sábados (Opcional)</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="time" id="staff-inp-saba" class="inp" style="height:40px;width:auto">
-                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
-                <input type="time" id="staff-inp-sabb" class="inp" style="height:40px;width:auto">
+            <div style="background:#F1F5FB;border:1px solid #DCE5F2;border-radius:10px;padding:10px 14px;font-size:12.5px;color:#334259;display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-size:16px;flex-shrink:0">🕒</span>
+              <div style="min-width:0;flex:1">
+                <span style="font-weight:700;color:#1E293B">Resumen de horarios:</span>
+                <span id="staff-horario-preview-txt" style="font-weight:700;color:#2E6FC0;margin-left:4px">Sin horario</span>
               </div>
             </div>
           </div>
@@ -9813,12 +10263,12 @@ router.get('/proveedores', async (req, res) => {
 
     const modalEditarProveedorHtml = `
       <div id="modal-editar-proveedor" class="modal-overlay" onclick="cerrarModal('modal-editar-proveedor')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Lista Maestra de Proveedores</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Proveedor</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="edit-prov-row">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Rubro / Especialidad</div>
             <select id="edit-prov-rubro" class="inp" style="margin-bottom:14px">${rubroOptions}</select>
@@ -9833,7 +10283,7 @@ router.get('/proveedores', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
             <input id="edit-prov-notas" class="inp" placeholder="Ej: Atiende 24hs">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-editar-proveedor')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarEditarProveedor(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
           </div>
@@ -9844,12 +10294,12 @@ router.get('/proveedores', async (req, res) => {
     // con los dígitos verificadores: un número mal tipeado acá termina en un pago rechazado.
     const modalDatosCobroHtml = `
       <div id="modal-datos-cobro" class="modal-overlay" onclick="cerrarModal('modal-datos-cobro')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Datos de cobro</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏦 <span id="cobro-nombre">Proveedor</span></div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="cobro-row">
 
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">CBU (22 dígitos)</div>
@@ -9870,7 +10320,7 @@ router.get('/proveedores', async (req, res) => {
               había otros cargados, ese cambio queda esperando su aprobación en vez de aplicarse solo.
             </div>
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-datos-cobro')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarDatosCobro(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar</button>
           </div>
@@ -11643,11 +12093,20 @@ async function writeCell(tabName, col, row, value) {
   const rowNum = Number(row) || 1;
   await ensureGridDimensions(tabName, colNum, rowNum).catch(() => {});
   const sheets = await getSheetsClient();
+  let valToSend = value;
+  if (typeof valToSend === 'string' && valToSend.trim()) {
+    const s = valToSend.trim();
+    if (!s.startsWith("'")) {
+      if (/^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s) || /^\+\d{6,}$/.test(s) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(s.replace(/[\s\-]/g, '')))) {
+        valToSend = "'" + desarmarNotacionCientifica(s);
+      }
+    }
+  }
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
     range: `${tabName}!${colStr}${rowNum}`,
     valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [[value]] },
+    requestBody: { values: [[valToSend]] },
   });
 }
 
@@ -11682,11 +12141,22 @@ async function appendRow(tabName, rowData) {
   let existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
   if (existingHeaders.length === 0) {
     const headers = Object.keys(rowData);
+    const rowValues = headers.map((k) => {
+      let val = rowData[k] !== undefined && rowData[k] !== null ? rowData[k] : '';
+      if (typeof val === 'string' && val.trim()) {
+        const s = val.trim();
+        const key = normalizeKey(k);
+        if (!s.startsWith("'") && (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s) || /^\+\d{6,}$/.test(s) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(s.replace(/[\s\-]/g, ''))))) {
+          val = "'" + desarmarNotacionCientifica(s);
+        }
+      }
+      return val;
+    });
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: `${tabName}!A1`,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [headers, headers.map((k) => rowData[k] || '')] },
+      requestBody: { values: [headers, rowValues] },
     });
     return;
   }
@@ -11703,7 +12173,14 @@ async function appendRow(tabName, rowData) {
   const values = existingHeaders.map((h) => {
     const key = normalizeKey(h);
     const match = Object.keys(rowData).find((k) => normalizeKey(k) === key || k === h);
-    return match !== undefined ? rowData[match] : '';
+    let val = match !== undefined && rowData[match] !== null ? rowData[match] : '';
+    if (typeof val === 'string' && val.trim()) {
+      const s = val.trim();
+      if (!s.startsWith("'") && (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s) || /^\+\d{6,}$/.test(s) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(s.replace(/[\s\-]/g, ''))))) {
+        val = "'" + desarmarNotacionCientifica(s);
+      }
+    }
+    return val;
   });
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
@@ -11729,7 +12206,16 @@ async function appendRows(tabName, rowsArray) {
   let existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
   if (existingHeaders.length === 0) {
     const headers = Object.keys(rowsArray[0]);
-    const valuesMatrix = [headers].concat(rowsArray.map((r) => headers.map((k) => (r[k] !== undefined ? String(r[k]) : ''))));
+    const valuesMatrix = [headers].concat(rowsArray.map((r) => headers.map((k) => {
+      let val = r[k] !== undefined && r[k] !== null ? String(r[k]) : '';
+      if (val.trim() && !val.startsWith("'")) {
+        const key = normalizeKey(k);
+        if (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(val) || /^\+\d{6,}$/.test(val) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(val.replace(/[\s\-]/g, '')))) {
+          val = "'" + desarmarNotacionCientifica(val);
+        }
+      }
+      return val;
+    })));
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: `${tabName}!A1`,
@@ -11753,7 +12239,13 @@ async function appendRows(tabName, rowsArray) {
     return existingHeaders.map((h) => {
       const key = normalizeKey(h);
       const match = Object.keys(r).find((k) => normalizeKey(k) === key || k === h);
-      return match !== undefined ? String(r[match]) : '';
+      let val = match !== undefined && r[match] !== null ? String(r[match]) : '';
+      if (val.trim() && !val.startsWith("'")) {
+        if (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(val) || /^\+\d{6,}$/.test(val) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(val.replace(/[\s\-]/g, '')))) {
+          val = "'" + desarmarNotacionCientifica(val);
+        }
+      }
+      return val;
     });
   });
 
@@ -13426,16 +13918,31 @@ router.post('/api/vecino-crear', async (req, res) => {
   try {
     const { edificio, nombre, unidad, telefono, email, notas } = req.body || {};
     if (!edificio) return res.status(400).json({ error: 'Falta edificio' });
+    const cleanTel = normalizarTelefonoParaGuardar(telefono);
     await appendRow(TAB_VECINOS, {
       edificio: edificio || '',
       nombre: nombre || '',
       departamento: unidad || '',
       unidad: unidad || '',
-      telefono: telefono || '',
+      telefono: cleanTel ? ("'" + cleanTel) : '',
       email: email || '',
       notas: notas || '',
       estado: 'activo',
     });
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        await pool.query(
+          `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+           VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+          [edificio || '', nombre || '', unidad || '', cleanTel || '', email || '', notas || '']
+        );
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecino-crear en PostgreSQL:', errPg.message);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -13459,11 +13966,55 @@ router.post('/api/vecino-editar', async (req, res) => {
     if (cEmail.create) await ensureHeader(TAB_VECINOS, cEmail.col, 'email', false);
     if (cNotas.create) await ensureHeader(TAB_VECINOS, cNotas.col, 'notas', false);
 
+    const cleanTel = telefono !== undefined ? normalizarTelefonoParaGuardar(telefono) : undefined;
+
     if (nombre !== undefined) await writeCell(TAB_VECINOS, cNombre.col, Number(row), nombre);
     if (unidad !== undefined) await writeCell(TAB_VECINOS, cUnidad.col, Number(row), unidad);
-    if (telefono !== undefined) await writeCell(TAB_VECINOS, cTel.col, Number(row), telefono);
+    if (cleanTel !== undefined) await writeCell(TAB_VECINOS, cTel.col, Number(row), cleanTel ? ("'" + cleanTel) : '');
     if (email !== undefined) await writeCell(TAB_VECINOS, cEmail.col, Number(row), email);
     if (notas !== undefined) await writeCell(TAB_VECINOS, cNotas.col, Number(row), notas);
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        const { rows: vRows } = await readTab(TAB_VECINOS);
+        const vecinoActual = vRows.find((v) => Number(v._row) === Number(row));
+        if (vecinoActual && vecinoActual.edificio) {
+          const edif = vecinoActual.edificio;
+          const depto = unidad || vecinoActual.departamento || vecinoActual.unidad || '';
+          const resUpd = await pool.query(
+            `UPDATE vecinos SET nombre = COALESCE($1, nombre),
+                               departamento = COALESCE($2, departamento),
+                               telefono = COALESCE($3, telefono),
+                               email = COALESCE($4, email),
+                               notas = COALESCE($5, notas),
+                               estado = 'activo'
+             WHERE (LOWER(edificio) = LOWER($6) OR LOWER(edificio) LIKE LOWER($7))
+               AND (LOWER(departamento) = LOWER($8) OR (telefono IS NOT NULL AND telefono != '' AND telefono = $9))`,
+            [
+              nombre !== undefined ? nombre : null,
+              unidad !== undefined ? unidad : null,
+              cleanTel !== undefined ? cleanTel : null,
+              email !== undefined ? email : null,
+              notas !== undefined ? notas : null,
+              edif,
+              '%' + edif + '%',
+              depto,
+              vecinoActual.telefono || ''
+            ]
+          );
+          if (resUpd.rowCount === 0) {
+            await pool.query(
+              `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+               VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+              [edif, nombre || vecinoActual.nombre || '', depto, cleanTel || vecinoActual.telefono || '', email || vecinoActual.email || '', notas || vecinoActual.notas || '']
+            );
+          }
+        }
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecino-editar en PostgreSQL:', errPg.message);
+    }
 
     res.json({ ok: true });
   } catch (e) {
@@ -13476,9 +14027,32 @@ router.post('/api/vecino-eliminar', async (req, res) => {
   try {
     const { row } = req.body || {};
     if (!row) return res.status(400).json({ error: 'Falta fila' });
+
+    let vecinoActual = null;
+    try {
+      const { rows: vRows } = await readTab(TAB_VECINOS);
+      vecinoActual = vRows.find((v) => Number(v._row) === Number(row));
+    } catch (_) {}
+
     const plan = await findOrPlanColumn(TAB_VECINOS, ['estado']);
     if (plan.create) await ensureHeader(TAB_VECINOS, plan.col, 'estado', false);
     await writeCell(TAB_VECINOS, plan.col, Number(row), 'eliminado');
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool && vecinoActual && vecinoActual.edificio) {
+        const depto = vecinoActual.departamento || vecinoActual.unidad || '';
+        await pool.query(
+          `UPDATE vecinos SET estado = 'eliminado'
+           WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
+             AND (LOWER(departamento) = LOWER($3) OR (telefono IS NOT NULL AND telefono != '' AND telefono = $4))`,
+          [vecinoActual.edificio, '%' + vecinoActual.edificio + '%', depto, vecinoActual.telefono || '']
+        );
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecino-eliminar en PostgreSQL:', errPg.message);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -13494,18 +14068,46 @@ router.post('/api/vecinos-importar-masivo', async (req, res) => {
       return res.status(400).json({ error: 'No se recibieron vecinos para importar' });
     }
 
-    const rows = vecinos.map((v) => ({
-      edificio: edificio || '',
-      nombre: v.nombre || '',
-      departamento: v.unidad || v.departamento || '',
-      unidad: v.unidad || v.departamento || '',
-      telefono: v.telefono || '',
-      email: v.email || '',
-      notas: v.notas || '',
-      estado: 'activo',
-    }));
+    const rows = vecinos.map((v) => {
+      const cleanTel = normalizarTelefonoParaGuardar(v.telefono);
+      return {
+        edificio: edificio || '',
+        nombre: v.nombre || '',
+        departamento: v.unidad || v.departamento || '',
+        unidad: v.unidad || v.departamento || '',
+        telefono: cleanTel ? ("'" + cleanTel) : '',
+        email: v.email || '',
+        notas: v.notas || '',
+        estado: 'activo',
+      };
+    });
 
     await appendRows(TAB_VECINOS, rows);
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        for (const r of rows) {
+          const cleanTel = r.telefono.replace(/^'/, '');
+          const resUpd = await pool.query(
+            `UPDATE vecinos SET nombre = $1, telefono = $2, email = $3, notas = $4, estado = 'activo'
+             WHERE (LOWER(edificio) = LOWER($5) OR LOWER(edificio) LIKE LOWER($6))
+               AND LOWER(departamento) = LOWER($7)`,
+            [r.nombre, cleanTel, r.email, r.notas, edificio, '%' + edificio + '%', r.departamento]
+          );
+          if (resUpd.rowCount === 0) {
+            await pool.query(
+              `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+               VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+              [edificio, r.nombre, r.departamento, cleanTel, r.email, r.notas]
+            );
+          }
+        }
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecinos-importar-masivo en PostgreSQL:', errPg.message);
+    }
+
     res.json({ ok: true, importados: rows.length });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });

@@ -48,6 +48,8 @@ async function _initPgSchema() {
                 contacto_acceso TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            ALTER TABLE vecinos ADD COLUMN IF NOT EXISTS estado VARCHAR(50) DEFAULT 'activo';
+            ALTER TABLE vecinos ADD COLUMN IF NOT EXISTS email VARCHAR(150);
 
             -- Cuando se le mando a cada telefono una nota de voz generada con ElevenLabs. Cada
             -- una cuesta creditos, y el techo de 2 por 24h vivia en la sesion en memoria: con PM2
