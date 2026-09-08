@@ -65,6 +65,25 @@ const uploadAvatarMulter = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
+const storageExpensas = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = path.join(__dirname, 'almacenamiento', 'expensas');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase() || '.pdf';
+    const name = 'expensa_' + Date.now() + ext;
+    cb(null, name);
+  }
+});
+const uploadExpensasMulter = multer({
+  storage: storageExpensas,
+  limits: { fileSize: 30 * 1024 * 1024 }
+});
+
 // Logo de marca (design/assets/logo.png). Servido cacheable, sin sesion.
 router.use('/assets', express.static(path.join(__dirname, 'design', 'assets'), {
   maxAge: '7d',
@@ -7068,14 +7087,23 @@ async function publicarExpensa(btn){
   var anio=(document.getElementById('exp-anio')||{}).value||'';
   var url=(document.getElementById('exp-url')||{}).value||'';
   var fileInp=document.getElementById('exp-file-input');
-  var nombre=fileInp&&fileInp.files&&fileInp.files[0]?fileInp.files[0].name:'';
+  var file=fileInp&&fileInp.files&&fileInp.files[0]?fileInp.files[0]:null;
   if(!mes.trim()||!anio.trim()){toast('Completá mes y año','err');return;}
   if(_expFormato==='link'&&!url.trim()){toast('Pegá la dirección web','err');return;}
-  if(_expFormato!=='link'&&!nombre){toast('Elegí el archivo','err');return;}
+  if(_expFormato!=='link'&&!file){toast('Elegí el archivo','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Publicando...';
   try{
-    var r=await fetch('/admin/api/expensa',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({mes:mes.trim(),anio:anio.trim(),formato:_expFormato,url:url.trim(),nombre:nombre})});
+    var formData=new FormData();
+    formData.append('mes',mes.trim());
+    formData.append('anio',anio.trim());
+    formData.append('formato',_expFormato);
+    if(_expFormato==='link'){
+      formData.append('url',url.trim());
+    }else if(file){
+      formData.append('archivo',file);
+      formData.append('nombre',file.name);
+    }
+    var r=await fetch('/admin/api/expensa',{method:'POST',body:formData});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Expensa publicada. Marcos ya puede compartirla.','ok');
@@ -8714,6 +8742,22 @@ router.get('/', async (req, res) => {
       });
     } catch (_) {}
 
+    // ingresos por reservas aranceladas de amenities aprobadas
+    let ingresosAmenitiesTotal = 0;
+    try {
+      const { pool } = require('./db-pg');
+      if (pool && cur) {
+        const qAmIng = `SELECT COALESCE(SUM(NULLIF(regexp_replace(monto, '[^0-9.]', '', 'g'), '')::numeric), 0) AS total 
+                        FROM reservas_amenities 
+                        WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) 
+                          AND estado_pago = 'aprobado'`;
+        const resAmIng = await pool.query(qAmIng, [cur.nombre, '%' + cur.nombre + '%']);
+        if (resAmIng && resAmIng.rows && resAmIng.rows[0]) {
+          ingresosAmenitiesTotal = parseFloat(resAmIng.rows[0].total) || 0;
+        }
+      }
+    } catch (_) {}
+
     const contenido = `
       <div style="animation:mFade .3s ease both">
         <div style="margin-bottom:20px">
@@ -8748,19 +8792,19 @@ router.get('/', async (req, res) => {
               <a href="/admin/archivos" style="display:flex;align-items:center;justify-content:center;width:100%;height:38px;border:1px solid #E1E7F1;border-radius:10px;background:#F7F9FC;color:#2E6FC0;font-weight:700;font-size:13px" class="hv-soft">Ver Facturas y Fotos →</a>
             </div>
             <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
-              <div style="font-size:15px;font-weight:800;margin-bottom:4px">📊 Gastos del Consorcio</div>
-              <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px;line-height:1.4">Total acumulado de servicios y facturas (Pesos y Dólares)</div>
+              <div style="font-size:15px;font-weight:800;margin-bottom:4px">📊 Gastos y Balance del Consorcio</div>
+              <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px;line-height:1.4">Total acumulado de servicios, facturas e ingresos por amenities</div>
               <div style="display:flex;gap:10px;margin-bottom:10px">
                 <div style="flex:1;background:#EAF1FB;border-radius:12px;padding:12px 14px" class="box-ars">
-                  <div style="font-size:11px;font-weight:800;color:#2E6FC0;letter-spacing:.04em">PESOS (ARS)</div>
+                  <div style="font-size:11px;font-weight:800;color:#2E6FC0;letter-spacing:.04em">GASTOS (ARS)</div>
                   <div style="font-size:19px;font-weight:800;color:#17408B;letter-spacing:-.02em">$${Math.round(arsTotal).toLocaleString('es-AR')}</div>
                 </div>
                 <div style="flex:1;background:#E7F4EC;border-radius:12px;padding:12px 14px" class="box-usd">
-                  <div style="font-size:11px;font-weight:800;color:#1B7A43;letter-spacing:.04em">DÓLARES (USD)</div>
-                  <div style="font-size:19px;font-weight:800;color:#14532D;letter-spacing:-.02em">USD $${Math.round(usdTotal).toLocaleString('es-AR')}</div>
+                  <div style="font-size:11px;font-weight:800;color:#1B7A43;letter-spacing:.04em">INGRESOS AMENITIES</div>
+                  <div style="font-size:19px;font-weight:800;color:#14532D;letter-spacing:-.02em">+$${Math.round(ingresosAmenitiesTotal).toLocaleString('es-AR')}</div>
                 </div>
               </div>
-              <div style="font-size:11.5px;color:#8595AD;line-height:1.35">💡 Se calcula automáticamente de los comprobantes y facturas que Marcos procesa en la sección <strong>Facturas/Fotos</strong> de este edificio.</div>
+              <div style="font-size:11.5px;color:#8595AD;line-height:1.35">💡 Incluye gastos de servicios procesados en <strong>Facturas/Fotos</strong> y cobros confirmados de reservas de amenities del edificio.</div>
             </div>
           </div>
         </div>
@@ -11238,6 +11282,7 @@ router.get('/expensas', async (req, res) => {
             </div>
             <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ Marcos puede compartirla</span>
             <div style="display:flex;gap:8px">
+              ${x.url ? `<a href="${esc(x.url)}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#F8FAFD;color:#1E5FB4;font-weight:700;font-size:12.5px;text-decoration:none" class="hv-soft">👁️ Ver</a>` : ''}
               <button onclick="copiarExpensa('${escJs(copiable)}')" style="height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-soft">🔗 Copiar</button>
               <button onclick="quitarExpensa(this,${x._row})" style="height:36px;padding:0 13px;border:1px solid #EEDCDC;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-red">Quitar</button>
             </div>
@@ -13455,27 +13500,55 @@ router.post('/api/responder-sugerencia', async (req, res) => {
   }
 });
 
-// Publicar expensa (cliente). El archivo en si no se sube todavia: se
-// registra nombre/periodo/link para que Marcos sepa que existe y pueda
-// compartir el link. El almacenamiento de PDFs es trabajo del motor.
-router.post('/api/expensa', async (req, res) => {
+// Publicar expensa (cliente). Soporta archivo físico (PDF/imagen) vía Multer
+// y guarda en almacenamiento permanente (/archivos/expensas/...) sincronizando
+// tanto en Google Sheets como en PostgreSQL (tabla expensas).
+router.post('/api/expensa', uploadExpensasMulter.single('archivo'), async (req, res) => {
   if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { mes, anio, formato, url, nombre } = req.body || {};
+    const { mes, anio, formato } = req.body || {};
+    let url = (req.body && req.body.url) || '';
+    let nombre = (req.body && req.body.nombre) || '';
+
     if (!mes || !anio) return res.status(400).json({ error: 'Falta el período' });
+
+    if (req.file) {
+      url = '/archivos/expensas/' + req.file.filename;
+      nombre = req.file.originalname || req.file.filename;
+    }
+
     const permitidos = edificiosPermitidos(req) || [];
     const edificio = permitidos[0] || '';
+    const fecha = new Date().toLocaleString('es-AR');
+    const periodo = `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}`;
+    const formFinal = formato || (req.file && req.file.mimetype && req.file.mimetype.startsWith('image/') ? 'imagen' : 'pdf');
+
     await appendRow(TAB_EXPENSAS, {
-      fecha: new Date().toLocaleString('es-AR'),
+      fecha,
       edificio,
-      periodo: `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}`,
-      formato: formato || 'pdf',
-      nombre: nombre || '',
-      url: url || '',
+      periodo,
+      formato: formFinal,
+      nombre,
+      url,
       estado: 'publicada',
     });
-    res.json({ ok: true });
+
+    // Sincronizar en PostgreSQL expensas
+    try {
+      const { pool } = require('./db-pg');
+      if (pool && edificio) {
+        await pool.query(
+          `INSERT INTO expensas (fecha, edificio, periodo, formato, nombre, url, estado)
+           VALUES ($1, $2, $3, $4, $5, $6, 'publicada')`,
+          [fecha, edificio, periodo, formFinal, nombre, url]
+        );
+      }
+    } catch (errPg) {
+      console.warn('Error sincronizando expensa en PostgreSQL:', errPg.message);
+    }
+
+    res.json({ ok: true, url, nombre });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -13486,10 +13559,33 @@ router.post('/api/expensa-quitar', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
     const { row } = req.body || {};
-    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+    if (!row) return res.status(400).json({ error: 'Falta fila' });
+
+    let expActual = null;
+    try {
+      const { rows } = await readTab(TAB_EXPENSAS);
+      expActual = rows.find((x) => Number(x._row) === Number(row));
+    } catch (_) {}
+
     const plan = await findOrPlanColumn(TAB_EXPENSAS, ['estado']);
     if (plan.create) await ensureHeader(TAB_EXPENSAS, plan.col, 'estado', false);
     await writeCell(TAB_EXPENSAS, plan.col, Number(row), 'eliminada');
+
+    // Sincronizar en PostgreSQL expensas
+    try {
+      const { pool } = require('./db-pg');
+      if (pool && expActual && expActual.edificio) {
+        await pool.query(
+          `UPDATE expensas SET estado = 'eliminada'
+           WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
+             AND (periodo = $3 OR url = $4)`,
+          [expActual.edificio, '%' + expActual.edificio + '%', expActual.periodo || '', expActual.url || '']
+        );
+      }
+    } catch (errPg) {
+      console.warn('Error sincronizando expensa eliminada en PostgreSQL:', errPg.message);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });

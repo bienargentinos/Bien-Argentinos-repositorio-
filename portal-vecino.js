@@ -3677,7 +3677,7 @@ router.get('/expensas', async (req, res) => {
       }
 
       // Obtener comprobantes subidos
-      const qFac = `SELECT * FROM facturas WHERE tipo = 'comprobante_pago' AND LOWER(edificio) = LOWER($1) ORDER BY id DESC LIMIT 10`;
+      const qFac = `SELECT * FROM facturas WHERE (tipo = 'comprobante_pago' OR tipo = 'Recibo') AND LOWER(edificio) = LOWER($1) ORDER BY id DESC LIMIT 10`;
       const resFac = await pool.query(qFac, [v.edificio]);
       if (resFac && resFac.rows && resFac.rows.length > 0) {
         misComprobantes = resFac.rows.map(r => ({
@@ -5492,15 +5492,18 @@ router.post('/api/comprobante-reserva', uploadComprobante.single('comprobante'),
         }
 
         // 2. Insertar en tabla facturas (comprobante de pago unificado visible en expensas y panel admin)
-        const qFact = `INSERT INTO facturas (edificio, tipo, proveedor, monto, fecha, url, estado, notas, created_at)
-                       VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $7, NOW())`;
+        const qFact = `INSERT INTO facturas (edificio, tipo, clase, proveedor, concepto, monto, fecha, url, url_archivo, estado, notas, created_at)
+                       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_DATE, $7, $8, $9, $10, NOW())`;
         await pool.query(qFact, [
           v.edificio,
-          'comprobante_pago',
+          'Recibo',
+          'Gasto fijo',
           v.nombre + ' (' + v.departamento + ')',
+          'Comprobante de pago de reserva ' + amenityNombre + (reserva_id ? (' #' + reserva_id) : ''),
           monto || '0',
           archivoUrl,
-          'pendiente_aprobacion',
+          archivoUrl,
+          'Pendiente',
           'Comprobante de pago de reserva ' + amenityNombre + (reserva_id ? (' #' + reserva_id) : '') + ' - ' + v.nombre + ' (' + v.departamento + ')'
         ]);
       }
