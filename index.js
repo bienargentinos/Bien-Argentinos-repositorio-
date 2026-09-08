@@ -1086,7 +1086,7 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pus
     // la IA no. Sin esto, el audio de un técnico quedaba en el historial como texto pelado y el
     // panel mostraba la transcripción sin el reproductor: se podía leer lo que dijo, pero no
     // escucharlo. (El camino del vecino ya se etiqueta más abajo, al armar `messageText`.)
-    const msgBodyParaRegistro = msgBodyRegistro || msgBody;
+    let msgBodyParaRegistro = msgBodyRegistro || msgBody;
 
     // ── FASE 0: DESCARGA Y TRANSCRIPCIÓN (si es audio) ───────────────────────
     let media = null;
@@ -1133,6 +1133,44 @@ async function procesarMensaje({ from, recipient, msgBody, mediaId, msgType, pus
             }
             console.log(`🎙️ Marcos escuchó y combinó audio + texto: "${textoFinal}"`);
         }
+    }
+
+    // ── LO QUE ESCRIBIÓ ÉL, SEPARADO DE LO QUE CITÓ ──────────────────────────
+    //
+    // > [!CAUTION]
+    // > **La cita trae palabras de MARCOS adentro del mensaje del técnico.** Todo lo que decide
+    // > por texto la leía como si la hubiera escrito él.
+    //
+    // Visto en producción: Marcos preguntó de qué obra era una factura, el técnico contestó
+    // "1001 es el caso" CITANDO ese mensaje, y el texto que llegó acá fue
+    // `1001 es el caso [Cita el mensaje: "…recibida la factura…"]`. La condición que decide si un
+    // mensaje es un comprobante busca la palabra `factura`: estaba, pero la había escrito Marcos.
+    // La respuesta se registró como una SEGUNDA factura --sin número y con monto "Según
+    // comprobante"-- al lado de la que había llegado un minuto antes.
+    //
+    // Se separa acá, en `procesarMensaje`, y no en el webhook, para que valga también para la
+    // ráfaga de varios adjuntos, que entra por otro camino.
+    //
+    // La cita NO se tira: viaja aparte y etiquetada hacia el modelo y el historial (ver
+    // `messageText` más abajo), que es donde sirve de verdad.
+    let citaDelMensaje = '';
+    {
+        const { separarCita } = require('./cita-mensaje');
+        const partes = separarCita(textoFinal);
+        if (partes.cita) {
+            citaDelMensaje = partes.cita;
+            console.log(`📌 Cita separada del mensaje: se decide sobre "${partes.texto.slice(0, 70)}", no sobre lo que citó.`);
+            textoFinal = partes.texto;
+        }
+
+        // El registro tampoco la lleva, y por la misma razón: de ahí salen `problema`,
+        // `rubro_tecnico` y la nota que se le muestra al administrador. Con la cita adentro, el
+        // caso quedaba titulado con una frase de Marcos y en el panel se leía
+        // `Dijo: "1001 es el caso [Cita el mensaje: "…recibida la factura…"]"`.
+        // La conversación no pierde nada: el mensaje citado ya está en el historial como su
+        // propia burbuja.
+        const partesReg = separarCita(msgBodyParaRegistro);
+        if (partesReg.cita) msgBodyParaRegistro = partesReg.texto;
     }
 
     // ── FASE 1: CONTEXTO ─────────────────────────────────────────────────────
@@ -1583,6 +1621,20 @@ function validarYSanitizarNombre(nombre) {
         }
         historial.push(`${prefixEmisor}${messageText}`);
     }
+
+    // La cita vuelve acá, y SOLO acá: `messageText` es lo que lee el modelo. Saberla es lo que le
+    // permite entender "1001 es el caso" sin que nadie le explique de qué habla -- leer y entender
+    // es justo lo que sabe hacer. Va etiquetada como mensaje anterior para que no la confunda con
+    // lo que dijo la persona, que es el error que se está arreglando.
+    //
+    // El historial NO se toca: el mensaje citado ya está ahí como su propia línea de Marcos, y
+    // reescribir la última línea de una ráfaga --que se guarda mensaje por mensaje-- pegaría el
+    // texto de toda la tanda encima del último.
+    if (citaDelMensaje) {
+        const { conCita } = require('./cita-mensaje');
+        messageText = conCita(messageText, citaDelMensaje);
+    }
+
     while (historial.length > 30) historial.shift();
 
     // ──────── DISCRIMINADOR DE RESOLUCIÓN DE CASOS ────────
@@ -2033,7 +2085,12 @@ function validarYSanitizarNombre(nombre) {
     // no figurar en ninguna lista: es nuevo para el edificio, y no por eso el gasto deja de
     // existir. Cuando esto vivía adentro de la rama de proveedor, esa factura no se registraba
     // en ningún lado -- Marcos la leía como un reclamo más.
-    const txtLowFactura = (msgBody || '').toLowerCase();
+    // Se mira `textoFinal` y no `msgBody` por dos razones, y las dos ya rompieron algo:
+    //   · `msgBody` todavía trae la CITA pegada, o sea palabras de Marcos. La respuesta
+    //     "1001 es el caso", citando un mensaje donde Marcos decía "recibida la factura", entraba
+    //     acá como si fuera un comprobante nuevo y se registraba una segunda factura.
+    //   · En un audio, `msgBody` es "(Nota de voz)": la transcripción está en `textoFinal`.
+    const txtLowFactura = (textoFinal || '').toLowerCase();
     const loMandaElTecnico = datosEmisor.rol === 'proveedor';
     const parecePreguntaSinAdjunto = !media && /\?|qui[eé]n|c[oó]mo|cu[aá]ndo|d[oó]nde|puedo|debo|hay que/i.test(txtLowFactura);
 
@@ -2651,7 +2708,7 @@ function validarYSanitizarNombre(nombre) {
         decisionCaso.contactar_tecnico = false;
         decisionCaso.contactar_encargado = false;
 
-        const txtLow = (msgBody || '').toLowerCase();
+        const txtLow = (textoFinal || '').toLowerCase();
 
         // ── DE QUÉ ESTÁ HABLANDO EL TÉCNICO ─────────────────────────────────────────────────
         //
@@ -4018,7 +4075,7 @@ function validarYSanitizarNombre(nombre) {
 
     // ── FASE MODO ADMINISTRADOR (AC) — COMANDOS EJECUTIVOS ───────────────────
     if (datosEmisor.rol === 'admin') {
-        const txtLow = (msgBody || '').toLowerCase();
+        const txtLow = (textoFinal || '').toLowerCase();
 
         // 1. REITERAR LLAMADO A TÉCNICO / INSISTIR
         if (/reitera|re-notifica|volve a llamar|volvé a llamar|insist|avisa.*t.cnico|recordar.*t.cnico/.test(txtLow)) {
@@ -4079,7 +4136,7 @@ function validarYSanitizarNombre(nombre) {
 
     // Si el emisor es proveedor y confirma horario/asistencia, procesar siguiente en cola si aplica
     if (datosEmisor.rol === 'proveedor') {
-        const txtLow = (msgBody || '').toLowerCase();
+        const txtLow = (textoFinal || '').toLowerCase();
         if (/paso|lleg|voy|confirm|listo|no puedo|horario|mañana|tarde|hs|hs\.|hora/.test(txtLow)) {
             // > [!CAUTION]
             // > **`procesarSiguienteEventoProveedor` NO EXISTE en ningún archivo del proyecto.**

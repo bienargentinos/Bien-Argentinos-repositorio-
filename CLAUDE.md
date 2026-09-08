@@ -501,6 +501,37 @@ Ahora se acepta en cualquier orden, y también el número pelado de 3 dígitos o
 la conversación Marcos ya preguntó de qué obra era, así que "1001" a secas no puede ser otra cosa.
 Lo que **no** se toma como caso es un monto, un número de factura ni una cantidad.
 
+### Cuando contesta citando, las palabras de Marcos entran como si fueran del técnico
+
+> [!CAUTION]
+> **Un mensaje citado llega PEGADO al texto del mensaje.** `index.js` armaba
+> `1001 es el caso [Cita el mensaje: "…recibida la factura…"]` y de ahí en adelante todas las
+> condiciones leían la palabra `factura` como si la hubiera escrito el técnico.
+
+En la prueba buena --la primera donde la factura llegó al caso correcto-- quedaron **dos filas**
+para un solo comprobante: la de 1:24:28 con el monto real (`$5500`, N° `00001-00000262`) y sin
+edificio, y una segunda a 1:25:35 con el edificio y sin monto, creada por la **respuesta** *"1001
+es el caso"*. El administrador ve dos gastos donde hay uno.
+
+No es una condición en particular: la cita puede traer cualquier palabra que Marcos haya escrito
+antes --"foto", "pago", "cerradura", el nombre de otro edificio-- así que **cualquiera** de las 69
+condiciones de la rama del proveedor puede dispararse con palabras que no son de quien escribe. Es
+el mismo defecto de fondo que los acentos: decidir por coincidencia de texto sobre un texto que no
+es el que la persona escribió.
+
+- `cita-mensaje.js` (`separarCita`) parte el mensaje en lo que él escribió y lo que citó.
+- **Las decisiones** (`textoFinal`, `txtLow`, `txtLowFactura`) leen solo lo suyo. Los tres `txtLow`
+  además pasaron a leer `textoFinal` y no `msgBody`: en un audio `msgBody` es `(Nota de voz)` y la
+  transcripción nunca llegaba a esas condiciones.
+- **El registro** (`msgBodyParaRegistro`) tampoco la lleva: de ahí salen `problema`, `rubro_tecnico`
+  y la nota del panel, donde se leía `Dijo: "1001 es el caso [Cita el mensaje: …]"`.
+- **La cita no se tira**: vuelve etiquetada en `messageText`, que es lo que lee el modelo — leer y
+  entender es justo lo que sabe hacer. El historial no se toca: el mensaje citado ya está ahí como
+  su propia burbuja.
+
+Prueba: `node pruebas-cita-mensaje.js`, con un candado que prohíbe volver a armar un texto de
+decisión desde `msgBody`.
+
 ### Contestar el edificio no quiere decir que haga falta un caso nuevo
 
 Cuando el técnico contestaba con el edificio, el código **siempre** abría un evento nuevo. Nunca
