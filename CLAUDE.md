@@ -1318,6 +1318,35 @@ Por eso **renombrar solo en Sheets no alcanza**: Marcos sigue llamando al edific
 viejo y al cliente le queda el permiso apuntando a un edificio que ya no se llama así. La
 aprobación de una solicitud de nombre ahora renombra en **los dos lados**.
 
+### Lo que sobra en PostgreSQL cuando se borra de la planilla
+
+> [!CAUTION]
+> **La sincronización solo AGREGA.** `importar-sheets-a-pg.js` no tiene ningún `DELETE` y
+> `copiarAPg` es "dispará y seguí": una fila borrada de la planilla **se queda para siempre del
+> lado de PostgreSQL**, que es justo el lado que lee Marcos.
+
+Dos casos vistos: un cerrajero de prueba llamado **"lalala"** que se borró de la planilla y Marcos
+sigue viendo, y **Dario asignado a un cliente al que ya no pertenece**. Marcos lee
+`proveedor_asignaciones` para elegir a quién llamar por `edificio + rubro`, así que una asignación
+fantasma manda al técnico equivocado o le muestra el reclamo de un consorcio ajeno.
+
+La dirección contraria duele distinto: una fila que está en la planilla y **no** en PostgreSQL es
+algo que el panel muestra y el motor no ve — el administrador lo carga, lo ve cargado, y Marcos
+actúa como si no existiera.
+
+```bash
+node revisar-sobrantes.js                        # solo lee: las 4 tablas de configuración
+node revisar-sobrantes.js proveedor_asignaciones # una sola
+```
+
+Compara `clientes`, `edificios`, `proveedores` y `proveedor_asignaciones` por el dato que
+identifica a la fila para una persona (usuario, nombre del edificio, nombre + teléfono), no por el
+`id` --cada base numera por su cuenta-- y los teléfonos por sus últimos 10 dígitos, porque el mismo
+número está escrito de cuatro formas entre las dos bases.
+
+**No borra nada, y es a propósito**: esto es configuración, no rastro de una prueba. `reset-test.js`
+tampoco la toca. Qué fila sobra se decide mirándola.
+
 > [!CAUTION]
 > **No arreglar esto reimportando.** `importar-sheets-a-pg.js` sincroniza `edificios` usando la
 > columna `edificio` como **clave**. Si en Sheets ya está el nombre nuevo y en PostgreSQL el
@@ -1331,6 +1360,55 @@ node buscar-texto.js "27'0"                                    # solo lee: dice 
 node renombrar-edificio.js "nombre viejo" "nombre nuevo"        # muestra qué cambiaría
 node renombrar-edificio.js "nombre viejo" "nombre nuevo" --aplicar
 ```
+
+## El nombre del proveedor tampoco tiene id (y editarlo en el panel no llegaba a Marcos)
+
+> [!CAUTION]
+> **El panel escribe en Sheets y el motor de Marcos lee PostgreSQL.** `/api/proveedor-editar`
+> hacía solo `writeCell` sobre la planilla, y `buscarRolPorTelefono` sale de PostgreSQL --y solo
+> cae a Sheets si PostgreSQL da **error**, no si dice otra cosa. La edición era invisible para
+> Marcos, para siempre.
+
+Daniel editó "a dario juju" desde el panel porque Marcos, **al hablar**, decía *"a-dario-juju"* en
+voz alta. Guardó, el panel mostró el nombre nuevo, y Marcos siguió diciendo el viejo. Sus palabras:
+*"si cambian de técnico o lo edita, siempre lo llama por el primer nombre escrito"*. Es exactamente
+así, y por dos motivos del mismo tamaño:
+
+1. Los dos lados (arriba).
+2. **No hay un id de proveedor: el nombre ES la clave**, igual que con el edificio, y está copiado
+   como texto en cuatro lugares × dos bases.
+
+| Dónde | Qué se rompe si queda el nombre viejo |
+|---|---|
+| `proveedores.nombre` | cómo lo saluda y cómo lo nombra en voz |
+| `proveedor_asignaciones.proveedor` | **a quién se llama** por `edificio + rubro` |
+| `facturas.proveedor` | `buscarFacturasSinImputar` no encuentra sus facturas: cuando conteste "de qué obra es", no hay ninguna esperando |
+| `reportes.tecnico` / `EVENTOS.tecnico` | sus casos dejan de ser suyos al imputar una factura o al buscar su caso abierto |
+
+La de `facturas` es la que muerde primero y en silencio: la factura queda "Sin imputar" y la
+respuesta del técnico no la encuentra nunca.
+
+```bash
+node renombrar-proveedor.js "a dario juju" "dario"             # solo muestra, no toca nada
+node renombrar-proveedor.js "a dario juju" "dario" --aplicar   # escribe, y después: pm2 restart marcos-ai
+```
+
+- La comparación es **exacta y normalizada**: "dario" no se lleva puesto a "dario gomez", que es
+  otra persona y probablemente de otro administrador.
+- La lista de columnas va **por tabla**, no por nombre de columna suelto: `nombre` es el nombre de
+  una PERSONA en casi todas las pestañas, y renombrar por columna tocaría vecinos que se llaman
+  igual.
+- `enviada_por` (`"a dario juju (proveedor)"`) se reemplaza solo si el nombre está al principio.
+
+> [!CAUTION]
+> **`/api/proveedor-editar` en `dashboard.js` sigue escribiendo SOLO en Sheets.** Mientras siga
+> así, cada edición de nombre desde el panel vuelve a desfasar las dos bases y hay que correr el
+> comando a mano. El arreglo es que ese endpoint llame a `renombrarProveedor()` de
+> `renombrar-proveedor.js` cuando el nombre cambió --**no** reimplementarlo: eso es lo que pasó con
+> `buscarPerfilEdificio`, que quedó escrito dos veces y arreglar una copia no cambió nada en
+> producción.
+
+Prueba: `node pruebas-renombrar-proveedor.js`.
 
 ## Cuándo Marcos pide el número de unidad
 
