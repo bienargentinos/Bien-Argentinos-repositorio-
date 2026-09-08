@@ -744,6 +744,47 @@ pm2 logs marcos-ai --lines 300 --nostream | grep "🧭"
 Pruebas: `node pruebas-ruteo-proveedor.js` (el mecanismo, sin llamar a Gemini) y
 `node probar-ruteo.js` (la clasificación de verdad, necesita la clave y corre en el VPS).
 
+### No preguntarle la dirección que él acaba de decir
+
+Del chat real, con tres minutos de diferencia:
+
+```
+21:32  Marcos: "…Dirección: san patricio 270 … Quedó abierto como CASO-1001 en el panel."
+21:34  Daniel: "Tengo llave, en 2 horas estaría llegando"
+21:35  Marcos: "Perfecto, ¿a qué dirección vas?"
+21:36  Daniel: "…te acabo de decir que me llamaron de San Patricio 270. ¿Tenés memoria de pajarito?"
+```
+
+> [!CAUTION]
+> **Preguntar un dato que uno mismo acaba de escribir es lo que más rápido convence al técnico de
+> que del otro lado no lo están leyendo.**
+
+**No fue el ruteo**: el modelo clasificó *"Tengo llave, en 2 horas estaría llegando"* como
+`confirma_que_va` con confianza 1. El camino bueno —*"lo anoté en el CASO-1001 de San Patricio
+270"*— existía. Lo que falló fue **encontrar el caso**:
+
+```js
+suyos.find(c => !c.cerrado && /avisad|sin confirmar/i.test(String(c.estado || '')))
+```
+
+Exigir que el estado dijera "avisado" alcanzaba para no encontrarlo. Pero la pregunta que importa
+no es en qué estado está el caso: **es si ya sabemos de qué trabajo habla.** Y se sabía — el propio
+log lo demuestra, la línea `🔑 … del [CASO-1001]` salió de la sesión en memoria.
+
+Ahora hay tres fuentes, de la más precisa a la más general:
+
+1. **El caso que la conversación tiene abierto** (`eventoActivoId` de la cola). El código sale de la
+   memoria, pero **el caso se relee de la base**: la memoria dice de qué se está hablando, la base
+   dice la verdad. Si ya se cerró, no se reusa.
+2. El caso suyo que **espera confirmación**, como antes.
+3. Su **único** caso abierto, esté en el estado que esté.
+
+Con **dos o más** abiertos sí se pregunta: adivinar manda al técnico —y la factura— al consorcio
+equivocado. Preguntar molesta; elegir mal cuesta plata. Y cuando no se encuentra ninguno queda un
+`🔎` en el log diciendo qué había en memoria, para no volver a diagnosticar a ciegas.
+
+Prueba: `node pruebas-no-repreguntar.js`.
+
 ### El contacto de ingreso salía antes de leer la respuesta
 
 `entregarPendientesAlTecnico` manda el contacto de quien abre en la **línea 1257**.

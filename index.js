@@ -3416,9 +3416,49 @@ function validarYSanitizarNombre(nombre) {
                 let casoPendiente = null;
                 if (confirmaQueVa || pareceRespuestaDeAgenda) {
                     try {
-                        const { buscarCasosRecientesPorTecnico } = require('./datos');
-                        const suyos = (await buscarCasosRecientesPorTecnico(datosEmisor.nombre, from, 7)) || [];
-                        casoPendiente = suyos.find(c => !c.cerrado && /avisad|sin confirmar/i.test(String(c.estado || '')));
+                        const { buscarCasosRecientesPorTecnico, buscarCasoPorCodigo } = require('./datos');
+
+                        // 1. El caso que la conversación ya tiene abierto con este técnico.
+                        //
+                        // > [!CAUTION]
+                        // > **Preguntarle la dirección que él acaba de decir --y que Marcos ya
+                        // > anotó-- es lo que más rápido lo convence de que no lo están leyendo.**
+                        //
+                        // Visto en producción: a las 21:32 Marcos escribió "quedó abierto como
+                        // CASO-1001 en San Patricio 270" y a las 21:35 preguntó "¿a qué dirección
+                        // vas?". Daniel: *"¿tenés memoria de pajarito o qué?"*.
+                        //
+                        // El código de la conversación viene de la cola en memoria, pero el CASO se
+                        // relee de la base: la memoria dice de qué se está hablando, la base dice
+                        // la verdad. Si PM2 reinició, la memoria está vacía y sigue el punto 2.
+                        const colaConf0 = global.colasProveedores?.get(String(from).replace(/\D/g, ''));
+                        const idEnMemoria = colaConf0?.eventoActivoId || '';
+                        if (idEnMemoria) {
+                            const c = await buscarCasoPorCodigo(idEnMemoria);
+                            if (c && !c.cerrado) casoPendiente = c;
+                        }
+
+                        // 2. Si no, el caso más reciente suyo que siga abierto.
+                        //
+                        // Antes esto exigía que el estado dijera "avisado" o "sin confirmar", y con
+                        // eso alcanzaba para no encontrarlo. La pregunta que importa no es en qué
+                        // estado está: es si YA SABEMOS de qué trabajo habla. Cualquier caso suyo
+                        // abierto responde eso, y preguntarle la dirección teniéndolo es igual de
+                        // molesto venga el estado que venga.
+                        if (!casoPendiente) {
+                            const suyos = (await buscarCasosRecientesPorTecnico(datosEmisor.nombre, from, 7)) || [];
+                            const abiertos = suyos.filter(c => !c.cerrado && c.edificio);
+                            casoPendiente = abiertos.find(c => /avisad|sin confirmar/i.test(String(c.estado || '')))
+                                || (abiertos.length === 1 ? abiertos[0] : null);
+
+                            if (!casoPendiente && abiertos.length > 1) {
+                                console.log(`🤔 ${datosEmisor.nombre} confirmó una visita pero tiene ${abiertos.length} casos abiertos: no se adivina cuál y se le pregunta la dirección.`);
+                            }
+                        }
+
+                        if (!casoPendiente) {
+                            console.log(`🔎 ${datosEmisor.nombre} confirmó una visita y no se encontró ningún caso suyo abierto (memoria: ${idEnMemoria || 'vacía'}). Se le pregunta la dirección.`);
+                        }
                     } catch (e) { console.error('No se pudo buscar el caso pendiente de confirmar:', e.message); }
                 }
 
