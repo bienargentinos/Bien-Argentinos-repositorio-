@@ -744,6 +744,63 @@ pm2 logs marcos-ai --lines 300 --nostream | grep "🧭"
 Pruebas: `node pruebas-ruteo-proveedor.js` (el mecanismo, sin llamar a Gemini) y
 `node probar-ruteo.js` (la clasificación de verdad, necesita la clave y corre en el VPS).
 
+### Un error suelto mataba a Marcos en mitad de una conversación
+
+> [!CAUTION]
+> **Una promesa que se rechaza sin `catch` TERMINA EL PROCESO.** Es el comportamiento de Node desde
+> la v15, y no hacía falta que el error fuera del motor: alcanzaba con uno del **portal del vecino**,
+> que corre adentro del mismo proceso.
+
+Daniel mandó *"ya resolví"* con una foto y la factura. En el log se ve la ráfaga entrando, la imagen
+bajándose… y de golpe las líneas de **arranque** del servidor:
+
+```
+🧾 Ráfaga de a dario juju con 2 adjuntos: se procesa uno por uno
+✅ Archivo descargado en: …/media_1077415228377407.jpeg
+📌 Confirmación del técnico registrada en [CASO-1001]
+⏰ Cron de reportes programado a las 08:00 y 20:00      ← esto es un ARRANQUE
+🚀 Servidor Marcos corriendo en puerto 3000
+```
+
+El proceso se murió a mitad de camino y PM2 lo levantó de nuevo. **La respuesta nunca salió y él no
+vio ningún error: vio a Marcos ignorándolo.** El contador de reinicios de PM2 iba en **41**.
+
+El disparador de esa vez fue un `ReferenceError: esc is not defined` en `portal-vecino.js` (ya
+corregido). Pero el arreglo de verdad no es ese: es que **ningún error suelto pueda tirar abajo una
+conversación en curso**.
+
+- **`unhandledRejection` → se loguea y NO se corta.** Una promesa rechazada suele ser una falla
+  aislada (una consulta que no anduvo, un envío que rebotó) y no deja el programa en mal estado.
+  Perder la conversación de un técnico por eso no vale la pena.
+- **`uncaughtException` → se loguea y SÍ se sale**, a propósito: puede dejar el programa a mitad de
+  una operación, y seguir con el estado roto puede mandarle a una persona real un mensaje
+  equivocado. Eso es peor que un reinicio. Lo que cambia es que **ahora queda escrito qué pasó** —
+  antes el proceso se moría y en el log no quedaba más que el arranque siguiente.
+
+### El esquema real de PostgreSQL no es el que dice `db-pg.js`
+
+En el mismo log, el mismo día:
+
+```
+column "id_evento" of relation "facturas" does not exist
+column "url" of relation "facturas" does not exist
+column "cbu" does not exist                                    (reservas amenities)
+new row for relation "facturas" violates check constraint "facturas_estado_chk"
+```
+
+Tres columnas que el código escribe y la base no tiene, más una **restricción que no está en
+`db-pg.js`** — o sea que alguien la creó **a mano en el servidor**. Eso rompe la regla de oro del
+repo y deja el esquema real distinto del que dice el código.
+
+`psql` directo no sirve para revisarlo: el usuario `root` del sistema **no existe como rol de
+PostgreSQL**. `revisar-columnas-pg.js` usa la misma conexión que Marcos y muestra las columnas
+reales de cada tabla y sus restricciones `CHECK`.
+
+```bash
+node revisar-columnas-pg.js              # todas las tablas
+node revisar-columnas-pg.js facturas     # una sola
+```
+
 ### Pedirle a un archivo una función que no exporta NO da error al cargar
 
 > [!CAUTION]

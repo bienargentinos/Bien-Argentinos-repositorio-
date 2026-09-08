@@ -41,6 +41,45 @@ function logDebug(msg) {
     fs.appendFileSync('debug_marcos.log', `[${t}] ${msg}\n`);
 }
 
+// ── QUE UN ERROR SUELTO NO MATE A MARCOS EN MITAD DE UNA CONVERSACIÓN ────────────────────────
+//
+// > [!CAUTION]
+// > **Una promesa que se rechaza sin `catch` TERMINA EL PROCESO.** Es el comportamiento de Node
+// > desde la v15, y no hacía falta que el error fuera del motor: alcanzaba con uno del portal del
+// > vecino, que corre adentro del mismo proceso.
+//
+// EL CASO QUE LO ORIGINÓ. Daniel mandó "ya resolví" con una foto y la factura. En el log se ve la
+// ráfaga entrando, la imagen bajándose... y de golpe las líneas de ARRANQUE del servidor. El
+// proceso se murió a mitad de camino y PM2 lo levantó de nuevo. **La respuesta nunca salió y él no
+// vio ningún error: vio a Marcos ignorándolo.** El contador de reinicios de PM2 iba en 41.
+//
+// El disparador de esa vez fue un `ReferenceError: esc is not defined` en `portal-vecino.js`, ya
+// corregido. Pero el arreglo de verdad no es ese: es que **ningún error suelto pueda tirar abajo
+// una conversación en curso**. Marcos maneja plata, técnicos y edificios; morirse callado en el
+// medio es la peor forma de fallar que tiene.
+//
+// PM2 igual lo reinicia. La diferencia es que ahora queda escrito QUÉ pasó -- antes el proceso se
+// moría y en el log no quedaba más que el arranque siguiente.
+process.on('unhandledRejection', (motivo, promesa) => {
+    // NO se corta el proceso: una promesa rechazada suele ser una falla aislada (una consulta que
+    // no anduvo, un envío que rebotó) y no deja el programa en mal estado. Perder la conversación
+    // de un técnico por eso es un precio que no vale la pena pagar.
+    console.error('💥 PROMESA RECHAZADA SIN ATRAPAR — Marcos sigue vivo, pero esto hay que arreglarlo:');
+    console.error(motivo instanceof Error ? (motivo.stack || motivo.message) : String(motivo));
+    console.error('   (antes de este guardia, esto mataba el proceso en mitad de una conversación)');
+    try { logDebug(`unhandledRejection: ${motivo instanceof Error ? motivo.stack : String(motivo)}`); } catch (_) {}
+});
+
+process.on('uncaughtException', (err) => {
+    // Acá SÍ se sale, y a propósito: una excepción no atrapada puede dejar el programa a mitad de
+    // una operación, y seguir con el estado roto puede mandarle a una persona real un mensaje
+    // equivocado. Eso es peor que un reinicio. Lo que cambia es que ahora queda escrito qué pasó.
+    console.error('💥 EXCEPCIÓN NO ATRAPADA — el proceso se cierra y PM2 lo reinicia:');
+    console.error(err?.stack || err?.message || String(err));
+    try { logDebug(`uncaughtException: ${err?.stack || String(err)}`); } catch (_) {}
+    setTimeout(() => process.exit(1), 300);   // margen para que el log llegue a disco
+});
+
 // La lista de etiquetas vive en `etiquetas-media.js` y en ningún otro lado: llegó a estar escrita
 // tres veces el mismo día, y con tres copias agregar una etiqueta nueva es acordarse de tres
 // lugares.
