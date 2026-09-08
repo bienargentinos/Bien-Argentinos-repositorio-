@@ -1318,6 +1318,35 @@ Por eso **renombrar solo en Sheets no alcanza**: Marcos sigue llamando al edific
 viejo y al cliente le queda el permiso apuntando a un edificio que ya no se llama así. La
 aprobación de una solicitud de nombre ahora renombra en **los dos lados**.
 
+### Lo que sobra en PostgreSQL cuando se borra de la planilla
+
+> [!CAUTION]
+> **La sincronización solo AGREGA.** `importar-sheets-a-pg.js` no tiene ningún `DELETE` y
+> `copiarAPg` es "dispará y seguí": una fila borrada de la planilla **se queda para siempre del
+> lado de PostgreSQL**, que es justo el lado que lee Marcos.
+
+Dos casos vistos: un cerrajero de prueba llamado **"lalala"** que se borró de la planilla y Marcos
+sigue viendo, y **Dario asignado a un cliente al que ya no pertenece**. Marcos lee
+`proveedor_asignaciones` para elegir a quién llamar por `edificio + rubro`, así que una asignación
+fantasma manda al técnico equivocado o le muestra el reclamo de un consorcio ajeno.
+
+La dirección contraria duele distinto: una fila que está en la planilla y **no** en PostgreSQL es
+algo que el panel muestra y el motor no ve — el administrador lo carga, lo ve cargado, y Marcos
+actúa como si no existiera.
+
+```bash
+node revisar-sobrantes.js                        # solo lee: las 4 tablas de configuración
+node revisar-sobrantes.js proveedor_asignaciones # una sola
+```
+
+Compara `clientes`, `edificios`, `proveedores` y `proveedor_asignaciones` por el dato que
+identifica a la fila para una persona (usuario, nombre del edificio, nombre + teléfono), no por el
+`id` --cada base numera por su cuenta-- y los teléfonos por sus últimos 10 dígitos, porque el mismo
+número está escrito de cuatro formas entre las dos bases.
+
+**No borra nada, y es a propósito**: esto es configuración, no rastro de una prueba. `reset-test.js`
+tampoco la toca. Qué fila sobra se decide mirándola.
+
 > [!CAUTION]
 > **No arreglar esto reimportando.** `importar-sheets-a-pg.js` sincroniza `edificios` usando la
 > columna `edificio` como **clave**. Si en Sheets ya está el nombre nuevo y en PostgreSQL el
