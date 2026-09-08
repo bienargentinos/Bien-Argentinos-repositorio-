@@ -1380,13 +1380,17 @@ así, y por dos motivos del mismo tamaño:
 
 | Dónde | Qué se rompe si queda el nombre viejo |
 |---|---|
-| `proveedores.nombre` | cómo lo saluda y cómo lo nombra en voz |
+| `proveedores.nombre` y `tecnicos.nombre` | cómo lo saluda y cómo lo nombra en voz |
 | `proveedor_asignaciones.proveedor` | **a quién se llama** por `edificio + rubro` |
 | `facturas.proveedor` | `buscarFacturasSinImputar` no encuentra sus facturas: cuando conteste "de qué obra es", no hay ninguna esperando |
 | `reportes.tecnico` / `EVENTOS.tecnico` | sus casos dejan de ser suyos al imputar una factura o al buscar su caso abierto |
 
 La de `facturas` es la que muerde primero y en silencio: la factura queda "Sin imputar" y la
 respuesta del técnico no la encuentra nunca.
+
+**Lo que NO se toca, a propósito**: las conversaciones ya ocurridas (`historial_chat`, `mensajes`,
+`mensajes_wa`, `chat_proveedor_json`). Eso es el registro de lo que se dijo y cuándo; reescribirlo
+sería falsear el historial. Va a seguir diciendo el nombre viejo, y está bien que así sea.
 
 ```bash
 node renombrar-proveedor.js "a dario juju" "dario"             # solo muestra, no toca nada
@@ -1398,7 +1402,11 @@ node renombrar-proveedor.js "a dario juju" "dario" --aplicar   # escribe, y desp
 - La lista de columnas va **por tabla**, no por nombre de columna suelto: `nombre` es el nombre de
   una PERSONA en casi todas las pestañas, y renombrar por columna tocaría vecinos que se llaman
   igual.
-- `enviada_por` (`"a dario juju (proveedor)"`) se reemplaza solo si el nombre está al principio.
+- `enviada_por` (`"a dario juju (proveedor)"`) se compara **entero** contra la parte del nombre, no
+  con "empieza con": corregir "dario" con esa regla tocaría también `"dario gomez (proveedor)"`.
+- Una fila que al renombrarse quedaría **repetida** (la misma asignación cargada dos veces con el
+  nombre escrito distinto) no se fuerza: se avisa y se deja como estaba. Borrar una de las dos es
+  una decisión, no un efecto secundario de corregir un nombre.
 
 > [!CAUTION]
 > **`/api/proveedor-editar` en `dashboard.js` sigue escribiendo SOLO en Sheets.** Mientras siga

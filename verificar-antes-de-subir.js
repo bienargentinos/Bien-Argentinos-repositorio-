@@ -60,6 +60,18 @@ const IMPRESCINDIBLES = {
         'async function entregarPendientesAlTecnico(',
         'async function generarRespuestaTecnicoLibre(',
     ],
+    // Estas dos las pisó entera una sesión que escribió el archivo de cero sin leer el que
+    // estaba: se perdieron la tabla `tecnicos`, el manejo de la fila duplicada y la comparación
+    // exacta de `enviada_por` (que pasó a "empieza con", y así "dario" se llevaba puesto a
+    // "dario gomez"). Es EXACTAMENTE el problema que este verificador existe para agarrar, y no
+    // lo agarró porque el archivo no estaba en esta lista.
+    'renombrar-proveedor.js': [
+        'async function renombrarProveedor(',
+        'function enviadaPorCorregida(',
+        'tecnicos:',
+        'module.exports = {',
+    ],
+    'renombrar-edificio.js': ['function reemplazarEnLista('],
     'material-caso.js': ['async function materialDelVecinoEnCaso('],
     'rubros.js':        ['function coincideRubro('],
     'cbu.js':           ['function validarCBU('],
