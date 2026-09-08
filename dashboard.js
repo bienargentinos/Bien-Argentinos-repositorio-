@@ -3778,6 +3778,24 @@ function separarConversacionesEvento(datos) {
     });
   }
 
+  var vecPhones = new Set();
+  if (datos.telefono) {
+    var vClean = String(datos.telefono).replace(/[^0-9]/g, '');
+    if (vClean.length >= 7) vecPhones.add(vClean.slice(-10));
+  }
+  if (datos.involucrados_json) {
+    var invs2 = parseList(datos.involucrados_json);
+    invs2.forEach(function(inv){
+      if (typeof inv === 'object' && inv.telefono) {
+        var rLow2 = String(inv.rol || '').toLowerCase();
+        if (rLow2.indexOf('vecino') !== -1 || rLow2.indexOf('titular') !== -1 || rLow2.indexOf('familiar') !== -1 || rLow2.indexOf('propietario') !== -1 || rLow2.indexOf('inquilino') !== -1) {
+          var vc = String(inv.telefono).replace(/[^0-9]/g, '');
+          if (vc.length >= 7) vecPhones.add(vc.slice(-10));
+        }
+      }
+    });
+  }
+
   function esMensajeDeVecino(item) {
     if (!item) return false;
     var rem = typeof item === 'object' ? String(item.remitente || item.emisor || item.destinatario || item.canal_orig || '').toLowerCase() : '';
@@ -3806,12 +3824,10 @@ function separarConversacionesEvento(datos) {
   function esMensajeDeProveedor(item) {
     if (!item) return false;
 
-    // EL TELÉFONO MANDA. Si el mensaje viene del número del técnico del caso, es del técnico y
-    // no hay nada que interpretar. Va ANTES que todo lo demás porque es el único dato duro acá:
-    // el resto son heurísticas sobre el texto, y una de ellas --"pidiéndole datos al vecino"--
-    // engancha frases que el técnico también escribe.
+    // EL TELÉFONO MANDA: Si el mensaje viene del número del técnico del caso, es del técnico
     var itemPhone = typeof item === 'object' ? String(item.telefono || '').replace(/[^0-9]/g, '') : '';
     if (itemPhone.length >= 7 && techPhones.has(itemPhone.slice(-10))) return true;
+    if (itemPhone.length >= 7 && vecPhones.has(itemPhone.slice(-10))) return false;
 
     // Si es explícitamente un mensaje dirigido al vecino o pidiéndole datos, NUNCA es de proveedor
     if (esMensajeDeVecino(item)) return false;
@@ -3826,8 +3842,10 @@ function separarConversacionesEvento(datos) {
     if (/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str)) {
       return true;
     }
-    // Una factura o un comprobante son del proveedor. El guard de más arriba ya descartó los
-    // mensajes dirigidos al vecino, así que acá no hace falta volver a preguntarlo.
+    if (/marcos\s*\(\s*(a|al)\s*(proveedor|t[ée]cnico)\s*\):/i.test(strLower)) {
+      return true;
+    }
+    // Una factura o un comprobante son del proveedor
     if (strLower.indexOf('factura') !== -1 || strLower.indexOf('comprobante') !== -1 || strLower.indexOf('documento') !== -1 || strLower.indexOf('[factura:') !== -1) {
       return true;
     }
@@ -3837,18 +3855,12 @@ function separarConversacionesEvento(datos) {
     if (strLower.indexOf('marcos — contacto para el ingreso') !== -1 || strLower.indexOf('marcos - contacto para el ingreso') !== -1) {
       return true;
     }
-    if (strLower.indexOf('marcos (a proveedor):') !== -1 || strLower.indexOf('marcos (al técnico):') !== -1 || strLower.indexOf('marcos (al proveedor):') !== -1) {
-      return true;
-    }
     if (
       (strLower.indexOf('tenés una nueva solicitud de servicio') !== -1 || strLower.indexOf('tenes una nueva solicitud de servicio') !== -1 || strLower.indexOf('nueva solicitud de servicio') !== -1) &&
       (strLower.indexOf('para la visita') !== -1 || strLower.indexOf('urgencia:') !== -1 || strLower.indexOf('acceso:') !== -1)
     ) {
       return true;
     }
-    // Las preguntas de seguimiento son al TÉCNICO: "¿pudiste ir?", "¿resolviste el reclamo?".
-    // Sin esto quedaban en la columna del vecino y el visor mostraba las dos conversaciones
-    // mezcladas.
     if (
       strLower.indexOf('comunicate directamente con esa persona y avisame') !== -1 ||
       strLower.indexOf('si al llegar no te abren') !== -1 ||
@@ -3863,6 +3875,10 @@ function separarConversacionesEvento(datos) {
     ) {
       return true;
     }
+
+    var noTieneVecino = !datos.telefono || /avisado por el proveedor/i.test(String(datos.vecino || ''));
+    if (noTieneVecino) return true;
+
     return false;
   }
 
@@ -3882,24 +3898,28 @@ function separarConversacionesEvento(datos) {
       }
     }
 
-    // Quitar prefijos comunes redundantes embebidos en el mensaje (ej: "tecnico: ", "Marcos (a Proveedor): ")
-    str = str.replace(/^(vecino|usuario|cliente|titular|familiar|pariente|marcos ia|marcos|susana|ia|bot|asistente|sistema|proveedor|técnico|tecnico|plomero|electricista|gasista|instalador|encargado|seguridad|portero|portería|admin|administración)(\s*\([^)]*\))?:\s*/i, '').trim();
-
     var rolNorm = 'marcos';
-    if (/vecino|usuario|cliente|titular|familiar|pariente/i.test(sender)) rolNorm = 'vecino';
+    if (/^marcos/i.test(sender)) rolNorm = 'marcos';
+    else if (/vecino|usuario|cliente|titular|familiar|pariente/i.test(sender)) rolNorm = 'vecino';
     else if (/tecnico|técnico|proveedor|plomero|electricista|gasista|instalador/i.test(sender)) rolNorm = 'tecnico';
     else if (/encargado|portero|seguridad/i.test(sender)) rolNorm = 'encargado';
     else if (/admin|administraci/i.test(sender)) rolNorm = 'admin';
 
+    // Quitar prefijos comunes redundantes embebidos en el mensaje (ej: "tecnico: ", "Marcos (a Proveedor): ")
+    str = str.replace(/^(vecino|usuario|cliente|titular|familiar|pariente|marcos ia|marcos|susana|ia|bot|asistente|sistema|proveedor|técnico|tecnico|plomero|electricista|gasista|instalador|encargado|seguridad|portero|portería|admin|administración)(\s*\([^)]*\))?:\s*/i, '').trim();
+
     var clean = str.toLowerCase()
       .replace(/\[(audio|audio_url|imagen|foto|video|documento|doc|pdf|factura):[^\]]+\]/gi, '')
+      .replace(/\((?:factura|comprobante|imagen|documento|adjunto)[^)]*\)/gi, '')
+      .replace(/\[cita[^\]]*\]/gi, '')
       .replace(/\s+/g, ' ')
       .trim();
 
-    var fileMatch = str.match(/\.(ogg|mp3|wav|m4a|aac|opus|webm|jpg|jpeg|png|webp|gif|pdf)/i);
+    var mediaStr = str + (typeof item === 'object' && item.url_media ? ' ' + item.url_media : '');
+    var fileMatch = mediaStr.match(/\.(ogg|mp3|wav|m4a|aac|opus|webm|jpg|jpeg|png|webp|gif|pdf)/i);
     var fileSuffix = fileMatch ? fileMatch[0].toLowerCase() : '';
 
-    return rolNorm + '::' + clean.slice(0, 150) + (fileSuffix ? '::' + fileSuffix : '');
+    return rolNorm + '::' + clean.slice(0, 120) + (fileSuffix ? '::' + fileSuffix : '');
   }
 
   var chatVecino = [];
@@ -3927,30 +3947,46 @@ function separarConversacionesEvento(datos) {
     }
   }
 
+  var casoSoloProveedor = !datos.telefono || /avisado por el proveedor/i.test(String(datos.vecino || ''));
+
   // 1. Si hay mensajes de PostgreSQL (chat_pg), es la fuente en vivo más completa y ordenada
   var rawPg = parseList(datos.chat_pg);
   if (rawPg.length > 0) {
-    var lastWasProv = false;
+    var lastDestino = casoSoloProveedor ? 'proveedor' : 'vecino';
     rawPg.forEach(function(item) {
+      var itemPhone = typeof item === 'object' ? String(item.telefono || '').replace(/[^0-9]/g, '') : '';
       var isP = esMensajeDeProveedor(item);
       var isV = esMensajeDeVecino(item);
+
       if (isP) {
-        lastWasProv = true;
+        lastDestino = 'proveedor';
         agregarMensaje(item, 'proveedor');
       } else if (isV) {
-        lastWasProv = false;
+        lastDestino = 'vecino';
         agregarMensaje(item, 'vecino');
       } else {
-        var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
-        var strLower = str.toLowerCase();
-        var isContactoCompartidoProv = strLower.indexOf('(contacto compartido') !== -1 && lastWasProv;
-        var isMarcosToTech = isContactoCompartidoProv || /al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
-        if (isMarcosToTech) {
-          lastWasProv = true;
+        var esTechPhone = itemPhone.length >= 7 && techPhones.has(itemPhone.slice(-10));
+        var esVecPhone = itemPhone.length >= 7 && vecPhones.has(itemPhone.slice(-10));
+
+        if (esTechPhone) {
+          lastDestino = 'proveedor';
           agregarMensaje(item, 'proveedor');
-        } else {
-          lastWasProv = false;
+        } else if (esVecPhone) {
+          lastDestino = 'vecino';
           agregarMensaje(item, 'vecino');
+        } else {
+          var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+          var strLower = str.toLowerCase();
+          var isContactoCompartidoProv = strLower.indexOf('(contacto compartido') !== -1 && lastDestino === 'proveedor';
+          var isMarcosToTech = isContactoCompartidoProv || /al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
+
+          if (isMarcosToTech || lastDestino === 'proveedor' || casoSoloProveedor) {
+            lastDestino = 'proveedor';
+            agregarMensaje(item, 'proveedor');
+          } else {
+            lastDestino = 'vecino';
+            agregarMensaje(item, 'vecino');
+          }
         }
       }
     });
@@ -3965,9 +4001,9 @@ function separarConversacionesEvento(datos) {
   if (!rawProveedor.length) rawProveedor = parseList(datos.historial_chat_proveedor);
   rawProveedor.forEach(function(item) { agregarMensaje(item, 'proveedor'); });
 
-  // 3. Fallback adicional de historial_chat
+  // 3. Fallback adicional de historial_chat: SOLO si no hubo chat_vecino ni chat_proveedor ni chat_pg
   var rawHist = parseList(datos.historial_chat);
-  if (rawHist.length > 0) {
+  if (rawHist.length > 0 && !rawVecino.length && !rawProveedor.length && !rawPg.length) {
     var lastProvH = false;
     rawHist.forEach(function(item) {
       var isP = esMensajeDeProveedor(item);
@@ -3982,7 +4018,7 @@ function separarConversacionesEvento(datos) {
         var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
         var strLower = str.toLowerCase();
         var isMarcosToTech = /al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
-        if (isMarcosToTech || lastProvH) {
+        if (isMarcosToTech || lastProvH || casoSoloProveedor) {
           lastProvH = true;
           agregarMensaje(item, 'proveedor');
         } else {
@@ -4401,7 +4437,7 @@ function abrirDrawerEvento(idx){
                 '<button onclick="descargarResumenEvento(&quot;vecino&quot;)" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar TXT Vecino</button>'+
               '</div>'+
             '</div>'+
-            chatVecinoHtml+
+            '<div id="chat-vecino-container">' + chatVecinoHtml + '</div>'+
           '</div>'+
         '</div>'+
         '<div id="panel-chat-proveedor" style="display:block;margin-top:20px">'+
@@ -4420,7 +4456,7 @@ function abrirDrawerEvento(idx){
                 '<button onclick="descargarResumenEvento(&quot;proveedor&quot;)" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar TXT Proveedor</button>'+
               '</div>'+
             '</div>'+
-            chatProveedorHtml+
+            '<div id="chat-proveedor-container">' + chatProveedorHtml + '</div>'+
           '</div>'+
         '</div>';
       })()+
@@ -4435,6 +4471,13 @@ function abrirDrawerEvento(idx){
   overlay.classList.add('open');
   panel.classList.add('open');
 
+  var sepInicial = separarConversacionesEvento(datos);
+  if (sepInicial.chatVecino.length === 0 && sepInicial.chatProveedor.length > 0) {
+    cambiarTabChatEvento('proveedor');
+  } else if (sepInicial.chatProveedor.length === 0 && sepInicial.chatVecino.length > 0) {
+    cambiarTabChatEvento('vecino');
+  }
+
   if (casoCode && typeof fetch === 'function') {
     fetch('/admin/api/mensajes?eventoId=' + encodeURIComponent(casoCode))
       .then(function(r) { return r.json(); })
@@ -4443,15 +4486,15 @@ function abrirDrawerEvento(idx){
           datos.chat_pg = j.mensajes;
           var convSep2 = separarConversacionesEvento(datos);
 
-          var panelV = document.getElementById('panel-chat-vecino');
-          if (panelV && convSep2.chatVecino.length > 0) {
-            var chatVBox = panelV.querySelector('.chat-box');
-            if (chatVBox) chatVBox.outerHTML = renderizarBloqueChat(convSep2.chatVecino, 'vecino', datos);
-          }
-          var panelP = document.getElementById('panel-chat-proveedor');
-          if (panelP && convSep2.chatProveedor.length > 0) {
-            var chatPBox = panelP.querySelector('.chat-box');
-            if (chatPBox) chatPBox.outerHTML = renderizarBloqueChat(convSep2.chatProveedor, 'proveedor', datos);
+          var contV = document.getElementById('chat-vecino-container');
+          if (contV) contV.innerHTML = renderizarBloqueChat(convSep2.chatVecino, 'vecino', datos);
+          var contP = document.getElementById('chat-proveedor-container');
+          if (contP) contP.innerHTML = renderizarBloqueChat(convSep2.chatProveedor, 'proveedor', datos);
+
+          if (convSep2.chatVecino.length === 0 && convSep2.chatProveedor.length > 0) {
+            cambiarTabChatEvento('proveedor');
+          } else if (convSep2.chatProveedor.length === 0 && convSep2.chatVecino.length > 0) {
+            cambiarTabChatEvento('vecino');
           }
         }
       })
