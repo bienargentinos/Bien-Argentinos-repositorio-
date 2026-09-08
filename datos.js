@@ -192,7 +192,8 @@ async function imputarFacturaSinEdificio(args) {
             const { pool } = require('./db-pg');
             await pool.query(
                 `UPDATE facturas SET edificio = $1, estado = 'Pendiente',
-                        id_evento = COALESCE(NULLIF($3, ''), id_evento)
+                        id_evento = COALESCE(NULLIF($3, ''), id_evento),
+                        codigo_caso = COALESCE(NULLIF($3, ''), codigo_caso, id_evento)
                  WHERE lower(trim(coalesce(proveedor, ''))) = lower(trim($2))
                    AND (lower(trim(coalesce(estado, ''))) = 'sin imputar'
                         OR coalesce(trim(edificio), '') = ''
@@ -357,7 +358,8 @@ async function guardarFactura(datos) {
             estado:         datos.estado || 'Pendiente',
             nota_tecnico:   datos.nota_tecnico || '',
             enviada_por:    datos.enviada_por || '',
-            id_evento:      datos.id_evento || '',
+            id_evento:      datos.id_evento || datos.codigo_caso || '',
+            codigo_caso:    datos.codigo_caso || datos.id_evento || '',
         }
     ));
     return res;

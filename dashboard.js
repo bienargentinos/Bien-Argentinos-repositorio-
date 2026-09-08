@@ -4853,8 +4853,9 @@ function renderizarSeccionFacturas(data) {
 
       var dirEdificionHtml = item.edificio_direccion ? ' <span style="font-weight:600;opacity:0.88;" title="Dirección física del consorcio">(📍 ' + escapeHtml(item.edificio_direccion) + ')</span>' : '';
 
-      var casoHtml = item.codigo_caso
-        ? ' <span class="factura-badge-caso" style="color: #059669; font-weight: 700; background: #D1FAE5; padding: 1px 7px; border-radius: 4px; border: 1px solid #6EE7B7;" title="Código de reparación asignado">📌 Caso ' + escapeHtml(item.codigo_caso) + '</span>'
+      var codCaso = item.codigo_caso || item.id_evento || '';
+      var casoHtml = codCaso
+        ? ' <span class="factura-badge-caso" style="color: #059669; font-weight: 700; background: #D1FAE5; padding: 1px 7px; border-radius: 4px; border: 1px solid #6EE7B7;" title="Código de reparación asignado">📌 Caso ' + escapeHtml(codCaso) + '</span>'
         : ' <span class="factura-badge-nocaso" style="color: #64748B; font-weight: 600; background: #F1F5F9; padding: 1px 7px; border-radius: 4px; border: 1px solid #E2E8F0;" title="Sin caso de reparación asignado">Sin caso asignado</span>';
 
       var dirFacturaHtml = '';
@@ -11106,7 +11107,8 @@ router.get('/api/facturas', async (req, res) => {
           origen: f.origen || 'Administrador',
           origen_nombre: f.origen_nombre || '',
           url_archivo: f.url_archivo || '',
-          codigo_caso: f.codigo_caso || '',
+          codigo_caso: f.codigo_caso || f.id_evento || '',
+          id_evento: f.id_evento || f.codigo_caso || '',
           requiere_revision: f.requiere_revision || 'no'
         };
       });
@@ -11233,9 +11235,18 @@ router.patch('/api/facturas/:factura_key', async (req, res) => {
             pIdx++;
           }
         }
-        updates.push(`${field} = $${pIdx}`);
-        updateParams.push(valNuevo);
-        pIdx++;
+        if (field === 'codigo_caso') {
+          updates.push(`codigo_caso = $${pIdx}`);
+          updateParams.push(valNuevo);
+          pIdx++;
+          updates.push(`id_evento = $${pIdx}`);
+          updateParams.push(valNuevo);
+          pIdx++;
+        } else {
+          updates.push(`${field} = $${pIdx}`);
+          updateParams.push(valNuevo);
+          pIdx++;
+        }
 
         auditoriaRows.push({
           factura_key,
@@ -11394,12 +11405,12 @@ router.post('/api/facturas', uploadMulter.single('archivo'), async (req, res) =>
     const montoUsar = (monto && monto.trim()) ? monto.trim() : 'Según comprobante';
 
     const insQuery = `
-      INSERT INTO facturas (edificio, clase, concepto, fecha, origen, proveedor, categoria, numero_factura, monto, origen_nombre, codigo_caso, tipo, url_archivo, url, estado, requiere_revision)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'Pendiente', 'no')
+      INSERT INTO facturas (edificio, clase, concepto, fecha, origen, proveedor, categoria, numero_factura, monto, origen_nombre, codigo_caso, id_evento, tipo, url_archivo, url, estado, requiere_revision)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'Pendiente', 'no')
       RETURNING *
     `;
     const insRes = await queryPg(insQuery, [
-      edificio, clase, concepto, fechaUsar, origenUsar, proveedor || '', categoriaUsar, numero_factura || 'Sin comprobante', montoUsar, origen_nombre || '', codigo_caso || '', tipo, webPath, webPath
+      edificio, clase, concepto, fechaUsar, origenUsar, proveedor || '', categoriaUsar, numero_factura || 'Sin comprobante', montoUsar, origen_nombre || '', codigo_caso || '', codigo_caso || '', tipo, webPath, webPath
     ]);
     const nuevaFactura = insRes.rows[0];
 
