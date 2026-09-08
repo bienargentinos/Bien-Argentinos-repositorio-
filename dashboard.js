@@ -3249,14 +3249,15 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
     return u;
   }
 
+  var isPdf = explicitType === 'pdf' || explicitType === 'doc' || explicitType === 'document' || /pdf|doc|docx|xls|xlsx|facturas|documentos/i.test(u);
   var isImg = explicitType === 'image' || /jpeg|jpg|png|webp|gif|bmp|svg|imagenes|fotos/i.test(u);
   var isVid = explicitType === 'video' || /mp4|mov|webm|mkv|avi|videos/i.test(u);
-  var defaultExt = isImg ? '.jpeg' : (isVid ? '.mp4' : '.ogg');
-  var targetFolder = isImg ? 'archivos' : (isVid ? 'archivos' : 'audios');
+  var defaultExt = isPdf ? '.pdf' : (isImg ? '.jpeg' : (isVid ? '.mp4' : '.ogg'));
+  var targetFolder = (isPdf || isImg || isVid) ? 'archivos' : 'audios';
 
   if (/^media[:_]/i.test(u)) {
     var mediaId = u.replace(/^media[:_]/i, '').trim();
-    var hasExt = /\.(jpeg|jpg|png|webp|gif|bmp|svg|mp4|mov|webm|mkv|avi|ogg|mp3|m4a|wav)$/i.test(mediaId);
+    var hasExt = /\.(jpeg|jpg|png|webp|gif|bmp|svg|mp4|mov|webm|mkv|avi|ogg|mp3|m4a|wav|pdf|doc|docx|xls|xlsx)$/i.test(mediaId);
     u = '/' + targetFolder + '/media_' + mediaId + (hasExt ? '' : defaultExt);
   } else if (/^\d{10,20}$/.test(u)) {
     u = '/' + targetFolder + '/media_' + u + defaultExt;
@@ -3272,12 +3273,12 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
 
   if (u.indexOf('/almacenamiento/') !== -1) {
     u = '/archivos/' + u.substring(u.indexOf('/almacenamiento/') + 16);
+  } else if (u.indexOf('/archivos/') !== -1) {
+    u = '/archivos/' + u.substring(u.indexOf('/archivos/') + 10);
   } else if (u.indexOf('/temp/') !== -1) {
     u = '/' + targetFolder + '/' + u.substring(u.indexOf('/temp/') + 6);
   } else if (u.indexOf('/audios/') !== -1) {
-    u = '/' + (isImg ? 'archivos' : 'audios') + '/' + u.substring(u.indexOf('/audios/') + 8);
-  } else if (u.indexOf('/archivos/') !== -1) {
-    u = '/archivos/' + u.substring(u.indexOf('/archivos/') + 10);
+    u = '/' + ((isPdf || isImg || isVid) ? 'archivos' : 'audios') + '/' + u.substring(u.indexOf('/audios/') + 8);
   } else {
     var filename = u.replace(new RegExp('^/+', 'g'), '').replace(new RegExp('^\\\\+', 'g'), '');
     if (filename.startsWith('temp/')) {
@@ -3499,6 +3500,43 @@ function obtenerDireccionEdificio(datos) {
   return edName;
 }
 
+function descargarArchivo(url, filename) {
+  if (!url) return;
+  fetch(url)
+    .then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.blob();
+    })
+    .then(function(blob) {
+      var blobUrl = window.URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename || 'archivo';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function() { window.URL.revokeObjectURL(blobUrl); }, 1500);
+    })
+    .catch(function() {
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'archivo';
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+}
+window.descargarArchivo = descargarArchivo;
+
+function descargarArchivoElem(elem) {
+  if (!elem) return;
+  var url = elem.getAttribute('data-url') || '';
+  var filename = elem.getAttribute('data-filename') || '';
+  descargarArchivo(url, filename);
+}
+window.descargarArchivoElem = descargarArchivoElem;
+
 function abrirVisorMultimediaElem(elem) {
   var url = elem.getAttribute('data-url') || '';
   var filename = elem.getAttribute('data-filename') || '';
@@ -3516,6 +3554,10 @@ function abrirVisorMultimedia(url, mediaType, filename) {
 
   btnDescargar.href = url;
   btnDescargar.download = filename || 'archivo_multimedia';
+  btnDescargar.onclick = function(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    descargarArchivo(url, filename);
+  };
 
   var nameTag = filename ? escapeHtml(filename) : 'Archivo Multimedia';
 
@@ -3525,6 +3567,9 @@ function abrirVisorMultimedia(url, mediaType, filename) {
   } else if (mediaType === 'video') {
     titulo.innerHTML = '🎥 ' + nameTag;
     contenido.innerHTML = '<video src="' + escapeHtml(url) + '" controls autoplay style="max-width:90vw;max-height:80vh;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);animation:mScale .2s cubic-bezier(0.16, 1, 0.3, 1) both"></video>';
+  } else if (mediaType === 'pdf') {
+    titulo.innerHTML = '📄 ' + nameTag;
+    contenido.innerHTML = '<iframe src="' + escapeHtml(url) + '" style="width:85vw;height:80vh;border-radius:12px;border:none;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.5)"></iframe>';
   }
 
   modal.style.display = 'flex';
@@ -4070,9 +4115,16 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
   // ese problema.
   function extraerNombreEntreParentesis(s) {
     if (!s) return '';
-    var p1 = s.indexOf('(');
-    var p2 = s.indexOf(')', p1);
-    if (p1 !== -1 && p2 > p1) return s.substring(p1 + 1, p2).trim();
+    var colon = s.indexOf(':');
+    var targetStr = (colon !== -1 && colon < 60) ? s.substring(0, colon) : s;
+    var p1 = targetStr.indexOf('(');
+    var p2 = targetStr.indexOf(')', p1);
+    if (p1 !== -1 && p2 > p1) {
+      var inner = targetStr.substring(p1 + 1, p2).trim();
+      if (!/adjunt|documento|imagen|factura|foto|video|audio|nota de voz/i.test(inner)) {
+        return inner;
+      }
+    }
     return '';
   }
 
@@ -4170,15 +4222,22 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
           visualType = 'image';
-          visualFilename = fnObj;
+          visualFilename = (/^\d+$/.test(fnObj) || fnObj.indexOf('.') === -1) ? ('imagen_' + fnObj + '.jpeg') : fnObj;
         } else if (isLineExplicitVideo || ['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'video');
           visualType = 'video';
-          visualFilename = fnObj;
+          visualFilename = (/^\d+$/.test(fnObj) || fnObj.indexOf('.') === -1) ? ('video_' + fnObj + '.mp4') : fnObj;
         } else if (isLineExplicitDoc || extObj === 'pdf' || rawObjMedia.indexOf('/facturas/') !== -1 || rawObjMedia.indexOf('/documentos/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'pdf');
           visualType = 'pdf';
-          visualFilename = fnObj;
+          var mDoc = String(line.mensaje || line.texto || cleanText || '').match(/\((?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*([^)]+)\)/i);
+          if (mDoc && mDoc[1] && mDoc[1].trim()) {
+            visualFilename = mDoc[1].trim();
+          } else if (/^\d+$/.test(fnObj) || fnObj.indexOf('.') === -1) {
+            visualFilename = 'documento_' + fnObj + '.pdf';
+          } else {
+            visualFilename = fnObj;
+          }
         } else if (isAudioExt || rawObjMedia.indexOf('/audios/') !== -1) {
           audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
           audioFilename = fnObj;
@@ -4211,6 +4270,12 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         }
       }
 
+      if (visualUrl) {
+        cleanText = cleanText.replace(/\((?:Documento|Factura|Comprobante)\s+adjunt[oa]:?[^)]*\)?/i, '')
+                             .replace(/\((?:Imagen|Foto|Video)\s+adjunt[oa]:?[^)]*\)?/i, '')
+                             .trim();
+      }
+
       var visualMediaHtml = '';
       if (visualUrl) {
         var urlEsc = escapeHtml(visualUrl);
@@ -4225,8 +4290,9 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
               '</div>' +
             '</div>' +
             '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-              '<a href="' + urlEsc + '" download target="_blank" style="font-size:11.5px;font-weight:800;color:#92400E;background:#FDE68A;border:1px solid #F7D070;padding:5px 12px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar PDF / Comprobante</a>' +
-              '<a href="' + urlEsc + '" target="_blank" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:5px 10px;border-radius:6px;text-decoration:none" class="hv-soft">👁️ Ver Documento</a>' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" onclick="descargarArchivoElem(this)" style="font-size:11.5px;font-weight:800;color:#92400E;background:#FDE68A;border:1px solid #F7D070;padding:6px 14px;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:5px" class="hv-soft">⬇️ Descargar PDF / Comprobante</button>' +
+              '<a href="' + urlEsc + '" target="_blank" rel="noopener noreferrer" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:6px 12px;border-radius:7px;text-decoration:none;display:inline-flex;align-items:center;gap:5px" class="hv-soft">👁️ Ver Documento</a>' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="pdf" onclick="abrirVisorMultimediaElem(this)" style="font-size:11.5px;font-weight:700;color:#5A6B85;background:#fff;border:1px solid #DCE4F0;padding:6px 10px;border-radius:7px;cursor:pointer" class="hv-soft" title="Vista previa en panel">🔍 Previsualizar</button>' +
             '</div>' +
           '</div>';
         } else if (visualType === 'image') {
@@ -4236,16 +4302,16 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
               '<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.65);color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;backdrop-filter:blur(4px)">🔍 Ver HD</div>' +
             '</div>' +
             '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-              '<button data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;cursor:pointer" class="hv-soft">🖼️ Ampliar foto</button>' +
-              '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:4px 10px;border-radius:6px;cursor:pointer" class="hv-soft">🖼️ Ampliar foto</button>' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" onclick="descargarArchivoElem(this)" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:4px 10px;border-radius:6px;cursor:pointer" class="hv-soft">⬇️ Descargar</button>' +
             '</div>' +
           '</div>';
         } else if (visualType === 'video') {
           visualMediaHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
             '<video src="' + urlEsc + '" controls style="width:100%;max-height:220px;border-radius:8px;margin-bottom:6px"></video>' +
             '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-              '<button data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="video" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;cursor:pointer" class="hv-soft">🎥 Ampliar video</button>' +
-              '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="video" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:4px 10px;border-radius:6px;cursor:pointer" class="hv-soft">🎥 Ampliar video</button>' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" onclick="descargarArchivoElem(this)" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:4px 10px;border-radius:6px;cursor:pointer" class="hv-soft">⬇️ Descargar</button>' +
             '</div>' +
           '</div>';
         }
@@ -4282,7 +4348,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
           '<span style="display:flex;align-items:center;gap:4px"><span>' + icon + '</span><span style="padding:1px 6px;border-radius:999px;background:' + tagBg + ';color:' + tagFg + '">' + escapeHtml(senderLabel) + '</span></span>' +
           (horaTag ? '<span style="font-size:10px;opacity:.65;font-weight:600">🕒 ' + escapeHtml(horaTag) + '</span>' : '') +
         '</div>' +
-        '<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>' +
+        (cleanText ? ('<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>') : '') +
         mediaLinkHtml +
       '</div>';
     }).join('');
