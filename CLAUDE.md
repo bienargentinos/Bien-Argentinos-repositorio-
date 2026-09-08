@@ -1361,6 +1361,55 @@ node renombrar-edificio.js "nombre viejo" "nombre nuevo"        # muestra qué c
 node renombrar-edificio.js "nombre viejo" "nombre nuevo" --aplicar
 ```
 
+## El nombre del proveedor tampoco tiene id (y editarlo en el panel no llegaba a Marcos)
+
+> [!CAUTION]
+> **El panel escribe en Sheets y el motor de Marcos lee PostgreSQL.** `/api/proveedor-editar`
+> hacía solo `writeCell` sobre la planilla, y `buscarRolPorTelefono` sale de PostgreSQL --y solo
+> cae a Sheets si PostgreSQL da **error**, no si dice otra cosa. La edición era invisible para
+> Marcos, para siempre.
+
+Daniel editó "a dario juju" desde el panel porque Marcos, **al hablar**, decía *"a-dario-juju"* en
+voz alta. Guardó, el panel mostró el nombre nuevo, y Marcos siguió diciendo el viejo. Sus palabras:
+*"si cambian de técnico o lo edita, siempre lo llama por el primer nombre escrito"*. Es exactamente
+así, y por dos motivos del mismo tamaño:
+
+1. Los dos lados (arriba).
+2. **No hay un id de proveedor: el nombre ES la clave**, igual que con el edificio, y está copiado
+   como texto en cuatro lugares × dos bases.
+
+| Dónde | Qué se rompe si queda el nombre viejo |
+|---|---|
+| `proveedores.nombre` | cómo lo saluda y cómo lo nombra en voz |
+| `proveedor_asignaciones.proveedor` | **a quién se llama** por `edificio + rubro` |
+| `facturas.proveedor` | `buscarFacturasSinImputar` no encuentra sus facturas: cuando conteste "de qué obra es", no hay ninguna esperando |
+| `reportes.tecnico` / `EVENTOS.tecnico` | sus casos dejan de ser suyos al imputar una factura o al buscar su caso abierto |
+
+La de `facturas` es la que muerde primero y en silencio: la factura queda "Sin imputar" y la
+respuesta del técnico no la encuentra nunca.
+
+```bash
+node renombrar-proveedor.js "a dario juju" "dario"             # solo muestra, no toca nada
+node renombrar-proveedor.js "a dario juju" "dario" --aplicar   # escribe, y después: pm2 restart marcos-ai
+```
+
+- La comparación es **exacta y normalizada**: "dario" no se lleva puesto a "dario gomez", que es
+  otra persona y probablemente de otro administrador.
+- La lista de columnas va **por tabla**, no por nombre de columna suelto: `nombre` es el nombre de
+  una PERSONA en casi todas las pestañas, y renombrar por columna tocaría vecinos que se llaman
+  igual.
+- `enviada_por` (`"a dario juju (proveedor)"`) se reemplaza solo si el nombre está al principio.
+
+> [!CAUTION]
+> **`/api/proveedor-editar` en `dashboard.js` sigue escribiendo SOLO en Sheets.** Mientras siga
+> así, cada edición de nombre desde el panel vuelve a desfasar las dos bases y hay que correr el
+> comando a mano. El arreglo es que ese endpoint llame a `renombrarProveedor()` de
+> `renombrar-proveedor.js` cuando el nombre cambió --**no** reimplementarlo: eso es lo que pasó con
+> `buscarPerfilEdificio`, que quedó escrito dos veces y arreglar una copia no cambió nada en
+> producción.
+
+Prueba: `node pruebas-renombrar-proveedor.js`.
+
 ## Cuándo Marcos pide el número de unidad
 
 Lo decide el **conteo de unidades** de la tab `edificios`, no el nombre. `san patricio casa` se
