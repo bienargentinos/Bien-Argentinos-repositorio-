@@ -2119,24 +2119,64 @@ html.dark-theme, body.dark-theme {
   color: #FFFFFF !important;
 }
 
-/* Cajas de Divisas (USD / EUR) en Modo Oscuro */
+/* Cajas de Balance y Divisas (ARS / USD / EUR) */
+.box-hover-link {
+  transition: all .18s cubic-bezier(.2,.8,.2,1);
+  text-decoration: none;
+  cursor: pointer;
+  display: block;
+}
+.box-hover-link:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(16,35,59,.10);
+  filter: brightness(0.98);
+}
+.dark-theme .box-hover-link:hover {
+  box-shadow: 0 6px 20px rgba(0,0,0,.55);
+  filter: brightness(1.1);
+}
+
+@keyframes highlightTarget {
+  0% { box-shadow: 0 0 0 4px rgba(46,111,192,0.65); }
+  100% { box-shadow: 0 0 0 0 rgba(46,111,192,0); }
+}
+#seccion-amenities:target {
+  animation: highlightTarget 2.5s ease;
+}
+
+.dark-theme .box-ars,
+.dark-theme div[class*="box-ars"],
+.dark-theme a[class*="box-ars"] {
+  background: #0F2942 !important;
+  border: 1px solid #1E40AF !important;
+}
+.dark-theme .box-ars *,
+.dark-theme div[class*="box-ars"] *,
+.dark-theme a[class*="box-ars"] * {
+  color: #60A5FA !important;
+}
+
 .dark-theme .box-usd,
-.dark-theme div[class*="box-usd"] {
+.dark-theme div[class*="box-usd"],
+.dark-theme a[class*="box-usd"] {
   background: #092B19 !important;
   border: 1px solid #14532D !important;
 }
 .dark-theme .box-usd *,
-.dark-theme div[class*="box-usd"] * {
+.dark-theme div[class*="box-usd"] *,
+.dark-theme a[class*="box-usd"] * {
   color: #4ADE80 !important;
 }
 
 .dark-theme .box-eur,
-.dark-theme div[class*="box-eur"] {
+.dark-theme div[class*="box-eur"],
+.dark-theme a[class*="box-eur"] {
   background: #0F2942 !important;
   border: 1px solid #1E40AF !important;
 }
 .dark-theme .box-eur *,
-.dark-theme div[class*="box-eur"] * {
+.dark-theme div[class*="box-eur"] *,
+.dark-theme a[class*="box-eur"] * {
   color: #60A5FA !important;
 }
 
@@ -8795,14 +8835,22 @@ router.get('/', async (req, res) => {
               <div style="font-size:15px;font-weight:800;margin-bottom:4px">📊 Gastos y Balance del Consorcio</div>
               <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px;line-height:1.4">Total acumulado de servicios, facturas e ingresos por amenities</div>
               <div style="display:flex;gap:10px;margin-bottom:10px">
-                <div style="flex:1;background:#EAF1FB;border-radius:12px;padding:12px 14px" class="box-ars">
-                  <div style="font-size:11px;font-weight:800;color:#2E6FC0;letter-spacing:.04em">GASTOS (ARS)</div>
+                <a href="/admin/archivos" style="flex:1;background:#EAF1FB;border-radius:12px;padding:12px 14px;border:1px solid #D4E2F6;text-decoration:none" class="box-ars box-hover-link" title="Ver Facturas y Gastos del Consorcio">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+                    <div style="font-size:11px;font-weight:800;color:#2E6FC0;letter-spacing:.04em">GASTOS (ARS)</div>
+                    <span style="font-size:13px;color:#2E6FC0;font-weight:800">↗</span>
+                  </div>
                   <div style="font-size:19px;font-weight:800;color:#17408B;letter-spacing:-.02em">$${Math.round(arsTotal).toLocaleString('es-AR')}</div>
-                </div>
-                <div style="flex:1;background:#E7F4EC;border-radius:12px;padding:12px 14px" class="box-usd">
-                  <div style="font-size:11px;font-weight:800;color:#1B7A43;letter-spacing:.04em">INGRESOS AMENITIES</div>
+                  <div style="font-size:11px;font-weight:700;color:#4B82C8;margin-top:4px">Ver facturas →</div>
+                </a>
+                <a href="/admin/mi-edificio#seccion-amenities" style="flex:1;background:#E7F4EC;border-radius:12px;padding:12px 14px;border:1px solid #C8E6D3;text-decoration:none" class="box-usd box-hover-link" title="Ver Amenities y Reservas del Edificio">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+                    <div style="font-size:11px;font-weight:800;color:#1B7A43;letter-spacing:.04em">INGRESOS AMENITIES</div>
+                    <span style="font-size:13px;color:#1B7A43;font-weight:800">↗</span>
+                  </div>
                   <div style="font-size:19px;font-weight:800;color:#14532D;letter-spacing:-.02em">+$${Math.round(ingresosAmenitiesTotal).toLocaleString('es-AR')}</div>
-                </div>
+                  <div style="font-size:11px;font-weight:700;color:#2E8552;margin-top:4px">Ver reservas →</div>
+                </a>
               </div>
               <div style="font-size:11.5px;color:#8595AD;line-height:1.35">💡 Incluye gastos de servicios procesados en <strong>Facturas/Fotos</strong> y cobros confirmados de reservas de amenities del edificio.</div>
             </div>
@@ -9536,7 +9584,7 @@ router.get('/mi-edificio', async (req, res) => {
     const pendientesCount = reservasEdificio.filter(r => (r.estado_pago === 'pendiente' || !r.estado_pago) && Number(r.monto) > 0 && r.estado !== 'cancelada').length;
 
     const amenitiesCard = `
-      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
+      <div id="seccion-amenities" style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px;scroll-margin-top:80px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px">
           <div>
             <div style="font-size:16px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:6px">
