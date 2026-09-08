@@ -744,6 +744,36 @@ pm2 logs marcos-ai --lines 300 --nostream | grep "🧭"
 Pruebas: `node pruebas-ruteo-proveedor.js` (el mecanismo, sin llamar a Gemini) y
 `node probar-ruteo.js` (la clasificación de verdad, necesita la clave y corre en el VPS).
 
+### Pedirle a un archivo una función que no exporta NO da error al cargar
+
+> [!CAUTION]
+> **`const { x } = require('./y')` con `y` que no exporta `x` deja `x` en `undefined`.**
+> Recién revienta cuando alguien lo llama — casi siempre adentro de un `try` que se come el error.
+
+`datos.js` **nunca exportó `buscarCasoPorCodigo`**, y **cinco** lugares de `index.js` se la pedían.
+Los cinco caían en su `catch` con *"buscarCasoPorCodigo is not a function"*. Desde afuera no se veía
+ningún error: se veía a Marcos preguntando la dirección que el técnico acababa de decir, porque el
+arreglo que evitaba eso **nunca llegó a correr ni una vez**.
+
+Nada lo agarraba: `node --check` no lo ve (la sintaxis es válida), las pruebas no llegan hasta ahí,
+y la sección "¿falta alguna función?" del verificador **usa una lista escrita a mano** — solo revisa
+los nombres que alguien se acordó de anotar.
+
+`herramientas-check-exports.js` lee los `require` de verdad y los compara con los `module.exports`
+de verdad. No los carga: `datos-pg.js` abre PostgreSQL al cargarse y los agentes crean el cliente de
+Gemini, así que un verificador que necesita la base prendida no se puede correr antes de un push.
+
+**Encontró ocho más apenas se escribió**, todos con el mismo síntoma silencioso:
+
+| Dónde | Qué pasaba |
+|---|---|
+| `getSheet` pedido a `datos.js` (4 lugares) | vive en `sheets.js`. Se corrigió el `require`. |
+| `procesarSiguienteEventoProveedor` (`index.js:4038`) | **no existe en ningún archivo**, y se llamaba adentro de un `setTimeout` **sin `try`** — una excepción ahí **mata el proceso entero**. No explotó porque los mensajes cortan antes con un `return`. |
+| `enviarEncuestaServicio` (3 lugares) | **no existe**, y las tres llamadas estaban en un `catch(e) {}` **vacío**: la encuesta de satisfacción al vecino **nunca se envió ni una vez**. |
+
+Las dos que no existen **no se inventaron**: adivinar qué tenían que hacer es peor que no tenerlas.
+Quedan dichas en el log, fuerte, para que sean una decisión y no un olvido.
+
 ### No preguntarle la dirección que él acaba de decir
 
 Del chat real, con tres minutos de diferencia:

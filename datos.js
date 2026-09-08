@@ -161,6 +161,24 @@ async function buscarCasosRecientesPorTecnico(nombre, telefono, dias) {
     return leer('buscarCasosRecientesPorTecnico', [nombre, telefono, dias], 'buscarCasosRecientesPorTecnico', 'buscarCasosRecientesPorTecnico');
 }
 
+/**
+ * Un caso por su código.
+ *
+ * > [!CAUTION]
+ * > **Esta función faltaba acá, y CINCO lugares de `index.js` la pedían de `require('./datos')`.**
+ *
+ * Los cinco caían en su `catch` con *"buscarCasoPorCodigo is not a function"* y seguían de largo,
+ * así que desde afuera no se veía un error: se veía a Marcos preguntando cosas que ya sabía. El
+ * arreglo de "no repreguntar la dirección" nunca llegó a correr ni una vez.
+ *
+ * Va solo a PostgreSQL y **no usa `leer()`**: `sheets.js` no tiene esta búsqueda, así que el
+ * respaldo no existe. Decirlo acá es mejor que que `leer()` reviente buscando una función que
+ * tampoco está del otro lado.
+ */
+async function buscarCasoPorCodigo(codigo) {
+    return require('./datos-pg').buscarCasoPorCodigo(codigo);
+}
+
 // Las facturas sin imputar y su corrección van directo a Sheets, que es la fuente de verdad de la
 // pestaña `facturas`: acá no se puede leer una copia posiblemente atrasada, porque lo que está en
 // juego es a qué consorcio se le carga un gasto.
@@ -594,6 +612,7 @@ module.exports = {
     listarEdificiosConocidos,
     edificiosDelProveedor,
     buscarCasosRecientesPorTecnico,
+    buscarCasoPorCodigo,
     proveedoresPorTelefono,
     buscarDatosBancariosProveedor,
     guardarDatosBancariosProveedor,

@@ -339,7 +339,7 @@ function iniciarCronReportes() {
     cron.schedule('0 8,20 * * *', async () => {
         console.log('⏳ Ejecutando Cron de Reportes cada 12 hs...');
         try {
-            const { getSheet } = require('../datos'); // Requerimos local para evitar ciclos
+            const { getSheet } = require('../sheets'); // Requerimos local para evitar ciclos
             const sheetMod = require('../datos'); 
             const doc = await sheetMod.buscarPerfilEdificio(''); // dummy call just to init
             console.log('✅ Cron de reportes ejecutado.');

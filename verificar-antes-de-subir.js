@@ -97,6 +97,18 @@ for (const [archivo, funciones] of Object.entries(IMPRESCINDIBLES)) {
     }
 }
 
+// > [!CAUTION]
+// > **La lista de arriba está escrita a MANO**, así que solo revisa los nombres que alguien se
+// > acordó de anotar. `datos.js` nunca exportó `buscarCasoPorCodigo`, cinco lugares de `index.js`
+// > se la pedían, y esta sección dijo "✅ están las 2" durante días.
+//
+// Lo de abajo no depende de que nadie se acuerde de nada: lee los `require` de verdad y los
+// compara con los `module.exports` de verdad.
+console.log('\n── ¿LO QUE UN ARCHIVO PIDE, EL OTRO LO EXPORTA? ──');
+if (fs.existsSync(path.join(__dirname, 'herramientas-check-exports.js'))) {
+    correr('require vs. module.exports', process.execPath, ['herramientas-check-exports.js']);
+}
+
 console.log('\n── ¿EL CÓDIGO ES VÁLIDO? ──');
 for (const archivo of ['index.js', 'dashboard.js', 'sheets.js', 'datos.js', 'datos-pg.js',
                        'agentes/marcos-ops.js', 'agentes/marcos-cara.js', 'seguimiento.js']) {

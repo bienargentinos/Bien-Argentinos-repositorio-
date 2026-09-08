@@ -22,7 +22,7 @@ const {
 const { descargarMedia, guardarArchivoEstructurado } = require('./media');
 const { evaluarCaso }        = require('./agentes/marcos-caso');
 const { responderVecino }    = require('./agentes/marcos-cara');
-const { gestionarOperaciones, enviarWhatsApp, subirMediaWhatsApp, enviarAudioWhatsApp, procesarSiguienteEventoProveedor, redactarNovedadParaTecnico } = require('./agentes/marcos-ops');
+const { gestionarOperaciones, enviarWhatsApp, subirMediaWhatsApp, enviarAudioWhatsApp, redactarNovedadParaTecnico } = require('./agentes/marcos-ops');
 const { procesarDocumento }  = require('./agentes/marcos-docs');
 const { reportarAlAdmin, iniciarCronReportes }    = require('./agentes/marcos-admin');
 
@@ -942,7 +942,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
 
     // 3b. Respaldo: la misma búsqueda contra la planilla, por si el caso todavía no llegó a la base.
     try {
-        const { getSheet } = require('./datos');
+        const { getSheet } = require('./sheets');
         const doc = await getSheet();
         const sheet = doc.sheetsByTitle['EVENTOS'];
         if (sheet) {
@@ -999,7 +999,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
 
     // 4b. Respaldo contra la planilla.
     try {
-        const { getSheet } = require('./datos');
+        const { getSheet } = require('./sheets');
         const doc = await getSheet();
         const sheetVec = doc.sheetsByTitle['VECINOS'] || doc.sheetsByIndex[0];
         if (sheetVec && edificioNombre) {
@@ -1453,7 +1453,7 @@ function validarYSanitizarNombre(nombre) {
         // Respaldo contra la planilla, por si el caso todavía no llegó a la base.
         if (!edifDetectado) {
             try {
-                const { getSheet } = require('./datos');
+                const { getSheet } = require('./sheets');
                 const doc = await getSheet();
                 const sheet = doc.sheetsByTitle['EVENTOS'];
                 if (sheet) {
@@ -1572,9 +1572,12 @@ function validarYSanitizarNombre(nombre) {
 
             if (resData && resData.telefono && resData.telefono !== from) {
                 try {
-                    const { enviarEncuestaServicio } = require('./agentes/marcos-ops');
-                    await enviarEncuestaServicio({ vecino: { telefono: resData.telefono, nombre: resData.vecino }, id_evento: resData.id_evento, edificio: resData.edificio });
-                } catch(e) {}
+                    // `enviarEncuestaServicio` NO EXISTE en ningun archivo del proyecto, y las
+                    // tres llamadas estaban envueltas en un `catch(e) {}` VACIO: la encuesta de
+                    // satisfaccion al vecino nunca se envio ni una vez, y no habia ni una linea de
+                    // log que lo dijera. No se inventa la funcion; se dice que falta.
+                    console.error(`\u26d4 La encuesta de satisfaccion NO esta implementada: \`enviarEncuestaServicio\` no existe. El ${resData.id_evento} se cerro sin preguntarle al vecino como estuvo.`);
+                } catch(e) { console.error('Error avisando el cierre del caso:', e.message); }
             }
             return;
         }
@@ -1681,9 +1684,12 @@ function validarYSanitizarNombre(nombre) {
 
             if (resData && resData.telefono && resData.telefono !== from) {
                 try {
-                    const { enviarEncuestaServicio } = require('./agentes/marcos-ops');
-                    await enviarEncuestaServicio({ vecino: { telefono: resData.telefono, nombre: resData.vecino }, id_evento: resData.id_evento, edificio: resData.edificio });
-                } catch(e) {}
+                    // `enviarEncuestaServicio` NO EXISTE en ningun archivo del proyecto, y las
+                    // tres llamadas estaban envueltas en un `catch(e) {}` VACIO: la encuesta de
+                    // satisfaccion al vecino nunca se envio ni una vez, y no habia ni una linea de
+                    // log que lo dijera. No se inventa la funcion; se dice que falta.
+                    console.error(`\u26d4 La encuesta de satisfaccion NO esta implementada: \`enviarEncuestaServicio\` no existe. El ${resData.id_evento} se cerro sin preguntarle al vecino como estuvo.`);
+                } catch(e) { console.error('Error avisando el cierre del caso:', e.message); }
             }
             return;
         } else {
@@ -1701,9 +1707,12 @@ function validarYSanitizarNombre(nombre) {
 
                 if (resData && resData.telefono && resData.telefono !== from) {
                     try {
-                        const { enviarEncuestaServicio } = require('./agentes/marcos-ops');
-                        await enviarEncuestaServicio({ vecino: { telefono: resData.telefono, nombre: resData.vecino }, id_evento: resData.id_evento, edificio: resData.edificio });
-                    } catch(e) {}
+                        // `enviarEncuestaServicio` NO EXISTE en ningun archivo del proyecto, y las
+                        // tres llamadas estaban envueltas en un `catch(e) {}` VACIO: la encuesta de
+                        // satisfaccion al vecino nunca se envio ni una vez, y no habia ni una linea de
+                        // log que lo dijera. No se inventa la funcion; se dice que falta.
+                        console.error(`\u26d4 La encuesta de satisfaccion NO esta implementada: \`enviarEncuestaServicio\` no existe. El ${resData.id_evento} se cerro sin preguntarle al vecino como estuvo.`);
+                    } catch(e) { console.error('Error avisando el cierre del caso:', e.message); }
                 }
                 return;
             } else {
@@ -4033,10 +4042,22 @@ function validarYSanitizarNombre(nombre) {
     if (datosEmisor.rol === 'proveedor') {
         const txtLow = (msgBody || '').toLowerCase();
         if (/paso|lleg|voy|confirm|listo|no puedo|horario|mañana|tarde|hs|hs\.|hora/.test(txtLow)) {
-            console.log(`✅ Coordinación de evento finalizada por proveedor ${datosEmisor.nombre}. Verificando eventos pendientes en cola...`);
-            setTimeout(() => {
-                procesarSiguienteEventoProveedor(from, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
-            }, 4000);
+            // > [!CAUTION]
+            // > **`procesarSiguienteEventoProveedor` NO EXISTE en ningún archivo del proyecto.**
+            //
+            // Se importa en la línea 25 desde `marcos-ops.js`, que no la exporta, así que queda
+            // `undefined`. Y la llamada estaba adentro de un `setTimeout` **sin `try`**: una
+            // excepción ahí no la atrapa nadie y **mata el proceso entero**.
+            //
+            // No explotó todavía porque los mensajes que llegarían hasta acá cortan antes con un
+            // `return`. Es una mina, no un cráter -- pero el día que un mensaje llegue, Marcos se
+            // muere en mitad de una conversación y PM2 lo levanta sin que nadie sepa por qué.
+            //
+            // No se inventa la función: no está escrita, y adivinar qué tenía que hacer la cola de
+            // eventos del proveedor es peor que no tenerla. Queda dicho en el log, fuerte, para que
+            // sea una decisión y no un olvido.
+            console.log(`✅ Coordinación de evento finalizada por proveedor ${datosEmisor.nombre}.`);
+            console.error('⛔ La cola de eventos pendientes del proveedor NO está implementada: `procesarSiguienteEventoProveedor` no existe en ningún archivo. Si un técnico tiene dos trabajos esperando, el segundo no se le despacha solo.');
         }
     }
 
