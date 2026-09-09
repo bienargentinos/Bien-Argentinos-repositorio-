@@ -111,8 +111,18 @@ async function renombrarProveedor({ viejo, nuevo, aplicar = false, log = console
             if (!columnas) continue;
 
             const hoja = doc.sheetsByTitle[titulo];
-            await hoja.loadHeaderRow().catch(() => {});
-            const headers = hoja.headerValues || [];
+            try {
+                await hoja.loadHeaderRow();
+            } catch {
+                continue;
+            }
+            let headers = [];
+            try {
+                headers = hoja.headerValues || [];
+            } catch {
+                continue;
+            }
+            if (!headers.length) continue;
             let filas = [];
             try { filas = await hoja.getRows(); } catch { continue; }
 

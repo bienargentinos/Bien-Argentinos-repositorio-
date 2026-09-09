@@ -92,8 +92,17 @@ async function renombrarEdificio({ viejo, nuevo, aplicar = false, log = console.
 
         for (const titulo of Object.keys(doc.sheetsByTitle || {})) {
             const hoja = doc.sheetsByTitle[titulo];
-            await hoja.loadHeaderRow().catch(() => {});
-            const headers = hoja.headerValues || [];
+            try {
+                await hoja.loadHeaderRow();
+            } catch {
+                continue;
+            }
+            let headers = [];
+            try {
+                headers = hoja.headerValues || [];
+            } catch {
+                continue;
+            }
             if (!headers.length) continue;
 
             const esTabEdificios = DONDE_NOMBRE_ES_EL_EDIFICIO.has(norm(titulo));
