@@ -1288,6 +1288,33 @@ Prueba: `node pruebas-renombrar-edificio.js`.
 > marca de "esto es texto y no un número" y no se ve en la planilla. Uno en el **medio** (`27'0`)
 > sí es un carácter real.
 
+### Cuando un renombre no puede tocar una fila porque su gemela ya existe
+
+`renombrar-edificio.js` y `renombrar-proveedor.js` renombran fila por fila y, si una quedaría
+repetida con otra que ya existe, **se plantan y avisan** en vez de forzarla:
+
+```
+⚠️ proveedor_asignaciones.edificio: esta fila quedaría repetida con otra que ya dice
+   "san patricio casa". Se dejó como estaba.
+```
+
+Eso es lo correcto --borrar una de las dos es una decisión, no un efecto secundario de corregir un
+nombre-- pero deja la fila vieja apuntando a un edificio que no existe. `quitar-duplicados.js`
+cierra ese paso:
+
+```bash
+node quitar-duplicados.js proveedor_asignaciones edificio "nombre viejo" "nombre bueno"
+node quitar-duplicados.js proveedor_asignaciones edificio "nombre viejo" "nombre bueno" --aplicar
+```
+
+> [!CAUTION]
+> **Solo borra una fila si su gemela ya existe Y dice exactamente lo mismo en todo lo demás.**
+> Si la vieja trae algo propio --otra prioridad, otro teléfono, otro estado-- NO se borra: se
+> muestra la diferencia y se deja quieta. Perder ese dato es peor que tener una fila de más, y
+> decidirlo es de quien conoce el edificio.
+
+Tampoco borra una fila sin gemela: eso no es un duplicado sino un renombre pendiente, y lo dice.
+
 ## Un nombre de edificio que no es ningún edificio
 
 > [!CAUTION]
