@@ -1288,6 +1288,37 @@ Prueba: `node pruebas-renombrar-edificio.js`.
 > marca de "esto es texto y no un número" y no se ve en la planilla. Uno en el **medio** (`27'0`)
 > sí es un carácter real.
 
+## Un nombre de edificio que no es ningún edificio
+
+> [!CAUTION]
+> **Un nombre que se usa en una asignación y no existe en `EDIFICIOS` no da error en ningún lado.**
+> Simplemente no encuentra nada, en silencio, y desde afuera se ve como que Marcos "no sabe" la
+> dirección o a quién llamar.
+
+Caso real: `consorcio propietario san patricio 159` estaba en **cuatro** asignaciones de proveedor,
+en el consejo y en la lista de edificios del cliente --y no existía como edificio--. Al mismo
+tiempo, el portal del vecino (`reservas_amenities`, `usuario_unidades`) usaba una tercera forma,
+`San Patricio 159`. Tres nombres, ninguno verificado contra `EDIFICIOS`.
+
+Lo que rompe cada uno:
+
+- `buscarPerfilEdificio` no encuentra la ficha → al técnico le llega el nombre interno en vez de la
+  dirección, o la dirección de otro consorcio.
+- El permiso del cliente apunta a un edificio que no existe: en el panel le falta uno.
+- La asignación `edificio + rubro` no matchea → Marcos no sabe a quién llamar.
+
+```bash
+node revisar-edificios.js        # solo lee: los edificios que hay, y los nombres que no son ninguno
+```
+
+Muestra cada edificio con su dirección (y avisa si las **dos** columnas del nombre --`edificio` y
+`nombre`, que son alias del mismo dato-- no coinciden entre sí), y después lista todo nombre usado
+en las otras pestañas y tablas que no corresponde a ninguno, con en cuántas filas está.
+
+Se corrigen con `renombrar-edificio.js`. **Antes de elegir el nombre bueno hay que mirar la
+dirección**: dos edificios de la misma calle con distinta altura son dos consorcios distintos, y
+unificarlos mandaría al técnico a la puerta equivocada.
+
 ## De quién es cada edificio (por qué uno "desaparecía" de su administrador)
 
 La lista `edificios` de la tab `CLIENTES` y el nombre del edificio en `EDIFICIOS` son **dos textos
