@@ -1519,6 +1519,76 @@ Prueba: `node pruebas-unidad-vecino.js`.
 ### 4. Persistencia Dual Sheets / PostgreSQL
 - Sincronización de `tel_tecnico` y `rubro_tecnico` en `datos.js` y `datos-pg.js` al actualizar reportes y eventos.
 
+## Pendientes del PANEL (dashboard.js) — para quien trabaje ahí
+
+Son tres, y las tres tienen la misma forma: **el panel y el motor de Marcos escriben o leen el
+mismo dato con nombres distintos, o en una sola de las dos bases.** Ninguna da error; todas se ven
+desde afuera como que "Marcos no sabe" algo.
+
+> [!CAUTION]
+> **Las tres se resuelven LLAMANDO a algo que ya existe, no reimplementándolo.** Copiar la lógica
+> adentro del panel es exactamente lo que pasó con `buscarPerfilEdificio`, que quedó escrita dos
+> veces --en `sheets.js` y en `datos-pg.js`-- y arreglar una copia no cambió nada en producción
+> porque el motor leía la otra.
+
+### 1. La sección Facturas nunca muestra el caso
+
+`mapFactura` (dashboard.js ~539) **no devuelve el campo del caso**, ninguno. Por eso `item.codigo_caso`
+de la línea ~4791 viene siempre vacío y la insignia cae siempre en "Sin caso asignado", haya dato o
+no. Verificado: el dato **está** en las dos bases (`facturas.id_evento`).
+
+Y el mismo dato tiene dos nombres: el motor escribe `id_evento`, el alta manual del panel escribe
+`codigo_caso`. Hay que leer **los dos**, o la mitad de las facturas siguen sin caso.
+
+```js
+// en el objeto que devuelve mapFactura
+codigo_caso: pick(r, ['codigo_caso', 'id_evento', 'caso', 'id_caso']),
+```
+
+Nada más: la insignia ya está escrita y funciona apenas el campo llegue.
+
+### 2. Editar el nombre de un edificio no renombra sus referencias
+
+`/api/edificio` (dashboard.js ~12996) escribe el nombre nuevo en `EDIFICIOS` --en todas las columnas
+que son ese campo, eso está bien-- **y en ningún otro lado**. De ahí salieron cuatro asignaciones de
+proveedor diciendo `san patricio 27'0 casa` con el edificio ya renombrado a `San patricio 270`, más
+el consejo y la lista de edificios del cliente.
+
+La propagación existe pero está **adentro** de `/api/aprobar-solicitud` (~13756), cubre menos
+pestañas y **no toca PostgreSQL**, que es el lado que lee Marcos.
+
+`renombrar-edificio.js` ya hace las dos bases, todas las pestañas, la lista separada por comas del
+cliente, comparación exacta y aviso de fila duplicada sin forzarla. **Se exporta para esto**:
+
+```js
+const { renombrarEdificio } = require('./renombrar-edificio');
+// cuando cambió el nombre, después de escribir EDIFICIOS:
+const r = await renombrarEdificio({ viejo: nombreAnterior, nuevo: nombreNuevo, aplicar: true });
+// devolver r.cambios y r.fallidos en la respuesta: un renombrado a medias parece hecho y no lo está
+```
+
+Y el bloque inline de `/api/aprobar-solicitud` tendría que pasar a llamar a lo mismo, para que no
+queden dos criterios distintos de qué se renombra.
+
+### 3. Editar el nombre de un proveedor no llega a Marcos
+
+`/api/proveedor-editar` (dashboard.js ~14061) hace solo `writeCell` sobre la planilla, y
+`buscarRolPorTelefono` sale de PostgreSQL. La edición es invisible para Marcos, para siempre. Mismo
+patrón:
+
+```js
+const { renombrarProveedor } = require('./renombrar-proveedor');
+```
+
+### Cómo se verifica que quedó bien
+
+```bash
+node revisar-sobrantes.js     # lo que sobra o falta entre las dos bases
+node revisar-edificios.js     # nombres de edificio que no son ningún edificio
+```
+
+Después de cualquiera de los tres arreglos, esos dos tienen que seguir diciendo lo mismo o mejor.
+
 ## Pendientes
 
 - [x] Aplicar últimos cambios del dashboard en VPS (curl + pm2 restart)
@@ -1534,5 +1604,10 @@ Prueba: `node pruebas-unidad-vecino.js`.
 - [ ] Impersonación ("Ver como cliente") para el dueño
 - [ ] Horario del encargado: reemplazar los bloques Lun-Vie + Sábado por calendario o texto libre
       que interprete Marcos (hay edificios con limpieza 3 días a la semana en horarios raros)
+- [ ] **Panel**: `mapFactura` no devuelve el caso (ver "Pendientes del PANEL", punto 1)
+- [ ] **Panel**: renombrar un edificio desde la ficha no renombra sus referencias (punto 2)
+- [ ] **Panel**: renombrar un proveedor no llega a PostgreSQL, o sea a Marcos (punto 3)
+- [ ] Sacar un edificio de un cliente deja huérfanas sus asignaciones, su consejo y el permiso —
+      hoy solo se detecta con `revisar-edificios.js`, no se limpia solo
 - [ ] Twilio + chip Movistar: agregar `VAPI_API_KEY`, `TWILIO_*` al `.env`
 - [ ] Test end-to-end WhatsApp + llamadas

@@ -71,7 +71,11 @@ const IMPRESCINDIBLES = {
         'tecnicos:',
         'module.exports = {',
     ],
-    'renombrar-edificio.js': ['function reemplazarEnLista('],
+    'renombrar-edificio.js': [
+        'async function renombrarEdificio(',
+        'reemplazarEnLista',
+        'module.exports = {',
+    ],
     'material-caso.js': ['async function materialDelVecinoEnCaso('],
     'rubros.js':        ['function coincideRubro('],
     'cbu.js':           ['function validarCBU('],

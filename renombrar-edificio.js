@@ -22,14 +22,19 @@
 // El .env se busca al lado de este archivo y no en el directorio desde donde se ejecuta.
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
-const viejo = process.argv[2];
-const nuevo = process.argv[3];
-const aplicar = process.argv.includes('--aplicar');
-
-if (!viejo || !nuevo) {
-    console.error('Uso:\n  node renombrar-edificio.js "nombre viejo" "nombre nuevo" [--aplicar]');
-    process.exit(1);
-}
+// ── POR QUÉ ADEMÁS SE EXPORTA ────────────────────────────────────────────────────────────────
+//
+// > [!CAUTION]
+// > **`/api/edificio` --la edición de la ficha desde el panel-- renombra el edificio en
+// > `EDIFICIOS` y en ningún otro lado.** Por eso quedaron cuatro asignaciones de proveedor
+// > diciendo `san patricio 27'0 casa` cuando el edificio ya se llamaba `San patricio 270`.
+//
+// La propagación existe, pero está escrita ADENTRO de `/api/aprobar-solicitud`, cubre menos
+// pestañas que esto y no toca PostgreSQL --que es el lado que lee Marcos--. Por eso
+// `renombrarEdificio()` se exporta: para que los dos endpoints la LLAMEN, en vez de tener una
+// tercera copia de la misma decisión. Copiar esta lógica es exactamente lo que pasó con
+// `buscarPerfilEdificio`, que quedó escrita dos veces y arreglar una copia no cambió nada en
+// producción.
 
 // La misma normalización que usan el panel y la base: compara sin mayúsculas, sin acentos y sin
 // espacios de sobra, pero EXACTA. Nada de coincidencias parciales -- con eso, renombrar el 270 se
@@ -38,12 +43,6 @@ const norm = (t) => String(t || '')
     .replace(/[ÁÉÍÓÚÜÑáéíóúüñ]/g, c => 'AEIOUUNaeiouun'['ÁÉÍÓÚÜÑáéíóúüñ'.indexOf(c)])
     .toLowerCase().trim();
 
-const N_VIEJO = norm(viejo);
-const N_NUEVO = norm(nuevo);
-
-if (!N_VIEJO) { console.error('El nombre viejo está vacío.'); process.exit(1); }
-if (N_VIEJO === N_NUEVO) { console.error('Los dos nombres son el mismo. No hay nada que hacer.'); process.exit(1); }
-
 // Columnas que guardan EL NOMBRE de un edificio.
 const COL_NOMBRE = new Set(['edificio', 'consorcio']);
 // Columnas que guardan una LISTA de edificios separados por comas.
@@ -51,27 +50,42 @@ const COL_LISTA = new Set(['edificios']);
 // `nombre` es el nombre de una persona en casi todas las pestañas. Solo es el del edificio acá.
 const DONDE_NOMBRE_ES_EL_EDIFICIO = new Set(['edificios']);
 
-let cambios = 0;
-let fallidos = 0;
+/**
+ * Renombra un edificio en TODAS sus copias y en las dos bases.
+ *
+ * @param {string}  viejo    nombre actual, tal como está escrito
+ * @param {string}  nuevo    nombre nuevo
+ * @param {boolean} aplicar  false = solo lista lo que cambiaría, no escribe
+ * @param {(linea:string)=>void} log
+ * @returns {Promise<{cambios:number, fallidos:number}>}
+ */
+async function renombrarEdificio({ viejo, nuevo, aplicar = false, log = console.log }) {
+    const N_VIEJO = norm(viejo);
+    const N_NUEVO = norm(nuevo);
 
-// Reemplaza el ítem que corresponde dentro de una lista separada por comas, y deja el resto
-// intacto: pisar la celda entera le borraría al administrador los otros edificios que tiene.
-function reemplazarEnLista(valor) {
-    const partes = String(valor || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (!partes.some(p => norm(p) === N_VIEJO)) return null;
-    return partes.map(p => (norm(p) === N_VIEJO ? nuevo : p)).join(', ');
-}
+    if (!N_VIEJO) throw new Error('El nombre viejo está vacío.');
+    if (!N_NUEVO) throw new Error('El nombre nuevo está vacío.');
+    if (N_VIEJO === N_NUEVO) return { cambios: 0, fallidos: 0 };
 
-function anotar(donde, antes, despues) {
-    cambios++;
-    console.log(`   ${aplicar ? '✏️' : '·'} ${donde}`);
-    console.log(`      "${antes}"  →  "${despues}"`);
-}
+    let cambios = 0;
+    let fallidos = 0;
 
-(async () => {
+    // Reemplaza el ítem que corresponde dentro de una lista separada por comas, y deja el resto
+    // intacto: pisar la celda entera le borraría al administrador los otros edificios que tiene.
+    const reemplazarEnLista = (valor) => {
+        const partes = String(valor || '').split(',').map(s => s.trim()).filter(Boolean);
+        if (!partes.some(p => norm(p) === N_VIEJO)) return null;
+        return partes.map(p => (norm(p) === N_VIEJO ? nuevo : p)).join(', ');
+    };
+
+    const anotar = (donde, antes, despues) => {
+        cambios++;
+        log(`   ${aplicar ? '✏️' : '·'} ${donde}`);
+        log(`      "${antes}"  →  "${despues}"`);
+    };
 
     // ── GOOGLE SHEETS ────────────────────────────────────────────────────────────────────────
-    console.log(`\n📄 Google Sheets\n`);
+    log(`\n📄 Google Sheets\n`);
     try {
         const sheets = require('./sheets');
         const doc = await sheets.getSheet();
@@ -114,11 +128,11 @@ function anotar(donde, antes, despues) {
             }
         }
     } catch (e) {
-        console.error(`   ❌ No se pudo trabajar sobre Google Sheets: ${e.message}`);
+        log(`   ❌ No se pudo trabajar sobre Google Sheets: ${e.message}`);
     }
 
     // ── POSTGRESQL ───────────────────────────────────────────────────────────────────────────
-    console.log(`\n🐘 PostgreSQL\n`);
+    log(`\n🐘 PostgreSQL\n`);
     let pool = null;
     try {
         ({ pool } = require('./db-pg'));
@@ -152,7 +166,7 @@ function anotar(donde, antes, despues) {
             try {
                 res = await pool.query(`SELECT ctid, "${col}" AS v FROM "${tabla}" WHERE "${col}" IS NOT NULL AND "${col}" <> ''`);
             } catch (e) {
-                console.log(`   ⚠️ ${tabla}.${col}: no se pudo leer (${e.message})`);
+                log(`   ⚠️ ${tabla}.${col}: no se pudo leer (${e.message})`);
                 continue;
             }
 
@@ -171,36 +185,63 @@ function anotar(donde, antes, despues) {
                 } catch (e) {
                     fallidos++;
                     if (/unique|duplicad|duplicate/i.test(e.message)) {
-                        console.log(`   ⚠️ ${tabla}.${col}: esta fila quedaría repetida con otra que ya dice "${nuevo}".`);
-                        console.log(`      Se dejó como estaba. Hay una fila duplicada en "${tabla}" que conviene borrar a mano.`);
+                        log(`   ⚠️ ${tabla}.${col}: esta fila quedaría repetida con otra que ya dice "${nuevo}".`);
+                        log(`      Se dejó como estaba. Hay una fila duplicada en "${tabla}" que conviene borrar a mano.`);
                     } else {
-                        console.log(`   ❌ ${tabla}.${col}: ${e.message}`);
+                        log(`   ❌ ${tabla}.${col}: ${e.message}`);
                     }
                 }
             }
         }
     } catch (e) {
-        console.error(`   ❌ No se pudo trabajar sobre PostgreSQL: ${e.message}`);
+        log(`   ❌ No se pudo trabajar sobre PostgreSQL: ${e.message}`);
     }
 
-    console.log('');
-    // Si algo falló hay que decirlo arriba de todo: un renombrado que dice "listo" con la mitad
-    // sin hacer es peor que uno que falla entero, porque parece hecho y no lo está.
-    if (fallidos > 0) {
-        console.log(`⚠️ ${fallidos} lugar(es) NO se pudieron renombrar (el motivo está más arriba).`);
-        console.log(`   Resolvelos y volvé a correr el mismo comando: lo ya renombrado no se toca de nuevo.\n`);
-    }
-    if (cambios === 0 && fallidos === 0) {
-        console.log(`✅ No quedó ningún "${viejo}" para renombrar.\n`);
-    } else if (aplicar) {
-        console.log(`${fallidos ? '🟠' : '✅'} ${cambios} lugar(es) renombrados a "${nuevo}"${fallidos ? `, ${fallidos} sin renombrar` : ''}.`);
-        console.log(`   Verificá con:  node buscar-texto.js "${viejo}"\n`);
-    } else {
-        console.log(`📋 ${cambios} lugar(es) cambiarían. NO se escribió nada.`);
-        console.log(`   Para aplicarlo de verdad:`);
-        console.log(`   node renombrar-edificio.js "${viejo}" "${nuevo}" --aplicar\n`);
+    return { cambios, fallidos };
+}
+
+module.exports = { renombrarEdificio, norm };
+
+// ── COMO PROGRAMA ────────────────────────────────────────────────────────────────────────────
+if (require.main === module) {
+    const viejo = process.argv[2];
+    const nuevo = process.argv[3];
+    const aplicar = process.argv.includes('--aplicar');
+
+    if (!viejo || !nuevo) {
+        console.error('Uso:\n  node renombrar-edificio.js "nombre viejo" "nombre nuevo" [--aplicar]');
+        process.exit(1);
     }
 
-    try { if (pool) await pool.end(); } catch {}
-    process.exit(0);
-})();
+    (async () => {
+        let salida = { cambios: 0, fallidos: 0 };
+        try {
+            salida = await renombrarEdificio({ viejo, nuevo, aplicar });
+        } catch (e) {
+            console.error(`\n❌ ${e.message}\n`);
+            process.exit(1);
+        }
+
+        console.log('');
+        // Si algo falló hay que decirlo arriba de todo: un renombrado que dice "listo" con la
+        // mitad sin hacer es peor que uno que falla entero, porque parece hecho y no lo está.
+        if (salida.fallidos > 0) {
+            console.log(`⚠️ ${salida.fallidos} lugar(es) NO se pudieron renombrar (el motivo está más arriba).`);
+            console.log(`   Resolvelos y volvé a correr el mismo comando: lo ya renombrado no se toca de nuevo.\n`);
+        }
+        if (salida.cambios === 0 && salida.fallidos === 0) {
+            console.log(`✅ No quedó ningún "${viejo}" para renombrar.\n`);
+        } else if (aplicar) {
+            console.log(`${salida.fallidos ? '🟠' : '✅'} ${salida.cambios} lugar(es) renombrados a "${nuevo}"${salida.fallidos ? `, ${salida.fallidos} sin renombrar` : ''}.`);
+            console.log(`   Verificá con:  node buscar-texto.js "${viejo}"`);
+            console.log(`   Y reiniciá Marcos para que lo tome:  pm2 restart marcos-ai\n`);
+        } else {
+            console.log(`📋 ${salida.cambios} lugar(es) cambiarían. NO se escribió nada.`);
+            console.log(`   Para aplicarlo de verdad:`);
+            console.log(`   node renombrar-edificio.js "${viejo}" "${nuevo}" --aplicar\n`);
+        }
+
+        try { await require('./db-pg').pool.end(); } catch {}
+        process.exit(0);
+    })();
+}
