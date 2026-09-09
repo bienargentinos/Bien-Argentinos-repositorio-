@@ -88,6 +88,23 @@ function limpiarTextoProblema(p) {
 }
 
 /**
+ * El signo de peso se pone SOLO si el monto no lo trae ya.
+ *
+ * Visto en la planilla: `Factura recibida del técnico dario. N° 00001-00000262 por $$5500,00 ARS`.
+ * El monto se guarda a veces con el signo adentro ("$5500,00 ARS") y a veces sin él ("5500"),
+ * según de dónde lo haya leído el lector de documentos, y los cuatro lugares que lo mostraban le
+ * pegaban un `$` adelante sin mirar.
+ *
+ * Es cosmético, pero lo lee el administrador en el aviso de un gasto: un importe escrito raro es
+ * exactamente donde uno mira dos veces.
+ */
+function montoConSigno(monto) {
+    const m = String(monto ?? '').trim();
+    if (!m) return '';
+    return /^[$]/.test(m) ? m : `$${m}`;
+}
+
+/**
  * La confirmación del técnico puede haber llegado antes de que existiera la sesión de este vecino,
  * o después de un reinicio de PM2. En ese caso vive en el estado del proveedor: se la busca ahí por
  * el vecino al que está atendiendo, para no contestarle "estoy consultando" a alguien cuya visita
@@ -2460,7 +2477,7 @@ function validarYSanitizarNombre(nombre) {
                                 `en ${edificioFactura}, con datos para cobrar.\n\n` +
                                 `📱 Teléfono: ${from}\n` +
                                 `🔧 Dice ser: ${nombreTecnicoFactura || 'no lo aclaró'}\n` +
-                                (datosFactura?.monto ? `💲 Monto: $${datosFactura.monto}${datosFactura?.numero_factura ? ` (N° ${datosFactura.numero_factura})` : ''}\n` : '') +
+                                (datosFactura?.monto ? `💲 Monto: ${montoConSigno(datosFactura.monto)}${datosFactura?.numero_factura ? ` (N° ${datosFactura.numero_factura})` : ''}\n` : '') +
                                 (cbuNuevo?.valido ? `🏦 CBU terminado en ...${ultimos4(cbuNuevo.cbu)}\n` : '') +
                                 (aliasNuevo?.valido ? `🏦 Alias: ${aliasNuevo.alias}\n` : '') +
                                 (datosFactura?.titular ? `👤 Titular: ${datosFactura.titular}\n` : '') +
@@ -2573,7 +2590,7 @@ function validarYSanitizarNombre(nombre) {
                     : `${datosEmisor.nombre || 'quien escribió'} (${datosEmisor.rol})${nombreTecnicoFactura ? `, sobre un trabajo de ${nombreTecnicoFactura}` : ''}`;
 
                 const detalleFactura = (datosFactura?.numero_factura ? ` Factura N° ${datosFactura.numero_factura}` : '') +
-                                       (datosFactura?.monto ? ` por $${datosFactura.monto}` : '') +
+                                       (datosFactura?.monto ? ` por ${montoConSigno(datosFactura.monto)}` : '') +
                                        ((datosFactura?.numero_factura || datosFactura?.monto) ? '.' : '');
                 const notas = quedoPorLaMitad
                     ? `⚠️ TRABAJO INCOMPLETO. Informado por ${quienInforma} al enviar la factura, sin reclamo previo por este canal. ` +
@@ -3152,7 +3169,7 @@ function validarYSanitizarNombre(nombre) {
                                     tel_tecnico: from || '',
                                     notas_ia: `Factura recibida del técnico ${datosEmisor.nombre}` +
                                         (laQueSeImputa?.numero_factura ? `. N° ${laQueSeImputa.numero_factura}` : '') +
-                                        (laQueSeImputa?.monto ? ` por $${laQueSeImputa.monto}` : '') +
+                                        (laQueSeImputa?.monto ? ` por ${montoConSigno(laQueSeImputa.monto)}` : '') +
                                         (nota ? `. Textual: "${nota}"` : ''),
                                     historial_chat: JSON.stringify([
                                         ...(nota ? [`Proveedor (${datosEmisor.nombre}): ${nota}`] : []),
@@ -3192,7 +3209,7 @@ function validarYSanitizarNombre(nombre) {
                                         `Informado por el técnico ${datosEmisor.nombre} al enviar la factura` +
                                         (gremio ? `. Hace falta un ${gremio} para continuar` : '') +
                                         (laQueSeImputa?.numero_factura ? `. Factura N° ${laQueSeImputa.numero_factura}` : '') +
-                                        (laQueSeImputa?.monto ? ` por $${laQueSeImputa.monto}` : '') +
+                                        (laQueSeImputa?.monto ? ` por ${montoConSigno(laQueSeImputa.monto)}` : '') +
                                         (nota ? `. Textual: "${nota}"` : '. No contó qué se hizo; el detalle está en el comprobante.'),
                                     // La conversación entera, no una línea suelta: la pregunta de
                                     // Marcos y lo que contestó el técnico. Es lo que el

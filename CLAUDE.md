@@ -1361,6 +1361,42 @@ node renombrar-edificio.js "nombre viejo" "nombre nuevo"        # muestra qué c
 node renombrar-edificio.js "nombre viejo" "nombre nuevo" --aplicar
 ```
 
+### Importar duplicó una factura (y por qué la clave importa tanto)
+
+> [!CAUTION]
+> **`importar-sheets-a-pg.js` identificaba una factura por `fecha + proveedor + monto + edificio`.**
+> Los cuatro cambian. Había una factura en la planilla y la misma en PostgreSQL; el import dijo
+> *"1 nueva(s), 0 actualizada(s) — total en la tabla: 2"*. El mismo comprobante dos veces, y el
+> gasto contado dos veces en el consorcio.
+
+Alcanza con que uno de los cuatro difiera:
+
+- **`edificio` está VACÍO al llegar** (`Sin imputar`) y se completa cuando el técnico contesta de
+  qué obra era. Antes y después son dos claves distintas.
+- **`monto`** se guarda formateado de un lado (`$5500,00 ARS`) y crudo del otro.
+- **`fecha`** es una marca de tiempo al segundo.
+
+Lo que identifica a una factura es lo mismo que ya usa `guardarFactura` para no registrar dos veces
+el mismo comprobante: **número de comprobante + proveedor**. Sin número se cae a la clave vieja —
+peor, pero el criterio del proyecto es firme: **perder una factura es peor que tener dos**.
+
+Y faltaba algo más: el import **no traía `numero_factura`, `id_evento`, `nota_tecnico` ni
+`enviada_por`**, así que la factura llegaba al lado que lee Marcos sin su número y sin saber a qué
+trabajo pertenecía.
+
+> El `clave` de una pestaña ahora puede ser una **función de la fila**, no solo una lista fija, y se
+> calcula adentro del bucle. Calculada afuera, una factura sin número decidiría por todas las demás.
+
+Prueba: `node pruebas-importar-facturas.js`.
+
+### El signo de peso puesto dos veces
+
+En la planilla salió `Factura recibida del técnico dario. N° 00001-00000262 por **$$**5500,00 ARS`.
+El monto a veces viene con el signo adentro y a veces sin él, según de dónde lo haya leído el lector
+de documentos, y los cuatro lugares que lo mostraban le pegaban un `$` adelante sin mirar.
+`montoConSigno()` en `index.js` lo pone solo si falta. Es cosmético, pero lo lee el administrador en
+el aviso de un gasto — un importe escrito raro es justo donde uno mira dos veces.
+
 ## El nombre del proveedor tampoco tiene id (y editarlo en el panel no llegaba a Marcos)
 
 > [!CAUTION]

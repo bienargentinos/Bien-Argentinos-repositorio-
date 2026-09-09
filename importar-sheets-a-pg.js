@@ -149,10 +149,38 @@ const MAPEOS = [
     {
         pestaña: 'facturas',
         tabla: 'facturas',
-        clave: ['fecha', 'proveedor', 'monto', 'edificio'],
+        // > [!CAUTION]
+        // > **Una factura NO se identifica por fecha + monto + edificio.** Los tres cambian.
+        //
+        // Con esa clave, importar duplicó en PostgreSQL una factura que ya estaba: quedó el mismo
+        // comprobante dos veces y el gasto contado dos veces. Basta con que uno de los cuatro
+        // campos difiera una coma:
+        //
+        //   · `edificio` está VACÍO cuando llega ("Sin imputar") y se completa después, cuando el
+        //     técnico contesta de qué obra era. Antes y después son dos claves distintas.
+        //   · `monto` se guarda formateado de un lado ("$5500,00 ARS") y crudo del otro.
+        //   · `fecha` es una marca de tiempo al segundo.
+        //
+        // Lo que identifica a una factura es lo mismo que ya usa `guardarFactura` para no
+        // registrar dos veces el mismo comprobante: **número de comprobante + proveedor**.
+        //
+        // Sin número no hay con qué identificarla, y ahí se cae a la clave vieja. Es peor que
+        // ninguna, pero el criterio del proyecto es firme: perder una factura es peor que tener
+        // dos, así que ante la duda se inserta.
+        //
+        // > Ojo: `guardarFactura` además ignora los ceros de adelante (`0001-284` = `00001-284`),
+        // > porque ahí compara lo que leyó el OCR en dos envíos distintos. Acá no hace falta: los
+        // > dos lados salen de la MISMA fila, escrita una sola vez.
+        clave: (valores) => (String(valores.numero_factura || '').trim()
+            ? ['numero_factura', 'proveedor']
+            : ['fecha', 'proveedor', 'monto', 'edificio']),
         columnas: {
             fecha: 'fecha', proveedor: 'proveedor', monto: 'monto', concepto: 'concepto',
             edificio: 'edificio', url_archivo: 'url_archivo', estado: 'estado',
+            // Estas cuatro no se importaban, así que la factura llegaba a PostgreSQL **sin su
+            // número y sin su caso**: el lado que lee Marcos no sabía a qué trabajo pertenecía.
+            numero_factura: 'numero_factura', id_evento: 'id_evento',
+            nota_tecnico: 'nota_tecnico', enviada_por: 'enviada_por',
         },
     },
     {
@@ -222,7 +250,11 @@ function valorDe(row, def) {
 }
 
 async function importarPestaña(doc, mapeo) {
-    const { pestaña, tabla, clave, columnas } = mapeo;
+    const { pestaña, tabla, clave: claveDef, columnas } = mapeo;
+
+    // La clave puede depender de la fila: una factura CON número se identifica por el número, y
+    // sin número no queda más remedio que la combinación de campos volátiles. Ver `facturas`.
+    const claveDe = (valores) => (typeof claveDef === 'function' ? claveDef(valores) : claveDef);
 
     const sheet = doc.sheetsByIndex.find(s => s.title.toLowerCase().trim() === pestaña.toLowerCase().trim());
     if (!sheet) {
@@ -247,6 +279,8 @@ async function importarPestaña(doc, mapeo) {
     for (const row of rows) {
         const valores = {};
         for (const colPg of nombresPg) valores[colPg] = valorDe(row, columnas[colPg]);
+
+        const clave = claveDe(valores);
 
         // Una fila sin ningún valor en su clave es una fila vacía de la planilla: se ignora.
         const claveVacia = clave.every(c => String(valores[c] ?? '').trim() === '');
