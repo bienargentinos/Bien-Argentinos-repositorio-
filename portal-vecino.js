@@ -1047,7 +1047,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
       
       <!-- Captura Facial Anti-Broma de Quién Toca -->
       <div id="box-foto-visita-preview" style="text-align:center;margin-bottom:14px;display:none">
-        <img id="img-foto-visita" src="" style="width:125px;height:125px;border-radius:20px;object-fit:cover;border:3px solid #38BDF8;box-shadow:0 8px 24px rgba(0,0,0,.4);margin:0 auto 6px;display:block">
+        <img id="img-foto-visita" src="" style="width:130px;height:130px;border-radius:20px;object-fit:cover;border:3px solid #38BDF8;box-shadow:0 8px 24px rgba(0,0,0,.4);margin:0 auto 6px;display:block">
         <span style="font-size:11px;font-weight:800;background:rgba(255,255,255,.2);color:#fff;padding:2px 10px;border-radius:999px">📸 Captura en la Puerta</span>
       </div>
 
@@ -1056,13 +1056,25 @@ function shellVecino(title, activeTab, content, vecinoData) {
       </div>
       <div style="font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#38BDF8;margin-bottom:6px">TIMBRE ENTRANTE EN PORTERÍA</div>
       <h2 style="font-size:24px;font-weight:900;margin-bottom:4px" id="llamada-timbre-visita">🛵 Delivery en Puerta</h2>
-      <p style="font-size:15px;color:#E2E8F0;margin-bottom:20px">${v.edificio} · Depto ${v.departamento}</p>
+      <p style="font-size:15px;color:#E2E8F0;margin-bottom:18px">${v.edificio} · Depto ${v.departamento}</p>
 
-      <!-- Botón Hablar en Vivo -->
-      <button onclick="iniciarLlamadaVozVecino()" style="width:100%;height:56px;border:none;border-radius:16px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:17px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 6px 22px rgba(22,163,74,.5);margin-bottom:18px">
-        <i class="ph ph-phone-call-fill" style="font-size:24px"></i>
-        <span>HABLAR EN VIVO (Llamada)</span>
+      <!-- Botón Principal: Ver Cámara en Vivo -->
+      <button onclick="verCamaraEnVivoVecino()" style="width:100%;height:54px;border:none;border-radius:16px;background:linear-gradient(135deg,#0284C7,#0EA5E9);color:#fff;font-size:16.5px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 6px 22px rgba(14,165,233,.5);margin-bottom:10px">
+        <i class="ph ph-video-camera-fill" style="font-size:24px"></i>
+        <span>📹 VER CÁMARA EN VIVO (Puerta)</span>
       </button>
+
+      <!-- Botón Secundario: Hablar en Vivo -->
+      <button onclick="iniciarLlamadaVozVecino()" style="width:100%;height:48px;border:none;border-radius:16px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:15px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 4px 18px rgba(22,163,74,.4);margin-bottom:12px">
+        <i class="ph ph-phone-call-fill" style="font-size:22px"></i>
+        <span>📞 HABLAR EN VIVO (Llamada)</span>
+      </button>
+
+      <!-- Disclaimer Privacidad Vecino -->
+      <div style="font-size:12px;color:#93C5FD;background:rgba(15,23,42,.45);border:1px solid rgba(56,189,248,.25);border-radius:10px;padding:6px 12px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:6px">
+        <span>🔒</span>
+        <span>Tu cámara está desactivada (solo vos ves la puerta).</span>
+      </div>
 
       <div style="font-size:12px;font-weight:800;color:#94A3B8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">O responder con texto rápido:</div>
 
@@ -1096,37 +1108,46 @@ function shellVecino(title, activeTab, content, vecinoData) {
       </button>
     </div>
 
-    <!-- 2. Estado: En Llamada de Voz y Video Activa -->
+    <!-- 2. Estado: En Llamada y Transmisión de Cámara en Vivo Activa -->
     <div id="box-llamada-voz-activa" style="display:none;flex-direction:column;align-items:center;width:100%;max-width:440px;margin:auto 0">
       
       <!-- Videoportero: Transmisión en Vivo desde la Puerta -->
-      <div id="box-video-webrtc" style="width:100%;max-width:320px;margin-bottom:14px;position:relative;border-radius:18px;overflow:hidden;background:#000;aspect-ratio:4/3;box-shadow:0 8px 24px rgba(0,0,0,.4);display:none">
-        <video id="video-webrtc-vecino" autoplay playsinline style="width:100%;height:100%;object-fit:cover"></video>
-        <div style="position:absolute;top:8px;left:8px;display:flex;align-items:center;gap:5px;background:rgba(0,0,0,.6);color:#fff;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:800">
-          <span style="width:7px;height:7px;border-radius:50%;background:#EF4444;animation:pulseRing 1.2s infinite"></span>
-          <span>CÁMARA DE PUERTA</span>
+      <div id="box-video-webrtc" style="width:100%;max-width:360px;margin-bottom:14px;position:relative;border-radius:20px;overflow:hidden;background:#0F172A;aspect-ratio:4/3;box-shadow:0 10px 30px rgba(0,0,0,.6);border:2px solid rgba(56,189,248,.3)">
+        <video id="video-webrtc-vecino" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;display:block"></video>
+        <img id="img-video-snapshot-placeholder" src="" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+        
+        <div id="video-connecting-overlay" style="position:absolute;inset:0;background:rgba(15,23,42,.75);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;z-index:2">
+          <div style="font-size:28px">📡</div>
+          <span style="font-size:13px;font-weight:800;color:#38BDF8">Conectando cámara de la puerta...</span>
+        </div>
+
+        <div style="position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);color:#fff;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:900;z-index:3;border:1px solid rgba(255,255,255,.15)">
+          <span style="width:8px;height:8px;border-radius:50%;background:#EF4444;box-shadow:0 0 8px #EF4444;animation:pulseRing 1.2s infinite"></span>
+          <span>CÁMARA EN VIVO</span>
+        </div>
+
+        <div style="position:absolute;top:10px;right:10px;display:flex;align-items:center;gap:5px;background:rgba(15,23,42,.75);backdrop-filter:blur(4px);color:#86EFAC;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:800;z-index:3;border:1px solid rgba(134,239,172,.3)">
+          <span>🔒 Vecino privado</span>
         </div>
       </div>
 
-      <div id="avatar-voz-container" style="width:84px;height:84px;border-radius:50%;background:linear-gradient(135deg,#15803D,#16A34A);display:flex;align-items:center;justify-content:center;font-size:38px;margin-bottom:12px;box-shadow:0 0 40px rgba(22,163,74,.5)">
-        🎙️
-      </div>
-      <div style="font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#86EFAC;margin-bottom:2px">LLAMADA ENTRANTE EN VIVO</div>
-      <h2 style="font-size:20px;font-weight:900;margin-bottom:2px">Frente de Calle</h2>
-      <div id="voz-timer" style="font-size:18px;font-family:monospace;font-weight:800;color:#38BDF8;margin-bottom:18px">00:00</div>
+      <div style="font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#86EFAC;margin-bottom:2px">PUERTA DE CALLE CONECTADA</div>
+      <h2 style="font-size:20px;font-weight:900;margin-bottom:2px" id="llamada-activa-subtitulo">Transmisión en directo</h2>
+      <div id="voz-timer" style="font-size:18px;font-family:monospace;font-weight:800;color:#38BDF8;margin-bottom:14px">00:00</div>
 
-      <div style="display:flex;gap:10px;margin-bottom:16px;width:100%">
-        <button id="btn-mute-voz" onclick="toggleMuteVoz()" style="flex:1;height:48px;border-radius:12px;border:1.5px solid rgba(255,255,255,.3);background:rgba(255,255,255,.15);color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
-          <span>🎙️ Silenciar Mic</span>
+      <div style="display:flex;gap:10px;margin-bottom:14px;width:100%">
+        <button id="btn-mute-voz" onclick="toggleMuteVoz()" style="flex:1;height:48px;border-radius:14px;border:1.5px solid rgba(255,255,255,.3);background:rgba(255,255,255,.15);color:#fff;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .2s">
+          <i class="ph ph-microphone-slash-fill" style="font-size:18px"></i>
+          <span>Micrófono</span>
         </button>
-        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="flex:1;height:48px;border-radius:12px;border:none;background:#2563EB;color:#fff;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <button onclick="responderTimbreVecino('¡Ya bajo!')" style="flex:1;height:48px;border-radius:14px;border:none;background:#2563EB;color:#fff;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
           <span>🏃 ¡Ya bajo!</span>
         </button>
       </div>
 
-      <button onclick="cortarLlamadaVoz()" style="width:100%;height:52px;border:none;border-radius:14px;background:#DC2626;color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 20px rgba(220,38,38,.5)">
+      <button onclick="cortarLlamadaVoz()" style="width:100%;height:52px;border:none;border-radius:14px;background:linear-gradient(135deg,#DC2626,#B91C1C);color:#fff;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 20px rgba(220,38,38,.5)">
         <i class="ph ph-phone-disconnect-fill" style="font-size:22px"></i>
-        <span>FINALIZAR LLAMADA</span>
+        <span>FINALIZAR / CERRAR CÁMARA</span>
       </button>
     </div>
 
@@ -1143,7 +1164,9 @@ function shellVecino(title, activeTab, content, vecinoData) {
     var _localStream = null;
     var _timerInterval = null;
     var _timerSecs = 0;
-    var _isMuted = false;
+    var _isMuted = true;
+    var _fotoVisitanteUltima = '';
+    var _sigInterval = null;
 
     function unlockAudio() {
       try {
@@ -1197,13 +1220,14 @@ function shellVecino(title, activeTab, content, vecinoData) {
 
     window.responderTimbreVecino = async function(resp) {
       detenerRingtoneLoop();
+      var cId = _llamadaMostradaId;
       cortarLlamadaVoz();
       document.getElementById('modal-llamada-timbre').style.display = 'none';
       try {
         await fetch('/porteria/api/timbre-responder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, respuesta: resp })
+          body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, callId: cId, respuesta: resp })
         });
       } catch(_) {}
     };
@@ -1222,10 +1246,68 @@ function shellVecino(title, activeTab, content, vecinoData) {
       document.getElementById('modal-llamada-timbre').style.display = 'none';
     };
 
-    window.iniciarLlamadaVozVecino = async function() {
+    function actualizarBotonMicUI() {
+      var btn = document.getElementById('btn-mute-voz');
+      if (!btn) return;
+      if (_isMuted) {
+        btn.style.background = 'rgba(239,68,68,.2)';
+        btn.style.borderColor = 'rgba(239,68,68,.5)';
+        btn.innerHTML = '<i class="ph ph-microphone-slash-fill" style="font-size:18px;color:#F87171"></i><span style="color:#FCA5A5">Micrófono Apagado</span>';
+      } else {
+        btn.style.background = 'rgba(34,197,94,.25)';
+        btn.style.borderColor = 'rgba(34,197,94,.6)';
+        btn.innerHTML = '<i class="ph ph-microphone-fill" style="font-size:18px;color:#4ADE80"></i><span style="color:#86EFAC">Micrófono Encendido</span>';
+      }
+    }
+
+    window.toggleMuteVoz = async function() {
+      if (!_localStream) {
+        try {
+          _localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          _isMuted = false;
+          if (_peerConn) {
+            _localStream.getAudioTracks().forEach(function(t){
+              _peerConn.addTrack(t, _localStream);
+            });
+          }
+        } catch(e) {
+          console.warn('Error accediendo al microfono:', e);
+          alert('No se pudo acceder al micrófono del dispositivo');
+          return;
+        }
+      } else {
+        _isMuted = !_isMuted;
+        _localStream.getAudioTracks().forEach(function(t){ t.enabled = !_isMuted; });
+      }
+      actualizarBotonMicUI();
+    };
+
+    window.verCamaraEnVivoVecino = function() {
+      conectarWebRTCVecino(false);
+    };
+
+    window.iniciarLlamadaVozVecino = function() {
+      conectarWebRTCVecino(true);
+    };
+
+    async function conectarWebRTCVecino(conAudioInicial) {
       detenerRingtoneLoop();
       document.getElementById('box-timbre-sonando').style.display = 'none';
       document.getElementById('box-llamada-voz-activa').style.display = 'flex';
+
+      var overlay = document.getElementById('video-connecting-overlay');
+      if (overlay) overlay.style.display = 'flex';
+
+      var snapImg = document.getElementById('img-video-snapshot-placeholder');
+      if (snapImg && _fotoVisitanteUltima) {
+        snapImg.src = _fotoVisitanteUltima;
+        snapImg.style.display = 'block';
+      }
+
+      var subTitulo = document.getElementById('llamada-activa-subtitulo');
+      if (subTitulo) {
+        subTitulo.textContent = conAudioInicial ? 'Llamada de voz y video en curso' : 'Transmisión de cámara en directo';
+      }
 
       _timerSecs = 0;
       clearInterval(_timerInterval);
@@ -1238,30 +1320,56 @@ function shellVecino(title, activeTab, content, vecinoData) {
       }, 1000);
 
       try {
-        await fetch('/porteria/api/timbre-responder', {
+        fetch('/porteria/api/timbre-responder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, modoVoz: true })
-        });
+          body: JSON.stringify({
+            edificio: _edificioVecino,
+            depto: _deptoVecino,
+            callId: _llamadaMostradaId,
+            modoVoz: true
+          })
+        }).catch(function(){});
 
-        _localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // NUNCA pedir video local: la privacidad del vecino está 100% protegida
+        try {
+          _localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          _isMuted = !conAudioInicial;
+          _localStream.getAudioTracks().forEach(function(t){ t.enabled = !_isMuted; });
+        } catch(e) {
+          console.warn('Audio local no disponible o denegado:', e);
+          _localStream = null;
+          _isMuted = true;
+        }
+        actualizarBotonMicUI();
+
         _peerConn = new RTCPeerConnection({
           iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
         });
 
-        _localStream.getTracks().forEach(function(track){
-          _peerConn.addTrack(track, _localStream);
-        });
+        if (_localStream) {
+          _localStream.getTracks().forEach(function(track){
+            _peerConn.addTrack(track, _localStream);
+          });
+        }
+
+        // Transceiver para recibir la cámara de la puerta (recvonly)
+        try {
+          _peerConn.addTransceiver('video', { direction: 'recvonly' });
+        } catch(e) {
+          console.warn('addTransceiver video:', e);
+        }
 
         _peerConn.ontrack = function(event){
           if (event.track.kind === 'video') {
             var remoteVideo = document.getElementById('video-webrtc-vecino');
-            var boxVideo = document.getElementById('box-video-webrtc');
-            var avatarVoz = document.getElementById('avatar-voz-container');
+            var over = document.getElementById('video-connecting-overlay');
+            var snap = document.getElementById('img-video-snapshot-placeholder');
             if (remoteVideo && event.streams[0]) {
               remoteVideo.srcObject = event.streams[0];
-              if (boxVideo) boxVideo.style.display = 'block';
-              if (avatarVoz) avatarVoz.style.display = 'none';
+              remoteVideo.play().catch(function(e){ console.warn('Video play error:', e); });
+              if (over) over.style.display = 'none';
+              if (snap) snap.style.display = 'none';
             }
           } else if (event.track.kind === 'audio') {
             var remoteAudio = document.getElementById('audio-webrtc-vecino');
@@ -1277,49 +1385,67 @@ function shellVecino(title, activeTab, content, vecinoData) {
             fetch('/porteria/api/webrtc-signal', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, from: 'vecino', signal: { type: 'candidate', candidate: event.candidate } })
-            });
+              body: JSON.stringify({
+                edificio: _edificioVecino,
+                depto: _deptoVecino,
+                callId: _llamadaMostradaId,
+                from: 'vecino',
+                signal: { type: 'candidate', candidate: event.candidate }
+              })
+            }).catch(function(){});
           }
         };
 
-        var offer = await _peerConn.createOffer();
+        var offer = await _peerConn.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        });
         await _peerConn.setLocalDescription(offer);
 
         await fetch('/porteria/api/webrtc-signal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, from: 'vecino', signal: { type: 'offer', sdp: offer } })
+          body: JSON.stringify({
+            edificio: _edificioVecino,
+            depto: _deptoVecino,
+            callId: _llamadaMostradaId,
+            from: 'vecino',
+            signal: { type: 'offer', sdp: offer }
+          })
         });
 
         // Polling de señales de respuesta desde la visita
         var lastSince = Date.now() - 5000;
         var _pendingAnsCandidates = [];
-        var sigInterval = setInterval(async function(){
-          if (!_peerConn) { clearInterval(sigInterval); return; }
+        if (_sigInterval) clearInterval(_sigInterval);
+        _sigInterval = setInterval(async function(){
+          if (!_peerConn) { clearInterval(_sigInterval); return; }
           try {
-            var sRes = await fetch('/porteria/api/webrtc-signal?edificio=' + encodeURIComponent(_edificioVecino) + '&depto=' + encodeURIComponent(_deptoVecino) + '&forRole=vecino&since=' + lastSince);
+            var url = '/porteria/api/webrtc-signal?edificio=' + encodeURIComponent(_edificioVecino) +
+              '&depto=' + encodeURIComponent(_deptoVecino) +
+              '&forRole=vecino&since=' + lastSince +
+              (_llamadaMostradaId ? '&callId=' + encodeURIComponent(_llamadaMostradaId) : '');
+            var sRes = await fetch(url);
             var sData = await sRes.json();
             if (sData && sData.signals && sData.signals.length) {
               for (var i = 0; i < sData.signals.length; i++) {
                 var sigObj = sData.signals[i].signal;
                 lastSince = Math.max(lastSince, sData.signals[i].timestamp);
                 if (sigObj.type === 'hangup' || sigObj.type === 'corte') {
-                  clearInterval(sigInterval);
+                  clearInterval(_sigInterval);
                   detenerRingtoneLoop();
                   clearInterval(_timerInterval);
                   if (_peerConn) { _peerConn.close(); _peerConn = null; }
                   if (_localStream) { _localStream.getTracks().forEach(function(t){ t.stop(); }); _localStream = null; }
                   var remoteVideo = document.getElementById('video-webrtc-vecino');
                   if (remoteVideo) remoteVideo.srcObject = null;
-                  var boxVideo = document.getElementById('box-video-webrtc');
-                  if (boxVideo) boxVideo.style.display = 'none';
 
                   var boxVoz = document.getElementById('box-llamada-voz-activa');
                   if (boxVoz) {
                     boxVoz.innerHTML = '<div style="padding:24px 16px;text-align:center">' +
                       '<div style="font-size:42px;margin-bottom:10px">📴</div>' +
-                      '<h2 style="font-size:22px;font-weight:900;margin-bottom:6px">La visita finalizó la llamada</h2>' +
-                      '<p style="font-size:14px;color:#CBD5E1;margin-bottom:20px">El micrófono se apagó correctamente.</p>' +
+                      '<h2 style="font-size:22px;font-weight:900;margin-bottom:6px">La visita finalizó la comunicación</h2>' +
+                      '<p style="font-size:14px;color:#CBD5E1;margin-bottom:20px">La cámara y los micrófonos se desconectaron.</p>' +
                       '<button onclick="cortarLlamadaVoz()" style="padding:12px 28px;border:none;border-radius:14px;background:#2563EB;color:#fff;font-weight:800;font-size:15px;cursor:pointer">Aceptar / Cerrar</button>' +
                     '</div>';
                   }
@@ -1346,28 +1472,28 @@ function shellVecino(title, activeTab, content, vecinoData) {
         }, 800);
 
       } catch(err) {
-        console.warn('Voz WebRTC:', err.message);
+        console.warn('WebRTC error:', err.message);
       }
-    };
-
-    window.toggleMuteVoz = function() {
-      if (_localStream) {
-        _isMuted = !_isMuted;
-        _localStream.getAudioTracks().forEach(function(t){ t.enabled = !_isMuted; });
-        var btn = document.getElementById('btn-mute-voz');
-        if (btn) btn.innerHTML = _isMuted ? '<span>🔇 Mic Silenciado</span>' : '<span>🎙️ Silenciar Mic</span>';
-      }
-    };
+    }
 
     window.cortarLlamadaVoz = function() {
       detenerRingtoneLoop();
       clearInterval(_timerInterval);
+      if (_sigInterval) {
+        clearInterval(_sigInterval);
+        _sigInterval = null;
+      }
 
       try {
         fetch('/porteria/api/timbre-cortar', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ edificio: _edificioVecino, depto: _deptoVecino, from: 'vecino' })
+          body: JSON.stringify({
+            edificio: _edificioVecino,
+            depto: _deptoVecino,
+            callId: _llamadaMostradaId,
+            from: 'vecino'
+          })
         }).catch(function(){});
       } catch(_) {}
 
@@ -1381,8 +1507,8 @@ function shellVecino(title, activeTab, content, vecinoData) {
       }
       var remoteVideo = document.getElementById('video-webrtc-vecino');
       if (remoteVideo) remoteVideo.srcObject = null;
-      var boxVideo = document.getElementById('box-video-webrtc');
-      if (boxVideo) boxVideo.style.display = 'none';
+      var snapImg = document.getElementById('img-video-snapshot-placeholder');
+      if (snapImg) snapImg.style.display = 'none';
 
       document.getElementById('box-timbre-sonando').style.display = 'flex';
       document.getElementById('box-llamada-voz-activa').style.display = 'none';
@@ -1402,12 +1528,12 @@ function shellVecino(title, activeTab, content, vecinoData) {
             if (data.llamada.nombreVisita) visTitle += ' (' + data.llamada.nombreVisita + ')';
             document.getElementById('llamada-timbre-visita').textContent = visTitle;
 
-            // Mostrar captura facial en puerta si está disponible
+            _fotoVisitanteUltima = data.llamada.fotoVisitante || '';
             var imgFoto = document.getElementById('img-foto-visita');
             var boxFoto = document.getElementById('box-foto-visita-preview');
             var avDef = document.getElementById('avatar-timbre-default');
-            if (data.llamada.fotoVisitante && imgFoto && boxFoto) {
-              imgFoto.src = data.llamada.fotoVisitante;
+            if (_fotoVisitanteUltima && imgFoto && boxFoto) {
+              imgFoto.src = _fotoVisitanteUltima;
               boxFoto.style.display = 'block';
               if (avDef) avDef.style.display = 'none';
             } else {
