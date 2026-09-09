@@ -1604,9 +1604,9 @@ Después de cualquiera de los tres arreglos, esos dos tienen que seguir diciendo
 - [ ] Impersonación ("Ver como cliente") para el dueño
 - [ ] Horario del encargado: reemplazar los bloques Lun-Vie + Sábado por calendario o texto libre
       que interprete Marcos (hay edificios con limpieza 3 días a la semana en horarios raros)
-- [ ] **Panel**: `mapFactura` no devuelve el caso (ver "Pendientes del PANEL", punto 1)
-- [ ] **Panel**: renombrar un edificio desde la ficha no renombra sus referencias (punto 2)
-- [ ] **Panel**: renombrar un proveedor no llega a PostgreSQL, o sea a Marcos (punto 3)
+- [x] **Panel**: `mapFactura` no devuelve el caso (ver "Pendientes del PANEL", punto 1)
+- [x] **Panel**: renombrar un edificio desde la ficha no renombra sus referencias (punto 2)
+- [x] **Panel**: renombrar un proveedor no llega a PostgreSQL, o sea a Marcos (punto 3)
 - [ ] Sacar un edificio de un cliente deja huérfanas sus asignaciones, su consejo y el permiso —
       hoy solo se detecta con `revisar-edificios.js`, no se limpia solo
 - [ ] Twilio + chip Movistar: agregar `VAPI_API_KEY`, `TWILIO_*` al `.env`

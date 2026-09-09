@@ -555,6 +555,7 @@ function mapFactura(r) {
     estado: pick(r, ['estado'], 'Pendiente'),
     tipo: esFoto ? 'Foto' : 'Factura',
     moneda,
+    codigo_caso: pick(r, ['codigo_caso', 'id_evento', 'caso', 'id_caso']),
   };
 }
 
@@ -12999,7 +13000,10 @@ router.post('/api/edificio', async (req, res) => {
     const body = req.body || {};
     const row = Number(body.row);
     if (!row || isNaN(row)) return res.status(400).json({ error: 'Fila invalida' });
-    const { headers } = await readTab(TAB_EDIFICIOS);
+    const { headers, rows } = await readTab(TAB_EDIFICIOS);
+    const existing = rows.find(r => Number(r._row) === row);
+    const nombreAnterior = existing ? (pick(existing, EDIFICIO_FIELDS.nombre) || '') : '';
+
     let workingHeaders = headers.slice();
     for (const field of Object.keys(EDIFICIO_FIELDS)) {
       if (body[field] === undefined) continue;
@@ -13015,7 +13019,18 @@ router.post('/api/edificio', async (req, res) => {
       }
       for (const col of columnas) await writeCell(TAB_EDIFICIOS, col, row, body[field]);
     }
-    res.json({ ok: true });
+
+    let cambios = 0;
+    let fallidos = 0;
+    const nombreNuevo = typeof body.nombre === 'string' ? body.nombre.trim() : '';
+    if (nombreNuevo && nombreAnterior && normEdificio(nombreNuevo) !== normEdificio(nombreAnterior)) {
+      const { renombrarEdificio } = require('./renombrar-edificio');
+      const r = await renombrarEdificio({ viejo: nombreAnterior, nuevo: nombreNuevo, aplicar: true });
+      cambios = r.cambios || 0;
+      fallidos = r.fallidos || 0;
+    }
+
+    res.json({ ok: true, cambios, fallidos });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
