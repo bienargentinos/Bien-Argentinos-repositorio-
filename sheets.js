@@ -1326,8 +1326,9 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             const strM = typeof m === 'object' ? (m.emisor ? m.emisor + ': ' + (m.texto || m.mensaje || '') : JSON.stringify(m)) : String(m || '');
             // Las preguntas de seguimiento ("¿pudiste ir?", "¿resolviste el reclamo?") y todo lo
             // que habla de una factura van al chat del PROVEEDOR: son de él, no del vecino. Sin
-            // esto caían en la columna del vecino y el visor las mostraba mezcladas.
-            const isProv = /proveedor|t.cnico|instalador|plomero|electricista|gasista|marcos ➔ proveedor|marcos -> proveedor|marcos \(a proveedor\)|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|resolviste el reclamo|solucionaste el reclamo|factura|comprobante|\[factura:/i.test(strM);
+            const strTrim = strM.trim();
+            const esVecino = /^(vecino|usuario|cliente|titular|familiar)/i.test(strTrim);
+            const isProv = !esVecino && /proveedor|t.cnico|instalador|plomero|electricista|gasista|marcos ➔ proveedor|marcos -> proveedor|marcos \(a proveedor\)|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|resolviste el reclamo|solucionaste el reclamo|factura|comprobante|\[factura:/i.test(strM);
 
             if (isProv) {
                 esContextoProveedor = true;

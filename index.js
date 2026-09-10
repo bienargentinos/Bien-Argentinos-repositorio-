@@ -29,28 +29,32 @@ const { reportarAlAdmin, iniciarCronReportes }    = require('./agentes/marcos-ad
 const app = express();
 app.use(bodyParser.json());
 const path = require('path');
+const fs = require('fs');
+const { execFileSync } = require('child_process');
+
 app.use('/audios', express.static(path.join(__dirname, 'temp')));
 app.use('/audios', express.static(path.join(__dirname, 'almacenamiento')));
 app.use('/archivos', express.static(path.join(__dirname, 'almacenamiento')));
 app.use('/archivos', express.static(path.join(__dirname, 'temp')));
 app.use('/temp', express.static(path.join(__dirname, 'temp')));
 
-// Fallback para /archivos: si un archivo se solicita por nombre suelto (ej: /archivos/media_123.jpeg)
-// y no está en la raíz de temp ni almacenamiento, buscarlo en las subcarpetas de almacenamiento
-app.use('/archivos', (req, res, next) => {
+// Middleware de fallback para /archivos y /audios:
+// 1. Si se solicita un archivo por nombre suelto o relativo que está en subcarpetas de almacenamiento, lo encuentra y lo sirve.
+// 2. Si un navegador (ej: Safari en iOS/macOS) pide .mp3 y solo existe .ogg, lo convierte al vuelo con ffmpeg y lo sirve.
+const servirOConvertirMedia = (req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     const reqFile = path.basename(req.path || '');
     if (!reqFile || reqFile.indexOf('.') === -1) return next();
 
-    const buscarRecursivo = (dir) => {
+    const buscarRecursivo = (dir, targetFilename) => {
         try {
             const entries = fs.readdirSync(dir, { withFileTypes: true });
             for (const entry of entries) {
                 const fullPath = path.join(dir, entry.name);
                 if (entry.isDirectory()) {
-                    const found = buscarRecursivo(fullPath);
+                    const found = buscarRecursivo(fullPath, targetFilename);
                     if (found) return found;
-                } else if (entry.isFile() && entry.name.toLowerCase() === reqFile.toLowerCase()) {
+                } else if (entry.isFile() && entry.name.toLowerCase() === targetFilename.toLowerCase()) {
                     return fullPath;
                 }
             }
@@ -58,14 +62,38 @@ app.use('/archivos', (req, res, next) => {
         return null;
     };
 
-    const foundPath = buscarRecursivo(path.join(__dirname, 'almacenamiento'));
+    // 1. Buscar archivo solicitado
+    let foundPath = buscarRecursivo(path.join(__dirname, 'almacenamiento'), reqFile);
+    if (!foundPath) {
+        foundPath = buscarRecursivo(path.join(__dirname, 'temp'), reqFile);
+    }
     if (foundPath) {
         return res.sendFile(foundPath);
     }
-    next();
-});
 
-const fs = require('fs');
+    // 2. Si solicita .mp3 y existe .ogg, convertir al vuelo para compatibilidad total con Safari/iOS
+    if (reqFile.toLowerCase().endsWith('.mp3')) {
+        const oggName = reqFile.replace(/\.mp3$/i, '.ogg');
+        const oggFound = buscarRecursivo(path.join(__dirname, 'almacenamiento'), oggName) || buscarRecursivo(path.join(__dirname, 'temp'), oggName);
+        if (oggFound) {
+            const targetMp3 = oggFound.replace(/\.ogg$/i, '.mp3');
+            try {
+                execFileSync('ffmpeg', ['-y', '-i', oggFound, targetMp3], { timeout: 15000 });
+                if (fs.existsSync(targetMp3)) {
+                    return res.sendFile(targetMp3);
+                }
+            } catch (errConv) {
+                console.warn('No se pudo convertir audio a mp3 al vuelo:', errConv.message);
+                return res.sendFile(oggFound);
+            }
+        }
+    }
+
+    next();
+};
+
+app.use('/archivos', servirOConvertirMedia);
+app.use('/audios', servirOConvertirMedia);
 function logDebug(msg) {
     const t = new Date().toISOString();
     fs.appendFileSync('debug_marcos.log', `[${t}] ${msg}\n`);

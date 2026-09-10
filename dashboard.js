@@ -3262,7 +3262,7 @@ function normalizarUrlAudio(pathOrUrl, explicitType) {
     var mediaId = u.replace(/^media[:_]/i, '').trim();
     var hasExt = /\.(jpeg|jpg|png|webp|gif|bmp|svg|mp4|mov|webm|mkv|avi|ogg|mp3|m4a|wav|pdf|doc|docx|xls|xlsx)$/i.test(mediaId);
     u = '/' + targetFolder + '/media_' + mediaId + (hasExt ? '' : defaultExt);
-  } else if (/^\d{10,20}$/.test(u)) {
+  } else if (/^[0-9]{10,20}$/.test(u)) {
     u = '/' + targetFolder + '/media_' + u + defaultExt;
   }
 
@@ -3751,7 +3751,8 @@ function procesarLineaMultimediaChat(strText) {
   while (cleanText && (cleanText.charAt(cleanText.length - 1) === ']' || cleanText.charAt(cleanText.length - 1) === ')' || cleanText.charAt(cleanText.length - 1) === '[' || cleanText.charAt(cleanText.length - 1) === '(')) {
     cleanText = cleanText.substring(0, cleanText.length - 1).trim();
   }
-  cleanText = cleanText.replace(/\s+/g, ' ').trim();
+  var _rxSpacesMedia = new RegExp('[' + String.fromCharCode(92) + 's]+', 'g');
+  cleanText = cleanText.replace(_rxSpacesMedia, ' ').trim();
 
   if ((visualUrl || audioUrl) && !cleanText) {
     var label = visualType === 'image' ? '(imagen adjunta)' : (visualType === 'video' ? '(video adjunto)' : (visualType === 'pdf' ? '(documento adjunto)' : '(nota de voz)'));
@@ -3977,15 +3978,22 @@ function separarConversacionesEvento(datos) {
     // Quitar prefijos comunes redundantes embebidos en el mensaje (ej: "tecnico: ", "Marcos (a Proveedor): ")
     str = str.replace(/^(vecino|usuario|cliente|titular|familiar|pariente|marcos ia|marcos|susana|ia|bot|asistente|sistema|proveedor|técnico|tecnico|plomero|electricista|gasista|instalador|encargado|seguridad|portero|portería|admin|administración)(\s*\([^)]*\))?:\s*/i, '').trim();
 
+    var _escOB = String.fromCharCode(92) + String.fromCharCode(91);
+    var _escCB = String.fromCharCode(92) + String.fromCharCode(93);
+    var tagReg = new RegExp(_escOB + '(audio|audio_url|imagen|foto|video|documento|doc|pdf|factura):[^' + _escCB + ']+' + _escCB, 'gi');
+
     var clean = str.toLowerCase()
-      .replace(/\[(audio|audio_url|imagen|foto|video|documento|doc|pdf|factura):[^\]]+\]/gi, '')
-      .replace(/\((?:factura|comprobante|imagen|documento|adjunto)[^)]*\)/gi, '')
-      .replace(/\[cita[^\]]*\]/gi, '')
-      .replace(/\s+/g, ' ')
+      .replace(tagReg, '')
+      .replace(new RegExp('\\((?:factura|comprobante|imagen|documento|nota de voz|audio|adjunt[oa])[^)]*\\)', 'gi'), '')
+      .replace(new RegExp(_escOB + 'cita[^' + _escCB + ']*' + _escCB, 'gi'), '')
+      .replace(new RegExp('[' + String.fromCharCode(92) + 's]+', 'g'), ' ')
       .trim();
 
+    while (clean && (clean.charAt(0) === '[' || clean.charAt(0) === '(' || clean.charAt(0) === ']' || clean.charAt(0) === ')')) clean = clean.substring(1).trim();
+    while (clean && (clean.charAt(clean.length - 1) === '[' || clean.charAt(clean.length - 1) === '(' || clean.charAt(clean.length - 1) === ']' || clean.charAt(clean.length - 1) === ')')) clean = clean.substring(0, clean.length - 1).trim();
+
     var mediaStr = str + (typeof item === 'object' && item.url_media ? ' ' + item.url_media : '');
-    var mediaIdMatch = mediaStr.match(/(?:media[_-]?)?(\d{10,20})/i);
+    var mediaIdMatch = mediaStr.match(/(?:media[_-]?)?([0-9]{10,20})/i);
     var fileMatch = mediaStr.match(/\.(ogg|mp3|wav|m4a|aac|opus|webm|jpg|jpeg|png|webp|gif|pdf)/i);
     var fileSuffix = fileMatch ? fileMatch[0].toLowerCase() : '';
     var mediaKey = mediaIdMatch ? ('media_' + mediaIdMatch[1]) : fileSuffix;
@@ -4248,7 +4256,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       if (isMarcosIA) {
         // En mensajes de Marcos IA: si el texto citaba un caso resuelto con audio previo,
         // no debe renderizarse un reproductor de audio en la burbuja de respuesta de Marcos
-        if (audioUrl && !/tts|marcos_voz|audio_marcos/i.test(audioUrl) && !(typeof line === 'object' && line.tipo_canal === 'audio')) {
+        if (audioUrl && !/tts|marcos_voz|audio_marcos/i.test(audioUrl) && !(typeof line === 'object' && /audio/i.test(line.tipo_canal || ''))) {
           audioUrl = '';
           audioFilename = '';
         }
@@ -4270,31 +4278,33 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
           visualType = 'image';
-          visualFilename = (/^\d+$/.test(fnObj) || fnObj.indexOf('.') === -1) ? ('imagen_' + fnObj + '.jpeg') : fnObj;
+          visualFilename = (/^[0-9]+$/.test(fnObj) || fnObj.indexOf('.') === -1) ? ('imagen_' + fnObj + '.jpeg') : fnObj;
         } else if (isLineExplicitVideo || ['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/videos/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'video');
           visualType = 'video';
-          visualFilename = (/^\d+$/.test(fnObj) || fnObj.indexOf('.') === -1) ? ('video_' + fnObj + '.mp4') : fnObj;
+          visualFilename = (/^[0-9]+$/.test(fnObj) || fnObj.indexOf('.') === -1) ? ('video_' + fnObj + '.mp4') : fnObj;
         } else if (isLineExplicitDoc || extObj === 'pdf' || cleanObjMedia.toLowerCase().indexOf('.pdf') !== -1 || rawObjMedia.indexOf('/facturas/') !== -1 || rawObjMedia.indexOf('/documentos/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'pdf');
           visualType = 'pdf';
-          var mDoc = String(line.mensaje || line.texto || cleanText || '').match(/\((?:Documento|Factura|Comprobante)(?:\s+adjunt[oa])?:?\s*([^)]+)\)/i);
+          var _rxDoc = new RegExp('[(](?:Documento|Factura|Comprobante)(?:[' + String.fromCharCode(92) + 's]+adjunt[oa])?:?[' + String.fromCharCode(92) + 's]*([^)]+)[)]', 'i');
+          var mDoc = String(line.mensaje || line.texto || cleanText || '').match(_rxDoc);
           if (mDoc && mDoc[1] && mDoc[1].trim()) {
             visualFilename = mDoc[1].trim();
-          } else if (/^\d+$/.test(fnObj) || fnObj.indexOf('.') === -1) {
+          } else if (/^[0-9]+$/.test(fnObj) || fnObj.indexOf('.') === -1) {
             visualFilename = 'documento_' + fnObj + '.pdf';
           } else {
             visualFilename = fnObj;
           }
-        } else if (isAudioExt || rawObjMedia.indexOf('/audios/') !== -1 || (typeof line === 'object' && line.tipo_canal === 'audio')) {
+        } else if (isAudioExt || rawObjMedia.indexOf('/audios/') !== -1 || (typeof line === 'object' && /audio/i.test(line.tipo_canal || ''))) {
           audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
           audioFilename = fnObj;
         }
       }
 
       if (!audioUrl && !visualUrl && datos.audio_url && !audioFallbackUsado && (isVecino || isFamiliar || isProveedor)) {
-        var isAudioMentioned = /audio|voz|nota de voz|escuchar|grabación/i.test(str) && !/imagen|foto|video|documento|factura|pdf/i.test(str);
-        if (isAudioMentioned) {
+        var isAudioMentioned = /audio|voz|nota de voz|escuchar|grabaci[oó]n/i.test(str);
+        var isVisualMentioned = /imagen|foto|video|documento|factura|pdf/i.test(str);
+        if (isAudioMentioned || !isVisualMentioned) {
           var rawAudioUrl = String(datos.audio_url).trim();
           if (rawAudioUrl.length > 3) {
             var ext = rawAudioUrl.split('.').pop().toLowerCase();
@@ -4319,9 +4329,13 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       }
 
       if (visualUrl) {
-        cleanText = cleanText.replace(/\((?:Documento|Factura|Comprobante)\s+adjunt[oa]:?[^)]*\)?/i, '')
-                             .replace(/\((?:Imagen|Foto|Video)\s+adjunt[oa]:?[^)]*\)?/i, '')
-                             .trim();
+        var _rxStripDoc = new RegExp('[(](?:Documento|Factura|Comprobante)[' + String.fromCharCode(92) + 's]+adjunt[oa]:?[^)]*[)]?', 'gi');
+        var _rxStripImg = new RegExp('[(](?:Imagen|Foto|Video)[' + String.fromCharCode(92) + 's]+adjunt[oa]:?[^)]*[)]?', 'gi');
+        cleanText = cleanText.replace(_rxStripDoc, '').replace(_rxStripImg, '').trim();
+      }
+      if (audioUrl) {
+        var _rxStripAud = new RegExp('[(](?:Audio|Nota de voz|Voz)[' + String.fromCharCode(92) + 's]+adjunt[oa]:?[^)]*[)]?', 'gi');
+        cleanText = cleanText.replace(_rxStripAud, '').trim();
       }
 
       var visualMediaHtml = '';
@@ -4377,6 +4391,9 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
             ? '<span style="font-size:10px;font-weight:800;background:#FDECEC;color:#C0392B;padding:2px 7px;border-radius:999px;border:1px solid #F8B4B4;margin-left:4px">' + dias + 'd restantes</span>'
             : '<span style="font-size:10px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:2px 7px;border-radius:999px;border:1px solid #C3E6D0;margin-left:4px">' + dias + 'd restantes</span>');
 
+        var mp3UrlEsc = urlEscAud.replace(/\.(ogg|opus)$/i, '.mp3');
+        var oggUrlEsc = urlEscAud;
+
         audioMediaHtml = '<div style="margin-top:6px;padding:8px 12px;background:rgba(46,111,192,.08);border-radius:10px;border:1px solid rgba(46,111,192,.2)">' +
           '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
             '<div style="display:flex;align-items:center;gap:4px">' +
@@ -4385,7 +4402,11 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
             '</div>' +
             '<a href="' + urlEscAud + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
           '</div>' +
-          '<audio controls preload="metadata" style="width:100%;height:36px;border-radius:6px;outline:none"><source src="' + urlEscAud + '" type="audio/ogg"><source src="' + urlEscAud + '" type="audio/mpeg"><source src="' + urlEscAud + '"></audio>' +
+          '<audio controls preload="metadata" style="width:100%;height:36px;border-radius:6px;outline:none">' +
+            '<source src="' + mp3UrlEsc + '" type="audio/mpeg">' +
+            '<source src="' + oggUrlEsc + '" type="audio/ogg; codecs=opus">' +
+            '<source src="' + urlEscAud + '">' +
+          '</audio>' +
         '</div>';
       }
 
