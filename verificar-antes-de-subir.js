@@ -50,6 +50,7 @@ const IMPRESCINDIBLES = {
         'function abrirDatosCobro(',
         "router.post('/api/proveedor-datos-cobro'",
         "router.post('/api/proveedor-cambio-cobro'",
+        "router.post('/api/edificio-eliminar'",
     ],
     'agentes/marcos-ops.js': [
         'function limpiarParametroPlantilla(',
@@ -74,6 +75,11 @@ const IMPRESCINDIBLES = {
     'renombrar-edificio.js': [
         'async function renombrarEdificio(',
         'reemplazarEnLista',
+        'module.exports = {',
+    ],
+    'eliminar-edificio.js': [
+        'async function eliminarEdificio(',
+        'quitarDeLista',
         'module.exports = {',
     ],
     'material-caso.js': ['async function materialDelVecinoEnCaso('],

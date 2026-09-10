@@ -6300,6 +6300,50 @@ async function guardarEditar(btn){
   finally{btn.disabled=false;btn.textContent=old;}
 }
 
+async function eliminarEdificioModal(btn) {
+  var nombre = valEl('edit-nombre') || (document.getElementById('edit-bname') || {}).textContent || '';
+  if (!nombre) return;
+  if (!confirm('¿Estás seguro de eliminar el edificio "' + nombre + '" definitivamente?\\n\\nEsta acción realizará un saneamiento en cascada:\\n• Eliminará las asignaciones de proveedores de este edificio.\\n• Eliminará los miembros del consejo registrados.\\n• Quitará el edificio de la cuenta del administrador.\\n• Eliminará la ficha del edificio en EDIFICIOS.')) return;
+  btn.disabled = true;
+  var old = btn.textContent;
+  btn.textContent = 'Eliminando...';
+  try {
+    var r = await fetch('/admin/api/edificio-eliminar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edificio: nombre.trim(), eliminar_definitivo: true })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al eliminar');
+    cerrarModal('modal-editar');
+    toast('Edificio eliminado y saneado correctamente (' + (j.cambios || 0) + ' referencias limpiadas)', 'ok');
+    setTimeout(function(){ location.reload(); }, 1000);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+async function darDeBajaEdificioCliente(edNombre) {
+  if (!edNombre) return;
+  if (!confirm('¿Estás seguro de dar de baja el edificio "' + edNombre + '" de tu cuenta de administración?\\n\\nSe desvinculará este edificio de tu usuario y se limpiarán las asignaciones de proveedores y miembros del consejo asociados a él.')) return;
+  try {
+    var r = await fetch('/admin/api/edificio-eliminar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edificio: edNombre, eliminar_definitivo: false })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al desvincular edificio');
+    toast('Edificio dado de baja de tu cuenta exitosamente', 'ok');
+    setTimeout(function(){ location.href = '/admin/mi-edificio'; }, 1000);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
 // --- asignar edificio a administrador (dueño / colaboradores de sistema) ---
 var _asigEdificio = null;
 function abrirModalAsignarAdmin(edificio, adminActual, usuarioActual) {
@@ -9496,9 +9540,12 @@ router.get('/mi-edificio', async (req, res) => {
     // Bloques organizados temáticamente
     const bloqueBaseHtml = `
       <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-          <span style="font-size:20px">🏢</span>
-          <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Información Base e Identidad</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:20px">🏢</span>
+            <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Información Base e Identidad</h2>
+          </div>
+          <button type="button" onclick="darDeBajaEdificioCliente('${escJs(cur.nombre)}')" style="font-size:12.5px;font-weight:700;color:#DC2626;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:6px 12px;cursor:pointer" class="hv-red">✕ Dar de baja de mi cuenta</button>
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
           ${solicitarRow('🏢', 'nombre', 'Consorcio', cur.nombre)}
@@ -12109,9 +12156,12 @@ router.get('/clientes', async (req, res) => {
               <span>Como dueño, estos cambios se escriben <strong>directo</strong> en la planilla, sin pasar por aprobación.</span>
             </div>
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
-            <button onclick="cerrarModal('modal-editar')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
-            <button onclick="guardarEditar(this)" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Guardar cambios</button>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:11px;padding:0 24px 22px">
+            <button type="button" onclick="eliminarEdificioModal(this)" style="height:46px;padding:0 16px;border:1px solid #FCA5A5;border-radius:11px;background:#FEF2F2;color:#DC2626;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-red" title="Eliminar edificio definitivamente y sanear en cascada">🗑️ Eliminar edificio</button>
+            <div style="display:flex;gap:11px;flex:1;justify-content:flex-end">
+              <button onclick="cerrarModal('modal-editar')" style="height:46px;padding:0 18px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+              <button onclick="guardarEditar(this)" style="height:46px;padding:0 22px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Guardar cambios</button>
+            </div>
           </div>
         </div>
       </div>`;
@@ -13031,6 +13081,38 @@ router.post('/api/edificio', async (req, res) => {
     }
 
     res.json({ ok: true, cambios, fallidos });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/edificio-eliminar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, cliente, eliminar_definitivo } = req.body || {};
+    if (!edificio) return res.status(400).json({ error: 'Falta el nombre del edificio' });
+
+    const permitidos = edificiosPermitidos(req) || [];
+    const dueno = esDueno(req);
+
+    // Si es cliente (AC), solo puede eliminar/desvincular edificios de su cartera
+    if (!dueno) {
+      const tienePermiso = permitidos.some((p) => normEdificio(p) === normEdificio(edificio));
+      if (!tienePermiso) return res.status(403).json({ error: 'No tenés permisos sobre este edificio' });
+    }
+
+    const { eliminarEdificio } = require('./eliminar-edificio');
+    const cliObjetivo = dueno ? (cliente || null) : (enPreview(req) ? req.session.previewOwner : req.session.user);
+    const esBorradoTotal = dueno ? (eliminar_definitivo !== false) : false;
+
+    const r = await eliminarEdificio({
+      edificio,
+      cliente: cliObjetivo,
+      eliminarDeEdificios: esBorradoTotal,
+      aplicar: true
+    });
+
+    res.json({ ok: true, cambios: r.cambios, fallidos: r.fallidos });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }

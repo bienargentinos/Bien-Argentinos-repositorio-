@@ -1607,6 +1607,21 @@ patrón:
 const { renombrarProveedor } = require('./renombrar-proveedor');
 ```
 
+### 4. Eliminar o desvincular un edificio limpia sus asignaciones y consejo en cascada
+
+Cuando se da de baja un edificio o se desvincula de un cliente, sus asignaciones en
+`proveedor_asignaciones`, miembros en `consejo` y la referencia en `clientes.edificios` deben
+limpiarse en las DOS bases (Sheets y PostgreSQL) para que Marcos no quede con asignaciones
+huérfanas que lo confunden al llamar proveedores.
+
+`eliminar-edificio.js` y el endpoint `POST /api/edificio-eliminar` resuelven este saneamiento en
+cascada:
+
+```bash
+node eliminar-edificio.js "san patricio 270"            # solo muestra
+node eliminar-edificio.js "san patricio 270" --aplicar  # ejecuta limpieza en Sheets y PG
+```
+
 ### Cómo se verifica que quedó bien
 
 ```bash
@@ -1624,7 +1639,7 @@ Después de cualquiera de los tres arreglos, esos dos tienen que seguir diciendo
 - [x] Sección Clientes (alta desde el dashboard, tab `clientes` en Sheets)
 - [x] Visor interactivo de chats (Separación Vecino/Proveedor, imágenes HD, PDFs con descarga)
 - [x] Datos de cobro del proveedor (CBU/alias) con verificación y aprobación de cambios
-- [ ] Expensas: nueva sección para que el cliente suba PDF/imagen/link mensual
+- [x] Expensas: nueva sección para que el cliente suba PDF/imagen/link mensual
 - [ ] Auth real: contraseñas hasheadas (bcrypt), activación por token, recuperación por email
 - [ ] Consumos / facturación por excedente: derivar uso de los logs de Marcos, definir precios
 - [ ] Notificaciones con contador real (hoy la campana es solo visual)
@@ -1634,7 +1649,7 @@ Después de cualquiera de los tres arreglos, esos dos tienen que seguir diciendo
 - [x] **Panel**: `mapFactura` no devuelve el caso (ver "Pendientes del PANEL", punto 1)
 - [x] **Panel**: renombrar un edificio desde la ficha no renombra sus referencias (punto 2)
 - [x] **Panel**: renombrar un proveedor no llega a PostgreSQL, o sea a Marcos (punto 3)
-- [ ] Sacar un edificio de un cliente deja huérfanas sus asignaciones, su consejo y el permiso —
-      hoy solo se detecta con `revisar-edificios.js`, no se limpia solo
+- [x] Sacar un edificio de un cliente deja huérfanas sus asignaciones, su consejo y el permiso —
+      resuelto con `eliminar-edificio.js` y endpoint `/api/edificio-eliminar` con saneamiento en cascada
 - [ ] Twilio + chip Movistar: agregar `VAPI_API_KEY`, `TWILIO_*` al `.env`
 - [ ] Test end-to-end WhatsApp + llamadas
