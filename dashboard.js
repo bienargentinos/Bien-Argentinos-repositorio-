@@ -3994,11 +3994,13 @@ function separarConversacionesEvento(datos) {
 
     var mediaStr = str + (typeof item === 'object' && item.url_media ? ' ' + item.url_media : '');
     var mediaIdMatch = mediaStr.match(/(?:media[_-]?)?([0-9]{10,20})/i);
+    if (mediaIdMatch && mediaIdMatch[1]) {
+      return rolNorm + '::media_' + mediaIdMatch[1];
+    }
     var fileMatch = mediaStr.match(/\.(ogg|mp3|wav|m4a|aac|opus|webm|jpg|jpeg|png|webp|gif|pdf)/i);
     var fileSuffix = fileMatch ? fileMatch[0].toLowerCase() : '';
-    var mediaKey = mediaIdMatch ? ('media_' + mediaIdMatch[1]) : fileSuffix;
 
-    return rolNorm + '::' + clean.slice(0, 120) + (mediaKey ? '::' + mediaKey : '');
+    return rolNorm + '::' + clean.slice(0, 120) + (fileSuffix ? '::' + fileSuffix : '');
   }
 
   var chatVecino = [];
@@ -4299,6 +4301,10 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
           audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
           audioFilename = fnObj;
         }
+      }
+
+      if (audioUrl) {
+        audioFallbackUsado = true;
       }
 
       if (!audioUrl && !visualUrl && datos.audio_url && !audioFallbackUsado && (isVecino || isFamiliar || isProveedor)) {
