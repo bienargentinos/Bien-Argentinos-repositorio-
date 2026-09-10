@@ -431,11 +431,42 @@ El candado de "solo se marca si el envío salió" **estaba puesto y no alcanzaba
 
 Prueba: `node pruebas-entrega-rechazada.js`.
 
-> **Lo que sigue sin resolver, y es de prompt**: el vecino preguntó *"¿a qué hora viene el técnico?"*
-> y Marcos contestó *"le avisaremos en cuanto tengamos la confirmación del horario"* — **tres minutos
-> después de que el técnico dijera que iba en 2 horas**, y con el log diciendo `🔧 Dario confirmó la
-> visita del [CASO-1001]`. El dato estaba; la respuesta al vecino no lo miró. Es el mismo defecto
-> que "no preguntarle la dirección que él acaba de decir", del lado del vecino.
+### "Le avisaremos cuando confirme" tres minutos después de que confirmó
+
+> [!CAUTION]
+> **Hay DOS ramas donde el técnico confirma la visita, y una solo lo escribía en el log.**
+
+En la misma prueba:
+
+```
+23:01  Dario: "puedo ir en 2 hs pero necesito foto y también un teléfono de quien me recibe"
+       🧭 → confirma_que_va (0.8)
+       🔧 Dario confirmó la visita del [CASO-1001] en san patricio casa.
+23:03  Vecino: "Hola a qué hora viene el técnico?"
+23:04  Marcos: "Estamos coordinando… Le avisaremos en cuanto tengamos la confirmación del horario."
+```
+
+En el log **no** aparece `📌 Confirmación del técnico registrada en [CASO-1001]`, que es la línea de
+la OTRA rama --la de `interpretarRespuestaTecnico`, que sí llama a `guardarConfirmacionTecnico`--.
+Corrió la del ruteo (`confirma_que_va`), que no escribía `tecnico_confirmado`.
+
+**No fue el modelo.** El camino del vecino ya sabe contestar esto: `confirmacionDelCaso` lee el caso
+y el prompt de `marcos-cara.js` tiene la instrucción escrita. Leyó la columna, estaba vacía, y Marcos
+dijo lo único que sabía. Para el vecino eso no es un olvido: es que le mienten mientras espera.
+
+- La rama del ruteo ahora también guarda la confirmación en el caso, con la hora leída del mensaje.
+- **Sin hora no se inventa ninguna**: se guarda vacía y el prompt ya dice *"confirmó la visita, el
+  horario todavía no lo precisó"*.
+- Un fallo al leer la hora **no** impide guardar la confirmación: "confirmó, sin horario" es mucho
+  mejor que "seguimos esperando".
+
+Prueba: `node pruebas-confirmacion-al-caso.js`, con un candado que recorre **todas** las líneas donde
+el log dice que el técnico confirmó y exige que cada una escriba en el caso.
+
+> Ojo con el pendiente que queda: la consulta de estado por número (`¿cómo va el CASO-1001?`) exige
+> que se escriba el código, y **un vecino nunca lo escribe**. El comentario del código dice que la
+> pregunta del horario "ya tiene su propio camino" — ese camino no existe. Hoy la salva el prompt
+> con los datos del caso; sigue sin haber una vía determinista.
 
 ### Un reclamo no lo abre solo el vecino
 

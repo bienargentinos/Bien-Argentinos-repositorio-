@@ -3683,6 +3683,40 @@ function validarYSanitizarNombre(nombre) {
                         } catch (e) { console.error('No se pudo marcar que el técnico entra solo:', e.message); }
                     }
 
+                    // ── LA CONFIRMACIÓN VA AL CASO, NO SOLO AL LOG ───────────────────────
+                    //
+                    // > [!CAUTION]
+                    // > **Hay DOS ramas donde el técnico confirma, y esta no lo registraba.**
+                    //
+                    // La otra (`interpretarRespuestaTecnico`, más arriba) llama a
+                    // `guardarConfirmacionTecnico` y deja `tecnico_confirmado` escrito en el caso.
+                    // Esta, la del ruteo (`confirma_que_va`), solo lo escribía en el log.
+                    //
+                    // Visto en la prueba del vecino: Dario contestó "puedo ir en 2 hs" a las 23:01
+                    // y el log dijo `🔧 Dario confirmó la visita del [CASO-1001]`. Dos minutos
+                    // después el vecino preguntó *"¿a qué hora viene el técnico?"* y Marcos le
+                    // contestó *"le avisaremos en cuanto tengamos la confirmación del horario"*.
+                    //
+                    // No fue el modelo: `buscarConfirmacionTecnicoDeVecino` leyó el caso, la
+                    // columna estaba vacía, y Marcos dijo lo único que sabía. Para el vecino eso
+                    // no es un olvido: es que le mienten mientras espera en la puerta.
+                    try {
+                        const { interpretarRespuestaTecnico } = require('./agentes/marcos-ops');
+                        const { guardarConfirmacionTecnico } = require('./datos');
+                        // Sin hora no se inventa ninguna: el prompt del vecino ya sabe decir
+                        // "confirmó la visita pero todavía no precisó el horario".
+                        let eta = '';
+                        try { eta = (await interpretarRespuestaTecnico({ mensaje: textoFinal }))?.eta || ''; }
+                        catch (e) { console.error('No se pudo leer a qué hora dijo que iba:', e.message); }
+                        await guardarConfirmacionTecnico({
+                            id_evento: casoPendiente.id_evento,
+                            eta,
+                            tecnico: datosEmisor.nombre || ''
+                        });
+                    } catch (e) {
+                        console.error('No se pudo guardar la confirmación del técnico en el caso:', e.message);
+                    }
+
                     const respConf = `Listo ${datosEmisor.nombre}, lo anoté en el *${casoPendiente.id_evento}* de ${dirPend} y le aviso a la Administración.` +
                         (entraSolo
                             ? ` Perfecto que tengas acceso, entonces no te gestiono nada para entrar.`
