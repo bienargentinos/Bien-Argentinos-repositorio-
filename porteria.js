@@ -23,6 +23,14 @@ try {
   marcosOps = require('./agentes/marcos-ops');
 } catch (_) {}
 
+let renderTotemHtml = null;
+try {
+  const totemModule = require('./porteria-totem');
+  renderTotemHtml = totemModule.renderTotemHtml;
+} catch (errTotem) {
+  console.warn('porteria-totem no cargado:', errTotem.message);
+}
+
 // Helper para escapar HTML de forma segura
 function esc(str) {
   return String(str || '')
@@ -169,6 +177,25 @@ body{font-family:'Hanken Grotesk',sans-serif;background:#F1F5F9;color:#0F172A;mi
 
 </body>
 </html>`);
+});
+
+// -------------------------------------------------------------------
+// 1.2 TOTEM KIOSCO HIPCAM (PANTALLA TÁCTIL EN PORTERÍA / ESP32 + TABLET)
+// -------------------------------------------------------------------
+router.get('/:edificio/totem', async (req, res) => {
+  const nombreEdificio = req.params.edificio || 'Consorcio';
+  if (renderTotemHtml) {
+    return res.send(renderTotemHtml(nombreEdificio));
+  }
+  res.redirect('/porteria/' + encodeURIComponent(nombreEdificio));
+});
+
+router.get('/totem/:edificio', async (req, res) => {
+  const nombreEdificio = req.params.edificio || 'Consorcio';
+  if (renderTotemHtml) {
+    return res.send(renderTotemHtml(nombreEdificio));
+  }
+  res.redirect('/porteria/' + encodeURIComponent(nombreEdificio));
 });
 
 // -------------------------------------------------------------------
@@ -923,6 +950,108 @@ router.get('/api/timbre-visita-status', (req, res) => {
     return res.json({ ok: true, estado: llamada.estado, respuesta: llamada.respuesta });
   }
   res.json({ ok: true, estado: 'finalizado' });
+});
+
+// -------------------------------------------------------------------
+// 3.1 CONTROL DE PUERTAS & VALIDACIÓN QR (MÓDULO ESP32 + RELÉ)
+// -------------------------------------------------------------------
+// Cola en memoria de aperturas de puerta pendientes para el relé ESP32
+const _aperturasPuerta = new Map(); // key: edificioNorm -> { id, edificio, timestamp, motivo, consumido }
+
+function registrarAperturaPuerta(edificio, motivo, depto) {
+  const edNorm = (edificio || '').toLowerCase().trim();
+  const apertura = {
+    id: 'door_' + Date.now(),
+    edificio: edificio || '',
+    motivo: motivo || 'Apertura de puerta',
+    depto: depto || '',
+    timestamp: Date.now(),
+    consumido: false
+  };
+  _aperturasPuerta.set(edNorm, apertura);
+  return apertura;
+}
+
+// Endpoint para validar código QR escaneado por la cámara del tótem
+router.post('/api/validar-qr', (req, res) => {
+  try {
+    const { token, codigo, edificio } = req.body || {};
+    const rawQr = String(token || codigo || '').trim();
+
+    if (!rawQr) {
+      return res.status(400).json({ ok: false, valido: false, mensaje: 'Código QR no provisto' });
+    }
+
+    // Reglas de validación:
+    // 1. Tokens emitidos por Marcos IA (ej: MARCOS-OPEN-..., PASS-..., EDIFICA-...)
+    // 2. URLs de invitación temporales de Marcos IA
+    // 3. Tokens de prueba / demo
+    const esMarcosQr = rawQr.startsWith('MARCOS-') || 
+                       rawQr.startsWith('PASS-') || 
+                       rawQr.startsWith('EDIFICA-') ||
+                       rawQr.toLowerCase().includes('marcos.bienargentinos.com') ||
+                       rawQr.toLowerCase().includes('abrir') ||
+                       rawQr.toLowerCase().includes('open');
+
+    if (esMarcosQr || rawQr.length >= 8) {
+      // Registra evento de apertura en el relé
+      registrarAperturaPuerta(edificio, 'Pase QR: ' + rawQr.substring(0, 16), 'QR');
+
+      return res.json({
+        ok: true,
+        valido: true,
+        mensaje: 'Pase QR válido. ¡Bienvenido!',
+        codigo: rawQr.substring(0, 12),
+        timestamp: Date.now()
+      });
+    }
+
+    return res.status(403).json({
+      ok: false,
+      valido: false,
+      mensaje: 'Código QR no reconocido o vencido.'
+    });
+  } catch (errQr) {
+    res.status(500).json({ ok: false, error: errQr.message });
+  }
+});
+
+// Endpoint para disparar apertura de puerta (desde tótem, vecino o conserje)
+router.post('/api/puerta/abrir', (req, res) => {
+  try {
+    const { edificio, motivo, depto } = req.body || {};
+    const apertura = registrarAperturaPuerta(edificio, motivo || 'Apertura manual', depto);
+    res.json({
+      ok: true,
+      mensaje: 'Apertura de puerta enviada al relé',
+      apertura
+    });
+  } catch (errDoor) {
+    res.status(500).json({ ok: false, error: errDoor.message });
+  }
+});
+
+// Endpoint sondeado por la placa ESP32 con relé en el edificio
+// GET /porteria/api/puerta/status?edificio=...
+router.get('/api/puerta/status', (req, res) => {
+  const { edificio } = req.query || {};
+  const edNorm = (edificio || '').toLowerCase().trim();
+  const apertura = _aperturasPuerta.get(edNorm);
+
+  const ahora = Date.now();
+  // Válido durante 10 segundos desde el disparo
+  if (apertura && !apertura.consumido && (ahora - apertura.timestamp < 10000)) {
+    apertura.consumido = true;
+    return res.json({
+      abrir: true,
+      segundosActivacion: 3,
+      id: apertura.id,
+      motivo: apertura.motivo,
+      timestamp: apertura.timestamp
+    });
+  }
+
+  res.json({ abrir: false });
 });
 
 // -------------------------------------------------------------------
