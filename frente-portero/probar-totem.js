@@ -1,7 +1,7 @@
 // probar-totem.js — Servidor local rápido para probar el Tótem de Portería
 const express = require('express');
 const app = express();
-const porteria = require('./porteria');
+const porteria = require('../porteria');
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

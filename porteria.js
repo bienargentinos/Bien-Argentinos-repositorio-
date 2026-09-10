@@ -25,7 +25,7 @@ try {
 
 let renderTotemHtml = null;
 try {
-  const totemModule = require('./porteria-totem');
+  const totemModule = require('./frente-portero/porteria-totem');
   renderTotemHtml = totemModule.renderTotemHtml;
 } catch (errTotem) {
   console.warn('porteria-totem no cargado:', errTotem.message);
