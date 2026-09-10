@@ -459,6 +459,25 @@ async function marcarContactoAccesoAvisado(id_evento) {
     return res;
 }
 
+/**
+ * Borra las marcas de entrega cuando Meta avisó que el mensaje NO llegó, para que el próximo
+ * mensaje del técnico dispare el reintento. Ver la nota en `sheets.js`.
+ */
+async function desmarcarEntregasAlTecnico(id_evento) {
+    const res = await sheets.desmarcarEntregasAlTecnico(id_evento);
+    if (id_evento) {
+        copiarAPg(`el borrado de las marcas de entrega de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET material_enviado_tecnico = NULL, contacto_acceso_avisado = NULL
+                 WHERE codigo_caso = $1`,
+                [id_evento]
+            );
+        });
+    }
+    return res;
+}
+
 async function fueMaterialEnviadoATecnico(id_evento) {
     return sheets.fueMaterialEnviadoATecnico(id_evento);
 }
@@ -600,6 +619,7 @@ module.exports = {
     marcarContactoAccesoAvisado,
     fueContactoAccesoAvisado,
     marcarMaterialEnviadoATecnico,
+    desmarcarEntregasAlTecnico,
     fueMaterialEnviadoATecnico,
     marcarCasoResueltoPorId,
     guardarLlamada,

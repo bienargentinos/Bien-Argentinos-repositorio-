@@ -350,14 +350,59 @@ app.post('/webhook', async (req, res) => {
             const { motivoMeta } = require('./agentes/marcos-ops');
             for (const st of entry.statuses) {
                 if (st.status !== 'failed') continue;
+                let ventanaCerrada = false;
                 for (const err of (st.errors || [{}])) {
                     const codigo = err.code;
                     const detalle = err.title || err.message || err.error_data?.details || 'sin detalle';
                     const porQue = motivoMeta(codigo, `${detalle} ${err.error_data?.details || ''}`);
+                    if (codigo === 131047 || /24 hours|re-?engagement/i.test(`${detalle} ${porQue}`)) ventanaCerrada = true;
                     console.error(
                         `📵 META RECHAZÓ LA ENTREGA a ${st.recipient_id}${codigo ? ` [código ${codigo}]` : ''}: ` +
                         `${detalle}${porQue ? ' → ' + porQue : ''}`
                     );
+                }
+
+                // ── LOGUEARLO NO ALCANZA: HAY QUE DESHACER LA MARCA ──────────────────────
+                //
+                // > [!CAUTION]
+                // > **Un envío rechazado quedaba marcado como entregado, y eso impide el reintento
+                // > PARA SIEMPRE.**
+                //
+                // El aviso de Meta llega en este webhook, minutos después del envío. Para entonces
+                // `entregarPendientesAlTecnico` ya escribió `material_enviado_tecnico` y
+                // `contacto_acceso_avisado` en el caso, porque el envío "salió bien": Meta contesta
+                // 200 al recibir el pedido, no al entregarlo.
+                //
+                // Visto en la prueba del vecino: la foto y el contacto de quien abre salieron hacia
+                // el técnico y rebotaron. Cuando él contestó --que es el instante en que la ventana
+                // se abre-- las marcas decían "ya está entregado" y no se reintentó nada. Terminó
+                // pidiendo por escrito *"necesito foto y también si es posible un teléfono de quien
+                // me recibe"*: las dos cosas exactas que Marcos creía haberle mandado.
+                //
+                // Se borran las marcas de TODOS sus casos abiertos, no solo del mensaje que rebotó:
+                // el código de Meta no dice a qué caso pertenecía, y si la ventana estaba cerrada
+                // para uno lo estaba para todos. El costo de equivocarse acá es un envío repetido;
+                // el de no hacerlo es un técnico sin la foto, parado en la puerta.
+                if (ventanaCerrada && st.recipient_id) {
+                    try {
+                        const { normalizarTelefonoWhatsApp } = require('./agentes/marcos-ops');
+                        const tel = normalizarTelefonoWhatsApp(st.recipient_id);
+                        const { buscarRolPorTelefono, buscarCasosRecientesPorTecnico, desmarcarEntregasAlTecnico } = require('./datos');
+                        const quien = await buscarRolPorTelefono(tel);
+                        if (quien?.rol === 'proveedor') {
+                            const casos = (await buscarCasosRecientesPorTecnico(quien.nombre, tel, 7)) || [];
+                            for (const c of casos.filter(c => c.id_evento && !c.cerrado)) {
+                                if (await desmarcarEntregasAlTecnico(c.id_evento)) {
+                                    console.error(
+                                        `📎↩️ [${c.id_evento}] lo que se le había mandado a ${quien.nombre || tel} NO llegó. ` +
+                                        `Se borran las marcas de entrega: cuando conteste, se le manda de nuevo.`
+                                    );
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.error('No se pudieron deshacer las marcas de entrega tras el rechazo de Meta:', e.message);
+                    }
                 }
             }
         }

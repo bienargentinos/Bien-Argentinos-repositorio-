@@ -397,6 +397,46 @@ estaba siempre abierta.
 reclamo: la imagen de una plantilla se sube al aprobarla y es fija. La foto de hoy solo sale como
 mensaje libre, o sea con la ventana abierta.
 
+### Un envío que Meta rechazó quedaba marcado como entregado
+
+> [!CAUTION]
+> **Meta contesta 200 al RECIBIR el pedido, no al entregar el mensaje.** El resultado real llega
+> minutos después, en un webhook aparte (`statuses`), y puede ser `failed` con el código 131047.
+
+Prueba del vecino, 9/9. Mandó audio + foto + la ficha de contacto de quien iba a recibir al técnico.
+Marcos abrió el CASO-1001, mandó la plantilla, y después la foto y el contacto de ingreso:
+
+```
+📷 Foto/video del vecino reenviado al técnico Dario (541169241157).
+📞 Contacto de acceso (Natalia Zeballos...) enviado al técnico Dario.
+```
+
+Las dos **rebotaron** con 131047 --la ventana estaba cerrada-- pero ya estaban marcadas como
+entregadas en el caso. Cuando el técnico contestó (el instante exacto en que la ventana se abre),
+`entregarPendientesAlTecnico` miró las marcas, leyó "ya entregado" y no reintentó nada. Él terminó
+escribiendo: *"puedo ir en 2 hs pero necesito foto y también si es posible un teléfono de quien me
+recibe"* — las dos cosas exactas que Marcos creía haberle mandado.
+
+El candado de "solo se marca si el envío salió" **estaba puesto y no alcanzaba**: `salio` significa
+"Meta aceptó el pedido", y el rechazo llega después. Faltaba la otra mitad.
+
+- El manejador de `statuses` ya no solo loguea: ante un rechazo por ventana cerrada busca al
+  proveedor por su teléfono y **borra las marcas de entrega de sus casos abiertos**
+  (`desmarcarEntregasAlTecnico`, en las dos bases).
+- Se borran las de **todos** sus casos abiertos, no solo la del mensaje que rebotó: el aviso de Meta
+  no dice a qué caso pertenecía, y si la ventana estaba cerrada para uno lo estaba para todos. El
+  costo de equivocarse es un envío repetido; el de no hacerlo, un técnico sin la foto.
+- Queda dicho en el log: `📎↩️ [CASO-x] lo que se le había mandado NO llegó. Se borran las marcas de
+  entrega: cuando conteste, se le manda de nuevo.`
+
+Prueba: `node pruebas-entrega-rechazada.js`.
+
+> **Lo que sigue sin resolver, y es de prompt**: el vecino preguntó *"¿a qué hora viene el técnico?"*
+> y Marcos contestó *"le avisaremos en cuanto tengamos la confirmación del horario"* — **tres minutos
+> después de que el técnico dijera que iba en 2 horas**, y con el log diciendo `🔧 Dario confirmó la
+> visita del [CASO-1001]`. El dato estaba; la respuesta al vecino no lo miró. Es el mismo defecto
+> que "no preguntarle la dirección que él acaba de decir", del lado del vecino.
+
 ### Un reclamo no lo abre solo el vecino
 
 Marcos se mete en una relación que ya existe: el administrador y sus proveedores vienen

@@ -1591,6 +1591,45 @@ async function marcarMaterialEnviadoATecnico(id_evento) {
     }
 }
 
+/**
+ * Borra las marcas de "ya se le entregó" cuando Meta avisó que el mensaje NO llegó.
+ *
+ * > [!CAUTION]
+ * > **Que Meta conteste 200 al mandar no quiere decir que lo haya entregado.** El resultado real
+ * > llega después, en un webhook aparte, y puede ser `failed` con el código 131047.
+ *
+ * Visto en la prueba del vecino: la foto del reclamo y el contacto de quien abre salieron hacia el
+ * técnico, el log dijo *"📷 Foto/video del vecino reenviado al técnico"*, se marcaron como
+ * entregadas… y rebotaron. Cuando el técnico contestó, `entregarPendientesAlTecnico` miró las
+ * marcas, vio que "ya estaban entregadas" y no reintentó nada. El técnico terminó pidiendo por
+ * escrito *"necesito foto y también si es posible un teléfono de quien me recibe"* — las dos cosas
+ * que Marcos creía haberle mandado veinte minutos antes.
+ *
+ * Borrar la marca cuesta, como mucho, un envío repetido. No borrarla deja al técnico sin la foto
+ * para siempre, que es el error caro.
+ */
+async function desmarcarEntregasAlTecnico(id_evento) {
+    if (!id_evento) return false;
+    try {
+        const doc = await getSheet();
+        const sheet = pestaña(doc, 'EVENTOS');
+        if (!sheet) return false;
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        if (!row) return false;
+
+        let tocada = false;
+        for (const col of ['material_enviado_tecnico', 'contacto_acceso_avisado']) {
+            if (String(row.get(col) || '').trim()) { row.set(col, ''); tocada = true; }
+        }
+        if (tocada) await row.save();
+        return tocada;
+    } catch (err) {
+        console.error('Error borrando las marcas de entrega al técnico:', err.message);
+        return false;
+    }
+}
+
 async function fueTecnicoNotificado(id_evento) {
     if (!id_evento) return false;
     try {
@@ -2442,6 +2481,7 @@ module.exports = {
     marcarContactoAccesoAvisado,
     fueMaterialEnviadoATecnico,
     marcarMaterialEnviadoATecnico,
+    desmarcarEntregasAlTecnico,
     guardarFactura,
     casoYaTieneFactura,
     buscarFacturasProveedor,
