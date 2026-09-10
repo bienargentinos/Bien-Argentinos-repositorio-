@@ -35,6 +35,36 @@ app.use('/archivos', express.static(path.join(__dirname, 'almacenamiento')));
 app.use('/archivos', express.static(path.join(__dirname, 'temp')));
 app.use('/temp', express.static(path.join(__dirname, 'temp')));
 
+// Fallback para /archivos: si un archivo se solicita por nombre suelto (ej: /archivos/media_123.jpeg)
+// y no está en la raíz de temp ni almacenamiento, buscarlo en las subcarpetas de almacenamiento
+app.use('/archivos', (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    const reqFile = path.basename(req.path || '');
+    if (!reqFile || reqFile.indexOf('.') === -1) return next();
+
+    const buscarRecursivo = (dir) => {
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    const found = buscarRecursivo(fullPath);
+                    if (found) return found;
+                } else if (entry.isFile() && entry.name.toLowerCase() === reqFile.toLowerCase()) {
+                    return fullPath;
+                }
+            }
+        } catch (e) {}
+        return null;
+    };
+
+    const foundPath = buscarRecursivo(path.join(__dirname, 'almacenamiento'));
+    if (foundPath) {
+        return res.sendFile(foundPath);
+    }
+    next();
+});
+
 const fs = require('fs');
 function logDebug(msg) {
     const t = new Date().toISOString();
@@ -598,6 +628,26 @@ app.post('/webhook', async (req, res) => {
                     if (!item.texto || item.texto === '(Nota de voz)') {
                         item.texto = '(no se pudo escuchar esta nota de voz)';
                     }
+                } else if ((item.tipo === 'image' || item.tipo === 'video' || item.tipo === 'document') && item.mediaId) {
+                    try {
+                        const mediaObj = await descargarMedia(item.mediaId);
+                        if (mediaObj?.filePath) {
+                            const sesMedia = global.marcosSesiones?.get(recipient);
+                            const tipoCarpeta = item.tipo === 'document' ? 'documentos' : 'imagenes';
+                            const permanente = guardarArchivoEstructurado({
+                                filePath: mediaObj.filePath,
+                                adminNombre: sesMedia?.datosVecino?.adminNombre,
+                                edificioNombre: sesMedia?.nombreEdificio,
+                                tipo: tipoCarpeta
+                            });
+                            item.urlWeb = permanente?.relativeUrl
+                                || `/archivos/${require('path').basename(mediaObj.filePath)}`;
+                            item.filePath = mediaObj.filePath;
+                            item.mimeType = mediaObj.mimeType;
+                        }
+                    } catch (e) {
+                        console.error(`Error descargando adjunto ${item.tipo} (${item.mediaId}):`, e.message);
+                    }
                 }
             }
             if (audiosEnRafaga) {
@@ -813,6 +863,17 @@ async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento
                     if (salio) {
                         await marcarMaterialEnviadoATecnico(idEvento);
                         const tag = (esVideo ? '[VIDEO:' : '[IMAGEN:') + `/archivos/${path.basename(material.filePath)}]`;
+                        if (typeof registrarMensajeChat === 'function') {
+                            registrarMensajeChat({
+                                eventoId: idEvento,
+                                edificio: edificio || '',
+                                telefono: telTecnico,
+                                remitente: 'marcos',
+                                mensaje: `Marcos (a Proveedor): ${tag} ${pie}`,
+                                tipoCanal: esVideo ? 'video' : 'image',
+                                urlMedia: `/archivos/${path.basename(material.filePath)}`
+                            });
+                        }
                         await guardarReporte({
                             id_evento: idEvento,
                             edificio: edificio || '',
@@ -1339,6 +1400,14 @@ function validarYSanitizarNombre(nombre) {
         });
         docUrl = resEst?.relativeUrl || `/archivos/${path.basename(media.filePath)}`;
     }
+
+    try {
+        const { actualizarUrlMediaMensaje } = require('./db-pg');
+        const urlFinalMedia = imgUrl || videoUrl || docUrl || session.audio_url || '';
+        if (mediaId && urlFinalMedia) {
+            actualizarUrlMediaMensaje({ mediaId, urlMedia: urlFinalMedia }).catch(() => {});
+        }
+    } catch (e) {}
 
     // 1b. Cargar edificios y detección de Rol por Teléfono (Proveedor, Encargado, Admin, Vecino)
     const edificiosConocidos = await listarEdificiosConocidos();
@@ -4516,6 +4585,15 @@ function validarYSanitizarNombre(nombre) {
                     }
                     const tagMediaForward = (msgTypeMedia === 'image' ? '[IMAGEN:' : '[VIDEO:') + (imgUrl || videoUrl || `/archivos/${require('path').basename(media.filePath)}`) + ']';
                     const msgFotoParaChat = `Marcos (a Proveedor): ${tagMediaForward} ${captionAuto}`.trim();
+                    registrarMensajeChat({
+                        eventoId: session.eventoActivoId || decisionCaso?.id_evento || null,
+                        edificio: session.nombreEdificio || edifParaFoto || '',
+                        telefono: tecnicoParaFoto.telefono || '',
+                        remitente: 'marcos',
+                        mensaje: msgFotoParaChat,
+                        tipoCanal: msgTypeMedia,
+                        urlMedia: imgUrl || videoUrl || `/archivos/${require('path').basename(media.filePath)}`
+                    });
                     try {
                         const { guardarReporte } = require('./datos');
                         await guardarReporte({

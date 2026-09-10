@@ -682,6 +682,27 @@ async function asignarEventoAMensajes({ telefono, eventoId }) {
     }
 }
 
+/**
+ * Actualiza la url permanente de un archivo multimedia una vez descargado y almacenado.
+ */
+async function actualizarUrlMediaMensaje({ mediaId, urlMedia }) {
+    if (!mediaId || !urlMedia) return 0;
+    try {
+        await esquemaListo;
+        const res = await pool.query(
+            `UPDATE mensajes SET url_media = $1
+             WHERE (url_media = $2 OR url_media = $3)
+               AND timestamp > NOW() - INTERVAL '48 hours'`,
+            [urlMedia, String(mediaId), `media:${mediaId}`]
+        );
+        avisarRecuperacionPg();
+        return res.rowCount || 0;
+    } catch (err) {
+        avisarFalloPg('actualizarUrlMediaMensaje', err);
+        return 0;
+    }
+}
+
 async function obtenerHistorialMensajes(eventoId) {
     if (!eventoId) return [];
     try {
@@ -1218,6 +1239,7 @@ module.exports = {
     buscarTextoMensajeWa,
     buscarSimilitudVectorial,
     guardarMensaje,
+    actualizarUrlMediaMensaje,
     asignarEventoAMensajes,
     obtenerHistorialMensajes,
     obtenerHistorialChatTelefono,

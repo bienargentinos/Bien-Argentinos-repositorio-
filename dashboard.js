@@ -332,8 +332,10 @@ function mapEvento(r) {
     tecnico: pick(r, ['tecnico', 'proveedor', 'tecnico_nombre', 'nombre_tecnico', 'proveedor_nombre', 'nombre_proveedor']),
     tel_tecnico: pick(r, ['tel_tecnico', 'telefono_tecnico', 'celular_tecnico', 'tecnico_telefono', 'proveedor_telefono', 'tel_proveedor', 'telefono_proveedor']),
     rubro_tecnico: pick(r, ['rubro_tecnico', 'rubro_proveedor', 'especialidad_tecnico', 'especialidad_proveedor', 'rubro', 'especialidad']),
-    historial_chat_vecino: pick(r, ['historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
-    historial_chat_proveedor: pick(r, ['historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
+    chat_vecino_json: pick(r, ['chat_vecino_json', 'historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
+    chat_proveedor_json: pick(r, ['chat_proveedor_json', 'historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
+    historial_chat_vecino: pick(r, ['chat_vecino_json', 'historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
+    historial_chat_proveedor: pick(r, ['chat_proveedor_json', 'historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
     historial_chat: pick(r, ['historial_chat', 'historial', 'chat_log', 'conversacion']),
   };
@@ -3630,7 +3632,8 @@ function procesarLineaMultimediaChat(strText) {
       } else if (tagType === 'DOCUMENTO' || tagType === 'DOC' || tagType === 'PDF' || tagType === 'FACTURA') {
         visualUrl = normalizarUrlAudio(rawUrl, 'pdf');
         visualType = 'pdf';
-        visualFilename = fn;
+        var mDocN = cleanText.match(/\((?:Documento|Factura|Comprobante)(?:\s+adjunt[oa])?:?\s*([^)]+)\)/i);
+        visualFilename = (mDocN && mDocN[1] && mDocN[1].trim()) ? mDocN[1].trim() : fn;
       } else {
         audioUrl = normalizarUrlAudio(rawUrl, 'audio');
         audioFilename = fn;
@@ -3638,6 +3641,19 @@ function procesarLineaMultimediaChat(strText) {
       cleanText = cleanText.replace(tagStr, '').trim();
     }
   });
+
+  if (!visualUrl && !audioUrl) {
+    var mDocDirect = cleanText.match(/\((?:Documento|Factura|Comprobante)(?:\s+adjunt[oa])?:?\s*([^)]+)\)/i);
+    if (mDocDirect && mDocDirect[1]) {
+      var dName = mDocDirect[1].trim();
+      var extD = dName.split('.').pop().toLowerCase();
+      if (['pdf', 'doc', 'docx', 'xls', 'xlsx'].indexOf(extD) !== -1 || /media_\d+/i.test(dName)) {
+        visualUrl = normalizarUrlAudio(dName, 'pdf');
+        visualType = 'pdf';
+        visualFilename = dName;
+      }
+    }
+  }
 
   if (!visualUrl && !audioUrl) {
     var prefixes = ['/root/marcos/', '/archivos/', '/audios/', '/almacenamiento/', 'http://', 'https://'];
@@ -3728,10 +3744,17 @@ function procesarLineaMultimediaChat(strText) {
       cleanText = (cleanText.substring(0, p) + ' ' + cleanText.substring(endP)).trim();
     }
   });
-  cleanText = cleanText.split(']').join('').split(')').join('').split('  ').join(' ').trim();
+  cleanText = cleanText.trim();
+  while (cleanText && (cleanText.charAt(0) === ']' || cleanText.charAt(0) === ')' || cleanText.charAt(0) === '[' || cleanText.charAt(0) === '(')) {
+    cleanText = cleanText.substring(1).trim();
+  }
+  while (cleanText && (cleanText.charAt(cleanText.length - 1) === ']' || cleanText.charAt(cleanText.length - 1) === ')' || cleanText.charAt(cleanText.length - 1) === '[' || cleanText.charAt(cleanText.length - 1) === '(')) {
+    cleanText = cleanText.substring(0, cleanText.length - 1).trim();
+  }
+  cleanText = cleanText.replace(/\s+/g, ' ').trim();
 
   if ((visualUrl || audioUrl) && !cleanText) {
-    var label = visualType === 'image' ? '(imagen adjunta)' : (visualType === 'video' ? '(video adjunto)' : '(nota de voz)');
+    var label = visualType === 'image' ? '(imagen adjunta)' : (visualType === 'video' ? '(video adjunto)' : (visualType === 'pdf' ? '(documento adjunto)' : '(nota de voz)'));
     cleanText = label;
   }
 
@@ -3962,16 +3985,35 @@ function separarConversacionesEvento(datos) {
       .trim();
 
     var mediaStr = str + (typeof item === 'object' && item.url_media ? ' ' + item.url_media : '');
+    var mediaIdMatch = mediaStr.match(/(?:media[_-]?)?(\d{10,20})/i);
     var fileMatch = mediaStr.match(/\.(ogg|mp3|wav|m4a|aac|opus|webm|jpg|jpeg|png|webp|gif|pdf)/i);
     var fileSuffix = fileMatch ? fileMatch[0].toLowerCase() : '';
+    var mediaKey = mediaIdMatch ? ('media_' + mediaIdMatch[1]) : fileSuffix;
 
-    return rolNorm + '::' + clean.slice(0, 120) + (fileSuffix ? '::' + fileSuffix : '');
+    return rolNorm + '::' + clean.slice(0, 120) + (mediaKey ? '::' + mediaKey : '');
   }
 
   var chatVecino = [];
   var chatProveedor = [];
   var seenV = new Set();
   var seenP = new Set();
+
+  function enriquecerMensajeSiAplica(arr, nuevoItem, kNorm) {
+    for (var i = 0; i < arr.length; i++) {
+      if (normalizarClaveMensaje(arr[i]) === kNorm) {
+        var viejo = arr[i];
+        if (typeof viejo === 'object' && typeof nuevoItem === 'string') {
+          var _escOB = String.fromCharCode(92) + String.fromCharCode(91);
+          var _escCB = String.fromCharCode(92) + String.fromCharCode(93);
+          var mTag = nuevoItem.match(new RegExp(_escOB + '(IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA|AUDIO):\\s*([^' + _escCB + ']+)' + _escCB, 'i'));
+          if (mTag && mTag[2]) {
+            viejo.url_media = mTag[2].trim();
+          }
+        }
+        break;
+      }
+    }
+  }
 
   function agregarMensaje(item, forzarDestino) {
     if (!item) return;
@@ -3984,11 +4026,15 @@ function separarConversacionesEvento(datos) {
       if (!seenP.has(kNorm)) {
         seenP.add(kNorm);
         chatProveedor.push(item);
+      } else {
+        enriquecerMensajeSiAplica(chatProveedor, item, kNorm);
       }
     } else {
       if (!seenV.has(kNorm)) {
         seenV.add(kNorm);
         chatVecino.push(item);
+      } else {
+        enriquecerMensajeSiAplica(chatVecino, item, kNorm);
       }
     }
   }
@@ -4210,14 +4256,15 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
 
       var rawObjMedia = typeof line === 'object' ? (line.url_media || line.audio_url || line.url || line.audio || '') : '';
       if (rawObjMedia && !audioUrl && !visualUrl) {
-        var lastSlashObj = rawObjMedia.lastIndexOf('/');
-        var fnObj = lastSlashObj !== -1 ? rawObjMedia.substring(lastSlashObj + 1) : rawObjMedia;
-        var extObj = fnObj.split('.').pop().toLowerCase();
+        var cleanObjMedia = String(rawObjMedia).split('?')[0].split('#')[0];
+        var lastSlashObj = cleanObjMedia.lastIndexOf('/');
+        var fnObj = lastSlashObj !== -1 ? cleanObjMedia.substring(lastSlashObj + 1) : cleanObjMedia;
+        var extObj = fnObj.indexOf('.') !== -1 ? fnObj.split('.').pop().toLowerCase() : '';
 
         var _LBR_IMG = String.fromCharCode(92) + String.fromCharCode(91);
-        var isLineExplicitImage = /imagen|foto/i.test(cleanText) || (new RegExp(_LBR_IMG + '(IMAGEN|FOTO):', 'i')).test(String(line.mensaje || line.texto || ''));
-        var isLineExplicitVideo = /video/i.test(cleanText) || (new RegExp(_LBR_IMG + 'VIDEO:', 'i')).test(String(line.mensaje || line.texto || ''));
-        var isLineExplicitDoc = /documento|factura|pdf/i.test(cleanText) || (new RegExp(_LBR_IMG + '(DOCUMENTO|DOC|PDF|FACTURA):', 'i')).test(String(line.mensaje || line.texto || ''));
+        var isLineExplicitImage = (typeof line === 'object' && (line.tipo_canal === 'image' || line.tipo_canal === 'imagen')) || /imagen|foto/i.test(cleanText) || (new RegExp(_LBR_IMG + '(IMAGEN|FOTO):', 'i')).test(String(line.mensaje || line.texto || ''));
+        var isLineExplicitVideo = (typeof line === 'object' && line.tipo_canal === 'video') || /video/i.test(cleanText) || (new RegExp(_LBR_IMG + 'VIDEO:', 'i')).test(String(line.mensaje || line.texto || ''));
+        var isLineExplicitDoc = (typeof line === 'object' && (line.tipo_canal === 'document' || line.tipo_canal === 'documento' || line.tipo_canal === 'pdf')) || /documento|factura|pdf/i.test(cleanText) || (new RegExp(_LBR_IMG + '(DOCUMENTO|DOC|PDF|FACTURA):', 'i')).test(String(line.mensaje || line.texto || ''));
         var isAudioExt = ['ogg', 'mp3', 'wav', 'm4a', 'aac', 'opus', 'webm'].indexOf(extObj) !== -1;
 
         if (isLineExplicitImage || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1 || rawObjMedia.indexOf('/imagenes/') !== -1) {
@@ -4228,10 +4275,10 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'video');
           visualType = 'video';
           visualFilename = (/^\d+$/.test(fnObj) || fnObj.indexOf('.') === -1) ? ('video_' + fnObj + '.mp4') : fnObj;
-        } else if (isLineExplicitDoc || extObj === 'pdf' || rawObjMedia.indexOf('/facturas/') !== -1 || rawObjMedia.indexOf('/documentos/') !== -1) {
+        } else if (isLineExplicitDoc || extObj === 'pdf' || cleanObjMedia.toLowerCase().indexOf('.pdf') !== -1 || rawObjMedia.indexOf('/facturas/') !== -1 || rawObjMedia.indexOf('/documentos/') !== -1) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'pdf');
           visualType = 'pdf';
-          var mDoc = String(line.mensaje || line.texto || cleanText || '').match(/\((?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*([^)]+)\)/i);
+          var mDoc = String(line.mensaje || line.texto || cleanText || '').match(/\((?:Documento|Factura|Comprobante)(?:\s+adjunt[oa])?:?\s*([^)]+)\)/i);
           if (mDoc && mDoc[1] && mDoc[1].trim()) {
             visualFilename = mDoc[1].trim();
           } else if (/^\d+$/.test(fnObj) || fnObj.indexOf('.') === -1) {
@@ -4239,7 +4286,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
           } else {
             visualFilename = fnObj;
           }
-        } else if (isAudioExt || rawObjMedia.indexOf('/audios/') !== -1) {
+        } else if (isAudioExt || rawObjMedia.indexOf('/audios/') !== -1 || (typeof line === 'object' && line.tipo_canal === 'audio')) {
           audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
           audioFilename = fnObj;
         }
