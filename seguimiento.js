@@ -76,10 +76,22 @@ function momentoPrometido(eta, ahora = new Date()) {
     let hora = null;
     let minuto = 0;
 
+    //
+    // > [!CAUTION]
+    // > **"en 2 hs" es una duración y se leía como las 02:00.** La última alternativa aceptaba un
+    // > número pegado a "hs" sin mirar lo que venía antes, y "hs" es como se escribe de verdad --
+    // > "en 2 horas" caía bien, "en 2 hs" no--. Dicho a medianoche coincidía de casualidad; dicho
+    // > a las 8 de la mañana, el técnico que avisaba "en 2 hs" quedaba agendado para las 02:00 de
+    // > la madrugada siguiente. Dieciocho horas de error, y el vecino esperando desde las 10.
+    //
+    // Lo que distingue una hora del reloj de una duración es la preposición: "a las 2" es una
+    // hora, "en 2" y "dentro de 2" son un plazo contado desde que lo dijo.
+    const esPlazo = /\b(?:en|dentro de)\s+\d{1,2}\s*(?:h\b|hs\b|horas?\b|min|minutos?\b)/.test(t);
+
     const reloj = t.match(/\ba\s+las?\s+(\d{1,2})(?:[:.](\d{2}))?/)
         || t.match(/\b(\d{1,2})(?:[:.](\d{2}))\s*(?:hs?\b|horas?\b)?/)
         || t.match(/\b(\d{1,2})\s*(?:am|pm)\b/)
-        || t.match(/\b(\d{1,2})\s*hs\b/);
+        || (esPlazo ? null : t.match(/\b(\d{1,2})\s*hs\b/));
 
     if (reloj) {
         hora = parseInt(reloj[1], 10);

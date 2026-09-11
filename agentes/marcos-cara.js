@@ -115,14 +115,29 @@ DEBES indicarle amablemente y de forma empática que la imagen recibida no parec
     // Lo que el técnico ya contestó. Sin esto, Marcos decía "estoy consultando con el técnico
     // para darle un horario" cuando el técnico había confirmado hacía media hora y hasta había
     // dado el plazo. El vecino no lo lee como un olvido: lo lee como que le mienten.
+    //
+    // > [!CAUTION]
+    // > **La frase que dijo el técnico NO se repite tal cual.** "En 2 hs" es una cuenta desde el
+    // > momento en que la dijo: repetida una hora después sobran sesenta minutos, y tres horas
+    // > después promete algo que ya venció. `comoDecirLaLlegada` la convierte en la hora del
+    // > reloj, que es lo único que no envejece entre que Marcos escribe y el vecino lee.
+    const llegada = confirmacionTecnico?.confirmado
+        ? require('../llegada-tecnico').comoDecirLaLlegada({
+            eta: confirmacionTecnico.eta,
+            confirmadoEn: confirmacionTecnico.cuando,
+        })
+        : null;
+
     const instruccionConfirmacionTecnico = confirmacionTecnico?.confirmado
         ? `
 📌 EL TÉCNICO YA CONFIRMÓ — NO DIGAS QUE ESTÁS CONSULTANDO:
-- ${confirmacionTecnico.tecnico || 'El técnico'} confirmó la visita el ${confirmacionTecnico.cuando}${confirmacionTecnico.eta ? `, y avisó que llega ${confirmacionTecnico.eta}` : ''}.
+- ${confirmacionTecnico.tecnico || 'El técnico'} confirmó la visita el ${confirmacionTecnico.cuando}${llegada?.hay ? ` y ${llegada.frase}` : (llegada?.textual ? `, y sobre el horario dijo: "${llegada.textual}"` : '')}.
 - Si te preguntan si coordinaste, a qué hora viene o si ya está confirmado, respondé con ESTO.
 - TENÉS PROHIBIDO decir "estoy consultando", "estoy esperando la confirmación" o "le aviso cuando
   me responda": ya te respondió, y decir lo contrario es mentirle al vecino.
-${confirmacionTecnico.eta ? '' : '- No dio un horario exacto, así que decí que confirmó la visita y que el horario todavía no lo precisó. No inventes una hora.'}
+${llegada?.hay ? `- El horario de arriba YA ESTÁ CALCULADO PARA AHORA MISMO. Decilo con la hora del reloj. NO repitas la frase original del técnico ("en 2 horas", "en un rato"): esa cuenta arrancó cuando él la dijo y hoy sobraría tiempo.` : ''}
+${llegada?.vencido ? `- 🚨 LA HORA QUE PROMETIÓ YA PASÓ. No digas que está por llegar ni que falta un rato. Reconocé la demora, decí que lo estás contactando ahora para que te dé una hora nueva, y no prometas una vos.` : ''}
+${llegada?.hay ? '' : '- No dio un horario exacto, así que decí que confirmó la visita y que el horario todavía no lo precisó. No inventes una hora.'}
 `.trim()
         : '';
 

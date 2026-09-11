@@ -951,13 +951,22 @@ async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento
             // madrugada, no está, y afirmarle que le abre es mandarlo a la puerta a descubrirlo
             // solo. Se usa la hora que el técnico prometió; sin promesa, la de ahora, que es lo
             // más parecido a "está por salir".
+            //
+            // Se usa `momentoDeLlegada` y no `momentoPrometido` porque acá la mitad de las
+            // promesas son plazos y no horas: "en 2 hs" dicho a las 20:30 es una visita a las
+            // 22:30, cuando el encargado ya se fue. Mirando la hora de ahora -- que es lo que
+            // hacía -- se concluía que sí estaba, y el técnico se enteraba parado en la puerta.
             let momentoVisita = new Date();
             try {
                 const { buscarCasoPorCodigo } = require('./datos');
-                const { momentoPrometido } = require('./seguimiento');
+                const { momentoDeLlegada } = require('./llegada-tecnico');
                 const casoIngreso = idEvento ? await buscarCasoPorCodigo(idEvento) : null;
                 const eta = String(casoIngreso?.eta || '').trim();
-                if (eta) momentoVisita = momentoPrometido(eta) || momentoVisita;
+                if (eta) {
+                    momentoVisita = momentoDeLlegada({
+                        eta, confirmadoEn: casoIngreso?.confirmado || '',
+                    }) || momentoVisita;
+                }
             } catch (e) { console.error('No se pudo leer a qué hora dijo que iba:', e.message); }
 
             const contacto = contactoParaElIngreso({

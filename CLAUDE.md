@@ -489,6 +489,47 @@ prohibido hablar de coordinar.
 > contesta de verdad. Y el patrón para buscar es siempre el mismo: un dato correcto, tapado por
 > otra instrucción del mismo prompt.
 
+#### "En 2 hs" envejece: a la hora ya falta una
+
+> [!CAUTION]
+> **Una duración guardada como texto y repetida después miente.** "En 2 horas" es una cuenta desde
+> el momento en que se dijo, no una hora del reloj.
+
+Planteado por Daniel:
+
+```
+00:00  Dario:  "en 2 hs llego"
+01:00  Vecino: "¿a qué hora viene el técnico?"
+01:00  Marcos: "en 2 hs"          ← falta UNA, no dos
+```
+
+Y a las 03:30 seguiría prometiendo dos horas para algo que ya venció.
+
+El dato para no equivocarse **ya estaba guardado**: `tecnico_eta` tiene lo que dijo y
+`tecnico_confirmado` **cuándo lo dijo**. `llegada-tecnico.js` reconstruye el momento real con los
+dos, así que esto no agregó ninguna columna.
+
+- Al vecino se le dice la **hora del reloj** ("llega a las 02:00"), que es lo único que no envejece
+  entre que Marcos escribe y él lee, más cuánto falta contado en ese instante.
+- **Si la hora ya pasó, se dice.** Prometer una llegada vencida es peor que admitir la demora: la
+  próxima vez que Marcos diga una hora, el vecino ya no le cree.
+- **Sin promesa no se inventa una.** `estimarPlazoMs` devuelve tres horas cuando no entiende nada
+  --para agendar un control está bien--, pero acá el resultado lo lee alguien esperando en su casa.
+
+**Y al escribirlo apareció uno peor, que ya estaba en producción**: `momentoPrometido` leía
+**"en 2 hs" como "a las 02:00"**. La última alternativa aceptaba un número pegado a `hs` sin mirar
+la preposición de adelante, y `hs` es como se escribe de verdad ("en 2 horas" caía bien, "en 2 hs"
+no). Dicho a medianoche coincide de casualidad; dicho a las **8 de la mañana**, el técnico que
+avisaba "en 2 hs" quedaba agendado para las **02:00 del día siguiente** — dieciocho horas de error,
+con el vecino esperando desde las 10. Lo que las distingue es la preposición: *a las* 2 es una
+hora, *en* 2 y *dentro de* 2 son un plazo.
+
+El mismo arreglo entra en el contacto de ingreso: "en 2 hs" dicho a las 20:30 es una visita a las
+22:30, cuando el encargado ya se fue. Mirando la hora de ahora se concluía que sí estaba, y el
+técnico se enteraba parado en la puerta.
+
+Prueba: `node pruebas-hora-llegada.js`.
+
 ### Un reclamo no lo abre solo el vecino
 
 Marcos se mete en una relación que ya existe: el administrador y sus proveedores vienen
