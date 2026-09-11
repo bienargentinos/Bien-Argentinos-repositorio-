@@ -468,6 +468,27 @@ el log dice que el técnico confirmó y exige que cada una escriba en el caso.
 > pregunta del horario "ya tiene su propio camino" — ese camino no existe. Hoy la salva el prompt
 > con los datos del caso; sigue sin haber una vía determinista.
 
+#### Guardar la confirmación no alcanza si otro bloque del prompt la contradice
+
+En la prueba siguiente la confirmación **sí** quedó escrita --`📌 Confirmación del técnico registrada
+en [CASO-1001] (en 2 hs)`-- y el vecino igual recibió *"estamos coordinando con el técnico"*.
+
+El bloque `instruccionConfirmacionTecnico` de `marcos-cara.js` dice lo correcto y hasta prohíbe
+decir que se está consultando. Pero abajo, `instruccionTecnicoDisponibilidad` decía *"podés
+informarle al vecino que se está contactando al servicio técnico de guardia para coordinar la
+visita"* — y ese sigue apareciendo mientras `contactar_tecnico` esté en true, o sea **en cada
+vuelta de un caso con técnico**. Dos imperativos opuestos en el mismo prompt, y gana el que está
+más abajo.
+
+Es exactamente el choque que ya había pasado con `instruccionGestionAcceso` (el vecino daba el
+dato de Natalia y le preguntaban igual quién abría), anotado tres líneas más arriba en ese mismo
+archivo. Con la visita confirmada, ese bloque ahora dice que informe lo confirmado y tiene
+prohibido hablar de coordinar.
+
+> Son reglas de prompt: **ninguna prueba automática las cubre.** Se verifican leyendo lo que Marcos
+> contesta de verdad. Y el patrón para buscar es siempre el mismo: un dato correcto, tapado por
+> otra instrucción del mismo prompt.
+
 ### Un reclamo no lo abre solo el vecino
 
 Marcos se mete en una relación que ya existe: el administrador y sus proveedores vienen
@@ -902,6 +923,56 @@ reales de cada tabla y sus restricciones `CHECK`.
 node revisar-columnas-pg.js              # todas las tablas
 node revisar-columnas-pg.js facturas     # una sola
 ```
+
+#### Y una columna que falta hace fallar el statement ENTERO
+
+> [!CAUTION]
+> **Un `UPDATE` que nombra dos columnas y una no existe no escribe NINGUNA de las dos.** No falla a
+> medias: PostgreSQL rechaza el statement completo.
+
+Visto en la prueba del vecino con la ventana de 24hs cerrada, repetido en el log:
+
+```
+[PG] No se pudo copiar el borrado de las marcas de entrega de CASO-1001:
+     column "material_enviado_tecnico" of relation "reportes" does not exist
+```
+
+`contacto_acceso_avisado` **sí** estaba en `db-pg.js`; su gemela `material_enviado_tecnico`, no,
+aunque se crearon el mismo día y se borran juntas en un solo `UPDATE`. Así que el reintento de lo
+que Meta había rechazado --el arreglo que en esa misma prueba funcionó-- dependía de que Sheets
+contestara: **del lado que Marcos lee primero, las marcas quedaban puestas.**
+
+La misma revisión encontró `reportes.foto_url`: `portal-vecino.js` la nombra al abrir un reclamo
+desde el portal y no existía, con lo cual el `INSERT` fallaba entero y **el reclamo no quedaba
+registrado en PostgreSQL** — ni la foto ni el reclamo.
+
+`pruebas-columnas-pg.js` es el candado: lee el SQL escrito en los archivos y lo compara con lo que
+`db-pg.js` crea. No necesita la base prendida, así que corre antes de cada push.
+
+> Además avisa cuáles columnas vienen de `01-base-de-datos.sql`, que **alguien tiene que aplicar a
+> mano**. Esas existen en el VPS de hoy porque Daniel corrió el archivo, y no existirían en una
+> instalación nueva. De ahí salió la restricción `facturas_estado_chk` que aparece más arriba como
+> "alguien la creó a mano en el servidor".
+
+#### La tabla existe, Marcos la ve, y no puede escribirla
+
+> [!CAUTION]
+> **`CREATE TABLE IF NOT EXISTS` sobre una tabla creada por OTRO rol no da error: ve que ya está y
+> sigue de largo.** El problema aparece recién en el `INSERT`, y para entonces parece un bug del
+> código.
+
+En la prueba del timbre: `⚠️ No se pudo persistir toque en tabla timbres: permission denied for
+table timbres`. Marcos se conecta como `marcos`; esa tabla la creó `postgres` desde `psql`.
+
+**Esto no se puede arreglar desde el código**: cambiar el dueño de una tabla exige ser su dueño o
+superusuario. El `ALTER TABLE ... OWNER TO marcos` lo corre una persona, una sola vez. Ya se
+intentó y no quedó, así que hay que verificarlo en vez de suponerlo:
+
+```bash
+node revisar-permisos-pg.js     # solo lee: dueño de cada tabla y si Marcos puede escribirla
+```
+
+Cuando encuentra alguna, imprime el comando exacto para arreglarla.
 
 ### Pedirle a un archivo una función que no exporta NO da error al cargar
 

@@ -249,8 +249,22 @@ REGLA ESTRICTA DE CARTERA:
         ? `- GESTIÓN DE ACCESO OBLIGATORIA: En este momento NO hay encargado de turno activo en el edificio. DEBES preguntarle amablemente al vecino si él o alguien de su departamento estará disponible en el lugar para recibir al técnico y facilitarle el ingreso.`
         : '';
 
+    // > [!CAUTION]
+    // > **Este bloque también contradecía al de la confirmación.** Decía "se está contactando al
+    // > servicio técnico para coordinar la visita" aunque el técnico ya hubiera contestado hacía
+    // > un rato, y el vecino recibía "estamos coordinando" tres minutos después de que Dario
+    // > confirmara que iba en 2 horas. Es el mismo choque de imperativos que arriba, con otra
+    // > frase: mientras `contactar_tecnico` siga en true --y sigue, porque el caso es de un
+    // > técnico-- este texto vuelve a aparecer en cada vuelta.
+    //
+    // Con la visita ya confirmada, lo que corresponde es informarla, no prometer que se la va a
+    // coordinar. Los datos de la confirmación los pone el bloque de arriba.
+    const yaConfirmoElTecnico = !!confirmacionTecnico?.confirmado;
+
     const instruccionTecnicoDisponibilidad = (decisionCaso?.contactar_tecnico)
-        ? (tecnicoAsignado
+        ? (yaConfirmoElTecnico
+            ? `- DISPONIBILIDAD TÉCNICA: El técnico YA confirmó la visita (ver el bloque de la confirmación). PROHIBIDO decir que se lo está contactando o que se está coordinando: eso ya pasó. Informá lo que confirmó. ${instruccionGestionAcceso}`
+            : tecnicoAsignado
             ? `- DISPONIBILIDAD TÉCNICA: Se encontró al técnico asignado (${tecnicoAsignado.nombre}). Podés informarle al vecino que se está contactando al servicio técnico de guardia para coordinar la visita. ${instruccionGestionAcceso}`
             : `- DISPONIBILIDAD TÉCNICA: En este momento NO figura un técnico de ${decisionCaso.tipo_problema} de guardia en la planilla. PROHIBIDO decir "ya le enviamos un técnico". Informale al vecino que el reclamo fue registrado con prioridad y escalado de inmediato a la Administración para coordinar el envío del profesional.`)
         : '';

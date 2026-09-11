@@ -472,6 +472,18 @@ async function _initPgSchema() {
             -- memoria, asi que cada reinicio de PM2 se lo mandaba de nuevo: al tecnico le llegaba
             -- el mismo "CONTACTO PARA EL INGRESO" una y otra vez.
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS contacto_acceso_avisado VARCHAR(100);
+            -- Que al tecnico ya se le mando la foto/video del reclamo. Es la marca gemela de la de
+            -- arriba y salieron en el mismo commit, pero esta se creo SOLO en la planilla: aca
+            -- faltaba. Como las dos se borran juntas en un mismo UPDATE, la que faltaba hacia
+            -- fallar el UPDATE entero y las dos marcas quedaban puestas del lado que lee Marcos.
+            -- Visto en produccion, repetido: "column material_enviado_tecnico of relation reportes
+            -- does not exist" -- o sea que el reintento de lo que Meta habia rechazado dependia de
+            -- que Sheets contestara.
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS material_enviado_tecnico VARCHAR(100);
+            -- La foto que el vecino adjunta al abrir un reclamo desde el portal. `portal-vecino.js`
+            -- la nombra en su INSERT y la columna no existia: el INSERT fallaba ENTERO, asi que el
+            -- reclamo no quedaba registrado en PostgreSQL -- ni la foto ni el reclamo.
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS foto_url TEXT;
 
             -- La lista maestra de proveedores de la planilla tiene "edificio".
             ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS edificio VARCHAR(150);
