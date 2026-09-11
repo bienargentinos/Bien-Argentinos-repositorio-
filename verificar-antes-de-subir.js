@@ -132,12 +132,34 @@ if (fs.existsSync(path.join(__dirname, 'herramientas-check-exports.js'))) {
 }
 
 console.log('\n── ¿EL CÓDIGO ES VÁLIDO? ──');
-for (const archivo of ['index.js', 'dashboard.js', 'sheets.js', 'datos.js', 'datos-pg.js',
-                       'agentes/marcos-ops.js', 'agentes/marcos-cara.js', 'seguimiento.js']) {
-    if (fs.existsSync(path.join(__dirname, archivo))) {
-        correr(archivo, process.execPath, ['--check', archivo]);
+// > [!CAUTION]
+// > **Esta lista estaba escrita a mano y `db-pg.js` no estaba adentro.** Un acento grave dentro de
+// > un comentario SQL --que viaja en un template literal de JavaScript-- cerró la cadena y rompió
+// > el archivo entero. El verificador dijo "todo en orden", el push salió, y el error apareció
+// > recién en el VPS: `SyntaxError: missing ) after argument list`, con Marcos ya reiniciado.
+//
+// Ahora se revisan TODOS los .js del proyecto. Es rápido y no depende de que nadie se acuerde de
+// agregar el archivo nuevo a una lista.
+const saltear = /^(node_modules|\.git)/;
+const archivosJs = [
+    ...fs.readdirSync(__dirname).filter(f => f.endsWith('.js') && !saltear.test(f)),
+    ...(fs.existsSync(path.join(__dirname, 'agentes'))
+        ? fs.readdirSync(path.join(__dirname, 'agentes'))
+            .filter(f => f.endsWith('.js')).map(f => `agentes/${f}`)
+        : []),
+].sort();
+let rotos = 0;
+for (const archivo of archivosJs) {
+    try {
+        execFileSync(process.execPath, ['--check', archivo], { cwd: __dirname, stdio: 'pipe' });
+    } catch (e) {
+        rotos++;
+        decir(false, archivo);
+        console.log(`${e.stdout || ''}${e.stderr || ''}`.trim()
+            .split('\n').map(l => `       ${l}`).join('\n'));
     }
 }
+if (rotos === 0) decir(true, `los ${archivosJs.length} archivos .js compilan`);
 
 console.log('\n── EL JAVASCRIPT QUE VA AL NAVEGADOR ──');
 // `node --check` no lo mira: dentro de dashboard.js viaja como un texto, así que un error ahí

@@ -949,6 +949,17 @@ registrado en PostgreSQL** — ni la foto ni el reclamo.
 `pruebas-columnas-pg.js` es el candado: lee el SQL escrito en los archivos y lo compara con lo que
 `db-pg.js` crea. No necesita la base prendida, así que corre antes de cada push.
 
+> [!CAUTION]
+> **Todo el esquema de `db-pg.js` vive adentro de un template literal de JavaScript.** Un acento
+> grave en un comentario SQL --escribir el nombre de un archivo entre acentos graves, como en el
+> resto de este documento-- **cierra la cadena y rompe el archivo entero**. Pasó al agregar estas
+> dos columnas: el verificador dijo "todo en orden", el push salió, y el error apareció recién en
+> el VPS con Marcos ya reiniciado (`SyntaxError: missing ) after argument list`).
+>
+> El verificador no lo agarró porque su lista de `node --check` estaba **escrita a mano** y
+> `db-pg.js` no estaba adentro. Ahora revisa **todos** los `.js` del proyecto, así un archivo
+> nuevo no depende de que alguien se acuerde de anotarlo.
+
 > Además avisa cuáles columnas vienen de `01-base-de-datos.sql`, que **alguien tiene que aplicar a
 > mano**. Esas existen en el VPS de hoy porque Daniel corrió el archivo, y no existirían en una
 > instalación nueva. De ahí salió la restricción `facturas_estado_chk` que aparece más arriba como

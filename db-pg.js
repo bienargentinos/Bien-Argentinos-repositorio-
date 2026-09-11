@@ -480,9 +480,13 @@ async function _initPgSchema() {
             -- does not exist" -- o sea que el reintento de lo que Meta habia rechazado dependia de
             -- que Sheets contestara.
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS material_enviado_tecnico VARCHAR(100);
-            -- La foto que el vecino adjunta al abrir un reclamo desde el portal. `portal-vecino.js`
+            -- La foto que el vecino adjunta al abrir un reclamo desde el portal. portal-vecino.js
             -- la nombra en su INSERT y la columna no existia: el INSERT fallaba ENTERO, asi que el
             -- reclamo no quedaba registrado en PostgreSQL -- ni la foto ni el reclamo.
+            --
+            -- OJO: todo esto vive adentro de un template literal de JavaScript. Un acento grave en
+            -- un comentario SQL cierra la cadena y rompe el archivo entero. Aca paso, y el
+            -- verificador no lo vio porque db-pg.js no estaba en su lista de node --check.
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS foto_url TEXT;
 
             -- La lista maestra de proveedores de la planilla tiene "edificio".
