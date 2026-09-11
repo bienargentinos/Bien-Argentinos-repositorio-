@@ -973,11 +973,14 @@ registrado en PostgreSQL** — ni la foto ni el reclamo.
 > código.
 
 En la prueba del timbre: `⚠️ No se pudo persistir toque en tabla timbres: permission denied for
-table timbres`. Marcos se conecta como `marcos`; esa tabla la creó `postgres` desde `psql`.
+table timbres`. Marcos se conecta como `marcos`; esa tabla la había creado otro rol desde `psql`.
 
 **Esto no se puede arreglar desde el código**: cambiar el dueño de una tabla exige ser su dueño o
-superusuario. El `ALTER TABLE ... OWNER TO marcos` lo corre una persona, una sola vez. Ya se
-intentó y no quedó, así que hay que verificarlo en vez de suponerlo:
+superusuario. El `ALTER TABLE ... OWNER TO marcos` lo corre una persona, una sola vez.
+
+**Ya se corrió y quedó** — verificado el 11/09: las 29 tablas son de `marcos`, `timbres` incluida.
+El error del log era de antes del arreglo. Se anota porque el síntoma vuelve cada vez que alguien
+crea una tabla desde `psql` como `postgres`, y desde afuera parece un bug del código.
 
 ```bash
 node revisar-permisos-pg.js     # solo lee: dueño de cada tabla y si Marcos puede escribirla

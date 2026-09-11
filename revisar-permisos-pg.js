@@ -17,8 +17,9 @@
 // > dueño o superusuario, y Marcos se conecta como `marcos`. El `ALTER TABLE ... OWNER TO` lo
 // > tiene que correr una persona, una sola vez, como `postgres`.
 //
-// Ya se intentó a mano y no quedó (el error siguió apareciendo después). Este script dice si quedó
-// o no, en vez de suponerlo.
+// El de `timbres` ya se corrigió y quedó (verificado el 11/09: las 29 tablas son de `marcos`). El
+// script se queda igual, porque el síntoma vuelve cada vez que alguien crea una tabla desde `psql`
+// como `postgres`, y desde afuera se ve como un bug del código.
 
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
