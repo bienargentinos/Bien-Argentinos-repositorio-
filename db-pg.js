@@ -346,6 +346,31 @@ async function _initPgSchema() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- ── HISTORIAL Y AUDITORÍA DE TOQUES DE TIMBRE (PORTERÍA) ─────────────
+            CREATE TABLE IF NOT EXISTS timbres (
+                id SERIAL PRIMARY KEY,
+                fecha TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                edificio VARCHAR(150),
+                departamento VARCHAR(100),
+                unidad VARCHAR(100),
+                tipo_visita VARCHAR(100),
+                nombre_visita VARCHAR(150),
+                qr_id VARCHAR(150),
+                compartido_por VARCHAR(150),
+                ip VARCHAR(100),
+                user_agent TEXT,
+                foto_visitante TEXT,
+                call_id VARCHAR(100),
+                estado VARCHAR(50) DEFAULT 'llamando',
+                respuesta TEXT,
+                metadata JSONB DEFAULT '{}'::jsonb
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_timbres_edificio_fecha ON timbres (edificio, fecha DESC);
+            CREATE INDEX IF NOT EXISTS idx_timbres_depto ON timbres (edificio, departamento);
+            CREATE INDEX IF NOT EXISTS idx_timbres_call_id ON timbres (call_id);
+            CREATE INDEX IF NOT EXISTS idx_timbres_qr ON timbres (qr_id);
+
             -- ── TABLAS QUE EXISTEN EN LA PLANILLA Y FALTABAN ACA ──────────────────
             -- Sin estas cuatro, migrar a PostgreSQL dejaba a Marcos sin datos que usa todos los
             -- dias: buscarTecnicoSuplente() lee "tecnicos" y buscarPersonalDeTurno() lee

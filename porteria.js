@@ -362,6 +362,9 @@ var _telActivo = '';
 var _tipoVisita = '🛵 Delivery';
 var _edificio = '${esc(nombreEdificio)}';
 var _camaraFrenteStream = null;
+var _urlParams = new URLSearchParams(window.location.search);
+var _qrId = _urlParams.get('qr') || _urlParams.get('qr_id') || _urlParams.get('link') || _urlParams.get('link_id') || '';
+var _compartidoPor = _urlParams.get('por') || _urlParams.get('compartido_por') || _urlParams.get('ref') || _urlParams.get('c') || '';
 
 function filtrarDeptos(){
   var q = document.getElementById('search-inp').value.toLowerCase().trim();
@@ -468,7 +471,9 @@ async function ejecutarTimbre(){
         departamento: _deptoActivo,
         tipoVisita: _tipoVisita,
         nombreVisita: nombreVisita,
-        fotoVisitante: fotoSnapshot
+        fotoVisitante: fotoSnapshot,
+        qrId: _qrId,
+        compartidoPor: _compartidoPor
       })
     });
     var data = await res.json();
@@ -759,18 +764,28 @@ function limpiarTimbresViejos() {
 // -------------------------------------------------------------------
 router.post('/api/tocar-timbre', async (req, res) => {
   try {
-    const { edificio, departamento, tipoVisita, nombreVisita, fotoVisitante } = req.body || {};
+    const {
+      edificio,
+      departamento,
+      unidad,
+      tipoVisita,
+      nombreVisita,
+      fotoVisitante,
+      qrId,
+      linkId,
+      compartidoPor
+    } = req.body || {};
     let vecino = null;
 
     limpiarTimbresViejos();
 
     // Guardar en cola de llamadas activas con canal de señales WebRTC y foto de seguridad
     const callId = 'ring_' + Date.now();
-    const ringKey = (edificio || '').toLowerCase().trim() + ':' + (departamento || '').toLowerCase().trim();
+    const ringKey = (edificio || '').toLowerCase().trim() + ':' + (departamento || unidad || '').toLowerCase().trim();
     const ringData = {
       id: callId,
       edificio: edificio || '',
-      departamento: departamento || '',
+      departamento: departamento || unidad || '',
       tipoVisita: tipoVisita || '🛵 Delivery',
       nombreVisita: nombreVisita || '',
       fotoVisitante: fotoVisitante || '',
@@ -780,6 +795,48 @@ router.post('/api/tocar-timbre', async (req, res) => {
       signals: []
     };
     _timbresActivos.set(ringKey, ringData);
+
+    // Persistir cada toque en la tabla timbres de PostgreSQL (auditoría, trazabilidad de QR y origen)
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        const ip = (req.headers['x-forwarded-for']
+          ? String(req.headers['x-forwarded-for']).split(',')[0].trim()
+          : (req.socket ? req.socket.remoteAddress : req.ip)) || '';
+        const userAgent = String(req.headers['user-agent'] || '');
+        const qrReal = String(qrId || linkId || req.query.qr || req.query.link || req.query.qr_id || '').trim();
+        const compartidoReal = String(compartidoPor || req.query.compartidoPor || req.query.ref || req.query.c || req.query.por || '').trim();
+        const deptoFinal = String(departamento || unidad || '').trim();
+
+        await pool.query(`
+          INSERT INTO timbres (
+            fecha, edificio, departamento, unidad, tipo_visita, nombre_visita,
+            qr_id, compartido_por, ip, user_agent, foto_visitante, call_id, estado, metadata
+          ) VALUES (
+            NOW(), $1, $2, $3, $4, $5,
+            $6, $7, $8, $9, $10, $11, 'llamando', $12
+          )
+        `, [
+          edificio || '',
+          deptoFinal,
+          deptoFinal,
+          tipoVisita || '🛵 Delivery',
+          nombreVisita || '',
+          qrReal || null,
+          compartidoReal || null,
+          ip || null,
+          userAgent || null,
+          fotoVisitante || null,
+          callId,
+          JSON.stringify({
+            referer: req.headers['referer'] || '',
+            origin: req.headers['origin'] || ''
+          })
+        ]);
+      }
+    } catch (errDb) {
+      console.warn('⚠️ No se pudo persistir toque en tabla timbres:', errDb.message);
+    }
 
     // Buscar el vecino en PostgreSQL
     try {
@@ -895,10 +952,22 @@ router.post('/api/timbre-responder', (req, res) => {
     if (modoVoz) {
       llamada.estado = 'voz_iniciada';
       llamada.respuesta = '🎙️ Llamada de voz iniciada';
+      try {
+        const { pool } = require('./db-pg');
+        if (pool) {
+          pool.query(`UPDATE timbres SET estado = $1, respuesta = $2 WHERE call_id = $3`, ['voz_iniciada', llamada.respuesta, llamada.id]).catch(()=>{});
+        }
+      } catch(_) {}
       return res.json({ ok: true, modoVoz: true, callId: llamada.id });
     }
     llamada.estado = 'atendido';
     llamada.respuesta = respuesta || '¡Ya bajo!';
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        pool.query(`UPDATE timbres SET estado = $1, respuesta = $2 WHERE call_id = $3`, ['atendido', llamada.respuesta, llamada.id]).catch(()=>{});
+      }
+    } catch(_) {}
     return res.json({ ok: true, mensaje: 'Respuesta enviada a la puerta', respuesta: llamada.respuesta });
   }
   res.json({ ok: true });
@@ -913,6 +982,12 @@ router.post('/api/timbre-cortar', (req, res) => {
     llamada.quienCorto = from || 'desconocido';
     if (!llamada.signals) llamada.signals = [];
     llamada.signals.push({ from: from || 'anon', signal: { type: 'hangup', quienCorto: from }, timestamp: Date.now() });
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        pool.query(`UPDATE timbres SET estado = $1, respuesta = COALESCE(respuesta, $2) WHERE call_id = $3`, ['cortado', 'Cortado por ' + (from || 'desconocido'), llamada.id]).catch(()=>{});
+      }
+    } catch(_) {}
     return res.json({ ok: true, mensaje: 'Llamada cortada correctamente', quienCorto: from });
   }
   res.json({ ok: true, mensaje: 'Sin llamada activa' });
