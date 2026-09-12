@@ -1773,26 +1773,27 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
         <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Correo Electrónico</label>
         <input id="inp-reg-email" type="email" class="inp" placeholder="juan@correo.com" required>
 
-        <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Celular / WhatsApp (para avisos y timbres)</label>
-        <input id="inp-reg-tel" type="tel" class="inp" placeholder="Ej: 11 5054-2005" required>
+        <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Celular / WhatsApp</label>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+          <select id="sel-reg-prefix" class="inp" style="width:100px;margin-bottom:0;padding:0 6px;font-weight:700">
+            <option value="+54">🇦🇷 +54</option>
+            <option value="+598">🇺🇾 +598</option>
+            <option value="+56">🇨🇱 +56</option>
+            <option value="+55">🇧🇷 +55</option>
+            <option value="+52">🇲🇽 +52</option>
+            <option value="+57">🇨🇴 +57</option>
+            <option value="+51">🇵🇪 +51</option>
+            <option value="+34">🇪🇸 +34</option>
+            <option value="+1">🇺🇸 +1</option>
+            <option value="">Otro</option>
+          </select>
+          <input id="inp-reg-tel" type="tel" class="inp" style="margin-bottom:0;flex-grow:1" placeholder="Ej: 11 5054 2005" required>
+        </div>
 
         <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Contraseña</label>
         <input id="inp-reg-pass" type="password" class="inp" placeholder="Mínimo 6 caracteres" required>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <div>
-            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Depto</label>
-            <input id="inp-reg-depto" type="text" class="inp" placeholder="Ej: 1° A" required value="1° A">
-          </div>
-          <div>
-            <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Rol</label>
-            <select id="inp-reg-rol" class="inp" style="padding:0 8px">
-              <option value="propietario">Propietario</option>
-              <option value="inquilino">Inquilino</option>
-              <option value="asistente">Gestor / Asistente</option>
-            </select>
-          </div>
-        </div>
+        <!-- Depto y Rol eliminados para registro limpio -->
 
         <button id="btn-submit-reg" type="submit" class="btn-primary" style="margin-bottom:10px">
           <span>Crear Cuenta e Ingresar</span>
@@ -1814,10 +1815,19 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
       <form onsubmit="solicitarPinWhatsApp(event)">
         <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Número de Celular</label>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-          <div style="height:46px;padding:0 10px;background:#F1F5F9;border:1.5px solid #DDE3EE;border-radius:12px;display:flex;align-items:center;gap:4px;font-weight:800;font-size:13.5px;color:#334155">
-            <span>🇦🇷</span> +54
-          </div>
-          <input id="inp-login-tel" type="tel" class="inp" style="margin-bottom:0" placeholder="Ej: 11 5054-2005">
+          <select id="sel-wa-prefix" class="inp" style="width:100px;margin-bottom:0;padding:0 6px;font-weight:700">
+            <option value="+54">🇦🇷 +54</option>
+            <option value="+598">🇺🇾 +598</option>
+            <option value="+56">🇨🇱 +56</option>
+            <option value="+55">🇧🇷 +55</option>
+            <option value="+52">🇲🇽 +52</option>
+            <option value="+57">🇨🇴 +57</option>
+            <option value="+51">🇵🇪 +51</option>
+            <option value="+34">🇪🇸 +34</option>
+            <option value="+1">🇺🇸 +1</option>
+            <option value="">Otro</option>
+          </select>
+          <input id="inp-login-tel" type="tel" class="inp" style="margin-bottom:0;flex-grow:1" placeholder="Ej: 11 5054 2005" required>
         </div>
 
         <button id="btn-pedir-pin" type="submit" class="btn-primary" style="margin-bottom:12px">
@@ -1946,8 +1956,9 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
     var email = document.getElementById('inp-reg-email').value.trim();
     var pass = document.getElementById('inp-reg-pass').value;
     var tel = document.getElementById('inp-reg-tel').value.trim();
-    var depto = document.getElementById('inp-reg-depto').value.trim();
-    var rol = document.getElementById('inp-reg-rol').value;
+    // depto y rol removidos para registro limpio
+    var prefix = document.getElementById('sel-reg-prefix').value;
+    tel = prefix + ' ' + tel;
     var btn = document.getElementById('btn-submit-reg');
     var err = document.getElementById('login-error-msg');
     err.style.display = 'none';
@@ -1963,10 +1974,7 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
           nombre: nombre,
           email: email,
           password: pass,
-          telefono: tel,
-          edificio: 'San Patricio 159',
-          departamento: depto,
-          rol: rol
+          telefono: tel
         })
       });
       var data = await res.json();
@@ -1997,6 +2005,11 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
     if (!rawTel) {
       alert('Ingresá tu número de teléfono');
       return;
+    }
+    
+    var prefix = document.getElementById('sel-wa-prefix').value;
+    if (prefix && !rawTel.startsWith('+')) {
+      rawTel = prefix + rawTel.replace(/^\\+?549?/, '');
     }
 
     btn.disabled = true;
@@ -2156,13 +2169,8 @@ router.post('/api/registro-email', async (req, res) => {
     const { registrarOUsuario, asignarUsuarioAUnidad, obtenerUnidadesDeUsuario } = require('./db-pg');
     const u = await registrarOUsuario(email, password, nombre, apellido || '', telefono || '');
 
-    const edif = edificio || 'San Patricio 159';
-    const depto = departamento || '1° A';
-    const rolAsignado = rol || 'propietario';
-
-    await asignarUsuarioAUnidad(u.id, edif, depto, rolAsignado);
-    const unidades = await obtenerUnidadesDeUsuario(u.id);
-
+    // Registro limpio sin asignar unidades (se asignan desde adentro)
+    const unidades = [];
     if (req.session) {
       req.session.vecino = {
         usuario_id: u.id,
@@ -2170,15 +2178,11 @@ router.post('/api/registro-email', async (req, res) => {
         apellido: u.apellido,
         email: u.email,
         telefono: u.telefono,
-        edificio: edif,
-        departamento: depto,
-        rol: rolAsignado,
-        puede_ver_expensas: rolAsignado !== 'turista',
+        edificio: '',
+        departamento: '',
+        rol: 'registrado',
+        puede_ver_expensas: false,
         timbre_activo: true,
-        timbre_silencio_desde: '23:00',
-        timbre_silencio_hasta: '07:30',
-        saldoExpensa: '$0,00',
-        estadoExpensa: 'Al día',
         unidades: unidades
       };
     }
@@ -2406,6 +2410,30 @@ router.get('/', (req, res) => {
   const v = getVecinoSession(req);
 
   // 1. Tarjeta superior de Expensas (Solo fijos/titulares) o Bienvenida (Turistas)
+  
+  if (!v.unidades || v.unidades.length === 0) {
+    return res.send(shellVecino('Bienvenido', 'inicio', `
+      <div class="card" style="padding:24px 20px;background:#ffffff;margin-bottom:14px;box-shadow:0 4px 18px rgba(15,23,42,.06);border-radius:20px;text-align:center">
+        <div style="width:64px;height:64px;background:#F1F5F9;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:#64748B">
+          <i class="ph ph-house-line" style="font-size:32px"></i>
+        </div>
+        <h2 style="font-size:18px;font-weight:900;color:#0F172A;margin:0 0 8px;letter-spacing:-.02em">Cuenta Creada</h2>
+        <p style="font-size:13.5px;color:#475569;line-height:1.5;margin:0 0 20px">
+          Todavía no tenés ningún departamento asignado.
+        </p>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px;text-align:left;margin-bottom:20px">
+          <div style="font-size:12.5px;font-weight:800;color:#334155;margin-bottom:6px">¿Cómo continúo?</div>
+          <div style="font-size:12px;color:#64748B;line-height:1.5">
+            Por favor enviá un mensaje con el email con el que te registraste (<strong>${esc(v.email)}</strong>) a la persona que te invitó (propietario, anfitrión o administración) para que te habilite el acceso a la unidad.
+          </div>
+        </div>
+        <a href="/vecino/chat" style="display:inline-flex;align-items:center;justify-content:center;gap:8px;background:#0F326A;color:#ffffff;text-decoration:none;font-size:14px;font-weight:800;padding:12px 24px;border-radius:12px;box-shadow:0 3px 10px rgba(15,50,106,.25)">
+          <i class="ph ph-chat-circle-dots" style="font-size:20px"></i> Asistencia 24hs
+        </a>
+      </div>
+    `, v));
+  }
+
   const tarjetaSuperior = (v.puede_ver_expensas !== false) ? `
     <!-- Tarjeta Principal de Expensas (Estilo Mercado Pago) -->
     <div class="card" style="padding:18px;background:#ffffff;margin-bottom:14px;box-shadow:0 4px 18px rgba(15,23,42,.06);border-radius:20px">
@@ -3747,8 +3775,14 @@ router.post('/api/chat', async (req, res) => {
     // Si el módulo de Marcos IA está disponible, responder contextualmente
     if (marcosCara && typeof marcosCara.responderVecino === 'function') {
       try {
+        // Inyectar documentación si no tiene unidad asignada
+        let mensajeContextualizado = mensaje;
+        if (!v.unidades || v.unidades.length === 0) {
+           mensajeContextualizado = "[CONTEXTO DEL SISTEMA: Atendés a un usuario recién registrado SIN UNIDAD ASIGNADA. NO le tires instrucciones de golpe. Actuá como un asistente de recepción inteligente e investigá.\n\nREGLAS DE INTERACCIÓN:\n1. Indagá primero: preguntale qué relación tiene con el edificio (si es Propietario, Inquilino, Huésped de Airbnb, Gestor o Familiar).\n2. Una vez que te responda y defina su situación, dale la instrucción precisa:\n - Si es Propietario: Debe contactar a la Administración para vincular su email (" + v.email + ").\n - Si es Inquilino/Huésped/Gestor/Familiar: Debe pedirle al dueño/titular del departamento que lo asigne desde la pestaña 'Integrantes' ingresando su email (" + v.email + ").\n3. Si menciona que pertenece a un edificio específico o viene por una reserva, indicále que se comunique con la persona que le envió el enlace original.\n\nIMPORTANTE: Sé conversacional, hacé una sola pregunta a la vez y guialo paso a paso.]\n\nDice el usuario: " + mensaje;
+        }
+
         const resp = await marcosCara.responderVecino({
-          historial: [{ rol: 'vecino', texto: mensaje }],
+          historial: [{ rol: 'vecino', texto: mensajeContextualizado }],
           vecino: { nombre: v.nombre, telefono: v.telefono, edificio: v.edificio, departamento: v.departamento },
           memoriaVecino: null,
           personalDeTurno: null,
