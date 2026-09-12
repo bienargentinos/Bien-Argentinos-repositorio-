@@ -1029,6 +1029,44 @@ node revisar-permisos-pg.js     # solo lee: dueño de cada tabla y si Marcos pue
 
 Cuando encuentra alguna, imprime el comando exacto para arreglarla.
 
+## El webhook le creía a cualquiera
+
+> [!CAUTION]
+> **`app.post('/webhook')` no verificaba nada.** Alcanzaba con conocer la URL para hacerle creer a
+> Marcos que escribió un técnico o un vecino.
+
+Y Marcos no solo contesta: **actúa**. Un POST inventado con el teléfono de Dario adentro alcanzaba
+para abrir un caso, mandarle un WhatsApp real a una persona, dejar un cambio de CBU pendiente de
+aprobación, o imputarle una factura a un consorcio. Desde adentro no se ve distinto de un mensaje
+legítimo, así que no hay línea de log que lo delate.
+
+Meta firma cada entrega con el **App Secret**: manda `X-Hub-Signature-256: sha256=<hex>`, que es el
+HMAC-SHA256 del cuerpo. Quien no tenga el secreto no puede producir esa firma. `firma-webhook.js` la
+verifica, y dos detalles deciden si esto funciona o estorba:
+
+- **Se firma el cuerpo CRUDO, byte por byte.** `JSON.stringify(req.body)` no sirve: reordena claves y
+  cambia el escapado, la firma sale distinta y se rechazarían mensajes buenos — la peor forma de
+  fallar, porque Marcos queda sordo y el log dice "firma inválida". Por eso `bodyParser.json()` ahora
+  lleva un `verify` que guarda el buffer original en `req.rawBody`.
+- **La comparación es de tiempo constante.** Un `===` sobre dos hex responde más rápido cuando
+  difieren en el primer carácter que en el último, y eso alcanza para adivinar la firma de a un byte.
+
+> [!CAUTION]
+> **Sin `META_APP_SECRET` en el `.env` NO se rechaza nada, y es a propósito.** Rechazar sin el
+> secreto dejaría a Marcos sordo en el instante del despliegue, antes de que nadie pueda agregar la
+> variable — el mismo precio que ya se pagó con el `db-pg.js` roto. El riesgo del otro lado es que
+> quede abierto para siempre porque nadie se enteró, así que el aviso sale en **cada** pedido:
+> `🔓 webhook de WhatsApp: META_APP_SECRET no está en el .env…`. Con la variable puesta la puerta se
+> cierra sola, sin tocar código.
+>
+> El valor sale del panel de la app de Meta y **no va escrito en ningún archivo del repo**.
+
+Prueba: `node pruebas-firma-webhook.js`. Incluye tres candados: que el `bodyParser` siga guardando el
+cuerpo crudo (sin eso la firma nunca puede verificar y quedaría abierto pareciendo cerrado), que el
+control vaya como **primer** manejador de la ruta, y que nadie vuelva a escribir la comparación por
+su cuenta en otro archivo — que es exactamente lo que pasó con `buscarPerfilEdificio`, donde arreglar
+una de las dos copias no cambió nada en producción.
+
 ### Pedirle a un archivo una función que no exporta NO da error al cargar
 
 > [!CAUTION]

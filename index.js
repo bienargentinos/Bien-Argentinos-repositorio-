@@ -27,7 +27,17 @@ const { procesarDocumento }  = require('./agentes/marcos-docs');
 const { reportarAlAdmin, iniciarCronReportes }    = require('./agentes/marcos-admin');
 
 const app = express();
-app.use(bodyParser.json());
+// EL CUERPO CRUDO SE GUARDA PARA PODER VERIFICAR LA FIRMA DE META.
+//
+// > [!CAUTION]
+// > **`JSON.stringify(req.body)` NO reproduce lo que Meta firmó.** Reordena claves, cambia el
+// > escapado de los acentos y los espacios. La firma sale distinta y se rechazarían mensajes
+// > buenos, que es la peor forma de fallar: Marcos queda sordo y el log dice "firma inválida".
+//
+// `verify` corre antes de parsear y recibe el buffer tal como llegó. Solo lo guarda.
+app.use(bodyParser.json({
+    verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
@@ -415,8 +425,25 @@ app.get('/webhook', (req, res) => {
     res.sendStatus(403);
 });
 
+// ── QUIÉN PUEDE HABLARLE A MARCOS ─────────────────────────────────────────────
+//
+// > [!CAUTION]
+// > **Este POST no verificaba nada.** Alcanzaba con conocer la URL para hacerle creer a Marcos que
+// > escribió un técnico o un vecino, y Marcos no solo contesta: abre casos, le manda WhatsApp a
+// > personas reales, deja cambios de CBU pendientes e imputa facturas a un consorcio.
+//
+// Meta firma cada entrega con el App Secret. El detalle de por qué la comparación es así, y por
+// qué sin el secreto NO se rechaza nada, está en `firma-webhook.js`.
+const { exigirFirmaMeta } = require('./firma-webhook');
+const firmaDeMeta = exigirFirmaMeta({
+    secreto: process.env.META_APP_SECRET,
+    nombre: 'webhook de WhatsApp',
+});
+
 // ── Entrada de mensajes WhatsApp ──────────────────────────────────────────────
-app.post('/webhook', async (req, res) => {
+// El control de la firma va como primer manejador de ESTA ruta, no como `app.use` global ni como
+// un `app.post` aparte: así se lee de una que nada entra sin pasar por ahí.
+app.post('/webhook', firmaDeMeta, async (req, res) => {
     // Meta requiere 200 OK inmediato
     res.sendStatus(200);
 

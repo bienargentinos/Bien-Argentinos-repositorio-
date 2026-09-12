@@ -82,6 +82,14 @@ const IMPRESCINDIBLES = {
         'quitarDeLista',
         'module.exports = {',
     ],
+    // Si esto desaparece, el webhook vuelve a aceptar cualquier POST y nada lo delata: sin
+    // `META_APP_SECRET` el middleware deja pasar a propósito, así que borrarlo se vería EXACTAMENTE
+    // igual que tenerlo sin la variable configurada.
+    'firma-webhook.js': [
+        'function firmaValida(',
+        'function exigirFirmaMeta(',
+        'timingSafeEqual',
+    ],
     'material-caso.js': ['async function materialDelVecinoEnCaso('],
     'rubros.js':        ['function coincideRubro('],
     'cbu.js':           ['function validarCBU('],
