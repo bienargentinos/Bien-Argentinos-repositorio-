@@ -1775,17 +1775,46 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
 
         <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Celular / WhatsApp</label>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-          <select id="sel-reg-prefix" class="inp" style="width:100px;margin-bottom:0;padding:0 6px;font-weight:700">
-            <option value="+54">🇦🇷 +54</option>
-            <option value="+598">🇺🇾 +598</option>
-            <option value="+56">🇨🇱 +56</option>
-            <option value="+55">🇧🇷 +55</option>
-            <option value="+52">🇲🇽 +52</option>
-            <option value="+57">🇨🇴 +57</option>
-            <option value="+51">🇵🇪 +51</option>
-            <option value="+34">🇪🇸 +34</option>
-            <option value="+1">🇺🇸 +1</option>
-            <option value="">Otro</option>
+          <select id="sel-reg-prefix" class="inp" onchange="actualizarPlaceholderTel('sel-reg-prefix', 'inp-reg-tel')" style="width:125px;margin-bottom:0;padding:0 4px;font-size:11.5px;font-weight:700">
+            <optgroup label="América">
+              <option value="+54" selected>🇦🇷 Argentina (+54)</option>
+              <option value="+598">🇺🇾 Uruguay (+598)</option>
+              <option value="+56">🇨🇱 Chile (+56)</option>
+              <option value="+55">🇧🇷 Brasil (+55)</option>
+              <option value="+595">🇵🇾 Paraguay (+595)</option>
+              <option value="+591">🇧🇴 Bolivia (+591)</option>
+              <option value="+51">🇵🇪 Perú (+51)</option>
+              <option value="+57">🇨🇴 Colombia (+57)</option>
+              <option value="+58">🇻🇪 Venezuela (+58)</option>
+              <option value="+593">🇪🇨 Ecuador (+593)</option>
+              <option value="+52">🇲🇽 México (+52)</option>
+              <option value="+1">🇺🇸 EE.UU. (+1)</option>
+              <option value="+1">🇨🇦 Canadá (+1)</option>
+            </optgroup>
+            <optgroup label="Europa">
+              <option value="+34">🇪🇸 España (+34)</option>
+              <option value="+39">🇮🇹 Italia (+39)</option>
+              <option value="+33">🇫🇷 Francia (+33)</option>
+              <option value="+49">🇩🇪 Alemania (+49)</option>
+              <option value="+44">🇬🇧 Reino Unido (+44)</option>
+              <option value="+351">🇵🇹 Portugal (+351)</option>
+              <option value="+41">🇨🇭 Suiza (+41)</option>
+              <option value="+31">🇳🇱 Países Bajos (+31)</option>
+              <option value="+45">🇩🇰 Dinamarca (+45)</option>
+              <option value="+46">🇸🇪 Suecia (+46)</option>
+              <option value="+47">🇳🇴 Noruega (+47)</option>
+            </optgroup>
+            <optgroup label="Asia y Oceanía">
+              <option value="+86">🇨🇳 China (+86)</option>
+              <option value="+81">🇯🇵 Japón (+81)</option>
+              <option value="+82">🇰🇷 Corea del Sur (+82)</option>
+              <option value="+61">🇦🇺 Australia (+61)</option>
+              <option value="+64">🇳🇿 Nueva Zelanda (+64)</option>
+              <option value="+972">🇮🇱 Israel (+972)</option>
+            </optgroup>
+            <optgroup label="Otros">
+              <option value="">🌐 Otro (+ manual)</option>
+            </optgroup>
           </select>
           <input id="inp-reg-tel" type="tel" class="inp" style="margin-bottom:0;flex-grow:1" placeholder="Ej: 11 5054 2005" required>
         </div>
@@ -1815,17 +1844,46 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
       <form onsubmit="solicitarPinWhatsApp(event)">
         <label style="font-size:11.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Número de Celular</label>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-          <select id="sel-wa-prefix" class="inp" style="width:100px;margin-bottom:0;padding:0 6px;font-weight:700">
-            <option value="+54">🇦🇷 +54</option>
-            <option value="+598">🇺🇾 +598</option>
-            <option value="+56">🇨🇱 +56</option>
-            <option value="+55">🇧🇷 +55</option>
-            <option value="+52">🇲🇽 +52</option>
-            <option value="+57">🇨🇴 +57</option>
-            <option value="+51">🇵🇪 +51</option>
-            <option value="+34">🇪🇸 +34</option>
-            <option value="+1">🇺🇸 +1</option>
-            <option value="">Otro</option>
+          <select id="sel-wa-prefix" class="inp" onchange="actualizarPlaceholderTel('sel-wa-prefix', 'inp-login-tel')" style="width:125px;margin-bottom:0;padding:0 4px;font-size:11.5px;font-weight:700">
+            <optgroup label="América">
+              <option value="+54" selected>🇦🇷 Argentina (+54)</option>
+              <option value="+598">🇺🇾 Uruguay (+598)</option>
+              <option value="+56">🇨🇱 Chile (+56)</option>
+              <option value="+55">🇧🇷 Brasil (+55)</option>
+              <option value="+595">🇵🇾 Paraguay (+595)</option>
+              <option value="+591">🇧🇴 Bolivia (+591)</option>
+              <option value="+51">🇵🇪 Perú (+51)</option>
+              <option value="+57">🇨🇴 Colombia (+57)</option>
+              <option value="+58">🇻🇪 Venezuela (+58)</option>
+              <option value="+593">🇪🇨 Ecuador (+593)</option>
+              <option value="+52">🇲🇽 México (+52)</option>
+              <option value="+1">🇺🇸 EE.UU. (+1)</option>
+              <option value="+1">🇨🇦 Canadá (+1)</option>
+            </optgroup>
+            <optgroup label="Europa">
+              <option value="+34">🇪🇸 España (+34)</option>
+              <option value="+39">🇮🇹 Italia (+39)</option>
+              <option value="+33">🇫🇷 Francia (+33)</option>
+              <option value="+49">🇩🇪 Alemania (+49)</option>
+              <option value="+44">🇬🇧 Reino Unido (+44)</option>
+              <option value="+351">🇵🇹 Portugal (+351)</option>
+              <option value="+41">🇨🇭 Suiza (+41)</option>
+              <option value="+31">🇳🇱 Países Bajos (+31)</option>
+              <option value="+45">🇩🇰 Dinamarca (+45)</option>
+              <option value="+46">🇸🇪 Suecia (+46)</option>
+              <option value="+47">🇳🇴 Noruega (+47)</option>
+            </optgroup>
+            <optgroup label="Asia y Oceanía">
+              <option value="+86">🇨🇳 China (+86)</option>
+              <option value="+81">🇯🇵 Japón (+81)</option>
+              <option value="+82">🇰🇷 Corea del Sur (+82)</option>
+              <option value="+61">🇦🇺 Australia (+61)</option>
+              <option value="+64">🇳🇿 Nueva Zelanda (+64)</option>
+              <option value="+972">🇮🇱 Israel (+972)</option>
+            </optgroup>
+            <optgroup label="Otros">
+              <option value="">🌐 Otro (+ manual)</option>
+            </optgroup>
           </select>
           <input id="inp-login-tel" type="tel" class="inp" style="margin-bottom:0;flex-grow:1" placeholder="Ej: 11 5054 2005" required>
         </div>
@@ -1880,6 +1938,18 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
 
 <script>
   var _telActual = '';
+
+  
+  function actualizarPlaceholderTel(selectId, inputId) {
+    var sel = document.getElementById(selectId);
+    var inp = document.getElementById(inputId);
+    if (!sel || !inp) return;
+    if (sel.value === '') {
+      inp.placeholder = 'Ej: +45 12345678 (completo con +)';
+    } else {
+      inp.placeholder = 'Ej: 11 5054 2005 (sin código)';
+    }
+  }
 
   function cambiarTabLogin(tab) {
     var btnEmail = document.getElementById('tab-btn-email');
@@ -1958,7 +2028,11 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
     var tel = document.getElementById('inp-reg-tel').value.trim();
     // depto y rol removidos para registro limpio
     var prefix = document.getElementById('sel-reg-prefix').value;
-    tel = prefix + ' ' + tel;
+    if (prefix && !tel.startsWith('+')) {
+      tel = prefix + ' ' + tel.replace(/^\+?549?/, '').trim();
+    } else if (!prefix && !tel.startsWith('+')) {
+      tel = '+' + tel.trim();
+    }
     var btn = document.getElementById('btn-submit-reg');
     var err = document.getElementById('login-error-msg');
     err.style.display = 'none';
@@ -2009,7 +2083,9 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
     
     var prefix = document.getElementById('sel-wa-prefix').value;
     if (prefix && !rawTel.startsWith('+')) {
-      rawTel = prefix + rawTel.replace(/^\\+?549?/, '');
+      rawTel = prefix + rawTel.replace(/^\+?549?/, '').trim();
+    } else if (!prefix && !rawTel.startsWith('+')) {
+      rawTel = '+' + rawTel.trim();
     }
 
     btn.disabled = true;
