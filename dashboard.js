@@ -3632,8 +3632,15 @@ function procesarLineaMultimediaChat(strText) {
       } else if (tagType === 'DOCUMENTO' || tagType === 'DOC' || tagType === 'PDF' || tagType === 'FACTURA') {
         visualUrl = normalizarUrlAudio(rawUrl, 'pdf');
         visualType = 'pdf';
+        var mDocFile = cleanText.match(/\((?:Documento|Factura|Comprobante)(?:\s+adjunt[oa])?:?\s*([^)]+\.[a-z0-9]{2,5})\)/i);
         var mDocN = cleanText.match(/\((?:Documento|Factura|Comprobante)(?:\s+adjunt[oa])?:?\s*([^)]+)\)/i);
-        visualFilename = (mDocN && mDocN[1] && mDocN[1].trim()) ? mDocN[1].trim() : fn;
+        if (mDocFile && mDocFile[1]) {
+          visualFilename = mDocFile[1].replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
+        } else if (mDocN && mDocN[1] && mDocN[1].trim()) {
+          visualFilename = mDocN[1].replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
+        } else {
+          visualFilename = fn;
+        }
       } else {
         audioUrl = normalizarUrlAudio(rawUrl, 'audio');
         audioFilename = fn;
@@ -3645,12 +3652,14 @@ function procesarLineaMultimediaChat(strText) {
   if (!visualUrl && !audioUrl) {
     var mDocDirect = cleanText.match(/\((?:Documento|Factura|Comprobante)(?:\s+adjunt[oa])?:?\s*([^)]+)\)/i);
     if (mDocDirect && mDocDirect[1]) {
-      var dName = mDocDirect[1].trim();
+      var dName = mDocDirect[1].replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
       var extD = dName.split('.').pop().toLowerCase();
       if (['pdf', 'doc', 'docx', 'xls', 'xlsx'].indexOf(extD) !== -1 || /media_\d+/i.test(dName)) {
-        visualUrl = normalizarUrlAudio(dName, 'pdf');
-        visualType = 'pdf';
         visualFilename = dName;
+        visualType = 'pdf';
+        if (dName.startsWith('/') || dName.startsWith('almacenamiento/') || dName.startsWith('temp/') || dName.startsWith('http://') || dName.startsWith('https://')) {
+          visualUrl = normalizarUrlAudio(dName, 'pdf');
+        }
       }
     }
   }
@@ -3714,10 +3723,16 @@ function procesarLineaMultimediaChat(strText) {
         var after = cleanText.substring(endCut).trim();
 
         var tagRegexes = [
+          new RegExp('documento:\\s*$', 'i'),
+          new RegExp('doc:\\s*$', 'i'),
+          new RegExp('pdf:\\s*$', 'i'),
+          new RegExp('factura:\\s*$', 'i'),
           new RegExp('imagen:\\s*$', 'i'),
           new RegExp('foto:\\s*$', 'i'),
           new RegExp('video:\\s*$', 'i'),
           new RegExp('audio:\\s*$', 'i'),
+          new RegExp('\\(documento adjunto\\)\\s*$', 'i'),
+          new RegExp('\\(factura adjunta\\)\\s*$', 'i'),
           new RegExp('\\(imagen adjunta\\)\\s*$', 'i'),
           new RegExp('\\(video adjunto\\)\\s*$', 'i'),
           new RegExp('\\(nota de voz\\)\\s*$', 'i')
@@ -3884,7 +3899,13 @@ function separarConversacionesEvento(datos) {
       strLower.indexOf('podria indicarme') !== -1 ||
       strLower.indexOf('me indicás su') !== -1 ||
       strLower.indexOf('me indicas su') !== -1 ||
-      strLower.indexOf('servicio técnico de guardia') !== -1
+      strLower.indexOf('servicio técnico de guardia') !== -1 ||
+      strLower.indexOf('entiendo la urgencia') !== -1 ||
+      strLower.indexOf('ya confirmó la visita') !== -1 ||
+      strLower.indexOf('confirmó la visita para') !== -1 ||
+      strLower.indexOf('coordinará el ingreso') !== -1 ||
+      strLower.indexOf('coordinar el ingreso') !== -1 ||
+      strLower.indexOf('contactará con') !== -1
     ) {
       return true;
     }
@@ -3993,7 +4014,11 @@ function separarConversacionesEvento(datos) {
     while (clean && (clean.charAt(clean.length - 1) === '[' || clean.charAt(clean.length - 1) === '(' || clean.charAt(clean.length - 1) === ']' || clean.charAt(clean.length - 1) === ')')) clean = clean.substring(0, clean.length - 1).trim();
 
     var mediaStr = str + (typeof item === 'object' && item.url_media ? ' ' + item.url_media : '');
-    var mediaIdMatch = mediaStr.match(/(?:media[_-]?)?([0-9]{10,20})/i);
+    var mediaPrefixMatch = mediaStr.match(/media[_-]([0-9]{10,20})/i);
+    if (mediaPrefixMatch && mediaPrefixMatch[1]) {
+      return rolNorm + '::media_' + mediaPrefixMatch[1];
+    }
+    var mediaIdMatch = mediaStr.match(/(?:^|[^0-9])([0-9]{15,20})(?:[^0-9]|$)/);
     if (mediaIdMatch && mediaIdMatch[1]) {
       return rolNorm + '::media_' + mediaIdMatch[1];
     }
@@ -4016,8 +4041,12 @@ function separarConversacionesEvento(datos) {
           var _escOB = String.fromCharCode(92) + String.fromCharCode(91);
           var _escCB = String.fromCharCode(92) + String.fromCharCode(93);
           var mTag = nuevoItem.match(new RegExp(_escOB + '(IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA|AUDIO):\\s*([^' + _escCB + ']+)' + _escCB, 'i'));
-          if (mTag && mTag[2]) {
+          if (mTag && mTag[2] && !viejo.url_media) {
             viejo.url_media = mTag[2].trim();
+          }
+          if (nuevoItem.indexOf('Factura') !== -1 && (!viejo.mensaje || !viejo.mensaje.includes('Factura'))) {
+            var mFac = nuevoItem.match(/\(Factura[^)]+\)/i);
+            if (mFac) viejo.mensaje = (viejo.mensaje || '') + ' ' + mFac[0];
           }
         }
         break;
@@ -4101,7 +4130,16 @@ function separarConversacionesEvento(datos) {
 
   var rawProveedor = parseList(datos.chat_proveedor_json);
   if (!rawProveedor.length) rawProveedor = parseList(datos.historial_chat_proveedor);
-  rawProveedor.forEach(function(item) { agregarMensaje(item, 'proveedor'); });
+  rawProveedor.forEach(function(item) {
+    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+    var strLower = str.toLowerCase();
+    var esMarcosGenericoVecino = /^marcos:\s*/i.test(str) && !/al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
+    if (esMensajeDeVecino(item) || esMarcosGenericoVecino) {
+      agregarMensaje(item, 'vecino');
+    } else {
+      agregarMensaje(item, 'proveedor');
+    }
+  });
 
   // 3. Fallback adicional de historial_chat: SOLO si no hubo chat_vecino ni chat_proveedor ni chat_pg
   var rawHist = parseList(datos.historial_chat);
@@ -4131,10 +4169,27 @@ function separarConversacionesEvento(datos) {
     });
   }
 
-  // Limpieza final de seguridad: asegurar que NINGÚN mensaje de proveedor quede en chatVecino
+  // Limpieza final de seguridad:
+  // 1. Asegurar que NINGÚN mensaje de proveedor quede en chatVecino
   chatVecino = chatVecino.filter(function(item) {
     if (esMensajeDeProveedor(item)) {
       agregarMensaje(item, 'proveedor');
+      return false;
+    }
+    return true;
+  });
+
+  // 2. Asegurar que NINGÚN mensaje de vecino (o de Marcos dirigido al vecino) quede en chatProveedor
+  chatProveedor = chatProveedor.filter(function(item) {
+    var itemPhone = typeof item === 'object' ? String(item.telefono || '').replace(/[^0-9]/g, '') : '';
+    var esVecPhone = itemPhone.length >= 7 && vecPhones.has(itemPhone.slice(-10));
+    var isV = esMensajeDeVecino(item);
+    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+    var strLower = str.toLowerCase();
+    var esMarcosGenericoVecino = /^marcos:\s*/i.test(str) && !/al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
+
+    if (esVecPhone || isV || esMarcosGenericoVecino) {
+      agregarMensaje(item, 'vecino');
       return false;
     }
     return true;
@@ -4265,7 +4320,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       }
 
       var rawObjMedia = typeof line === 'object' ? (line.url_media || line.audio_url || line.url || line.audio || '') : '';
-      if (rawObjMedia && !audioUrl && !visualUrl) {
+      if (rawObjMedia && (!visualUrl || !audioUrl || visualUrl.indexOf('Documento') !== -1 || visualUrl.indexOf('Factura') !== -1)) {
         var cleanObjMedia = String(rawObjMedia).split('?')[0].split('#')[0];
         var lastSlashObj = cleanObjMedia.lastIndexOf('/');
         var fnObj = lastSlashObj !== -1 ? cleanObjMedia.substring(lastSlashObj + 1) : cleanObjMedia;
@@ -4302,10 +4357,16 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         } else if (isDocExt || isChannelDoc || isTagDoc || cleanObjMedia.toLowerCase().indexOf('.pdf') !== -1 || rawObjMedia.indexOf('/facturas/') !== -1 || rawObjMedia.indexOf('/documentos/') !== -1 || /documento|factura|pdf/i.test(cleanText)) {
           visualUrl = normalizarUrlAudio(rawObjMedia, 'pdf');
           visualType = 'pdf';
+          var _rxDocFile = new RegExp('[(](?:Documento|Factura|Comprobante)(?:[' + String.fromCharCode(92) + 's]+adjunt[oa])?:?[' + String.fromCharCode(92) + 's]*([^)]+[.][a-z0-9]{2,5})[)]', 'i');
           var _rxDoc = new RegExp('[(](?:Documento|Factura|Comprobante)(?:[' + String.fromCharCode(92) + 's]+adjunt[oa])?:?[' + String.fromCharCode(92) + 's]*([^)]+)[)]', 'i');
+          var mDocFile = String(line.mensaje || line.texto || cleanText || '').match(_rxDocFile);
           var mDoc = String(line.mensaje || line.texto || cleanText || '').match(_rxDoc);
-          if (mDoc && mDoc[1] && mDoc[1].trim()) {
-            visualFilename = mDoc[1].trim();
+          if (mDocFile && mDocFile[1]) {
+            visualFilename = mDocFile[1].replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
+          } else if (mDoc && mDoc[1] && mDoc[1].trim()) {
+            visualFilename = mDoc[1].replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
+          } else if (visualFilename) {
+            visualFilename = visualFilename.replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
           } else if (/^[0-9]+$/.test(fnObj) || fnObj.indexOf('.') === -1) {
             visualFilename = 'documento_' + fnObj + '.pdf';
           } else {
@@ -4349,10 +4410,38 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
         var _rxStripDoc = new RegExp('[(](?:Documento|Factura|Comprobante)[' + String.fromCharCode(92) + 's]+adjunt[oa]:?[^)]*[)]?', 'gi');
         var _rxStripImg = new RegExp('[(](?:Imagen|Foto|Video)[' + String.fromCharCode(92) + 's]+adjunt[oa]:?[^)]*[)]?', 'gi');
         cleanText = cleanText.replace(_rxStripDoc, '').replace(_rxStripImg, '').trim();
+        var _escOB_C = String.fromCharCode(92) + String.fromCharCode(91);
+        var _escCB_C = String.fromCharCode(92) + String.fromCharCode(93);
+        cleanText = cleanText.replace(new RegExp(_escOB_C + '(?:DOCUMENTO|DOC|PDF|FACTURA|IMAGEN|FOTO|VIDEO):[^' + _escCB_C + ']+' + _escCB_C, 'gi'), '').trim();
+        cleanText = cleanText.replace(new RegExp('DOCUMENTO:[^\\s' + _escCB_C + ')]+', 'gi'), '').trim();
+        ['/archivos/', '/audios/', '/almacenamiento/', '/root/marcos/'].forEach(function(pref) {
+          var p = cleanText.indexOf(pref);
+          if (p !== -1) {
+            var endP = cleanText.indexOf(' ', p);
+            if (endP === -1) endP = cleanText.length;
+            cleanText = (cleanText.substring(0, p) + ' ' + cleanText.substring(endP)).trim();
+          }
+        });
+        while (cleanText && (cleanText.charAt(0) === ']' || cleanText.charAt(0) === ')' || cleanText.charAt(0) === '[' || cleanText.charAt(0) === '(')) {
+          cleanText = cleanText.substring(1).trim();
+        }
+        while (cleanText && (cleanText.charAt(cleanText.length - 1) === ']' || cleanText.charAt(cleanText.length - 1) === ')' || cleanText.charAt(cleanText.length - 1) === '[' || cleanText.charAt(cleanText.length - 1) === '(')) {
+          cleanText = cleanText.substring(0, cleanText.length - 1).trim();
+        }
       }
       if (audioUrl) {
         var _rxStripAud = new RegExp('[(](?:Audio|Nota de voz|Voz)[' + String.fromCharCode(92) + 's]+adjunt[oa]:?[^)]*[)]?', 'gi');
         cleanText = cleanText.replace(_rxStripAud, '').trim();
+        var _escOB_A = String.fromCharCode(92) + String.fromCharCode(91);
+        var _escCB_A = String.fromCharCode(92) + String.fromCharCode(93);
+        cleanText = cleanText.replace(new RegExp(_escOB_A + 'AUDIO:[^' + _escCB_A + ']+' + _escCB_A, 'gi'), '').trim();
+        cleanText = cleanText.replace(new RegExp('AUDIO:[^\\s' + _escCB_A + ')]+', 'gi'), '').trim();
+        while (cleanText && (cleanText.charAt(0) === ']' || cleanText.charAt(0) === ')' || cleanText.charAt(0) === '[' || cleanText.charAt(0) === '(')) {
+          cleanText = cleanText.substring(1).trim();
+        }
+        while (cleanText && (cleanText.charAt(cleanText.length - 1) === ']' || cleanText.charAt(cleanText.length - 1) === ')' || cleanText.charAt(cleanText.length - 1) === '[' || cleanText.charAt(cleanText.length - 1) === '(')) {
+          cleanText = cleanText.substring(0, cleanText.length - 1).trim();
+        }
       }
 
       var visualMediaHtml = '';

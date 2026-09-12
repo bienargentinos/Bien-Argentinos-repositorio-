@@ -43,7 +43,10 @@ app.use('/temp', express.static(path.join(__dirname, 'temp')));
 // 2. Si un navegador (ej: Safari en iOS/macOS) pide .mp3 y solo existe .ogg, lo convierte al vuelo con ffmpeg y lo sirve.
 const servirOConvertirMedia = (req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-    const reqFile = path.basename(req.path || '');
+    let rawPath = '';
+    try { rawPath = decodeURIComponent(req.path || ''); } catch (e) { rawPath = req.path || ''; }
+    let reqFile = path.basename(rawPath || '');
+    reqFile = reqFile.replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
     if (!reqFile || reqFile.indexOf('.') === -1) return next();
 
     const buscarRecursivo = (dir, targetFilename) => {
@@ -67,6 +70,32 @@ const servirOConvertirMedia = (req, res, next) => {
     if (!foundPath) {
         foundPath = buscarRecursivo(path.join(__dirname, 'temp'), reqFile);
     }
+
+    // Si no se encontró y el archivo pedido parece un número de factura (ej: 20273826212_011_00001_00000636.pdf),
+    // buscar si existe algún PDF en almacenamiento que coincida con el número de comprobante o buscar en facturas
+    if (!foundPath && reqFile.toLowerCase().endsWith('.pdf')) {
+        const mFactura = reqFile.match(/(\d{4,5}[-_]\d{8})/);
+        if (mFactura && mFactura[1]) {
+            const numPart = mFactura[1].replace('-', '_');
+            const buscarParcial = (dir) => {
+                try {
+                    const entries = fs.readdirSync(dir, { withFileTypes: true });
+                    for (const entry of entries) {
+                        const fullPath = path.join(dir, entry.name);
+                        if (entry.isDirectory()) {
+                            const found = buscarParcial(fullPath);
+                            if (found) return found;
+                        } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.pdf') && entry.name.includes(numPart)) {
+                            return fullPath;
+                        }
+                    }
+                } catch(e) {}
+                return null;
+            };
+            foundPath = buscarParcial(path.join(__dirname, 'almacenamiento')) || buscarParcial(path.join(__dirname, 'temp'));
+        }
+    }
+
     if (foundPath) {
         return res.sendFile(foundPath);
     }

@@ -1324,16 +1324,31 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
         let esContextoProveedor = false;
         chatNuevosArr.forEach(m => {
             const strM = typeof m === 'object' ? (m.emisor ? m.emisor + ': ' + (m.texto || m.mensaje || '') : JSON.stringify(m)) : String(m || '');
-            // Las preguntas de seguimiento ("¿pudiste ir?", "¿resolviste el reclamo?") y todo lo
-            // que habla de una factura van al chat del PROVEEDOR: son de él, no del vecino. Sin
             const strTrim = strM.trim();
             const esVecino = /^(vecino|usuario|cliente|titular|familiar)/i.test(strTrim);
-            const isProv = !esVecino && /proveedor|t.cnico|instalador|plomero|electricista|gasista|marcos ➔ proveedor|marcos -> proveedor|marcos \(a proveedor\)|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|resolviste el reclamo|solucionaste el reclamo|factura|comprobante|\[factura:/i.test(strM);
+            const esMarcosGenerico = /^marcos:/i.test(strTrim);
+
+            // Mensajes explícitos hacia o desde el proveedor
+            const esDeProveedor = /^(proveedor|t[ée]cnico|instalador|plomero|electricista|gasista)/i.test(strTrim);
+            const esMarcosParaProveedor = /^marcos\s*(➔|->|\(a proveedor\)|\(al t[ée]cnico\)|a proveedor):/i.test(strTrim);
+            const esFacturaOComprobante = /factura|comprobante|\[factura:|\[documento:/i.test(strM);
+            const esPreguntaSeguimientoTech = /pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|resolviste el reclamo|solucionaste el reclamo/i.test(strM);
+
+            // Si es un mensaje de Marcos común ("Marcos: Sí, el técnico ya confirmó..."), es para el vecino
+            // a menos que sea explícitamente a proveedor o pregunta de seguimiento al técnico
+            let isProv = false;
+            if (!esVecino) {
+                if (esDeProveedor || esMarcosParaProveedor || esFacturaOComprobante || esPreguntaSeguimientoTech) {
+                    isProv = true;
+                } else if (!esMarcosGenerico && /proveedor|t[ée]cnico|instalador|plomero|electricista|gasista/i.test(strM)) {
+                    isProv = true;
+                }
+            }
 
             if (isProv) {
                 esContextoProveedor = true;
                 if (!chatProveedorLista.includes(strM)) chatProveedorLista.push(strM);
-            } else if (esContextoProveedor && /^marcos/i.test(strM.trim())) {
+            } else if (esContextoProveedor && esMarcosGenerico && (esPreguntaSeguimientoTech || /estimado t[ée]cnico|hola t[ée]cnico/i.test(strM))) {
                 const strFormatted = strM.replace(/^marcos:/i, 'Marcos (a Proveedor):');
                 if (!chatProveedorLista.includes(strFormatted) && !chatProveedorLista.includes(strM)) {
                     chatProveedorLista.push(strFormatted);

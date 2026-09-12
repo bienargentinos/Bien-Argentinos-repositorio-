@@ -10,6 +10,8 @@
 
 const express = require('express');
 const router = express.Router();
+const session = require('express-session');
+router.use(session({ secret: process.env.DASHBOARD_SECRET || 'secret', resave: false, saveUninitialized: true }));
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
@@ -5695,6 +5697,32 @@ router.post('/api/cancelar-reserva', async (req, res) => {
     res.json({ ok: true, mensaje: 'Reserva cancelada' });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+
+// ==========================================
+// RUTA TEMPORAL PARA CREAR TURISTA DE PRUEBA
+// ==========================================
+router.get('/crear-turista-prueba', async (req, res) => {
+  try {
+    const { pool } = require('./db-pg');
+    const email = 'turista@consorcio.ai';
+    const pass = 'turista123';
+    await pool.query(`
+      INSERT INTO usuarios (email, password_hash, nombre, apellido, telefono, activo, created_at, updated_at)
+      VALUES ($1, $2, 'Huésped', 'Turista', '1155554444', TRUE, NOW(), NOW())
+      ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
+    `, [email, pass]);
+    res.send(`
+      <div style="font-family:sans-serif;padding:40px;text-align:center">
+        <h2>¡Turista Creado!</h2>
+        <p>Ya podés usar el email <b>turista@consorcio.ai</b> en el panel para asignarlo.</p>
+        <a href="/vecino/integrantes" style="padding:10px 20px;background:#0F326A;color:white;text-decoration:none;border-radius:10px;">Volver a Integrantes</a>
+      </div>
+    `);
+  } catch(e) {
+    res.send('Error: ' + e.message);
   }
 });
 
