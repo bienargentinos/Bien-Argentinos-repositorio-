@@ -4123,23 +4123,40 @@ function separarConversacionesEvento(datos) {
     });
   }
 
-  // 2. Incorporar listas de Google Sheets si hay mensajes no presentes en PostgreSQL
+  // 2. Incorporar listas de Google Sheets SOLO si no hay mensajes en PostgreSQL (chat_pg)
+  // o para enriquecer metadatos (como URLs de fotos o PDFs) si ya están en PostgreSQL.
   var rawVecino = parseList(datos.chat_vecino_json);
   if (!rawVecino.length) rawVecino = parseList(datos.historial_chat_vecino);
-  rawVecino.forEach(function(item) { agregarMensaje(item, 'vecino'); });
 
   var rawProveedor = parseList(datos.chat_proveedor_json);
   if (!rawProveedor.length) rawProveedor = parseList(datos.historial_chat_proveedor);
-  rawProveedor.forEach(function(item) {
-    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
-    var strLower = str.toLowerCase();
-    var esMarcosGenericoVecino = /^marcos:\s*/i.test(str) && !/al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
-    if (esMensajeDeVecino(item) || esMarcosGenericoVecino) {
-      agregarMensaje(item, 'vecino');
-    } else {
-      agregarMensaje(item, 'proveedor');
-    }
-  });
+
+  if (rawPg.length === 0) {
+    // Si no hay datos de PostgreSQL, Google Sheets es la fuente principal
+    rawVecino.forEach(function(item) { agregarMensaje(item, 'vecino'); });
+
+    rawProveedor.forEach(function(item) {
+      var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+      var strLower = str.toLowerCase();
+      var esMarcosGenericoVecino = /^marcos:\s*/i.test(str) && !/al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
+      if (esMensajeDeVecino(item) || esMarcosGenericoVecino) {
+        agregarMensaje(item, 'vecino');
+      } else {
+        agregarMensaje(item, 'proveedor');
+      }
+    });
+  } else {
+    // Si PostgreSQL ya cargó los mensajes (fuente oficial y cronológica), solo enriquecemos
+    // archivos adjuntos (multimedia/facturas) que Sheets pueda tener completos
+    rawVecino.forEach(function(item) {
+      var kNorm = normalizarClaveMensaje(item);
+      if (kNorm) enriquecerMensajeSiAplica(chatVecino, item, kNorm);
+    });
+    rawProveedor.forEach(function(item) {
+      var kNorm = normalizarClaveMensaje(item);
+      if (kNorm) enriquecerMensajeSiAplica(chatProveedor, item, kNorm);
+    });
+  }
 
   // 3. Fallback adicional de historial_chat: SOLO si no hubo chat_vecino ni chat_proveedor ni chat_pg
   var rawHist = parseList(datos.historial_chat);
