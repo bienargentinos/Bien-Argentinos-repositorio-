@@ -1988,7 +1988,7 @@ async function buscarFacturasSinImputar({ proveedor }) {
  * @returns {object|null} `{ numero, desde, hacia, edificio }` de lo que movió,
  *   `{ ambiguas: [...] }` si hay que preguntar, o `null`.
  */
-async function reimputarUltimaFacturaAlCaso({ proveedor, idEvento, edificio = '', numeroFactura = '' }) {
+async function reimputarUltimaFacturaAlCaso({ proveedor, idEvento, edificio = '', numeroFactura = '', textoCitado = '', soloSiYaTieneCaso = false }) {
     try {
         const prov = String(proveedor || '').toLowerCase().trim();
         const destino = String(idEvento || '').trim();
@@ -2011,7 +2011,39 @@ async function reimputarUltimaFacturaAlCaso({ proveedor, idEvento, edificio = ''
         const buscado = comparable(numeroFactura);
 
         let fila;
-        if (buscado) {
+
+        // > **Muchas veces no escribe el número: CITA el mensaje de la factura.** Palabras de
+        // > Daniel: *"muchas veces en vez de escribir se cita la factura, o sea cito el mensaje de
+        // > la factura y le digo… caso 1002"*.
+        //
+        // La cita guardada de un PDF dice `(Documento adjunto: 20273826212_011_00001_00000639.pdf)`,
+        // y el número del comprobante está ahí adentro. En vez de parsear el nombre del archivo
+        // --que sigue una convención de AFIP que puede cambiar-- se da vuelta el problema: se busca
+        // cuál de SUS facturas está nombrada en esa cita. Sin suponer ningún formato.
+        const digitosCita = String(textoCitado || '').replace(/\D/g, '').replace(/^0+/, '');
+        if (!buscado && digitosCita.length >= 4) {
+            const nombradas = suyas.filter(r => {
+                const c = comparable(r.get('numero_factura'));
+                // Se exigen 4 dígitos para el cruce: un número corto aparece por casualidad dentro
+                // de cualquier cadena larga, y acá una coincidencia falsa mueve plata.
+                return c.length >= 4 && digitosCita.includes(c);
+            });
+            if (nombradas.length > 1) {
+                return {
+                    ambiguas: nombradas.map(r => ({
+                        numero: String(r.get('numero_factura') || '').trim(),
+                        edificio: String(r.get('edificio') || '').trim(),
+                        id_evento: String(r.get('id_evento') || '').trim(),
+                    })),
+                };
+            }
+            if (nombradas.length === 1) {
+                fila = nombradas[0];
+                console.log(`🧾🔗 La cita apunta a la factura ${String(fila.get('numero_factura') || '').trim()}.`);
+            }
+        }
+
+        if (!fila && buscado) {
             // Exacto primero. Si no, que el número de la factura TERMINE con lo que dijo: una
             // persona dice "la 639", no "la 00001-00000639".
             const exactas = suyas.filter(r => comparable(r.get('numero_factura')) === buscado);
@@ -2032,7 +2064,9 @@ async function reimputarUltimaFacturaAlCaso({ proveedor, idEvento, edificio = ''
             }
             if (!porElFinal.length) return null;
             fila = porElFinal[0];
-        } else {
+        }
+
+        if (!fila) {
             // Sin número, la última cargada es la que se está discutiendo. No se busca "la del caso
             // equivocado": ese caso puede tener varias y mover la que no es empeora las cosas.
             fila = suyas[suyas.length - 1];
@@ -2040,8 +2074,17 @@ async function reimputarUltimaFacturaAlCaso({ proveedor, idEvento, edificio = ''
         const desde = String(fila.get('id_evento') || '').trim();
         if (desde && desde.toUpperCase() === destino.toUpperCase()) return null;   // ya estaba bien
 
+        // Una factura que todavía NO tiene caso no se toca por esta vía cuando se pidió así: de esa
+        // se encarga el camino normal de imputación, que además valida la cartera del proveedor y
+        // sabe manejar varias facturas a la vez. Acá solo se CORRIGE lo que ya estaba mal puesto.
+        if (soloSiYaTieneCaso && !desde) return null;
+
         fila.set('id_evento', destino);
         if (String(edificio || '').trim()) fila.set('edificio', edificio);
+        // Una factura asignada a un caso ya no está "sin imputar".
+        if (String(fila.get('estado') || '').trim().toLowerCase() === 'sin imputar') {
+            fila.set('estado', 'Pendiente');
+        }
         await fila.save();
 
         const movida = {

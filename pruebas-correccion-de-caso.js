@@ -136,6 +136,56 @@ prueba('si el número coincide con varias, se pregunta', () => {
     assert.ok(/ambiguas:/.test(fn), 'la función tiene que devolver las candidatas sin mover nada');
 });
 
+console.log('\n── CITANDO LA FACTURA, SIN ESCRIBIR EL NÚMERO ──');
+
+prueba('la cita del PDF identifica la factura', () => {
+    // Daniel: *"muchas veces en vez de escribir se cita la factura, o sea cito el mensaje de la
+    // factura y le digo… caso 1002"*. La cita guardada trae el nombre del archivo, y el número está
+    // ahí adentro.
+    const { separarCita } = require('./cita-mensaje');
+    const cita = separarCita('caso 1002 [Cita el mensaje: "(Documento adjunto: 20273826212_011_00001_00000639.pdf)"]').cita;
+    const digitos = String(cita).replace(/\D/g, '').replace(/^0+/, '');
+    const comparable = (n) => String(n || '').replace(/\D/g, '').replace(/^0+/, '');
+
+    assert.ok(digitos.includes(comparable('00001-00000639')), 'tiene que encontrar la factura citada');
+    assert.ok(!digitos.includes(comparable('00001-00000636')), 'y NO la otra factura del mismo técnico');
+});
+
+prueba('no se parsea el nombre del archivo: se cruza contra sus facturas', () => {
+    // Parsear la convención de AFIP seria atarse a un formato que puede cambiar. Se da vuelta el
+    // problema: se busca cuál de SUS facturas está nombrada en la cita.
+    const i = sh.indexOf('async function reimputarUltimaFacturaAlCaso');
+    const fn = sh.slice(i, sh.indexOf('\n}\n\nasync function imputarFacturaSinEdificio', i));
+    assert.ok(/digitosCita/.test(fn) && /digitosCita\.includes\(c\)/.test(fn),
+        'el cruce tiene que ser contra las facturas del proveedor');
+    assert.ok(/c\.length >= 4/.test(fn),
+        'un número corto aparece por casualidad en cualquier cadena larga, y acá mueve plata');
+});
+
+prueba('la rama le pasa la cita', () => {
+    assert.ok(/textoCitado: separarCita\(msgBody\)\.cita/.test(rama),
+        'sin esto, citar la factura no sirve de nada');
+});
+
+prueba('citando y diciendo el caso también entra, sin pisar la imputación normal', () => {
+    // Citando la factura y diciendo "caso 1002" el ruteo lo lee como RESPUESTA, no corrección. Si esa
+    // factura ya estaba en otro caso, el camino normal no la toca: solo mira las "sin imputar".
+    assert.ok(/responde_de_que_obra/.test(rama), 'la rama tiene que atender también esa intención');
+    assert.ok(/soloSiYaTieneCaso: ruteoIA\.intencion === 'responde_de_que_obra'/.test(rama),
+        'con esa intención, una factura SIN caso se deja al camino normal');
+    const i = sh.indexOf('async function reimputarUltimaFacturaAlCaso');
+    const fn = sh.slice(i, sh.indexOf('\n}\n\nasync function imputarFacturaSinEdificio', i));
+    assert.ok(/if \(soloSiYaTieneCaso && !desde\) return null;/.test(fn),
+        'falta el candado que evita pisarle el trabajo a la imputación normal');
+});
+
+prueba('al moverla deja de estar "sin imputar"', () => {
+    const i = sh.indexOf('async function reimputarUltimaFacturaAlCaso');
+    const fn = sh.slice(i, sh.indexOf('\n}\n\nasync function imputarFacturaSinEdificio', i));
+    assert.ok(/sin imputar/.test(fn) && /'Pendiente'/.test(fn),
+        'una factura asignada a un caso ya no está sin imputar');
+});
+
 console.log('\n── MOVER LA FACTURA ──');
 
 prueba('sin número nombrado, mueve la última de ese proveedor', () => {

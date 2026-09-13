@@ -3075,7 +3075,16 @@ function validarYSanitizarNombre(nombre) {
             // Solo se aplica cuando él NOMBRA un número de caso y ese caso es suyo. Una corrección
             // sin número ("no, te equivocaste") no alcanza para elegir otro, y cambiar el caso a
             // ciegas mueve plata de un consorcio a otro.
-            if (ruteoIA?.intencion === 'corrige_a_marcos') {
+            // También entra con `responde_de_que_obra`, y hace falta: citando la factura y
+            // diciendo "caso 1002" el ruteo lo lee como una RESPUESTA, no como una corrección. Si esa
+            // factura ya estaba puesta en otro caso, el camino normal de imputación no la toca --solo
+            // mira las que están "sin imputar"-- y no se movería nada.
+            //
+            // Para no pisarle el trabajo a ese camino, con esta intención se pasa
+            // `soloSiYaTieneCaso`: una factura sin caso todavía se resuelve allá, que además valida
+            // la cartera del proveedor y sabe manejar varias a la vez. Acá solo se corrige lo que ya
+            // estaba mal puesto. Y si no hay nada que mover, la rama NO corta: sigue de largo.
+            if (ruteoIA?.intencion === 'corrige_a_marcos' || ruteoIA?.intencion === 'responde_de_que_obra') {
                 try {
                     const { numeroDeCasoEnTexto } = require('./numero-de-caso');
                     const num = numeroDeCasoEnTexto(textoFinal);
@@ -3100,12 +3109,19 @@ function validarYSanitizarNombre(nombre) {
                             // corregir más de una: *"¿cómo corrijo otras si solo colocás la última
                             // para corregir?"*. Si nombra el comprobante se mueve ESE; si no, la
                             // última, que es la que se está discutiendo.
+                            // Y muchas veces no escribe nada: CITA el mensaje de la factura. Palabras
+                            // de Daniel: *"muchas veces en vez de escribir se cita la factura, o sea
+                            // cito el mensaje de la factura y le digo… caso 1002"*. La cita guardada
+                            // de un PDF trae el nombre del archivo, y ahí adentro está el número.
                             const { numeroDeFacturaEnTexto } = require('./numero-de-caso');
+                            const { separarCita } = require('./cita-mensaje');
                             const movida = await reimputarUltimaFacturaAlCaso({
                                 proveedor: datosEmisor.nombre || '',
                                 idEvento: casoDicho.id_evento,
                                 edificio: casoDicho.edificio || '',
                                 numeroFactura: numeroDeFacturaEnTexto(textoFinal) || '',
+                                textoCitado: separarCita(msgBody).cita || '',
+                                soloSiYaTieneCaso: ruteoIA.intencion === 'responde_de_que_obra',
                             });
 
                             // El número que dijo coincide con más de una de sus facturas. No se
@@ -3135,9 +3151,12 @@ function validarYSanitizarNombre(nombre) {
                             // factura a un caso de otro técnico es mandarle el gasto a otro consorcio.
                             console.warn(`✏️ ${datosEmisor.nombre || from} nombró el ${casoDicho.id_evento}, que no figura como suyo. No se cambia nada.`);
                         } else {
-                            console.warn(`✏️ ${datosEmisor.nombre || from} corrigió nombrando el caso ${num}, que no existe. No se cambia nada.`);
+                            console.warn(`✏️ ${datosEmisor.nombre || from} nombró el caso ${num}, que no existe. No se cambia nada.`);
                         }
-                    } else {
+                    } else if (ruteoIA.intencion === 'corrige_a_marcos') {
+                        // Solo se avisa cuando era una corrección: con `responde_de_que_obra` la
+                        // respuesta puede ser el nombre de un edificio, y eso lo resuelve el camino
+                        // normal de imputación unas líneas más abajo.
                         console.log(`✏️ ${datosEmisor.nombre || from} corrigió algo pero no nombró ningún caso: lo contesta el modelo, no se cambia el estado.`);
                     }
                 } catch (e) { console.error('No se pudo aplicar la corrección del técnico:', e.message); }
