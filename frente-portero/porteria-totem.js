@@ -1379,21 +1379,44 @@ function iniciarEscaneoQR() {
 }
 
 async function procesarLecturaQR(codigo) {
-  playSuccessChime();
+  var fotoSnap = null;
+  try {
+    var video = document.getElementById('kiosk-video');
+    if (video && video.videoWidth > 0) {
+      var snapCanvas = document.createElement('canvas');
+      snapCanvas.width = Math.min(video.videoWidth, 640);
+      snapCanvas.height = Math.min(video.videoHeight, 480);
+      var sCtx = snapCanvas.getContext('2d');
+      sCtx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
+      fotoSnap = snapCanvas.toDataURL('image/jpeg', 0.7);
+    }
+  } catch(_) {}
 
-  // Validar contra el backend y abrir puerta
   try {
     var res = await fetch('/porteria/api/validar-qr', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ qr: codigo, edificio: _edificio })
+      body: JSON.stringify({ qr: codigo, edificio: _edificio, foto: fotoSnap })
     });
     var data = await res.json();
 
-    mostrarPuertaAbierta();
+    if (data && data.valido) {
+      playSuccessChime();
+      mostrarPuertaAbierta();
+    } else {
+      playErrorTone();
+      mostrarAlertaQRError(data ? data.mensaje : 'Pase QR no reconocido o vencido');
+    }
   } catch(e) {
-    mostrarPuertaAbierta(); // En modo demo concede acceso
+    mostrarAlertaQRError('Error al validar pase QR');
   }
+}
+
+function mostrarAlertaQRError(msg) {
+  alert('⚠️ ' + (msg || 'Pase QR no válido o fuera de horario permitido'));
+  setTimeout(function() {
+    irA('home');
+  }, 1500);
 }
 
 function mostrarPuertaAbierta() {

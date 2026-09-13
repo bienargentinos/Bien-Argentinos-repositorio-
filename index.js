@@ -5385,6 +5385,17 @@ iniciarCronReportes();
 
 const dashboard = require('./dashboard');
 app.use('/admin', dashboard);
+
+// API Alias con CORS habilitado para EDIFICA (App Móvil / Web)
+app.use('/api/pases-qr', (req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
+    req.url = '/api/pases-qr' + (req.url === '/' ? '' : req.url);
+    dashboard(req, res, next);
+});
+
 app.use('/assets', express.static(path.join(__dirname, 'design', 'assets'), { maxAge: '7d' }));
 
 // ── PWA MANIFEST & SERVICE WORKER EN RAÍZ ─────────────────────────────────
