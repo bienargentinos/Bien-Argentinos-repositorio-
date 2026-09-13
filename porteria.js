@@ -119,6 +119,143 @@ body{background:#0F326A;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 45%
 // -------------------------------------------------------------------
 // 1.1 CARTEL IMPRIMIBLE CON CÓDIGO QR PARA LA ENTRADA
 // -------------------------------------------------------------------
+
+// -------------------------------------------------------------------
+// 1.0 VISUALIZADOR PÚBLICO DE PASE QR (PARA INVITADO / DELIVERY / PROVEEDOR)
+// -------------------------------------------------------------------
+router.get('/pase/:token', async (req, res) => {
+  try {
+    const rawToken = String(req.params.token || '').trim().toUpperCase();
+    const { pool } = require('./db-pg');
+    let pase = null;
+
+    if (pool) {
+      const q = `SELECT * FROM pases_qr WHERE UPPER(token) = UPPER($1) LIMIT 1`;
+      const r = await pool.query(q, [rawToken]);
+      if (r && r.rows && r.rows.length > 0) {
+        pase = r.rows[0];
+      }
+    }
+
+    if (!pase) {
+      return res.status(404).send(`<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pase no encontrado</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+body{font-family:'Hanken Grotesk',sans-serif;background:#0F172A;color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center}
+.card{background:#1E293B;border:1px solid #334155;border-radius:24px;padding:36px 24px;max-width:420px;width:100%}
+</style>
+</head>
+<body>
+<div class="card">
+  <div style="font-size:48px;margin-bottom:12px">🚫</div>
+  <h2 style="font-size:22px;font-weight:900;margin-bottom:8px">Pase no encontrado o revocado</h2>
+  <p style="color:#94A3B8;font-size:14px;line-height:1.5">El código <strong>${esc(rawToken)}</strong> no existe en el sistema o fue cancelado por el propietario.</p>
+</div>
+</body>
+</html>`);
+    }
+
+    const now = new Date();
+    let estadoReal = pase.estado || 'activo';
+    if (pase.valido_hasta && new Date(pase.valido_hasta) < now) {
+      estadoReal = 'vencido';
+    }
+    const esActivo = estadoReal === 'activo';
+    const qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=' + encodeURIComponent(pase.token);
+
+    // Formatear fechas
+    const fDesde = pase.valido_desde ? new Date(pase.valido_desde).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : 'Inmediata';
+    const fHasta = pase.valido_hasta ? new Date(pase.valido_hasta).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : (pase.tipo_pase === 'recurrente' ? 'Días autorizados' : 'Sin vencimiento');
+
+    res.send(`<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0F326A">
+<title>Pase de Acceso · ${esc(pase.edificio)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hanken Grotesk',sans-serif;background:#070D1E;background:linear-gradient(165deg,#070D1E 0%,#0F326A 50%,#1B4D9B 100%);color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.pass-card{background:#ffffff;color:#0F172A;border-radius:28px;padding:26px 22px;width:100%;max-width:420px;box-shadow:0 25px 60px rgba(0,0,0,.5);text-align:center;position:relative}
+.badge-status{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.05em}
+.status-active{background:#DCFCE7;color:#15803D;border:1px solid #86EFAC}
+.status-expired{background:#FEE2E2;color:#DC2626;border:1px solid #FCA5A5}
+.qr-frame{background:#ffffff;border:2.5px dashed #0F326A;border-radius:22px;padding:16px;display:inline-block;margin:16px 0;box-shadow:0 8px 24px rgba(15,50,106,.1)}
+.qr-frame img{width:220px;height:220px;display:block}
+.token-badge{background:#F1F5F9;border:1px solid #CBD5E1;border-radius:12px;padding:6px 14px;font-family:monospace;font-size:18px;font-weight:900;letter-spacing:2px;color:#0F326A;display:inline-block;margin-bottom:14px}
+.info-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #F1F5F9;font-size:13px;text-align:left}
+.info-label{color:#64748B;font-weight:600}
+.info-val{color:#0F172A;font-weight:800}
+</style>
+</head>
+<body>
+
+<div class="pass-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <span class="badge-status ${esActivo ? 'status-active' : 'status-expired'}">
+      ${esActivo ? '● Pase Habilitado' : '✕ Pase Vencido / No Válido'}
+    </span>
+    <span style="font-size:11.5px;font-weight:800;color:#64748B;background:#F8FAFD;padding:3px 8px;border-radius:8px">
+      ${esc(pase.motivo || 'Acceso')}
+    </span>
+  </div>
+
+  <h1 style="font-size:22px;font-weight:900;color:#0F326A;margin-bottom:2px">${esc(pase.edificio)}</h1>
+  <p style="font-size:14px;font-weight:700;color:#475569;margin-bottom:12px">
+    ${pase.departamento ? 'Unidad / Depto ' + esc(pase.departamento) : 'Acceso al Consorcio'}
+  </p>
+
+  <div class="qr-frame">
+    <img src="${qrImg}" alt="QR de Acceso">
+  </div>
+
+  <div class="token-badge">${esc(pase.token)}</div>
+
+  <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:16px;padding:12px 14px;margin-bottom:16px">
+    <div class="info-row">
+      <span class="info-label">Invitado / Destinatario:</span>
+      <span class="info-val">${esc(pase.nombre_invitado)}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Válido desde:</span>
+      <span class="info-val">${fDesde}</span>
+    </div>
+    <div class="info-row" style="border-bottom:none">
+      <span class="info-label">Válido hasta:</span>
+      <span class="info-val">${fHasta}</span>
+    </div>
+    ${pase.tipo_pase === 'recurrente' && pase.hora_desde ? `
+      <div class="info-row" style="border-top:1px solid #F1F5F9;border-bottom:none">
+        <span class="info-label">Horario recurrente:</span>
+        <span class="info-val">${esc(pase.hora_desde)} a ${esc(pase.hora_hasta)} hs</span>
+      </div>
+    ` : ''}
+  </div>
+
+  <div style="font-size:12.5px;color:#334155;line-height:1.4;margin-bottom:14px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:10px 12px">
+    📷 <strong>Instrucciones al llegar:</strong> Mostrá este código QR frente a la cámara del tótem de entrada para destrabar la puerta de acceso.
+  </div>
+
+  <div style="font-size:11px;color:#94A3B8">
+    Emitido mediante <strong>EDIFICA & Marcos IA</strong> · Seguridad Conectada
+  </div>
+</div>
+
+</body>
+</html>`);
+  } catch (e) {
+    res.status(500).send('Error interno cargando el pase.');
+  }
+});
+
 router.get('/:edificio/qr', (req, res) => {
   const nombreEdificio = req.params.edificio || 'Consorcio';
   const urlPorteria = 'https://marcos.bienargentinos.com/porteria/' + encodeURIComponent(nombreEdificio);
@@ -808,6 +945,24 @@ router.post('/api/tocar-timbre', async (req, res) => {
         const compartidoReal = String(compartidoPor || req.query.compartidoPor || req.query.ref || req.query.c || req.query.por || '').trim();
         const deptoFinal = String(departamento || unidad || '').trim();
 
+        // Registrar en eventos_acceso
+        const { registrarEventoAcceso } = require('./db-pg');
+        if (typeof registrarEventoAcceso === 'function') {
+          const esSos = String(tipoVisita || '').toLowerCase().includes('emergencia') || String(tipoVisita || '').toLowerCase().includes('sos');
+          registrarEventoAcceso({
+            edificio: edificio || '',
+            departamento: deptoFinal,
+            tipo_acceso: esSos ? 'SOS' : 'Timbre Atendido',
+            resultado: 'exitoso',
+            detalle: 'Timbre tocado por ' + (nombreVisita || 'Visita') + ' (' + (tipoVisita || 'General') + ')',
+            foto_seguridad: fotoVisitante || null,
+            qr_id: qrReal || null,
+            ip,
+            user_agent: userAgent,
+            metadata: { callId }
+          }).catch(function(){});
+        }
+
         await pool.query(`
           INSERT INTO timbres (
             fecha, edificio, departamento, unidad, tipo_visita, nombre_visita,
@@ -1048,34 +1203,61 @@ function registrarAperturaPuerta(edificio, motivo, depto) {
 }
 
 // Endpoint para validar código QR escaneado por la cámara del tótem
-router.post('/api/validar-qr', (req, res) => {
+router.post('/api/validar-qr', async (req, res) => {
   try {
-    const { token, codigo, edificio } = req.body || {};
-    const rawQr = String(token || codigo || '').trim();
+    const { token, codigo, qr, edificio, fotoSeguridad, foto_seguridad, foto } = req.body || {};
+    const rawQr = String(qr || token || codigo || '').trim();
+    const fotoFinal = foto || fotoSeguridad || foto_seguridad || null;
 
     if (!rawQr) {
       return res.status(400).json({ ok: false, valido: false, mensaje: 'Código QR no provisto' });
     }
 
-    // Reglas de validación:
-    // 1. Tokens emitidos por Marcos IA (ej: MARCOS-OPEN-..., PASS-..., EDIFICA-...)
-    // 2. URLs de invitación temporales de Marcos IA
-    // 3. Tokens de prueba / demo
-    const esMarcosQr = rawQr.startsWith('MARCOS-') || 
-                       rawQr.startsWith('PASS-') || 
-                       rawQr.startsWith('EDIFICA-') ||
-                       rawQr.toLowerCase().includes('marcos.bienargentinos.com') ||
-                       rawQr.toLowerCase().includes('abrir') ||
-                       rawQr.toLowerCase().includes('open');
+    const { pool, validarConsumirPaseQR, registrarEventoAcceso } = require('./db-pg');
+    let validacion = null;
 
-    if (esMarcosQr || rawQr.length >= 8) {
-      // Registra evento de apertura en el relé
-      registrarAperturaPuerta(edificio, 'Pase QR: ' + rawQr.substring(0, 16), 'QR');
+    if (pool && typeof validarConsumirPaseQR === 'function') {
+      validacion = await validarConsumirPaseQR(rawQr, edificio);
+    } else {
+      const esMarcosQr = rawQr.startsWith('MARCOS-') || rawQr.startsWith('PASS-') || rawQr.startsWith('EDIFICA-');
+      validacion = {
+        valido: esMarcosQr,
+        resultado: esMarcosQr ? 'exitoso' : 'rechazado_invalido',
+        mensaje: esMarcosQr ? 'Pase QR válido' : 'Código QR no reconocido o vencido',
+        pase: null
+      };
+    }
 
+    const ip = (req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : (req.socket ? req.socket.remoteAddress : req.ip)) || '';
+    const userAgent = String(req.headers['user-agent'] || '');
+
+    // Registrar en eventos_acceso siempre para auditoría
+    if (pool && typeof registrarEventoAcceso === 'function') {
+      try {
+        await registrarEventoAcceso({
+          edificio: (validacion.pase && validacion.pase.edificio) || edificio || 'Consorcio',
+          departamento: (validacion.pase && validacion.pase.departamento) || '',
+          tipo_acceso: 'QR',
+          resultado: validacion.resultado || (validacion.valido ? 'exitoso' : 'rechazado_invalido'),
+          detalle: validacion.mensaje + (validacion.pase ? (' (Invitado: ' + validacion.pase.nombre_invitado + ')') : ''),
+          foto_seguridad: fotoFinal,
+          qr_id: rawQr,
+          ip,
+          user_agent: userAgent,
+          metadata: { pase: validacion.pase || null }
+        });
+      } catch (errEv) {
+        console.warn('⚠️ No se pudo registrar evento de acceso QR:', errEv.message);
+      }
+    }
+
+    if (validacion.valido) {
+      registrarAperturaPuerta(edificio, 'Pase QR: ' + rawQr.substring(0, 16), (validacion.pase && validacion.pase.departamento) || 'QR');
       return res.json({
         ok: true,
         valido: true,
-        mensaje: 'Pase QR válido. ¡Bienvenido!',
+        mensaje: validacion.mensaje || 'Pase QR válido. ¡Bienvenido!',
+        pase: validacion.pase || null,
         codigo: rawQr.substring(0, 12),
         timestamp: Date.now()
       });
@@ -1084,7 +1266,9 @@ router.post('/api/validar-qr', (req, res) => {
     return res.status(403).json({
       ok: false,
       valido: false,
-      mensaje: 'Código QR no reconocido o vencido.'
+      resultado: validacion.resultado,
+      mensaje: validacion.mensaje || 'Código QR no reconocido o vencido.',
+      pase: validacion.pase || null
     });
   } catch (errQr) {
     res.status(500).json({ ok: false, error: errQr.message });

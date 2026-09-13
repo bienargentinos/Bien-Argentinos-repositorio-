@@ -2658,6 +2658,13 @@ router.get('/', (req, res) => {
       <div style="font-size:13.5px;font-weight:800;color:#0F172A;margin-bottom:10px">Accesos Directos</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(68px,1fr));gap:8px">
         
+        <a href="/vecino/pases" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
+          <div style="width:42px;height:42px;border-radius:14px;background:#E0F2FE;color:#0284C7;display:flex;align-items:center;justify-content:center;font-size:22px">
+            <i class="ph ph-ticket"></i>
+          </div>
+          <span style="font-size:11.5px;font-weight:800;color:#1E293B">Pases QR</span>
+        </a>
+
         <a href="/porteria/${encodeURIComponent(v.edificio)}" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
           <div style="width:42px;height:42px;border-radius:14px;background:#FEF3C7;color:#D97706;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-qr-code"></i>
@@ -3369,6 +3376,591 @@ router.get('/integrantes', (req, res) => {
 // -------------------------------------------------------------------
 // ENDPOINTS API DE TIMBRE DIGITAL Y GESTIÓN MULTI-OCUPANTE
 // -------------------------------------------------------------------
+
+
+// -------------------------------------------------------------------
+// 3.5 GESTIÓN DE PASES DE INVITACIÓN QR (VECINOS & PROVEEDORES)
+// -------------------------------------------------------------------
+router.get('/pases', (req, res) => {
+  const v = getVecinoSession(req);
+
+  const content = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div>
+        <h1 style="font-size:20px;font-weight:900;color:#0F172A;letter-spacing:-.02em">Pases de Invitación QR</h1>
+        <p style="font-size:12.5px;color:#64748B">${esc(v.edificio)} · Depto ${esc(v.departamento)}</p>
+      </div>
+      <button onclick="abrirModalNuevoPase()" style="padding:9px 15px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-weight:800;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 3px 10px rgba(15,50,106,.25)">
+        <i class="ph ph-plus-circle" style="font-size:18px"></i>
+        <span>Nuevo Pase QR</span>
+      </button>
+    </div>
+
+    <!-- TARJETA EXPLICATIVA -->
+    <div class="card" style="padding:14px 16px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:18px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+      <div style="width:40px;height:40px;border-radius:12px;background:#E0F2FE;color:#0284C7;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
+        <i class="ph ph-shield-check"></i>
+      </div>
+      <div style="font-size:12px;color:#475569;line-height:1.4">
+        Generá códigos QR temporales para tus visitas, deliveries o personal de servicio. El invitado lo muestra frente a la cámara del tótem para ingresar.
+      </div>
+    </div>
+
+    <!-- TABS: ACTIVOS / HISTORIAL -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;border-bottom:1px solid #E2E8F0;padding-bottom:8px">
+      <button id="tab-btn-activos" onclick="cambiarTabPases('activos')" style="border:none;background:#0F326A;color:#fff;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:800;cursor:pointer">
+        Pases Activos (<span id="cnt-activos">0</span>)
+      </button>
+      <button id="tab-btn-historial" onclick="cambiarTabPases('historial')" style="border:none;background:#F1F5F9;color:#64748B;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:800;cursor:pointer">
+        Historial / Vencidos
+      </button>
+    </div>
+
+    <!-- CONTENEDOR DE PASES ACTIVOS -->
+    <div id="box-pases-activos" style="display:flex;flex-direction:column;gap:10px">
+      <div style="text-align:center;padding:24px 10px;color:#94A3B8;font-size:13px">
+        ⏳ Cargando pases...
+      </div>
+    </div>
+
+    <!-- CONTENEDOR DE HISTORIAL -->
+    <div id="box-pases-historial" style="display:none;flex-direction:column;gap:10px">
+      <div style="text-align:center;padding:24px 10px;color:#94A3B8;font-size:13px">
+        ⏳ Cargando historial...
+      </div>
+    </div>
+
+    <!-- MODAL: NUEVO PASE QR -->
+    <div id="modal-nuevo-pase" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:16px">
+      <div style="background:#fff;border-radius:24px;max-width:440px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.25);max-height:90vh;overflow-y:auto">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;border-bottom:1px solid #F1F5F9;padding-bottom:10px">
+          <div style="font-size:16px;font-weight:900;color:#0F326A">🎟️ Crear Pase de Invitación QR</div>
+          <button onclick="cerrarModal('modal-nuevo-pase')" style="border:none;background:#F1F5F9;border-radius:50%;width:30px;height:30px;font-size:16px;cursor:pointer;color:#64748B">✕</button>
+        </div>
+
+        <form onsubmit="crearPaseInvitacion(event)">
+          <!-- Nombre del Invitado -->
+          <div style="margin-bottom:12px">
+            <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Nombre del Invitado / Proveedor *</label>
+            <input type="text" id="pase-nombre" class="inp" placeholder="Ej: Lucas González o Cadete PedidosYa" required style="margin-bottom:0">
+          </div>
+
+          <!-- Motivo de Acceso -->
+          <div style="margin-bottom:12px">
+            <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Motivo de la Visita</label>
+            <div style="display:grid;grid-template-columns:repeat(2, 1fr);gap:6px">
+              <label class="opt-motivo" style="display:flex;align-items:center;gap:6px;background:#F8FAFD;border:1.5px solid #DDE3EE;border-radius:10px;padding:8px 10px;font-size:12.5px;font-weight:700;color:#334155;cursor:pointer">
+                <input type="radio" name="pase_motivo" value="🛵 Delivery" checked onchange="ajustarValidezPorMotivo('delivery')">
+                <span>🛵 Delivery</span>
+              </label>
+              <label class="opt-motivo" style="display:flex;align-items:center;gap:6px;background:#F8FAFD;border:1.5px solid #DDE3EE;border-radius:10px;padding:8px 10px;font-size:12.5px;font-weight:700;color:#334155;cursor:pointer">
+                <input type="radio" name="pase_motivo" value="👋 Visita" onchange="ajustarValidezPorMotivo('visita')">
+                <span>👋 Visita</span>
+              </label>
+              <label class="opt-motivo" style="display:flex;align-items:center;gap:6px;background:#F8FAFD;border:1.5px solid #DDE3EE;border-radius:10px;padding:8px 10px;font-size:12.5px;font-weight:700;color:#334155;cursor:pointer">
+                <input type="radio" name="pase_motivo" value="📦 Encomienda" onchange="ajustarValidezPorMotivo('encomienda')">
+                <span>📦 Encomienda</span>
+              </label>
+              <label class="opt-motivo" style="display:flex;align-items:center;gap:6px;background:#F8FAFD;border:1.5px solid #DDE3EE;border-radius:10px;padding:8px 10px;font-size:12.5px;font-weight:700;color:#334155;cursor:pointer">
+                <input type="radio" name="pase_motivo" value="🧰 Proveedor / Servicio" onchange="ajustarValidezPorMotivo('proveedor')">
+                <span>🧰 Proveedor</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Validez -->
+          <div style="margin-bottom:12px">
+            <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Validez del Pase</label>
+            <select id="pase-validez" class="inp" onchange="toggleValidezPersonalizada()" style="margin-bottom:0">
+              <option value="2h">⏱️ 2 Horas (Recomendado Delivery)</option>
+              <option value="4h">⏱️ 4 Horas (Recomendado Visitas)</option>
+              <option value="dia">📅 Todo el día (hasta las 23:59 hs)</option>
+              <option value="custom">⚙️ Fecha y Hora Personalizada</option>
+            </select>
+          </div>
+
+          <!-- Fechas Personalizadas (Oculto por defecto) -->
+          <div id="box-validez-custom" style="display:none;margin-bottom:12px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:10px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div>
+                <label style="font-size:10px;font-weight:800;color:#64748B;display:block;margin-bottom:2px">Desde</label>
+                <input type="datetime-local" id="pase-custom-desde" class="inp" style="font-size:11px;margin-bottom:0;padding:0 6px">
+              </div>
+              <div>
+                <label style="font-size:10px;font-weight:800;color:#64748B;display:block;margin-bottom:2px">Hasta</label>
+                <input type="datetime-local" id="pase-custom-hasta" class="inp" style="font-size:11px;margin-bottom:0;padding:0 6px">
+              </div>
+            </div>
+          </div>
+
+          <!-- Sección Proveedor Recurrente (Días y Horarios) -->
+          <div style="margin-bottom:14px;background:#F1F5F9;border-radius:14px;padding:12px">
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:#0F172A;cursor:pointer">
+              <input type="checkbox" id="pase-es-recurrente" onchange="toggleRecurrente()">
+              <span>🔁 Habilitar como pase recurrente (servicios/limpieza)</span>
+            </label>
+
+            <div id="box-recurrente-detalles" style="display:none;margin-top:10px;border-top:1px solid #E2E8F0;padding-top:10px">
+              <div style="font-size:11px;font-weight:800;color:#475569;margin-bottom:6px">Días habilitados de la semana:</div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:10px">
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:#334155"><input type="checkbox" name="dias_rec" value="Lunes" checked> Lun</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:#334155"><input type="checkbox" name="dias_rec" value="Martes"> Mar</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:#334155"><input type="checkbox" name="dias_rec" value="Miércoles" checked> Mié</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:#334155"><input type="checkbox" name="dias_rec" value="Jueves"> Jue</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:#334155"><input type="checkbox" name="dias_rec" value="Viernes" checked> Vie</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:#334155"><input type="checkbox" name="dias_rec" value="Sábado"> Sáb</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:#334155"><input type="checkbox" name="dias_rec" value="Domingo"> Dom</label>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div>
+                  <label style="font-size:10.5px;font-weight:800;color:#64748B;display:block;margin-bottom:2px">Hora Entrada</label>
+                  <input type="time" id="pase-rec-desde" class="inp" value="08:00" style="margin-bottom:0">
+                </div>
+                <div>
+                  <label style="font-size:10.5px;font-weight:800;color:#64748B;display:block;margin-bottom:2px">Hora Salida</label>
+                  <input type="time" id="pase-rec-hasta" class="inp" value="14:00" style="margin-bottom:0">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" id="btn-submit-pase" class="btn-primary" style="margin-bottom:0">
+            <span>✨ Generar Pase y Ver Código QR</span>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL: VER PASE QR Y COMPARTIR -->
+    <div id="modal-ver-pase" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.75);backdrop-filter:blur(4px);z-index:99999;align-items:center;justify-content:center;padding:16px">
+      <div style="background:#fff;border-radius:24px;max-width:400px;width:100%;padding:24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,.3)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span style="font-size:11px;font-weight:900;color:#16A34A;background:#DCFCE7;padding:3px 8px;border-radius:999px">✓ Pase Habilitado</span>
+          <button onclick="cerrarModal('modal-ver-pase')" style="border:none;background:#F1F5F9;border-radius:50%;width:28px;height:28px;font-size:15px;cursor:pointer;color:#64748B">✕</button>
+        </div>
+
+        <h3 id="ver-pase-invitado" style="font-size:18px;font-weight:900;color:#0F326A;margin-bottom:2px">Invitado</h3>
+        <p id="ver-pase-motivo" style="font-size:12px;color:#64748B;margin-bottom:12px">Motivo · Depto ${esc(v.departamento)}</p>
+
+        <!-- Marco QR -->
+        <div style="background:#F8FAFD;border:2px dashed #2E6FC0;border-radius:18px;padding:14px;display:inline-block;margin-bottom:12px">
+          <img id="ver-pase-qr-img" src="" style="width:190px;height:190px;display:block" alt="Código QR">
+        </div>
+
+        <div id="ver-pase-token" style="font-family:monospace;font-size:16px;font-weight:900;letter-spacing:2px;color:#0F326A;background:#EFF6FF;padding:6px 12px;border-radius:10px;display:inline-block;margin-bottom:12px">
+          PASS-XXXXXXXX
+        </div>
+
+        <div id="ver-pase-validez" style="font-size:11.5px;color:#475569;margin-bottom:16px;line-height:1.4">
+          Válido hasta: ...
+        </div>
+
+        <!-- Botones de Acción -->
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button onclick="compartirPaseWhatsApp()" style="height:44px;border:none;border-radius:12px;background:#25D366;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 3px 10px rgba(37,211,102,.3)">
+            <i class="ph ph-whatsapp-logo" style="font-size:20px"></i>
+            <span>Compartir por WhatsApp</span>
+          </button>
+          <button onclick="copiarLinkPase()" class="btn-secondary" style="height:40px;font-size:12.5px">
+            <i class="ph ph-copy" style="font-size:16px"></i>
+            <span id="btn-copy-txt">Copiar Enlace del Pase</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      var _pasesData = [];
+      var _paseSeleccionado = null;
+
+      function cambiarTabPases(tab) {
+        var bAct = document.getElementById('tab-btn-activos');
+        var bHis = document.getElementById('tab-btn-historial');
+        var boxAct = document.getElementById('box-pases-activos');
+        var boxHis = document.getElementById('box-pases-historial');
+
+        if (tab === 'activos') {
+          bAct.style.background = '#0F326A';
+          bAct.style.color = '#fff';
+          bHis.style.background = '#F1F5F9';
+          bHis.style.color = '#64748B';
+          boxAct.style.display = 'flex';
+          boxHis.style.display = 'none';
+        } else {
+          bHis.style.background = '#0F326A';
+          bHis.style.color = '#fff';
+          bAct.style.background = '#F1F5F9';
+          bAct.style.color = '#64748B';
+          boxHis.style.display = 'flex';
+          boxAct.style.display = 'none';
+        }
+      }
+
+      function abrirModalNuevoPase() {
+        document.getElementById('modal-nuevo-pase').style.display = 'flex';
+      }
+
+      function cerrarModal(id) {
+        var m = document.getElementById(id);
+        if (m) m.style.display = 'none';
+      }
+
+      function ajustarValidezPorMotivo(motivo) {
+        var sel = document.getElementById('pase-validez');
+        var chkRec = document.getElementById('pase-es-recurrente');
+        if (motivo === 'delivery') {
+          sel.value = '2h';
+          chkRec.checked = false;
+        } else if (motivo === 'visita') {
+          sel.value = '4h';
+          chkRec.checked = false;
+        } else if (motivo === 'encomienda') {
+          sel.value = '2h';
+          chkRec.checked = false;
+        } else if (motivo === 'proveedor') {
+          sel.value = 'dia';
+          chkRec.checked = true;
+        }
+        toggleRecurrente();
+        toggleValidezPersonalizada();
+      }
+
+      function toggleValidezPersonalizada() {
+        var val = document.getElementById('pase-validez').value;
+        var box = document.getElementById('box-validez-custom');
+        box.style.display = (val === 'custom') ? 'block' : 'none';
+      }
+
+      function toggleRecurrente() {
+        var chk = document.getElementById('pase-es-recurrente').checked;
+        var box = document.getElementById('box-recurrente-detalles');
+        box.style.display = chk ? 'block' : 'none';
+      }
+
+      async function cargarPases() {
+        try {
+          var res = await fetch('/vecino/api/pases-qr');
+          var data = await res.json();
+          if (data && data.ok) {
+            _pasesData = data.pases || [];
+            renderPases();
+          }
+        } catch(_) {}
+      }
+
+      function renderPases() {
+        var boxAct = document.getElementById('box-pases-activos');
+        var boxHis = document.getElementById('box-pases-historial');
+        var now = new Date();
+
+        var activos = [];
+        var historial = [];
+
+        _pasesData.forEach(function(p) {
+          var isExpired = p.valido_hasta && new Date(p.valido_hasta) < now;
+          if (p.estado === 'activo' && !isExpired) {
+            activos.push(p);
+          } else {
+            historial.push(p);
+          }
+        });
+
+        document.getElementById('cnt-activos').textContent = activos.length;
+
+        // Render activos
+        if (activos.length === 0) {
+          boxAct.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:#64748B;font-size:13px;background:#fff;border-radius:18px"><div style="font-size:32px;margin-bottom:8px">🎟️</div>No tenés ningún pase activo en este momento.</div>';
+        } else {
+          var htmlActivos = '';
+          for (var i = 0; i < activos.length; i++) {
+            var p = activos[i];
+            var fHasta = p.valido_hasta ? new Date(p.valido_hasta).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) + ' hs' : (p.tipo_pase === 'recurrente' ? 'Recurrente' : 'Sin exp');
+            htmlActivos += '<div class="card" style="padding:14px 16px;background:#fff;border-radius:18px;border:1px solid #E2E8F0;box-shadow:0 3px 10px rgba(15,23,42,.03)">' +
+              '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">' +
+                '<div>' +
+                  '<span style="font-size:11px;font-weight:800;color:#0284C7;background:#E0F2FE;padding:2px 8px;border-radius:8px">' + (p.motivo || 'Visita') + '</span>' +
+                  '<h4 style="font-size:15px;font-weight:900;color:#0F172A;margin-top:4px">' + (p.nombre_invitado || '') + '</h4>' +
+                '</div>' +
+                '<span style="font-size:11px;font-weight:800;color:#15803D;background:#DCFCE7;padding:2px 8px;border-radius:999px">● Activo</span>' +
+              '</div>' +
+              '<div style="font-size:12px;color:#64748B;margin-bottom:12px;display:flex;justify-content:space-between">' +
+                '<span>Código: <strong style="color:#0F326A;font-family:monospace">' + (p.token || '') + '</strong></span>' +
+                '<span>Vence: <strong>' + fHasta + '</strong></span>' +
+              '</div>' +
+              '<div style="display:flex;gap:8px">' +
+                '<button onclick="verPaseModal(\'' + p.token + '\')" style="flex:1;height:38px;border:none;border-radius:10px;background:#0F326A;color:#fff;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">' +
+                  '<i class="ph ph-qr-code" style="font-size:16px"></i>' +
+                  '<span>Ver QR / Enviar</span>' +
+                '</button>' +
+                '<button onclick="revocarPase(\'' + p.token + '\')" style="height:38px;padding:0 12px;border:1.5px solid #FCA5A5;border-radius:10px;background:#FEF2F2;color:#DC2626;font-size:12px;font-weight:700;cursor:pointer">' +
+                  'Revocar' +
+                '</button>' +
+              '</div>' +
+            '</div>';
+          }
+          boxAct.innerHTML = htmlActivos;
+        }
+
+        // Render historial
+        if (historial.length === 0) {
+          boxHis.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:#64748B;font-size:13px;background:#fff;border-radius:18px">Sin historial previo.</div>';
+        } else {
+          var htmlHis = '';
+          for (var j = 0; j < historial.length; j++) {
+            var ph = historial[j];
+            var stLabel = (ph.estado === 'utilizado') ? 'Utilizado' : ((ph.estado === 'revocado') ? 'Revocado' : 'Vencido');
+            var stColor = (ph.estado === 'utilizado') ? '#0284C7' : '#64748B';
+            var stBg = (ph.estado === 'utilizado') ? '#E0F2FE' : '#F1F5F9';
+            var fCreac = new Date(ph.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+
+            htmlHis += '<div class="card" style="padding:12px 14px;background:#fff;border-radius:16px;border:1px solid #E2E8F0;opacity:0.85">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center">' +
+                '<div>' +
+                  '<span style="font-size:10.5px;font-weight:700;color:#64748B">' + fCreac + ' · ' + (ph.motivo || '') + '</span>' +
+                  '<div style="font-size:13.5px;font-weight:800;color:#334155">' + (ph.nombre_invitado || '') + '</div>' +
+                '</div>' +
+                '<div style="text-align:right">' +
+                  '<span style="font-size:11px;font-weight:800;color:' + stColor + ';background:' + stBg + ';padding:2px 8px;border-radius:999px">' + stLabel + '</span>' +
+                  '<div style="font-size:11px;font-family:monospace;color:#94A3B8;margin-top:2px">' + (ph.token || '') + '</div>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+          }
+          boxHis.innerHTML = htmlHis;
+        }
+      }
+
+      async function crearPaseInvitacion(e) {
+        e.preventDefault();
+        var btn = document.getElementById('btn-submit-pase');
+        btn.disabled = true;
+        btn.innerHTML = '<span>⏳ Generando pase...</span>';
+
+        var nombre = document.getElementById('pase-nombre').value.trim();
+        var motivo = (document.querySelector('input[name="pase_motivo"]:checked') || {}).value || 'Visita';
+        var validez = document.getElementById('pase-validez').value;
+        var esRecurrente = document.getElementById('pase-es-recurrente').checked;
+
+        var diasRec = [];
+        if (esRecurrente) {
+          document.querySelectorAll('input[name="dias_rec"]:checked').forEach(function(c){ diasRec.push(c.value); });
+        }
+
+        var customDesde = document.getElementById('pase-custom-desde').value;
+        var customHasta = document.getElementById('pase-custom-hasta').value;
+        var horaDesde = document.getElementById('pase-rec-desde').value;
+        var horaHasta = document.getElementById('pase-rec-hasta').value;
+
+        try {
+          var res = await fetch('/vecino/api/pases-qr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nombre_invitado: nombre,
+              motivo: motivo,
+              validez: validez,
+              es_recurrente: esRecurrente,
+              dias_semana: diasRec,
+              custom_desde: customDesde,
+              custom_hasta: customHasta,
+              hora_desde: horaDesde,
+              hora_hasta: horaHasta
+            })
+          });
+          var data = await res.json();
+          if (data && data.ok && data.pase) {
+            cerrarModal('modal-nuevo-pase');
+            document.getElementById('pase-nombre').value = '';
+            cargarPases();
+            verPaseModal(data.pase.token, data.pase);
+          } else {
+            alert(data.error || 'Error al generar el pase.');
+          }
+        } catch(ex) {
+          alert('Error de conexión: ' + ex.message);
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = '<span>✨ Generar Pase y Ver Código QR</span>';
+        }
+      }
+
+      function verPaseModal(token, paseObj) {
+        var p = paseObj || _pasesData.find(function(x){ return x.token === token; });
+        if (!p) return;
+        _paseSeleccionado = p;
+
+        document.getElementById('ver-pase-invitado').textContent = p.nombre_invitado;
+        document.getElementById('ver-pase-motivo').textContent = p.motivo + ' · Depto ' + (p.departamento || '');
+        document.getElementById('ver-pase-token').textContent = p.token;
+        document.getElementById('ver-pase-qr-img').src = 'https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=' + encodeURIComponent(p.token);
+
+        var fHasta = p.valido_hasta ? new Date(p.valido_hasta).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) + ' hs' : (p.tipo_pase === 'recurrente' ? 'Días autorizados' : 'Sin límite');
+        document.getElementById('ver-pase-validez').innerHTML = 'Válido hasta: <strong>' + fHasta + '</strong>';
+
+        document.getElementById('modal-ver-pase').style.display = 'flex';
+      }
+
+      function obtenerTextoPase() {
+        if (!_paseSeleccionado) return '';
+        var p = _paseSeleccionado;
+        var url = 'https://marcos.bienargentinos.com/porteria/pase/' + encodeURIComponent(p.token);
+        return '¡Hola ' + p.nombre_invitado + '! Te comparto tu Pase QR de acceso para ' + p.edificio + (p.departamento ? ' Depto ' + p.departamento : '') + '.\n\nMostralo frente a la cámara del tótem de entrada al llegar:\n👉 ' + url + '\n\nCódigo: ' + p.token;
+      }
+
+      async function compartirPaseWhatsApp() {
+        if (!_paseSeleccionado) return;
+        var txt = obtenerTextoPase();
+        var url = 'https://marcos.bienargentinos.com/porteria/pase/' + encodeURIComponent(_paseSeleccionado.token);
+
+        if (navigator.share) {
+          try {
+            await navigator.share({
+              title: 'Pase de Acceso · ' + _paseSeleccionado.edificio,
+              text: txt,
+              url: url
+            });
+            return;
+          } catch(_) {}
+        }
+
+        var waUrl = 'https://wa.me/?text=' + encodeURIComponent(txt);
+        window.open(waUrl, '_blank');
+      }
+
+      function copiarLinkPase() {
+        if (!_paseSeleccionado) return;
+        var url = 'https://marcos.bienargentinos.com/porteria/pase/' + encodeURIComponent(_paseSeleccionado.token);
+        navigator.clipboard.writeText(url).then(function() {
+          var btnTxt = document.getElementById('btn-copy-txt');
+          btnTxt.textContent = '✓ ¡Enlace Copiado!';
+          setTimeout(function(){ btnTxt.textContent = 'Copiar Enlace del Pase'; }, 2000);
+        });
+      }
+
+      async function revocarPase(token) {
+        if (!confirm('¿Estás seguro de que querés revocar este pase? El invitado ya no podrá ingresar.')) return;
+        try {
+          var res = await fetch('/vecino/api/pases-qr/revocar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: token })
+          });
+          var data = await res.json();
+          if (data && data.ok) {
+            cargarPases();
+          } else {
+            alert(data.error || 'No se pudo revocar el pase.');
+          }
+        } catch(_) {
+          alert('Error de conexión.');
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', cargarPases);
+    </script>
+  `;
+
+  res.send(shellVecino('Pases QR', 'pases', content, v));
+});
+
+// -------------------------------------------------------------------
+// ENDPOINTS API DE PASES QR (VECINOS & PROVEEDORES)
+// -------------------------------------------------------------------
+
+router.get('/api/pases-qr', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const { listarPasesEdificio } = require('./db-pg');
+    const pases = await listarPasesEdificio(v.edificio, v.departamento);
+    res.json({ ok: true, pases });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/api/pases-qr', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const {
+      nombre_invitado,
+      motivo = 'Visita',
+      validez = '2h',
+      es_recurrente = false,
+      dias_semana = [],
+      custom_desde = null,
+      custom_hasta = null,
+      hora_desde = null,
+      hora_hasta = null
+    } = req.body || {};
+
+    if (!nombre_invitado) {
+      return res.status(400).json({ ok: false, error: 'El nombre del invitado es requerido.' });
+    }
+
+    // Generar token: PASS- + 8 caracteres alfanuméricos aleatorios
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let randStr = '';
+    for (let i = 0; i < 8; i++) {
+      randStr += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const token = 'PASS-' + randStr;
+
+    // Calcular vigencia
+    const now = new Date();
+    let validoDesde = now;
+    let validoHasta = null;
+    let tipoPase = es_recurrente ? 'recurrente' : 'temporal';
+    let usosPermitidos = es_recurrente ? 999 : 1;
+
+    if (validez === '2h') {
+      validoHasta = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    } else if (validez === '4h') {
+      validoHasta = new Date(now.getTime() + 4 * 60 * 60 * 1000);
+    } else if (validez === 'dia') {
+      validoHasta = new Date(now);
+      validoHasta.setHours(23, 59, 59, 999);
+    } else if (validez === 'custom') {
+      if (custom_desde) validoDesde = new Date(custom_desde);
+      if (custom_hasta) validoHasta = new Date(custom_hasta);
+    }
+
+    const { crearPaseQR } = require('./db-pg');
+    const pase = await crearPaseQR({
+      token,
+      origen: 'edifica',
+      edificio: v.edificio,
+      departamento: v.departamento,
+      creado_por_usuario_id: v.usuario_id || null,
+      creado_por_nombre: v.nombre || 'Vecino',
+      nombre_invitado,
+      motivo,
+      tipo_pase: tipoPase,
+      valido_desde: validoDesde,
+      valido_hasta: validoHasta,
+      dias_semana: es_recurrente ? dias_semana : [],
+      hora_desde: es_recurrente ? hora_desde : null,
+      hora_hasta: es_recurrente ? hora_hasta : null,
+      usos_permitidos: usosPermitidos
+    });
+
+    res.json({ ok: true, pase });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/api/pases-qr/revocar', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const { token, id } = req.body || {};
+    const { revocarPaseQR } = require('./db-pg');
+    const rev = await revocarPaseQR(id || token, v.edificio);
+    res.json({ ok: true, pase: rev });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 // 1. Configurar Timbre Personal (Switch ON/OFF & Horario No Molestar)
 router.post('/api/timbre-config', async (req, res) => {

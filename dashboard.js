@@ -8096,6 +8096,374 @@ window.abrirModalImportarVecinos = abrirModalImportarVecinos;
 window.leerArchivoVecinos = leerArchivoVecinos;
 window.procesarTextoVecinosImportar = procesarTextoVecinosImportar;
 window.ejecutarImportacionVecinos = ejecutarImportacionVecinos;
+
+/* ===================================================================
+ * CLIENT JS: PORTERÍA, ACCESOS & PASES QR
+ * =================================================================== */
+var _currentPaseGenerado = null;
+
+function cambiarTabPorteria(tab) {
+  var bEv = document.getElementById('btn-tab-eventos');
+  var bPa = document.getElementById('btn-tab-pases');
+  var sEv = document.getElementById('seccion-auditoria-eventos');
+  var sPa = document.getElementById('seccion-auditoria-pases');
+
+  if (tab === 'pases') {
+    if (bEv) { bEv.style.background = '#fff'; bEv.style.color = '#475569'; bEv.style.border = '1px solid #DCE4F0'; }
+    if (bPa) { bPa.style.background = '#2E6FC0'; bPa.style.color = '#fff'; bPa.style.border = 'none'; }
+    if (sEv) sEv.style.display = 'none';
+    if (sPa) sPa.style.display = 'block';
+    cargarPasesQR();
+  } else {
+    if (bPa) { bPa.style.background = '#fff'; bPa.style.color = '#475569'; bPa.style.border = '1px solid #DCE4F0'; }
+    if (bEv) { bEv.style.background = '#2E6FC0'; bEv.style.color = '#fff'; bEv.style.border = 'none'; }
+    if (sPa) sPa.style.display = 'none';
+    if (sEv) sEv.style.display = 'block';
+    cargarAuditoriaAccesos();
+  }
+}
+window.cambiarTabPorteria = cambiarTabPorteria;
+
+function toggleDashPaseRecurrente(tipo) {
+  var bTemp = document.getElementById('box-dash-pase-temporal');
+  var bRec = document.getElementById('box-dash-pase-recurrente');
+  if (tipo === 'recurrente') {
+    if (bTemp) bTemp.style.display = 'none';
+    if (bRec) bRec.style.display = 'block';
+  } else {
+    if (bTemp) bTemp.style.display = 'block';
+    if (bRec) bRec.style.display = 'none';
+  }
+}
+window.toggleDashPaseRecurrente = toggleDashPaseRecurrente;
+
+function abrirModalEmitirPaseOficial() {
+  var m = document.getElementById('modal-emitir-pase-oficial');
+  if (m) {
+    var fEd = document.getElementById('filtro-auditoria-edificio');
+    var pEd = document.getElementById('dash-pase-edificio');
+    if (fEd && pEd && fEd.value && fEd.value !== 'todos') {
+      pEd.value = fEd.value;
+    }
+    abrirModal('modal-emitir-pase-oficial');
+  }
+}
+window.abrirModalEmitirPaseOficial = abrirModalEmitirPaseOficial;
+
+async function guardarPaseOficialDesdeDash(btn) {
+  var edificio = document.getElementById('dash-pase-edificio') ? document.getElementById('dash-pase-edificio').value : '';
+  var nombre = document.getElementById('dash-pase-nombre') ? document.getElementById('dash-pase-nombre').value.trim() : '';
+  var depto = document.getElementById('dash-pase-depto') ? document.getElementById('dash-pase-depto').value.trim() : '';
+  var motivo = document.getElementById('dash-pase-motivo') ? document.getElementById('dash-pase-motivo').value : 'Mantenimiento';
+  var tipoPase = document.getElementById('dash-pase-tipo') ? document.getElementById('dash-pase-tipo').value : 'temporal';
+  var duracion = document.getElementById('dash-pase-duracion') ? document.getElementById('dash-pase-duracion').value : '24h';
+
+  if (!nombre) {
+    alert('Por favor indicá el nombre del técnico o invitado.');
+    return;
+  }
+
+  var dias = [];
+  if (tipoPase === 'recurrente') {
+    document.querySelectorAll('input[name="dash-pase-dias"]:checked').forEach(function(c) {
+      dias.push(c.value);
+    });
+    if (dias.length === 0) {
+      alert('Por favor seleccioná al menos un día permitido de la semana.');
+      return;
+    }
+  }
+
+  var hDesde = document.getElementById('dash-pase-hora-desde') ? document.getElementById('dash-pase-hora-desde').value : '08:00';
+  var hHasta = document.getElementById('dash-pase-hora-hasta') ? document.getElementById('dash-pase-hora-hasta').value : '14:00';
+
+  if (btn) btn.disabled = true;
+
+  try {
+    var res = await fetch('/admin/api/pases-qr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        origen: 'dash',
+        edificio: edificio,
+        departamento: depto,
+        nombre_invitado: nombre,
+        motivo: motivo,
+        tipo_pase: tipoPase,
+        validez: duracion,
+        dias_semana: dias,
+        hora_desde: hDesde,
+        hora_hasta: hHasta
+      })
+    });
+    var data = await res.json();
+    if (data && data.ok && data.pase) {
+      cerrarModal('modal-emitir-pase-oficial');
+      _currentPaseGenerado = data.pase;
+      mostrarModalVerPaseQR(data.pase, data.qrUrl);
+      cargarAuditoriaAccesos();
+      cargarPasesQR();
+    } else {
+      alert('Error al generar pase: ' + (data.error || 'Error desconocido'));
+    }
+  } catch(e) {
+    alert('Error de conexión: ' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.guardarPaseOficialDesdeDash = guardarPaseOficialDesdeDash;
+
+function mostrarModalVerPaseQR(pase, qrUrl) {
+  var qrImg = document.getElementById('ver-pase-qr-img');
+  var pTok = document.getElementById('ver-pase-token');
+  var pTit = document.getElementById('ver-pase-titulo');
+  var pDet = document.getElementById('ver-pase-detalle');
+
+  if (qrImg) qrImg.src = qrUrl || ('https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=' + encodeURIComponent(pase.token));
+  if (pTok) pTok.textContent = pase.token;
+  if (pTit) pTit.textContent = 'Pase para ' + pase.nombre_invitado;
+  if (pDet) {
+    var vig = pase.tipo_pase === 'recurrente'
+      ? ('Recurrente: ' + ((pase.dias_semana || []).join ? pase.dias_semana.join(', ') : pase.dias_semana) + ' de ' + pase.hora_desde + ' a ' + pase.hora_hasta + ' hs')
+      : ('Válido hasta: ' + (pase.valido_hasta ? new Date(pase.valido_hasta).toLocaleString('es-AR') : '24 horas'));
+    pDet.textContent = pase.edificio + (pase.departamento ? ' (Depto ' + pase.departamento + ')' : '') + ' · ' + pase.motivo + ' · ' + vig;
+  }
+  abrirModal('modal-ver-pase-qr');
+}
+window.mostrarModalVerPaseQR = mostrarModalVerPaseQR;
+
+function compartirPaseWhatsAppDash() {
+  if (!_currentPaseGenerado) return;
+  var p = _currentPaseGenerado;
+  var qrLink = 'https://marcos.bienargentinos.com/porteria/' + encodeURIComponent(p.edificio) + '?qr=' + encodeURIComponent(p.token);
+  var txt = 'Hola ' + p.nombre_invitado + '! Te comparto tu Pase Oficial de Acceso para *' + p.edificio + '*:\\n' +
+            '🎟️ *Código:* ' + p.token + '\\n' +
+            '📋 *Motivo:* ' + p.motivo + '\\n' +
+            '📲 *Accedé al QR:* ' + qrLink + '\\n' +
+            'Al llegar al edificio, mostrá el QR frente a la cámara del tótem de portería para abrir la puerta.';
+
+  var waUrl = 'https://wa.me/?text=' + encodeURIComponent(txt);
+  window.open(waUrl, '_blank');
+}
+window.compartirPaseWhatsAppDash = compartirPaseWhatsAppDash;
+
+function copiarLinkPaseDash() {
+  if (!_currentPaseGenerado) return;
+  var p = _currentPaseGenerado;
+  var qrLink = 'https://marcos.bienargentinos.com/porteria/' + encodeURIComponent(p.edificio) + '?qr=' + encodeURIComponent(p.token);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(qrLink).then(function() {
+      toast('✓ Enlace del pase copiado al portapapeles', 'ok');
+    });
+  } else {
+    prompt('Copiá el enlace del pase:', qrLink);
+  }
+}
+window.copiarLinkPaseDash = copiarLinkPaseDash;
+
+async function cargarAuditoriaAccesos() {
+  var tbody = document.getElementById('tabla-eventos-acceso-body');
+  if (!tbody) return;
+
+  var selEd = document.getElementById('filtro-auditoria-edificio');
+  var selRan = document.getElementById('filtro-auditoria-rango');
+  var selTip = document.getElementById('filtro-auditoria-tipo');
+
+  var ed = selEd ? selEd.value : '';
+  var ran = selRan ? selRan.value : '7d';
+  var tip = selTip ? selTip.value : '';
+
+  try {
+    var url = '/admin/api/eventos-acceso?edificio=' + encodeURIComponent(ed) + '&rango=' + encodeURIComponent(ran) + '&tipo=' + encodeURIComponent(tip);
+    var res = await fetch(url);
+    var data = await res.json();
+    var eventos = (data && data.eventos) || [];
+
+    // Actualizar KPIs
+    var kpiHoy = document.getElementById('kpi-accesos-hoy');
+    var kpiAlertas = document.getElementById('kpi-alertas-hoy');
+    var hoyStr = new Date().toISOString().split('T')[0];
+    var countHoy = 0;
+    var countAlertas = 0;
+
+    eventos.forEach(function(ev) {
+      if (String(ev.fecha || '').startsWith(hoyStr)) {
+        if (ev.resultado === 'exitoso') countHoy++;
+        if (ev.resultado && ev.resultado.indexOf('rechazado') !== -1) countAlertas++;
+      }
+    });
+    if (kpiHoy) kpiHoy.textContent = countHoy;
+    if (kpiAlertas) kpiAlertas.textContent = countAlertas;
+
+    if (eventos.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:32px;text-align:center;color:#8595AD;font-size:13.5px">No se encontraron eventos de acceso para los filtros seleccionados.</td></tr>';
+      return;
+    }
+
+    var html = eventos.map(function(ev) {
+      var fDate = new Date(ev.fecha);
+      var horaFmt = fDate.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ' · ' + fDate.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      
+      var esAlerta = ev.resultado && ev.resultado.indexOf('rechazado') !== -1;
+      var filaBg = esAlerta ? '#FEF2F2' : 'transparent';
+      var filaBorder = esAlerta ? 'border-left: 4px solid #EF4444;' : '';
+
+      var badgeEstado = '';
+      if (ev.resultado === 'exitoso') {
+        badgeEstado = '<span style="font-size:11px;font-weight:800;background:#E7F4EC;color:#16A34A;padding:2px 8px;border-radius:999px;border:1px solid #C3E6D0">✓ Concedido</span>';
+      } else if (ev.resultado === 'rechazado_vencido') {
+        badgeEstado = '<span style="font-size:11px;font-weight:800;background:#FEE2E2;color:#DC2626;padding:2px 8px;border-radius:999px;border:1px solid #FCA5A5">🚨 QR Vencido</span>';
+      } else if (ev.resultado === 'rechazado_horario') {
+        badgeEstado = '<span style="font-size:11px;font-weight:800;background:#FFFBEB;color:#D97706;padding:2px 8px;border-radius:999px;border:1px solid #FDE68A">⏳ Fuera de Horario</span>';
+      } else {
+        badgeEstado = '<span style="font-size:11px;font-weight:800;background:#FEE2E2;color:#DC2626;padding:2px 8px;border-radius:999px;border:1px solid #FCA5A5">⚠️ Inválido</span>';
+      }
+
+      var tipoBadge = '<span style="font-size:11.5px;font-weight:700;color:#1E5FB4;background:#EBF3FC;padding:2px 7px;border-radius:6px">' + escapeHtml(ev.tipo_acceso || 'QR') + '</span>';
+
+      var fotoHtml = '<span style="color:#94A3B8;font-size:11.5px">Sin foto</span>';
+      if (ev.foto_seguridad) {
+        fotoHtml = '<button onclick="abrirFotoSeguridadTotem(this)" data-foto="' + escapeHtml(ev.foto_seguridad) + '" style="padding:4px 8px;border:1px solid #CBD5E1;border-radius:8px;background:#fff;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:#2E6FC0" class="hv-soft">📷 Ver Foto</button>';
+      }
+
+      return '<tr style="border-bottom:1px solid #EEF2F6;background:' + filaBg + ';' + filaBorder + '">' +
+        '<td style="padding:12px 16px;white-space:nowrap;font-weight:700;color:#1E293B">🕒 ' + horaFmt + '</td>' +
+        '<td style="padding:12px 16px;font-weight:700;color:#0F172A">' + escapeHtml(ev.edificio) + '</td>' +
+        '<td style="padding:12px 16px;color:#475569">' + escapeHtml(ev.departamento || 'Entrada Principal') + '</td>' +
+        '<td style="padding:12px 16px"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' + tipoBadge + badgeEstado + '</div></td>' +
+        '<td style="padding:12px 16px;color:#334155;line-height:1.4">' + escapeHtml(ev.detalle || '—') + '</td>' +
+        '<td style="padding:12px 16px;text-align:center">' + fotoHtml + '</td>' +
+      '</tr>';
+    }).join('');
+
+    tbody.innerHTML = html;
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:24px;text-align:center;color:#EF4444">Error cargando eventos: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+window.cargarAuditoriaAccesos = cargarAuditoriaAccesos;
+
+function abrirFotoSeguridadTotem(srcOrEl) {
+  var src = (srcOrEl && srcOrEl.dataset && srcOrEl.dataset.foto) ? srcOrEl.dataset.foto : srcOrEl;
+  var w = window.open('', '_blank');
+  if (w) {
+    w.document.write('<html><head><title>Foto de Seguridad Tótem</title></head><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh"><img src="' + src + '" style="max-width:100%;max-height:100%;object-fit:contain"></body></html>');
+  }
+}
+window.abrirFotoSeguridadTotem = abrirFotoSeguridadTotem;
+
+async function cargarPasesQR() {
+  var tbody = document.getElementById('tabla-pases-qr-body');
+  if (!tbody) return;
+
+  var selEd = document.getElementById('filtro-auditoria-edificio');
+  var ed = selEd ? selEd.value : '';
+
+  try {
+    var res = await fetch('/admin/api/pases-qr?edificio=' + encodeURIComponent(ed));
+    var data = await res.json();
+    var pases = (data && data.pases) || [];
+
+    var kpiPases = document.getElementById('kpi-pases-activos');
+    var activosCount = pases.filter(function(p) { return p.estado === 'activo'; }).length;
+    if (kpiPases) kpiPases.textContent = activosCount;
+
+    if (pases.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="padding:32px;text-align:center;color:#8595AD;font-size:13.5px">No hay pases QR registrados aún.</td></tr>';
+      return;
+    }
+
+    window._pasesQRMap = {};
+    var html = pases.map(function(p) {
+      window._pasesQRMap[p.id] = p;
+      var origenBadge = p.origen === 'edifica'
+        ? '<span style="font-size:10.5px;font-weight:800;background:#EDE9FE;color:#6D28D9;padding:2px 7px;border-radius:999px">📱 Edifica</span>'
+        : '<span style="font-size:10.5px;font-weight:800;background:#E0F2FE;color:#0369A1;padding:2px 7px;border-radius:999px">🖥️ Dash</span>';
+
+      var vigFmt = '';
+      if (p.tipo_pase === 'recurrente') {
+        var dStr = (p.dias_semana && p.dias_semana.join) ? p.dias_semana.join(', ') : String(p.dias_semana || '');
+        vigFmt = 'Recurrente: ' + dStr + ' (' + (p.hora_desde || '') + '-' + (p.hora_hasta || '') + ' hs)';
+      } else if (p.fecha_expiracion) {
+        vigFmt = 'Hasta ' + new Date(p.fecha_expiracion).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+      } else {
+        vigFmt = 'Permanente';
+      }
+
+      var estadoBadge = '';
+      if (p.estado === 'activo') {
+        estadoBadge = '<span style="font-size:11px;font-weight:800;background:#E7F4EC;color:#16A34A;padding:2px 8px;border-radius:999px">Activo</span>';
+      } else if (p.estado === 'vencido') {
+        estadoBadge = '<span style="font-size:11px;font-weight:800;background:#FEE2E2;color:#DC2626;padding:2px 8px;border-radius:999px">Vencido</span>';
+      } else if (p.estado === 'utilizado') {
+        estadoBadge = '<span style="font-size:11px;font-weight:800;background:#F1F5F9;color:#64748B;padding:2px 8px;border-radius:999px">Utilizado</span>';
+      } else {
+        estadoBadge = '<span style="font-size:11px;font-weight:800;background:#FEF2F2;color:#991B1B;padding:2px 8px;border-radius:999px">Revocado</span>';
+      }
+
+      var btnRevocar = p.estado === 'activo'
+        ? '<button onclick="revocarPaseDash(' + p.id + ')" style="padding:4px 8px;border:1px solid #FCA5A5;border-radius:6px;background:#FFF;color:#DC2626;font-size:11px;font-weight:700;cursor:pointer">Revocar</button>'
+        : '';
+
+      var btnVerQR = '<button onclick="abrirVerPaseExistente(' + p.id + ')" style="padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;color:#2E6FC0;font-size:11px;font-weight:700;cursor:pointer">Ver QR</button>';
+
+      return '<tr style="border-bottom:1px solid #EEF2F6">' +
+        '<td style="padding:12px 16px;font-family:monospace;font-weight:800;color:#1E5FB4">' + escapeHtml(p.token) + '</td>' +
+        '<td style="padding:12px 16px">' + origenBadge + '</td>' +
+        '<td style="padding:12px 16px;font-weight:700;color:#0F172A">' + escapeHtml(p.edificio) + (p.departamento ? ' <span style="font-weight:400;color:#64748B">(' + escapeHtml(p.departamento) + ')</span>' : '') + '</td>' +
+        '<td style="padding:12px 16px;font-weight:700">' + escapeHtml(p.nombre_invitado) + '</td>' +
+        '<td style="padding:12px 16px;color:#475569">' + escapeHtml(p.motivo) + '</td>' +
+        '<td style="padding:12px 16px;font-size:12px;color:#334155">' + escapeHtml(vigFmt) + '</td>' +
+        '<td style="padding:12px 16px;font-size:12px;color:#64748B">' + (p.usos_actuales || 0) + ' / ' + (p.usos_permitidos || 1) + '</td>' +
+        '<td style="padding:12px 16px">' + estadoBadge + '</td>' +
+        '<td style="padding:12px 16px;text-align:right"><div style="display:flex;justify-content:flex-end;gap:6px">' + btnVerQR + btnRevocar + '</div></td>' +
+      '</tr>';
+    }).join('');
+
+    tbody.innerHTML = html;
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="9" style="padding:24px;text-align:center;color:#EF4444">Error: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+window.cargarPasesQR = cargarPasesQR;
+
+function abrirVerPaseExistente(id) {
+  var p = (window._pasesQRMap && window._pasesQRMap[id]) ? window._pasesQRMap[id] : null;
+  if (!p) return;
+  _currentPaseGenerado = p;
+  mostrarModalVerPaseQR(_currentPaseGenerado);
+}
+window.abrirVerPaseExistente = abrirVerPaseExistente;
+
+async function revocarPaseDash(id) {
+  if (!confirm('¿Seguro que deseás revocar este pase QR? No podrá ingresar más por el tótem.')) return;
+  try {
+    var res = await fetch('/admin/api/pases-qr/revocar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id })
+    });
+    var data = await res.json();
+    if (data && data.ok) {
+      toast('✓ Pase QR revocado correctamente', 'ok');
+      cargarPasesQR();
+    } else {
+      alert('Error: ' + (data.error || 'No se pudo revocar'));
+    }
+  } catch(e) {
+    alert('Error revocando pase: ' + e.message);
+  }
+}
+window.revocarPaseDash = revocarPaseDash;
+
+document.addEventListener('DOMContentLoaded', function() {
+  if (document.getElementById('tabla-eventos-acceso-body')) {
+    cargarAuditoriaAccesos();
+    cargarPasesQR();
+    setInterval(cargarAuditoriaAccesos, 15000); // Polling en vivo cada 15 seg
+  }
+});
 `;
 
 /* ===================================================================
@@ -8388,6 +8756,7 @@ function shell(req, d, activeKey, contenido) {
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
     { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosCliente },
     { key: 'edificio', icon: '🏢', label: 'Mi Edificio', href: '/admin/mi-edificio' },
+    { key: 'porteria_accesos', icon: '🚪', label: 'Control de Accesos & Portería', href: '/admin/accesos-porteria' },
     { key: 'proveedores', icon: '🧰', label: 'Proveedores', href: '/admin/proveedores' },
     { key: 'facturas', icon: '🧾', label: 'Facturas/Fotos', href: '/admin/archivos' },
     { key: 'expensas', icon: '📑', label: 'Expensas', href: '/admin/expensas' },
@@ -8397,6 +8766,7 @@ function shell(req, d, activeKey, contenido) {
   const navDueno = [
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
     { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosDueno },
+    { key: 'porteria_accesos', icon: '🚪', label: 'Control de Accesos & Portería', href: '/admin/accesos-porteria' },
     { key: 'consumos', icon: '📈', label: 'Consumos', href: '/admin/consumos' },
     { key: 'facturas', icon: '🧾', label: 'Facturas/Fotos', href: '/admin/archivos' },
     { key: 'edificios', icon: '👥', label: 'Clientes', href: '/admin/clientes' },
@@ -13158,7 +13528,441 @@ router.post('/api/evento-resolver', async (req, res) => {
   }
 });
 
-// Marcar estado de factura (Pagada / Pendiente).
+/* ===================================================================
+ * CONTROL DE ACCESOS & PORTERÍA (PASES QR Y AUDITORÍA EN VIVO)
+ * =================================================================== */
+
+router.get('/accesos-porteria', async (req, res) => {
+  try {
+    const d = await cargarDatos(req);
+    const dueno = esDueno(req);
+    const permitidos = edificiosPermitidos(req) || [];
+    const curEd = d.curBuilding ? d.curBuilding.nombre : (permitidos[0] || 'Todos');
+
+    const edList = dueno ? d.edificios : d.propios;
+    const edOptions = [
+      '<option value="todos">Todos los edificios</option>',
+      ...edList.map(e => `<option value="${esc(e.nombre)}"${(!dueno && e.nombre === curEd) ? ' selected' : ''}>${esc(e.nombre)}</option>`)
+    ].join('');
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both">
+        <!-- Header con selector y botones de acción -->
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span style="font-size:24px">🚪</span>
+              <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0;color:#16233B">Control de Accesos & Portería</h1>
+              <span style="font-size:11px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:3px 9px;border-radius:999px;border:1px solid #C3E6D0">En Vivo</span>
+            </div>
+            <p style="color:#64748B;font-size:14.5px;margin:0">Auditoría en tiempo real de timbres, aperturas, pases QR y alertas de seguridad tomadas por el tótem.</p>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <button onclick="cargarAuditoriaAccesos()" style="height:42px;padding:0 16px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" class="hv-soft">
+              🔄 Actualizar
+            </button>
+            <button onclick="abrirModalEmitirPaseOficial()" style="height:42px;padding:0 18px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" class="hv-primary">
+              🎟️ + Emitir Pase Oficial
+            </button>
+          </div>
+        </div>
+
+        <!-- KPIs de Portería -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:22px">
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+            <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Accesos Totales Hoy</div>
+            <div id="kpi-accesos-hoy" style="font-size:26px;font-weight:800;color:#16233B">--</div>
+            <div style="font-size:12px;color:#16A34A;font-weight:600;margin-top:2px">✓ Aperturas autorizadas</div>
+          </div>
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+            <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Pases QR Activos</div>
+            <div id="kpi-pases-activos" style="font-size:26px;font-weight:800;color:#2E6FC0">--</div>
+            <div style="font-size:12px;color:#64748B;margin-top:2px">Vecinos + Oficiales</div>
+          </div>
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+            <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Alertas / QR Denegados</div>
+            <div id="kpi-alertas-hoy" style="font-size:26px;font-weight:800;color:#DC2626">--</div>
+            <div style="font-size:12px;color:#DC2626;font-weight:700;margin-top:2px">⚠️ Vencidos o no reconocidos</div>
+          </div>
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+            <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Tótem & Relé ESP32</div>
+            <div style="font-size:18px;font-weight:800;color:#16A34A;display:flex;align-items:center;gap:6px;margin-top:6px">
+              <span style="width:10px;height:10px;border-radius:50%;background:#16A34A;display:inline-block"></span> Online (Listo)
+            </div>
+            <div style="font-size:12px;color:#64748B;margin-top:2px">Sondeo de apertura activo</div>
+          </div>
+        </div>
+
+        <!-- Filtros y Selector -->
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:4px;display:block">Filtrar por Edificio</label>
+            <select id="filtro-auditoria-edificio" class="inp" style="height:40px;font-size:13.5px" onchange="cargarAuditoriaAccesos()">
+              ${edOptions}
+            </select>
+          </div>
+          <div style="flex:1;min-width:160px">
+            <label style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:4px;display:block">Rango de Fechas</label>
+            <select id="filtro-auditoria-rango" class="inp" style="height:40px;font-size:13.5px" onchange="cargarAuditoriaAccesos()">
+              <option value="hoy">Hoy</option>
+              <option value="7d" selected>Últimos 7 días</option>
+              <option value="30d">Últimos 30 días</option>
+              <option value="todos">Histórico Completo</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:160px">
+            <label style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:4px;display:block">Tipo de Evento</label>
+            <select id="filtro-auditoria-tipo" class="inp" style="height:40px;font-size:13.5px" onchange="cargarAuditoriaAccesos()">
+              <option value="">Todos los tipos</option>
+              <option value="QR">Código QR</option>
+              <option value="Timbre Atendido">Timbre Atendido</option>
+              <option value="SOS">SOS / Emergencia</option>
+              <option value="Manual">Apertura Manual</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Sub-Pestañas: 1. Eventos en Vivo / 2. Pases QR Emitidos -->
+        <div style="display:flex;gap:10px;margin-bottom:16px;border-bottom:1px solid #E2E8F0;padding-bottom:10px">
+          <button id="btn-tab-eventos" onclick="cambiarTabPorteria('eventos')" style="height:36px;padding:0 18px;border-radius:999px;border:none;background:#2E6FC0;color:#fff;font-weight:700;font-size:13px;cursor:pointer">
+            📋 Eventos de Acceso y Tótem
+          </button>
+          <button id="btn-tab-pases" onclick="cambiarTabPorteria('pases')" style="height:36px;padding:0 18px;border-radius:999px;border:1px solid #DCE4F0;background:#fff;color:#475569;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">
+            🎟️ Pases QR Emitidos (Vigentes e Históricos)
+          </button>
+        </div>
+
+        <!-- SECCIÓN 1: TABLA DE EVENTOS DE ACCESO -->
+        <div id="seccion-auditoria-eventos" style="display:block">
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(16,35,59,.04)">
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+                <thead>
+                  <tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em">
+                    <th style="padding:14px 16px">Fecha / Hora</th>
+                    <th style="padding:14px 16px">Edificio</th>
+                    <th style="padding:14px 16px">Depto / Destino</th>
+                    <th style="padding:14px 16px">Tipo & Estado</th>
+                    <th style="padding:14px 16px">Detalle del Acceso</th>
+                    <th style="padding:14px 16px;text-align:center">Foto Tótem</th>
+                  </tr>
+                </thead>
+                <tbody id="tabla-eventos-acceso-body">
+                  <tr>
+                    <td colspan="6" style="padding:32px;text-align:center;color:#8595AD;font-size:13.5px">Cargando eventos de portería...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECCIÓN 2: TABLA DE PASES QR EMITIDOS -->
+        <div id="seccion-auditoria-pases" style="display:none">
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(16,35,59,.04)">
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+                <thead>
+                  <tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em">
+                    <th style="padding:14px 16px">Token QR</th>
+                    <th style="padding:14px 16px">Origen</th>
+                    <th style="padding:14px 16px">Edificio / Depto</th>
+                    <th style="padding:14px 16px">Invitado / Proveedor</th>
+                    <th style="padding:14px 16px">Motivo / Tipo</th>
+                    <th style="padding:14px 16px">Vigencia / Horario</th>
+                    <th style="padding:14px 16px">Usos</th>
+                    <th style="padding:14px 16px">Estado</th>
+                    <th style="padding:14px 16px;text-align:right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="tabla-pases-qr-body">
+                  <tr>
+                    <td colspan="9" style="padding:32px;text-align:center;color:#8595AD;font-size:13.5px">Cargando lista de pases...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- MODAL EMISIÓN DE PASE OFICIAL (DASH) -->
+      <div id="modal-emitir-pase-oficial" class="modal-overlay" onclick="cerrarModal('modal-emitir-pase-oficial')">
+        <div class="modal-box" style="max-width:540px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Panel de Administración</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em;color:#0F172A">🎟️ Emitir Pase Oficial de Consorcio</div>
+          </div>
+
+          <div style="padding:20px 24px;max-height:68vh;overflow-y:auto;flex:1;min-height:0">
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Edificio Destino *</label>
+              <select id="dash-pase-edificio" class="inp" style="height:42px">
+                ${edList.map(e => `<option value="${esc(e.nombre)}">${esc(e.nombre)}</option>`).join('')}
+              </select>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Nombre del Proveedor / Técnico *</label>
+                <input id="dash-pase-nombre" class="inp" placeholder="Ej: Darío Mecánico / ServiElev">
+              </div>
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Depto / Destino</label>
+                <input id="dash-pase-depto" class="inp" placeholder="Ej: Sala de Máquinas / 1A">
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Motivo del Ingreso *</label>
+                <select id="dash-pase-motivo" class="inp" style="height:42px">
+                  <option value="Mantenimiento">🔧 Mantenimiento / Técnico</option>
+                  <option value="Limpieza">🧹 Empresa de Limpieza</option>
+                  <option value="Inspección">📋 Inspección / Auditoría</option>
+                  <option value="Servicio">⚡ Servicio Público (Luz/Gas/Agua)</option>
+                  <option value="Encomienda">📦 Encomienda Grande / Mudanza</option>
+                  <option value="Visita">👤 Visita Autorizada Consorcio</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Tipo de Pase *</label>
+                <select id="dash-pase-tipo" class="inp" style="height:42px" onchange="toggleDashPaseRecurrente(this.value)">
+                  <option value="temporal">Temporal (Visita / Guardia)</option>
+                  <option value="recurrente">Recurrente (Días fijos y horario)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Vigencia Temporal -->
+            <div id="box-dash-pase-temporal" style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Duración del Pase</label>
+              <select id="dash-pase-duracion" class="inp" style="height:42px">
+                <option value="2h">2 Horas</option>
+                <option value="4h">4 Horas</option>
+                <option value="12h">12 Horas</option>
+                <option value="24h" selected>Todo el día (24 Horas)</option>
+                <option value="7d">7 Días corridos</option>
+              </select>
+            </div>
+
+            <!-- Configuración Recurrente (días de semana y horario) -->
+            <div id="box-dash-pase-recurrente" style="display:none;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+              <div style="font-size:12.5px;font-weight:800;color:#1E5FB4;margin-bottom:8px">📅 Días permitidos de la semana</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+                ${['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'].map(d => `
+                  <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;padding:4px 9px;border-radius:8px;background:#fff;border:1px solid #CBD5E1;cursor:pointer">
+                    <input type="checkbox" name="dash-pase-dias" value="${d}"> ${d}
+                  </label>
+                `).join('')}
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <div>
+                  <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Desde Hora</label>
+                  <input id="dash-pase-hora-desde" class="inp" type="time" value="08:00" style="height:38px">
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Hasta Hora</label>
+                  <input id="dash-pase-hora-hasta" class="inp" type="time" value="14:00" style="height:38px">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="padding:16px 24px 22px;border-top:1px solid #EEF1F6;display:flex;gap:10px;flex-shrink:0">
+            <button onclick="cerrarModal('modal-emitir-pase-oficial')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarPaseOficialDesdeDash(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">🎟️ Generar Pase QR</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL VISUALIZAR PASE QR GENERADO CON WHATSAPP -->
+      <div id="modal-ver-pase-qr" class="modal-overlay" onclick="cerrarModal('modal-ver-pase-qr')">
+        <div class="modal-box" style="max-width:440px;text-align:center" onclick="stopEv(event)">
+          <div style="padding:20px 24px 14px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:800;color:#16A34A;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">✓ Pase Generado con Éxito</div>
+            <div id="ver-pase-titulo" style="font-size:18px;font-weight:800;color:#0F172A">Pase de Acceso Oficial</div>
+          </div>
+
+          <div style="padding:22px 24px">
+            <div style="background:#fff;border:2px solid #E2E8F0;border-radius:16px;padding:16px;display:inline-block;margin-bottom:14px;box-shadow:0 4px 14px rgba(0,0,0,0.06)">
+              <img id="ver-pase-qr-img" src="" alt="Código QR" style="width:220px;height:220px;display:block">
+            </div>
+
+            <div id="ver-pase-token" style="font-size:18px;font-weight:900;letter-spacing:.08em;color:#1E5FB4;font-family:monospace;margin-bottom:8px">PASS-XXXXXXXX</div>
+            <div id="ver-pase-detalle" style="font-size:13px;color:#64748B;line-height:1.4;margin-bottom:18px">Válido para ingresar por el tótem del consorcio.</div>
+
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <button id="btn-compartir-wa-dash" onclick="compartirPaseWhatsAppDash()" style="width:100%;height:44px;border:none;border-radius:11px;background:#25D366;color:#fff;font-weight:800;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+                💬 Compartir por WhatsApp
+              </button>
+              <button onclick="copiarLinkPaseDash()" style="width:100%;height:40px;border:1px solid #CBD5E1;border-radius:11px;background:#fff;color:#334155;font-weight:700;font-size:13px;cursor:pointer">
+                🔗 Copiar Enlace del Pase
+              </button>
+            </div>
+          </div>
+
+          <div style="padding:12px 24px 18px;border-top:1px solid #EEF1F6">
+            <button onclick="cerrarModal('modal-ver-pase-qr')" style="width:100%;height:40px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13px;cursor:pointer">Cerrar</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    res.send(shell(req, d, 'porteria_accesos', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+// API REST: Listado de eventos de acceso para la tabla de auditoría en vivo
+router.get('/api/eventos-acceso', async (req, res) => {
+  try {
+    const { edificio, rango, tipo } = req.query || {};
+    let desde = null;
+    const now = new Date();
+
+    if (rango === 'hoy') {
+      desde = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    } else if (rango === '7d') {
+      const d7 = new Date(now);
+      d7.setDate(d7.getDate() - 7);
+      desde = d7.toISOString();
+    } else if (rango === '30d') {
+      const d30 = new Date(now);
+      d30.setDate(d30.getDate() - 30);
+      desde = d30.toISOString();
+    }
+
+    const { obtenerEventosAcceso } = require('./db-pg');
+    const eventos = await obtenerEventosAcceso({
+      edificio: (edificio && edificio !== 'todos') ? edificio : null,
+      desde,
+      tipo_acceso: tipo || null,
+      limite: 150
+    });
+
+    res.json({ ok: true, eventos });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// API REST: Pases QR (Creación desde Dash o Edifica)
+router.post('/api/pases-qr', async (req, res) => {
+  try {
+    const {
+      origen = 'dash',
+      edificio,
+      departamento = '',
+      nombre_invitado,
+      motivo = 'Visita',
+      validez = '24h',
+      valido_hasta: customValidoHasta,
+      tipo_pase = 'temporal',
+      dias_semana = [],
+      hora_desde = null,
+      hora_hasta = null,
+      creado_por = ''
+    } = req.body || {};
+
+    if (!edificio || !nombre_invitado) {
+      return res.status(400).json({ ok: false, error: 'Edificio y nombre del invitado son requeridos' });
+    }
+
+    // Generar token: PASS- + 8 caracteres alfanuméricos en mayúsculas
+    const crypto = require('crypto');
+    const token = 'PASS-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+
+    const now = new Date();
+    let validoHasta = null;
+
+    if (customValidoHasta) {
+      validoHasta = new Date(customValidoHasta);
+    } else if (tipo_pase === 'recurrente') {
+      // Recurrente válido por 6 meses por defecto
+      const f6 = new Date(now);
+      f6.setMonth(f6.getMonth() + 6);
+      validoHasta = f6;
+    } else {
+      const msMap = {
+        '2h': 2 * 3600 * 1000,
+        '4h': 4 * 3600 * 1000,
+        '12h': 12 * 3600 * 1000,
+        '24h': 24 * 3600 * 1000,
+        '7d': 7 * 24 * 3600 * 1000,
+        'todo_el_dia': 24 * 3600 * 1000
+      };
+      const extraMs = msMap[validez] || (24 * 3600 * 1000);
+      validoHasta = new Date(now.getTime() + extraMs);
+    }
+
+    const usosPermitidos = (tipo_pase === 'recurrente') ? 999 : 1;
+
+    const { crearPaseQR } = require('./db-pg');
+    const nuevoPase = await crearPaseQR({
+      token,
+      origen: origen === 'edifica' ? 'edifica' : 'dash',
+      edificio,
+      departamento,
+      creado_por_nombre: creado_por || (req.session && req.session.user ? req.session.user : 'Administración'),
+      nombre_invitado,
+      motivo,
+      tipo_pase,
+      valido_desde: now,
+      valido_hasta: validoHasta,
+      dias_semana: Array.isArray(dias_semana) ? dias_semana : [],
+      hora_desde,
+      hora_hasta,
+      usos_permitidos: usosPermitidos
+    });
+
+    res.json({
+      ok: true,
+      pase: nuevoPase,
+      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(token)}`
+    });
+  } catch (e) {
+    console.error('Error creando pase QR:', e);
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// API REST: Listado de pases QR emitidos
+router.get('/api/pases-qr', async (req, res) => {
+  try {
+    const { edificio, depto } = req.query || {};
+    const { listarPasesEdificio, pool } = require('./db-pg');
+
+    let pases = [];
+    if (edificio && edificio !== 'todos') {
+      pases = await listarPasesEdificio(edificio, depto || null);
+    } else {
+      const r = await pool.query('SELECT * FROM pases_qr ORDER BY created_at DESC LIMIT 150');
+      pases = r.rows;
+    }
+
+    res.json({ ok: true, pases });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// API REST: Revocar Pase QR
+router.post('/api/pases-qr/revocar', async (req, res) => {
+  try {
+    const { id, token } = req.body || {};
+    const { revocarPaseQR } = require('./db-pg');
+    const revocado = await revocarPaseQR(id || token);
+    if (!revocado) return res.status(404).json({ ok: false, error: 'Pase no encontrado' });
+    res.json({ ok: true, pase: revocado });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
 router.post('/api/factura-estado', async (req, res) => {
   try {
     const { row, estado } = req.body || {};

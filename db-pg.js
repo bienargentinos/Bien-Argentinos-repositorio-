@@ -371,6 +371,53 @@ async function _initPgSchema() {
             CREATE INDEX IF NOT EXISTS idx_timbres_call_id ON timbres (call_id);
             CREATE INDEX IF NOT EXISTS idx_timbres_qr ON timbres (qr_id);
 
+            -- ── GESTIÓN DE PASES QR Y AUDITORÍA DE PORTERÍA (EDIFICA & DASH) ────
+            CREATE TABLE IF NOT EXISTS pases_qr (
+                id SERIAL PRIMARY KEY,
+                token VARCHAR(50) UNIQUE NOT NULL,
+                origen VARCHAR(20) NOT NULL, -- 'edifica' o 'dash'
+                edificio VARCHAR(150) NOT NULL,
+                departamento VARCHAR(50),
+                creado_por_usuario_id INTEGER,
+                creado_por_nombre VARCHAR(150),
+                nombre_invitado VARCHAR(150) NOT NULL,
+                motivo VARCHAR(100) NOT NULL,
+                tipo_pase VARCHAR(50) DEFAULT 'temporal', -- 'temporal' o 'recurrente'
+                valido_desde TIMESTAMP WITH TIME ZONE,
+                valido_hasta TIMESTAMP WITH TIME ZONE,
+                dias_semana JSONB DEFAULT '[]'::jsonb,
+                hora_desde VARCHAR(10),
+                hora_hasta VARCHAR(10),
+                usos_permitidos INTEGER DEFAULT 1,
+                usos_actuales INTEGER DEFAULT 0,
+                estado VARCHAR(50) DEFAULT 'activo', -- 'activo', 'utilizado', 'vencido', 'revocado'
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_pases_qr_token ON pases_qr (token);
+            CREATE INDEX IF NOT EXISTS idx_pases_qr_edificio ON pases_qr (edificio);
+            CREATE INDEX IF NOT EXISTS idx_pases_qr_estado ON pases_qr (estado);
+
+            CREATE TABLE IF NOT EXISTS eventos_acceso (
+                id SERIAL PRIMARY KEY,
+                fecha TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                edificio VARCHAR(150) NOT NULL,
+                departamento VARCHAR(50),
+                tipo_acceso VARCHAR(50) NOT NULL, -- 'QR', 'Timbre Atendido', 'SOS', 'Manual'
+                resultado VARCHAR(50) DEFAULT 'exitoso', -- 'exitoso', 'rechazado_vencido', 'rechazado_invalido', 'rechazado_horario'
+                detalle TEXT,
+                foto_seguridad TEXT,
+                qr_id VARCHAR(100),
+                ip VARCHAR(100),
+                user_agent TEXT,
+                metadata JSONB DEFAULT '{}'::jsonb
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_eventos_acceso_edificio_fecha ON eventos_acceso (edificio, fecha DESC);
+            CREATE INDEX IF NOT EXISTS idx_eventos_acceso_tipo ON eventos_acceso (tipo_acceso);
+            CREATE INDEX IF NOT EXISTS idx_eventos_acceso_resultado ON eventos_acceso (resultado);
+
+
             -- ── TABLAS QUE EXISTEN EN LA PLANILLA Y FALTABAN ACA ──────────────────
             -- Sin estas cuatro, migrar a PostgreSQL dejaba a Marcos sin datos que usa todos los
             -- dias: buscarTecnicoSuplente() lee "tecnicos" y buscarPersonalDeTurno() lee
@@ -1273,6 +1320,225 @@ async function desvincularIntegrante(usuarioId, edificio, departamento) {
     return true;
 }
 
+
+// ── GESTIÓN DE PASES QR Y EVENTOS DE AUDITORÍA ──────────────────────────────
+
+async function crearPaseQR(datos) {
+    const {
+        token,
+        origen = 'edifica',
+        edificio,
+        departamento = '',
+        creado_por_usuario_id = null,
+        creado_por_nombre = '',
+        nombre_invitado,
+        motivo = 'Visita',
+        tipo_pase = 'temporal',
+        valido_desde = null,
+        valido_hasta = null,
+        dias_semana = [],
+        hora_desde = null,
+        hora_hasta = null,
+        usos_permitidos = 1
+    } = datos;
+
+    const res = await pool.query(
+        `INSERT INTO pases_qr (
+            token, origen, edificio, departamento, creado_por_usuario_id,
+            creado_por_nombre, nombre_invitado, motivo, tipo_pase,
+            valido_desde, valido_hasta, dias_semana, hora_desde, hora_hasta,
+            usos_permitidos, usos_actuales, estado
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9,
+            $10, $11, $12::jsonb, $13, $14, $15, 0, 'activo'
+        ) RETURNING *`,
+        [
+            token, origen, edificio, departamento, creado_por_usuario_id,
+            creado_por_nombre, nombre_invitado, motivo, tipo_pase,
+            valido_desde, valido_hasta, JSON.stringify(dias_semana || []),
+            hora_desde, hora_hasta, Number(usos_permitidos) || 1
+        ]
+    );
+    return res.rows[0];
+}
+
+async function listarPasesEdificio(edificio, departamento = null) {
+    let q = `SELECT * FROM pases_qr WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))`;
+    const params = [edificio];
+    if (departamento) {
+        q += ` AND (LOWER(TRIM(departamento)) = LOWER(TRIM($2)) OR departamento = '' OR departamento IS NULL)`;
+        params.push(departamento);
+    }
+    q += ` ORDER BY created_at DESC`;
+    const res = await pool.query(q, params);
+    return res.rows;
+}
+
+async function revocarPaseQR(tokenOrId, edificio = null) {
+    let q = `UPDATE pases_qr SET estado = 'revocado' WHERE `;
+    const params = [];
+    if (typeof tokenOrId === 'number' || /^[0-9]+$/.test(String(tokenOrId))) {
+        q += `id = $1`;
+        params.push(Number(tokenOrId));
+    } else {
+        q += `token = $1`;
+        params.push(String(tokenOrId).trim());
+    }
+    if (edificio) {
+        q += ` AND LOWER(TRIM(edificio)) = LOWER(TRIM(${params.length + 1}))`;
+        params.push(edificio);
+    }
+    q += ` RETURNING *`;
+    const res = await pool.query(q, params);
+    return res.rows[0] || null;
+}
+
+async function validarConsumirPaseQR(rawToken, edificio) {
+    const token = String(rawToken || '').trim();
+    if (!token) return { valido: false, resultado: 'rechazado_invalido', mensaje: 'Token QR vacío' };
+
+    const q = `SELECT * FROM pases_qr WHERE UPPER(token) = UPPER($1) LIMIT 1`;
+    const res = await pool.query(q, [token]);
+    if (!res.rows || res.rows.length === 0) {
+        return { valido: false, resultado: 'rechazado_invalido', mensaje: 'Pase QR no encontrado en el sistema' };
+    }
+
+    const pase = res.rows[0];
+
+    // Verificar edificio si se provee
+    if (edificio && pase.edificio) {
+        const edPase = pase.edificio.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const edReq = edificio.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (edPase && edReq && !edPase.includes(edReq) && !edReq.includes(edPase)) {
+            return { valido: false, resultado: 'rechazado_invalido', mensaje: `Este pase corresponde al edificio ${pase.edificio}`, pase };
+        }
+    }
+
+    if (pase.estado === 'revocado') {
+        return { valido: false, resultado: 'rechazado_invalido', mensaje: 'Este pase QR fue revocado por el emisor', pase };
+    }
+    if (pase.estado === 'vencido') {
+        return { valido: false, resultado: 'rechazado_vencido', mensaje: 'Pase QR vencido', pase };
+    }
+
+    const now = new Date();
+
+    // 1. Validar fechas de vigencia general
+    if (pase.valido_desde && new Date(pase.valido_desde) > now) {
+        return { valido: false, resultado: 'rechazado_horario', mensaje: 'El pase todavía no es válido (inicia más tarde)', pase };
+    }
+    if (pase.valido_hasta && new Date(pase.valido_hasta) < now) {
+        await pool.query(`UPDATE pases_qr SET estado = 'vencido' WHERE id = $1`, [pase.id]);
+        return { valido: false, resultado: 'rechazado_vencido', mensaje: 'Pase QR vencido', pase };
+    }
+
+    // 2. Validar recurrencia (días de semana y rango horario)
+    if (pase.tipo_pase === 'recurrente') {
+        // Días de la semana
+        const diasNombres = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const diaHoy = diasNombres[now.getDay()];
+        let permitidos = pase.dias_semana;
+        if (typeof permitidos === 'string') {
+            try { permitidos = JSON.parse(permitidos); } catch(_) { permitidos = []; }
+        }
+        if (Array.isArray(permitidos) && permitidos.length > 0) {
+            const normaliza = str => String(str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const matchDia = permitidos.some(d => normaliza(d) === normaliza(diaHoy));
+            if (!matchDia) {
+                return { valido: false, resultado: 'rechazado_horario', mensaje: `Pase no habilitado para hoy (${diaHoy})`, pase };
+            }
+        }
+
+        // Rango horario
+        if (pase.hora_desde && pase.hora_hasta) {
+            const hActual = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+            if (hActual < pase.hora_desde || hActual > pase.hora_hasta) {
+                return { valido: false, resultado: 'rechazado_horario', mensaje: `Horario no permitido (habilitado de ${pase.hora_desde} a ${pase.hora_hasta})`, pase };
+            }
+        }
+    }
+
+    // 3. Validar usos permitidos
+    if (pase.usos_permitidos && pase.usos_actuales >= pase.usos_permitidos) {
+        await pool.query(`UPDATE pases_qr SET estado = 'utilizado' WHERE id = $1`, [pase.id]);
+        return { valido: false, resultado: 'rechazado_vencido', mensaje: 'Este pase ya alcanzó el límite de usos permitidos', pase };
+    }
+
+    // Actualizar uso
+    const nuevoUso = (pase.usos_actuales || 0) + 1;
+    const nuevoEstado = (pase.tipo_pase !== 'recurrente' && nuevoUso >= pase.usos_permitidos) ? 'utilizado' : 'activo';
+    await pool.query(
+        `UPDATE pases_qr SET usos_actuales = $1, estado = $2 WHERE id = $3`,
+        [nuevoUso, nuevoEstado, pase.id]
+    );
+
+    return { valido: true, resultado: 'exitoso', mensaje: `Pase válido: ${pase.nombre_invitado} (${pase.motivo})`, pase };
+}
+
+async function registrarEventoAcceso(datos) {
+    const {
+        edificio,
+        departamento = '',
+        tipo_acceso = 'QR',
+        resultado = 'exitoso',
+        detalle = '',
+        foto_seguridad = null,
+        qr_id = null,
+        ip = null,
+        user_agent = null,
+        metadata = {}
+    } = datos;
+
+    const res = await pool.query(
+        `INSERT INTO eventos_acceso (
+            edificio, departamento, tipo_acceso, resultado, detalle,
+            foto_seguridad, qr_id, ip, user_agent, metadata
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb
+        ) RETURNING *`,
+        [
+            edificio || 'Consorcio',
+            departamento || '',
+            tipo_acceso,
+            resultado,
+            detalle,
+            foto_seguridad,
+            qr_id,
+            ip,
+            user_agent,
+            JSON.stringify(metadata || {})
+        ]
+    );
+    return res.rows[0];
+}
+
+async function obtenerEventosAcceso(filtros = {}) {
+    const { edificio, desde, hasta, tipo_acceso, limite = 100 } = filtros;
+    let q = `SELECT * FROM eventos_acceso WHERE 1=1`;
+    const params = [];
+
+    if (edificio && edificio !== 'todos' && edificio !== 'Todos') {
+        params.push(edificio);
+        q += ` AND LOWER(TRIM(edificio)) = LOWER(TRIM(${params.length}))`;
+    }
+    if (desde) {
+        params.push(desde);
+        q += ` AND fecha >= ${params.length}::timestamptz`;
+    }
+    if (hasta) {
+        params.push(hasta);
+        q += ` AND fecha <= (${params.length}::timestamptz + INTERVAL '1 day')`;
+    }
+    if (tipo_acceso) {
+        params.push(tipo_acceso);
+        q += ` AND tipo_acceso = ${params.length}`;
+    }
+
+    q += ` ORDER BY fecha DESC LIMIT ${Number(limite) || 100}`;
+    const res = await pool.query(q, params);
+    return res.rows;
+}
+
 module.exports = {
     pool,
     initPgSchema,
@@ -1302,5 +1568,11 @@ module.exports = {
     obtenerIntegrantesUnidad,
     obtenerPortafolioAsistente,
     asignarAsistenteAPropiedad,
+    crearPaseQR,
+    listarPasesEdificio,
+    revocarPaseQR,
+    validarConsumirPaseQR,
+    registrarEventoAcceso,
+    obtenerEventosAcceso,
     desvincularIntegrante
 };
