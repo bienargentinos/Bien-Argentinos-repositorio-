@@ -982,6 +982,10 @@ function dibujarConsumoHtml(nombre, plan, eventos, opts = {}) {
  * =================================================================== */
 
 function requireAuth(req, res, next) {
+  // Las llamadas al endpoint público de pases QR desde Edifica o Apps externas se autorizan directamente
+  if (req.path === '/api/pases-qr' || req.path.startsWith('/api/pases-qr/')) {
+    return next();
+  }
   if (req.session && req.session.authed) return next();
   if (req.headers.accept && req.headers.accept.includes('application/json')) {
     return res.status(401).json({ error: 'No autenticado' });
