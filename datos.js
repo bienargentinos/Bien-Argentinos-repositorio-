@@ -499,6 +499,32 @@ async function marcarEntregaRebotada(id_evento, rebotado = true) {
     return res;
 }
 
+/**
+ * Mueve la última factura de un proveedor al caso que él corrigió, en las dos bases.
+ * El por qué está en `reimputarUltimaFacturaAlCaso`, en `sheets.js`.
+ */
+async function reimputarUltimaFacturaAlCaso(datos) {
+    const res = await sheets.reimputarUltimaFacturaAlCaso(datos);
+    if (res?.numero) {
+        copiarAPg(`el cambio de caso de la factura ${res.numero}`, async () => {
+            const { pool } = require('./db-pg');
+            // Se identifica por número de comprobante + proveedor, igual que la deduplicación: es
+            // lo único estable de una factura entre las dos bases.
+            // `codigo_caso` va también porque es el nombre con que el panel lee el caso de una
+            // factura: el motor escribe `id_evento` y el alta manual del panel `codigo_caso`.
+            // Escribir uno solo deja la corrección invisible de un lado.
+            await pool.query(
+                `UPDATE facturas SET id_evento = $1, codigo_caso = $1,
+                        edificio = COALESCE(NULLIF($2,''), edificio)
+                 WHERE numero_factura = $3
+                   AND lower(trim(coalesce(proveedor,''))) = lower(trim($4))`,
+                [res.hacia, res.edificio || '', res.numero, String(datos?.proveedor || '')]
+            );
+        });
+    }
+    return res;
+}
+
 async function fueMaterialEnviadoATecnico(id_evento) {
     return sheets.fueMaterialEnviadoATecnico(id_evento);
 }
@@ -664,6 +690,7 @@ module.exports = {
     registrarProveedorNoVerificado,
     buscarFacturasSinImputar,
     imputarFacturaSinEdificio,
+    reimputarUltimaFacturaAlCaso,
     buscarPersonalDeTurno,
     buscarMemoriaVecino,
     buscarRolPorTelefono,

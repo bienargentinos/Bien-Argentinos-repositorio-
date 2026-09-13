@@ -1948,6 +1948,75 @@ async function buscarFacturasSinImputar({ proveedor }) {
  * técnico que manda seis comprobantes de tres administradores distintos contesta una pregunta por
  * vez, y mandarlas todas al mismo edificio sería repetir el error que estamos arreglando.
  */
+/**
+ * MUEVE la última factura de un proveedor al caso que él acaba de corregir.
+ *
+ * > [!CAUTION]
+ * > **`imputarFacturaSinEdificio` no sirve para esto: solo toca facturas con estado "sin imputar".**
+ * > Una factura que ya quedó pegada al caso equivocado se queda ahí para siempre.
+ *
+ * EL CASO REAL (13/09). El técnico cerró el CASO-1002, mandó la factura, y Marcos la asoció al
+ * CASO-1003 --un caso espurio que se había abierto por confusión--. Él corrigió tres veces:
+ *
+ *     Daniel: "1002 es el caso"
+ *     Marcos: "gracias por la aclaración, el caso que estamos gestionando es el 1003"
+ *
+ * Reconocía la corrección y no la aplicaba, que es peor que no entenderla: desde afuera parece que
+ * sí. La intención `corrige_a_marcos` existía **solo en el catálogo del ruteo**, sin una línea de
+ * código que la atendiera, así que el modelo se disculpaba y el estado no cambiaba.
+ *
+ * Palabras de Daniel sobre por qué importa: *"puede haber enviado dos facturas al mismo caso, una
+ * del proveedor por materiales y la otra por el arreglo generada por mí"*. El gasto de un consorcio
+ * queda mal atribuido y nadie lo nota hasta comparar con los papeles.
+ *
+ * Solo mueve **la última** factura de ese proveedor, que es la que se está discutiendo, y deja dicho
+ * en el log de dónde a dónde. Mover más de una por una corrección sería adivinar.
+ *
+ * @returns {object|null} `{ numero, desde, hacia, edificio }` de lo que movió, o `null`.
+ */
+async function reimputarUltimaFacturaAlCaso({ proveedor, idEvento, edificio = '' }) {
+    try {
+        const prov = String(proveedor || '').toLowerCase().trim();
+        const destino = String(idEvento || '').trim();
+        if (!prov || !destino) return null;
+
+        const doc = await getSheet();
+        const sheet = pestaña(doc, 'facturas');
+        if (!sheet) return null;
+        await asegurarColumnas(sheet, ['id_evento'], 'facturas');
+
+        const rows = await sheet.getRows();
+        const suyas = rows.filter(r => {
+            const rProv = String(r.get('proveedor') || '').toLowerCase().trim();
+            return rProv && (rProv.includes(prov) || prov.includes(rProv));
+        });
+        if (!suyas.length) return null;
+
+        // La última cargada es la que se está discutiendo. No se busca "la del caso equivocado":
+        // el caso equivocado puede tener varias, y mover la que no es empeora las cosas.
+        const fila = suyas[suyas.length - 1];
+        const desde = String(fila.get('id_evento') || '').trim();
+        if (desde && desde.toUpperCase() === destino.toUpperCase()) return null;   // ya estaba bien
+
+        fila.set('id_evento', destino);
+        if (String(edificio || '').trim()) fila.set('edificio', edificio);
+        await fila.save();
+
+        const movida = {
+            numero: String(fila.get('numero_factura') || '').trim(),
+            desde: desde || '(sin caso)',
+            hacia: destino,
+            edificio: String(fila.get('edificio') || '').trim(),
+        };
+        console.log(`🧾↔️ Factura ${movida.numero || '(sin número)'} de ${proveedor} movida ` +
+                    `del ${movida.desde} al ${movida.hacia}, porque él lo corrigió.`);
+        return movida;
+    } catch (err) {
+        console.error('Error moviendo la factura al caso corregido:', err.message);
+        return null;
+    }
+}
+
 async function imputarFacturaSinEdificio({ proveedor, edificio, todas = false, idEvento = '' }) {
     try {
         if (!String(edificio || '').trim()) return 0;
@@ -2549,6 +2618,7 @@ module.exports = {
     registrarProveedorNoVerificado,
     buscarFacturasSinImputar,
     imputarFacturaSinEdificio,
+    reimputarUltimaFacturaAlCaso,
     buscarMemoriaVecino,
     guardarMemoriaVecino,
     guardarReporte,

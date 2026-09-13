@@ -3054,6 +3054,73 @@ function validarYSanitizarNombre(nombre) {
             if (ruteoIA) {
                 console.log(`🧭 ${datosEmisor.nombre || from}: "${String(textoFinal).replace(/\s+/g, ' ').slice(0, 60)}" → ${ruteoIA.intencion} (${ruteoIA.confianza}) — ${ruteoIA.motivo}`);
             }
+
+            // ── UNA CORRECCIÓN DE CASO SE APLICA, NO SE AGRADECE ─────────────────────────────
+            //
+            // > [!CAUTION]
+            // > **`corrige_a_marcos` existía SOLO en el catálogo del ruteo, sin una línea de código
+            // > que la atendiera.** El modelo se disculpaba y el estado no cambiaba, que es peor que
+            // > no entender: desde afuera parece que sí.
+            //
+            // Caso real (13/09). El técnico cerró el CASO-1002, mandó la factura, y Marcos la asoció
+            // al CASO-1003 --un caso espurio abierto por confusión--. Él corrigió tres veces:
+            //
+            //     Daniel: "1002 es el caso"
+            //     Marcos: "gracias por la aclaración, el caso que estamos gestionando es el 1003"
+            //
+            // Palabras de Daniel sobre por qué importa: *"puede haber enviado dos facturas al mismo
+            // caso, una del proveedor por materiales y la otra por el arreglo generada por mí"*. El
+            // gasto de un consorcio queda mal atribuido y no se nota hasta comparar los papeles.
+            //
+            // Solo se aplica cuando él NOMBRA un número de caso y ese caso es suyo. Una corrección
+            // sin número ("no, te equivocaste") no alcanza para elegir otro, y cambiar el caso a
+            // ciegas mueve plata de un consorcio a otro.
+            if (ruteoIA?.intencion === 'corrige_a_marcos') {
+                try {
+                    const { numeroDeCasoEnTexto } = require('./numero-de-caso');
+                    const num = numeroDeCasoEnTexto(textoFinal);
+                    if (num) {
+                        const { buscarCasoPorCodigo, reimputarUltimaFacturaAlCaso } = require('./datos');
+                        const casoDicho = await buscarCasoPorCodigo(num);
+                        const stCorr = global.colasProveedores?.get(from);
+                        const esSuyo = casoDicho && (
+                            String(casoDicho.tel_tecnico || '').replace(/\D/g, '').endsWith(String(from).replace(/\D/g, '').slice(-8))
+                            || String(casoDicho.tecnico || '').toLowerCase().trim() === String(datosEmisor.nombre || '').toLowerCase().trim()
+                        );
+
+                        if (casoDicho && esSuyo) {
+                            const antes = stCorr?.eventoActivoId || '(ninguno)';
+                            if (stCorr) {
+                                stCorr.eventoActivoId = casoDicho.id_evento;
+                                stCorr.rubroActivo = casoDicho.rubro || stCorr.rubroActivo || '';
+                            }
+                            console.log(`✏️ ${datosEmisor.nombre || from} corrigió el caso: ${antes} → ${casoDicho.id_evento}. Se aplica.`);
+
+                            const movida = await reimputarUltimaFacturaAlCaso({
+                                proveedor: datosEmisor.nombre || '',
+                                idEvento: casoDicho.id_evento,
+                                edificio: casoDicho.edificio || '',
+                            });
+                            if (movida) {
+                                const resp = `Corregido, ${datosEmisor.nombre || ''}. Pasé la factura ` +
+                                    `${movida.numero ? `N° ${movida.numero} ` : ''}del ${movida.desde} al ` +
+                                    `*${movida.hacia}*${movida.edificio ? ` de ${movida.edificio}` : ''}. Gracias por avisar.`;
+                                await despacharRespuesta(recipient, resp, msgTypeRespuesta);
+                                historial.push(`Marcos: ${resp}`);
+                                return;
+                            }
+                        } else if (casoDicho) {
+                            // Nombra un caso que existe y no es suyo. No se toca nada: mover una
+                            // factura a un caso de otro técnico es mandarle el gasto a otro consorcio.
+                            console.warn(`✏️ ${datosEmisor.nombre || from} nombró el ${casoDicho.id_evento}, que no figura como suyo. No se cambia nada.`);
+                        } else {
+                            console.warn(`✏️ ${datosEmisor.nombre || from} corrigió nombrando el caso ${num}, que no existe. No se cambia nada.`);
+                        }
+                    } else {
+                        console.log(`✏️ ${datosEmisor.nombre || from} corrigió algo pero no nombró ningún caso: lo contesta el modelo, no se cambia el estado.`);
+                    }
+                } catch (e) { console.error('No se pudo aplicar la corrección del técnico:', e.message); }
+            }
         } catch (e) {
             console.error('🧭 No se pudo rutear el mensaje del proveedor:', e.message);
         }

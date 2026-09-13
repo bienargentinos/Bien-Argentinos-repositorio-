@@ -902,6 +902,11 @@ async function buscarCasoPorCodigo(codigo) {
         estado:      row.get('estado') || 'en_proceso',
         cerrado:     CERRADOS.has(estado),
         tecnico:     row.get('tecnico') || '',
+        // El teléfono y el rubro hacen falta para saber si un caso es de QUIEN escribe. Sin el
+        // teléfono, la única forma de comprobarlo es comparar nombres, y el nombre de un proveedor
+        // se edita desde el panel: dos textos distintos para la misma persona.
+        tel_tecnico: row.get('tel_tecnico') || '',
+        rubro:       row.get('rubro_tecnico') || '',
         eta:         row.get('tecnico_eta') || '',
         confirmado:  row.get('tecnico_confirmado') || '',
         fecha:       row.get('fecha') || '',
