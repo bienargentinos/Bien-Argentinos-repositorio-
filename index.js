@@ -1866,14 +1866,34 @@ function validarYSanitizarNombre(nombre) {
         const casosP = session.esperandoSeleccionCasoResuelto;
         let casoElegido = null;
 
-        const numSel = parseInt(msgClean.replace(/\D/g, ''), 10);
-        if (!isNaN(numSel) && numSel >= 1 && numSel <= casosP.length) {
-            casoElegido = casosP[numSel - 1];
-        } else {
+        // > [!CAUTION]
+        // > **La lista imprime `[CASO-1001]` y después pide "1 o 2": invita justo a la respuesta que
+        // > no sabía leer.** Esto hacía `parseInt(msgClean.replace(/\D/g,''))`, así que "1002 caso"
+        // > daba 1002, la lista tenía dos opciones, `1002 <= 2` era falso, y el mensaje caía a la
+        // > rama del proveedor -- donde se contestó como si preguntara por el contacto de ingreso.
+        // > El caso quedó ABIERTO, y a las diez horas la cadena de seguimiento le preguntó al
+        // > técnico, después al vecino, y le mandó un mail al administrador por un trabajo hecho.
+        //
+        // `casoElegidoDeLista` acepta el número de caso y la posición, y vive en `numero-de-caso.js`
+        // porque esta misma lectura ya estaba escrita --bien-- en la rama de facturas. Dos copias del
+        // mismo criterio es lo que pasó con `buscarPerfilEdificio`: se arregló una y producción
+        // siguió leyendo la otra.
+        const { casoElegidoDeLista } = require('./numero-de-caso');
+        casoElegido = casoElegidoDeLista(textoFinal, casosP, (c) => c.id_evento);
+
+        // Último recurso: que nombre el problema con sus palabras ("el de la bomba"). Va al final
+        // porque es el más flojo de los tres.
+        if (!casoElegido) {
             casoElegido = casosP.find(c => {
                 const probNorm = (c.problema || '').toLowerCase();
                 return msgClean.split(' ').some(w => w.length >= 4 && probNorm.includes(w));
             });
+        }
+
+        if (!casoElegido) {
+            console.log(`🔢 No se entendió cuál de los ${casosP.length} casos eligió ` +
+                `${datosEmisor.nombre || from}: "${String(textoFinal || '').slice(0, 60)}". ` +
+                `Se vuelve a preguntar en vez de cerrar uno al azar.`);
         }
 
         if (casoElegido) {
@@ -3287,10 +3307,10 @@ function validarYSanitizarNombre(nombre) {
                     // también el número pelado cuando es de 3 dígitos o más: a esa altura de la
                     // conversación Marcos ya preguntó de qué obra era, así que "1001" a secas no
                     // puede ser otra cosa.
-                    const codRespuesta =
-                        (textoFinal.match(/\bCASO[\s:\-]*0*(\d{2,})\b/i) || [])[1]
-                        || (textoFinal.match(/\b0*(\d{3,})\b(?=[^]{0,20}\bcaso\b)/i) || [])[1]
-                        || (String(textoFinal || '').trim().match(/^#?0*(\d{3,})$/) || [])[1];
+                    // Vive en `numero-de-caso.js` desde que apareció el mismo defecto en el selector
+                    // de reclamo resuelto, que tenía su propio lector y no entendía "1002 caso".
+                    const { numeroDeCasoEnTexto } = require('./numero-de-caso');
+                    const codRespuesta = numeroDeCasoEnTexto(textoFinal);
                     if (codRespuesta) {
                         const c = await buscarCasoPorCodigo(codRespuesta);
                         if (c?.edificio && enCarteraResp(c.edificio)) {

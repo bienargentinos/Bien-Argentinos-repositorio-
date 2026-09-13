@@ -123,15 +123,16 @@ console.log('\n── CÓMO CONTESTA EL TÉCNICO DE QUÉ CASO ES ──');
     // dígito). La factura terminó abriendo el CASO-1002 al lado del caso que él acababa de
     // nombrar, en el mismo edificio y con el mismo técnico.
     //
-    // La condición se lee del propio index.js para que la prueba valide el código real.
-    const fs = require('fs');
-    const path = require('path');
-    const SRC = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
-    const ini = SRC.indexOf('const codRespuesta =');
-    if (ini === -1) throw new Error('No encontré `codRespuesta` en index.js.');
-    const fin = SRC.indexOf(';\n', ini);
-    // eslint-disable-next-line no-new-func
-    const codigo = new Function('textoFinal', `${SRC.slice(ini, fin + 1)}; return codRespuesta;`);
+    // Antes esta prueba LEÍA la condición de `index.js` y la evaluaba con `new Function`, para
+    // validar el código real y no una copia. Dejó de servir cuando la lectura se mudó a su propio
+    // archivo: la línea scrapeada pasó a ser una llamada, y evaluarla suelta no tenía el `require`
+    // en alcance. Ahora se llama a la función de verdad, que es más simple y prueba lo mismo.
+    //
+    // Se mudó porque el MISMO defecto apareció en el selector de reclamo resuelto (13/09): ahí
+    // había otro lector, que no entendía "1002 caso", y el caso quedó abierto hasta que la cadena
+    // de seguimiento le mandó un mail al administrador. Dos copias del mismo criterio es lo que
+    // pasó con `buscarPerfilEdificio`.
+    const { numeroDeCasoEnTexto: codigo } = require('./numero-de-caso');
 
     console.log('  · el número lo entiende venga como venga');
     for (const t of [
@@ -144,11 +145,11 @@ console.log('\n── CÓMO CONTESTA EL TÉCNICO DE QUÉ CASO ES ──');
     console.log('  · y no inventa uno donde no lo hay');
     // Un monto, un número de factura o una cantidad no son un número de caso. Confundirlos manda
     // el gasto a un caso que no existe o, peor, a uno ajeno.
-    verificar('"San Patricio 270"', codigo('San Patricio 270'), undefined);
-    verificar('"son 45000 pesos"', codigo('son 45000 pesos'), undefined);
-    verificar('"factura 0001-284"', codigo('factura 0001-284'), undefined);
-    verificar('"gracias, saludos"', codigo('gracias, saludos'), undefined);
-    verificar('"el 2" (esa la resuelve la lista, no esta)', codigo('el 2'), undefined);
+    verificar('"San Patricio 270"', codigo('San Patricio 270'), null);
+    verificar('"son 45000 pesos"', codigo('son 45000 pesos'), null);
+    verificar('"factura 0001-284"', codigo('factura 0001-284'), null);
+    verificar('"gracias, saludos"', codigo('gracias, saludos'), null);
+    verificar('"el 2" (esa la resuelve la lista, no esta)', codigo('el 2'), null);
 }
 
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);
