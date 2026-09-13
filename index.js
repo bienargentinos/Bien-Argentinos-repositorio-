@@ -3096,11 +3096,32 @@ function validarYSanitizarNombre(nombre) {
                             }
                             console.log(`✏️ ${datosEmisor.nombre || from} corrigió el caso: ${antes} → ${casoDicho.id_evento}. Se aplica.`);
 
+                            // Cuál factura. Daniel manda varias de una sola vez y puede tener que
+                            // corregir más de una: *"¿cómo corrijo otras si solo colocás la última
+                            // para corregir?"*. Si nombra el comprobante se mueve ESE; si no, la
+                            // última, que es la que se está discutiendo.
+                            const { numeroDeFacturaEnTexto } = require('./numero-de-caso');
                             const movida = await reimputarUltimaFacturaAlCaso({
                                 proveedor: datosEmisor.nombre || '',
                                 idEvento: casoDicho.id_evento,
                                 edificio: casoDicho.edificio || '',
+                                numeroFactura: numeroDeFacturaEnTexto(textoFinal) || '',
                             });
+
+                            // El número que dijo coincide con más de una de sus facturas. No se
+                            // mueve ninguna: elegir mal manda el gasto al consorcio equivocado.
+                            if (movida?.ambiguas) {
+                                const lista = movida.ambiguas
+                                    .map(f => `• N° ${f.numero}${f.edificio ? ` — ${f.edificio}` : ''}${f.id_evento ? ` (hoy en ${f.id_evento})` : ''}`)
+                                    .join('\n');
+                                const resp = `Tengo más de una factura tuya que termina así, ${datosEmisor.nombre || ''}:\n\n${lista}\n\n` +
+                                    `¿Cuál de esas va al *${casoDicho.id_evento}*? Decime el número completo y la muevo.`;
+                                await despacharRespuesta(recipient, resp, msgTypeRespuesta);
+                                historial.push(`Marcos: ${resp}`);
+                                console.log(`🧾❓ ${datosEmisor.nombre || from} nombró un comprobante que coincide con ${movida.ambiguas.length} facturas suyas: se pregunta cuál.`);
+                                return;
+                            }
+
                             if (movida) {
                                 const resp = `Corregido, ${datosEmisor.nombre || ''}. Pasé la factura ` +
                                     `${movida.numero ? `N° ${movida.numero} ` : ''}del ${movida.desde} al ` +

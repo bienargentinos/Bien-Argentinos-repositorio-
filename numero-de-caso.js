@@ -101,4 +101,46 @@ function casoElegidoDeLista(respuesta, casos, codigoDe = (c) => c && c.id_evento
     return null;
 }
 
-module.exports = { numeroDeCasoEnTexto, casoElegidoDeLista };
+/**
+ * El número de COMPROBANTE que nombra el texto, cuando además nombra un caso.
+ *
+ * > [!CAUTION]
+ * > **Un número de factura y un número de caso se parecen: los dos son de tres o cuatro dígitos.**
+ * > En *"la 639 es del 1002"* hay uno de cada uno, y confundirlos manda el gasto al consorcio
+ * > equivocado.
+ *
+ * Existe porque Daniel manda varias facturas de una sola vez y puede tener que corregir más de una:
+ * *"¿cómo corrijo otras si solo colocás la última para corregir?"*. Nombrar el comprobante es la
+ * forma de elegir cuál.
+ *
+ * > [!CAUTION]
+ * > **Se exige que el texto DIGA que es una factura**, y no es exceso de cuidado: la primera versión
+ * > buscaba "cualquier otro número que no sea el del caso", y en *"no, 1002 es el caso no el 1003"*
+ * > leyó **1003 como número de comprobante** cuando es el caso que él está rechazando. Con eso no
+ * > habría movido nada, en la frase más natural de todas.
+ *
+ * Con la palabra exigida, un falso positivo es casi imposible. El precio es que *"la 639 es del caso
+ * 1002"* no nombra factura y se mueve la última — y como Marcos contesta **cuál** movió, él puede
+ * corregir otra vez diciendo "la factura 639". Ese error se ve y se deshace.
+ *
+ * Devuelve `null` cuando el texto no nombra un comprobante, que es el caso normal.
+ */
+function numeroDeFacturaEnTexto(texto) {
+    const t = String(texto || '');
+    if (!t.trim()) return null;
+
+    // La palabra tiene que estar, y el número cerca: antes o después.
+    const PISTA = 'factura|comprobante|recibo|remito|n[°º]|nro|n[uú]mero';
+    const crudo =
+        (t.match(new RegExp(`\\b(?:${PISTA})\\b[^\\d]{0,12}([\\d.\\-/]{3,})`, 'i')) || [])[1]
+        || (t.match(new RegExp(`([\\d.\\-/]{3,})[^\\d]{0,12}\\b(?:${PISTA})\\b`, 'i')) || [])[1];
+
+    const limpio = String(crudo || '').replace(/\D/g, '').replace(/^0+/, '');
+    if (limpio.length < 3) return null;
+
+    // Si lo que se leyó es el número del caso, no es un comprobante: pasa en "el caso 1002" cuando
+    // la palabra "factura" anda cerca en la misma frase.
+    return limpio === numeroDeCasoEnTexto(t) ? null : limpio;
+}
+
+module.exports = { numeroDeCasoEnTexto, casoElegidoDeLista, numeroDeFacturaEnTexto };

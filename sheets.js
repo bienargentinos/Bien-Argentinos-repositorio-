@@ -1969,12 +1969,26 @@ async function buscarFacturasSinImputar({ proveedor }) {
  * del proveedor por materiales y la otra por el arreglo generada por mí"*. El gasto de un consorcio
  * queda mal atribuido y nadie lo nota hasta comparar con los papeles.
  *
- * Solo mueve **la última** factura de ese proveedor, que es la que se está discutiendo, y deja dicho
- * en el log de dónde a dónde. Mover más de una por una corrección sería adivinar.
+ * > [!CAUTION]
+ * > **No alcanza con mover "la última".** Daniel manda varias facturas de una sola vez, y puede
+ * > tener que corregir más de una: *"¿cómo corrijo otras si solo colocás la última para
+ * > corregir?"*. Con "la última" las demás quedaban sin forma de arreglarse.
  *
- * @returns {object|null} `{ numero, desde, hacia, edificio }` de lo que movió, o `null`.
+ * Entonces se puede nombrar el comprobante: `numeroFactura` identifica cuál mover. Es el dato que el
+ * técnico tiene a mano, porque está impreso en el PDF que mandó. Sin número se mueve la última, que
+ * es la que se está discutiendo.
+ *
+ * El número se compara **ignorando los ceros de adelante**, igual que la deduplicación: `0001-639` y
+ * `00001-00000639` son el mismo comprobante. Y se acepta que nombre solo el final ("la 639"), que es
+ * como lo dice una persona.
+ *
+ * > Si lo que nombra coincide con MÁS DE UNA de sus facturas, no se mueve ninguna: se devuelven las
+ * > candidatas para que Marcos pregunte. Elegir mal manda el gasto al consorcio equivocado.
+ *
+ * @returns {object|null} `{ numero, desde, hacia, edificio }` de lo que movió,
+ *   `{ ambiguas: [...] }` si hay que preguntar, o `null`.
  */
-async function reimputarUltimaFacturaAlCaso({ proveedor, idEvento, edificio = '' }) {
+async function reimputarUltimaFacturaAlCaso({ proveedor, idEvento, edificio = '', numeroFactura = '' }) {
     try {
         const prov = String(proveedor || '').toLowerCase().trim();
         const destino = String(idEvento || '').trim();
@@ -1992,9 +2006,37 @@ async function reimputarUltimaFacturaAlCaso({ proveedor, idEvento, edificio = ''
         });
         if (!suyas.length) return null;
 
-        // La última cargada es la que se está discutiendo. No se busca "la del caso equivocado":
-        // el caso equivocado puede tener varias, y mover la que no es empeora las cosas.
-        const fila = suyas[suyas.length - 1];
+        // Mismo criterio que la deduplicación: sin separadores y sin ceros de adelante.
+        const comparable = (n) => String(n || '').replace(/\D/g, '').replace(/^0+/, '');
+        const buscado = comparable(numeroFactura);
+
+        let fila;
+        if (buscado) {
+            // Exacto primero. Si no, que el número de la factura TERMINE con lo que dijo: una
+            // persona dice "la 639", no "la 00001-00000639".
+            const exactas = suyas.filter(r => comparable(r.get('numero_factura')) === buscado);
+            const porElFinal = exactas.length ? exactas
+                : suyas.filter(r => {
+                    const c = comparable(r.get('numero_factura'));
+                    return c && buscado.length >= 3 && c.endsWith(buscado);
+                });
+
+            if (porElFinal.length > 1) {
+                return {
+                    ambiguas: porElFinal.map(r => ({
+                        numero: String(r.get('numero_factura') || '').trim(),
+                        edificio: String(r.get('edificio') || '').trim(),
+                        id_evento: String(r.get('id_evento') || '').trim(),
+                    })),
+                };
+            }
+            if (!porElFinal.length) return null;
+            fila = porElFinal[0];
+        } else {
+            // Sin número, la última cargada es la que se está discutiendo. No se busca "la del caso
+            // equivocado": ese caso puede tener varias y mover la que no es empeora las cosas.
+            fila = suyas[suyas.length - 1];
+        }
         const desde = String(fila.get('id_evento') || '').trim();
         if (desde && desde.toUpperCase() === destino.toUpperCase()) return null;   // ya estaba bien
 

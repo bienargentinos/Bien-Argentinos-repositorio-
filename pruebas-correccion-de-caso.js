@@ -40,7 +40,9 @@ const dt = fs.readFileSync(path.join(__dirname, 'datos.js'), 'utf8');
 const rama = (() => {
     const i = idx.indexOf("ruteoIA?.intencion === 'corrige_a_marcos'");
     assert.ok(i !== -1, 'no existe la rama que atiende la corrección');
-    return idx.slice(i - 2200, i + 3500);
+    // Ventana holgada a propósito: la rama lleva mucho comentario explicando el caso real, y una
+    // ventana justa hacía fallar estas pruebas con el código ya arreglado.
+    return idx.slice(i - 2500, i + 6000);
 })();
 
 console.log('\n── LA CORRECCIÓN TIENE UNA RAMA DE CÓDIGO ──');
@@ -96,13 +98,60 @@ prueba('la comprobación de "es suyo" puede usar el teléfono', () => {
     assert.ok(/tel_tecnico/.test(rama), 'y la rama tiene que usarlo');
 });
 
+console.log('\n── CUÁL FACTURA: PUEDE HABER MANDADO VARIAS ──');
+
+const { numeroDeFacturaEnTexto } = require('./numero-de-caso');
+
+prueba('nombrando el comprobante, se elige ese', () => {
+    // Daniel: *"¿cómo corrijo otras si solo colocás la última para corregir?"*. Con "la última" las
+    // demás de una tanda quedaban sin forma de arreglarse.
+    assert.strictEqual(numeroDeFacturaEnTexto('la factura 639 es del caso 1002'), '639');
+    assert.strictEqual(numeroDeFacturaEnTexto('el comprobante 00001-00000639 va al caso 1002'), '100000639');
+    assert.strictEqual(numeroDeFacturaEnTexto('caso 1002, recibo 639'), '639');
+});
+
+prueba('el caso que RECHAZA no se confunde con una factura', () => {
+    // > La primera versión buscaba "cualquier otro número que no sea el del caso", y en esta frase
+    // > leía 1003 como comprobante. Con eso no habría movido nada, en la frase más natural de todas.
+    assert.strictEqual(numeroDeFacturaEnTexto('no, 1002 es el caso no el 1003'), null);
+    assert.strictEqual(numeroDeFacturaEnTexto('1002 es el caso'), null);
+});
+
+prueba('sin la palabra "factura" no se adivina', () => {
+    // "la 639 es del caso 1002" no nombra comprobante: se mueve la última, y como Marcos contesta
+    // CUÁL movió, él puede corregir de nuevo nombrándola. Ese error se ve y se deshace.
+    assert.strictEqual(numeroDeFacturaEnTexto('la 639 es del caso 1002'), null);
+});
+
+prueba('la rama le pasa el número a la función que mueve', () => {
+    assert.ok(/numeroFactura: numeroDeFacturaEnTexto\(textoFinal\)/.test(rama),
+        'sin esto, nombrar el comprobante no sirve de nada');
+});
+
+prueba('si el número coincide con varias, se pregunta', () => {
+    assert.ok(/movida\?\.ambiguas/.test(rama), 'falta atender el caso ambiguo');
+    assert.ok(/Cuál de esas va al/.test(rama), 'hay que mostrarle las candidatas');
+    const i = sh.indexOf('async function reimputarUltimaFacturaAlCaso');
+    const fn = sh.slice(i, sh.indexOf('\n}\n\nasync function imputarFacturaSinEdificio', i));
+    assert.ok(/ambiguas:/.test(fn), 'la función tiene que devolver las candidatas sin mover nada');
+});
+
 console.log('\n── MOVER LA FACTURA ──');
 
-prueba('solo mueve UNA, la última de ese proveedor', () => {
+prueba('sin número nombrado, mueve la última de ese proveedor', () => {
     const i = sh.indexOf('async function reimputarUltimaFacturaAlCaso');
     const fn = sh.slice(i, sh.indexOf('\n}\n\nasync function imputarFacturaSinEdificio', i));
     assert.ok(/suyas\[suyas\.length - 1\]/.test(fn),
-        'mover más de una por una corrección sería adivinar');
+        'sin comprobante nombrado, la última es la que se está discutiendo');
+    assert.ok(/comparable\(numeroFactura\)/.test(fn),
+        'y con comprobante nombrado tiene que buscar ESE');
+});
+
+prueba('el número se compara sin ceros de adelante, igual que la deduplicación', () => {
+    const i = sh.indexOf('async function reimputarUltimaFacturaAlCaso');
+    const fn = sh.slice(i, sh.indexOf('\n}\n\nasync function imputarFacturaSinEdificio', i));
+    assert.ok(/replace\(\/\^0\+\/, ''\)/.test(fn), '0001-639 y 00001-00000639 son el mismo');
+    assert.ok(/endsWith\(buscado\)/.test(fn), 'una persona dice "la 639", no el número completo');
 });
 
 prueba('si ya estaba en el caso bueno, no escribe', () => {
