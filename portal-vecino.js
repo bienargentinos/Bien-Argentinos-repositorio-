@@ -3882,6 +3882,14 @@ router.get('/api/pases-qr', async (req, res) => {
 router.post('/api/pases-qr', async (req, res) => {
   try {
     const v = getVecinoSession(req);
+
+    // Control estricto de seguridad: Solo vecinos confirmados con edificio asignado pueden crear pases
+    if (!v || !v.edificio || !v.edificio.trim() || (v.unidades && v.unidades.length === 0)) {
+      return res.status(403).json({
+        ok: false,
+        error: 'Acceso denegado: Necesit??s tener una unidad y edificio asignado y confirmado para emitir pases de ingreso.'
+      });
+    }
     const {
       nombre_invitado,
       motivo = 'Visita',

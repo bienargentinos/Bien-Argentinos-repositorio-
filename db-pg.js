@@ -1405,12 +1405,12 @@ async function validarConsumirPaseQR(rawToken, edificio) {
 
     const pase = res.rows[0];
 
-    // Verificar edificio si se provee
+    // Verificaci??n estricta can??nica de edificio (Anti-intrusi??n entre consorcios)
     if (edificio && pase.edificio) {
-        const edPase = pase.edificio.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const edReq = edificio.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (edPase && edReq && !edPase.includes(edReq) && !edReq.includes(edPase)) {
-            return { valido: false, resultado: 'rechazado_invalido', mensaje: `Este pase corresponde al edificio ${pase.edificio}`, pase };
+        const edPase = pase.edificio.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const edReq = edificio.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (edPase !== edReq) {
+            return { valido: false, resultado: 'rechazado_invalido', mensaje: `Pase no autorizado para este edificio (Emitido para: ${pase.edificio})`, pase };
         }
     }
 
