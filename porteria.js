@@ -1205,8 +1205,8 @@ function registrarAperturaPuerta(edificio, motivo, depto) {
 // Endpoint para validar código QR escaneado por la cámara del tótem
 router.post('/api/validar-qr', async (req, res) => {
   try {
-    const { token, codigo, qr, edificio, fotoSeguridad, foto_seguridad, foto } = req.body || {};
-    const rawQr = String(qr || token || codigo || '').trim();
+    const { token, codigo, qr, codigo_qr, edificio, fotoSeguridad, foto_seguridad, foto } = req.body || {};
+    const rawQr = String(qr || token || codigo || codigo_qr || '').trim();
     const fotoFinal = foto || fotoSeguridad || foto_seguridad || null;
 
     if (!rawQr) {
