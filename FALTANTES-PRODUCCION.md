@@ -30,9 +30,18 @@ Tesis de Daniel, que manda sobre todas las decisiones de producto: *"lo importan
 trabaje como si fuera yo, con empatía, carácter, calidad, conocimiento y lógica, más que nada con
 contexto"*.
 
-**Estado real**: funciona en producción, con usuarios reales, y lleva unos cuarenta defectos
-encontrados y corregidos, cada uno con su prueba. Lo que está atrasado no es el código: es lo que lo
-rodea.
+**Estado real**: funciona en el VPS y lleva unos cuarenta defectos encontrados y corregidos, cada uno
+con su prueba. Lo que está atrasado no es el código: es lo que lo rodea.
+
+> [!IMPORTANT]
+> **Todavía NO hay clientes suscritos ni datos de personas reales: todo lo cargado es ficticio.**
+> Eso baja la urgencia de casi toda esta lista, y hay que leerla con eso puesto. Lo que no cambia es
+> el orden: **cada uno de estos puntos es más barato de arreglar hoy, con la base vacía, que el día
+> que haya once administradores y sus vecinos adentro.** El respaldo con la base vacía es un script
+> de diez líneas; con dos años de historial, audios y fotos, es un proyecto.
+>
+> La única excepción, porque existe físicamente: el prototipo del timbre con el relé en una puerta
+> real. Ahí no hay dato ficticio posible — la puerta se abre o no se abre.
 
 ## Cómo se trabaja acá (obligatorio)
 

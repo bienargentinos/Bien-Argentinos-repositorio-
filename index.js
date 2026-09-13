@@ -5387,10 +5387,14 @@ const dashboard = require('./dashboard');
 app.use('/admin', dashboard);
 
 // API Alias con CORS habilitado para EDIFICA (App Móvil / Web)
+//
+// `X-Edifica-Key` tiene que estar en los encabezados permitidos o el navegador corta el pedido en
+// el preflight, antes de que llegue acá, y desde la app se vería como un error de red sin
+// explicación. El control de la clave vive en `clave-app.js`, aplicado en `requireAuth`.
 app.use('/api/pases-qr', (req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Edifica-Key');
     if (req.method === 'OPTIONS') return res.sendStatus(200);
     req.url = '/api/pases-qr' + (req.url === '/' ? '' : req.url);
     dashboard(req, res, next);

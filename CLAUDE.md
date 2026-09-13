@@ -1067,6 +1067,58 @@ control vaya como **primer** manejador de la ruta, y que nadie vuelva a escribir
 su cuenta en otro archivo — que es exactamente lo que pasó con `buscarPerfilEdificio`, donde arreglar
 una de las dos copias no cambió nada en producción.
 
+## Una app sin sesión no es una razón para sacar el control de acceso
+
+> [!CAUTION]
+> **`/api/pases-qr` quedó abierto a internet, y eso es la puerta de calle de un edificio.**
+
+El commit decía `fix: permitir acceso a /api/pases-qr sin sesion web de dashboard para EdificaApp` y
+eran cuatro líneas dentro de `requireAuth`:
+
+```js
+if (req.path === '/api/pases-qr' || req.path.startsWith('/api/pases-qr/')) {
+    return next();
+}
+```
+
+El pedido era razonable --una app móvil no tiene sesión de navegador-- y sacar el control es la
+forma más rápida de que funcione. Lo que quedó:
+
+| Endpoint | Qué podía hacer cualquiera |
+|---|---|
+| `POST /api/pases-qr` | **Crear** un pase para el edificio que quisiera: el edificio viene en el cuerpo y no se valida contra ningún permiso. Con `tipo_pase: "recurrente"` dura **seis meses**, y `valido_hasta` acepta cualquier fecha. |
+| `GET /api/pases-qr` | **Leer** los últimos 150 pases de TODOS los edificios, **con sus tokens**. Ni hacía falta crear uno: alcanzaba con usar los que ya funcionaban. De paso salían nombres de visitantes y departamentos. |
+| `POST /api/pases-qr/revocar` | **Revocar** pases ajenos, o sea dejar afuera a la persona de limpieza. |
+
+Y en `index.js` hay `Access-Control-Allow-Origin: *` sobre esa ruta, así que todo eso se podía hacer
+desde cualquier página web.
+
+**Cómo quedó**: la app manda `X-Edifica-Key` y el servidor la exige cuando no hay sesión del panel
+(`clave-app.js`). La sesión del navegador entra como siempre. El volcado sin `edificio` queda **solo**
+para una sesión: la clave de la app es compartida y no identifica a ningún cliente, así que a la app
+se le exige decir de qué edificio pregunta.
+
+> [!CAUTION]
+> **Sin `EDIFICA_API_KEY` configurada se RECHAZA, al revés que el webhook de Meta.** No es una
+> inconsistencia: es la misma pregunta con la respuesta al revés. En el webhook, fallar cerrado deja
+> a Marcos sordo y fallar abierto cuesta un mensaje falso. Acá, fallar abierto es la puerta de un
+> edificio abierta a internet y fallar cerrado cuesta que una app en desarrollo no funcione hasta
+> configurar la variable. **De los dos errores se elige el que se puede deshacer.**
+
+**Lo que esto NO resuelve, y hay que decirlo**: la clave es compartida y viaja dentro de la app, así
+que quien la extrae puede crear pases para **cualquier** edificio. Cierra la puerta a internet, no la
+cierra a alguien decidido. Lo correcto es que el vecino se autentique y solo pueda pedir pases de
+**su** unidad, y eso es el pendiente de "Auth real". Hasta entonces esto es un tapón, no una cerradura.
+
+Prueba: `node pruebas-clave-app.js`, con un candado que detecta si vuelve el `return next()` directo.
+
+> [!CAUTION]
+> **`POST /porteria/api/puerta/abrir` ABRE LA PUERTA con solo el nombre del edificio en el cuerpo, y
+> no tiene ninguna autenticación.** Ni hace falta un QR. Es del prototipo del timbre, que Daniel
+> decidió tener como laboratorio abierto a propósito hasta dar de alta el servicio, así que **no se
+> tocó**. Queda escrito acá porque es más directo que todo lo de arriba y no puede quedar prendido
+> cuando esto salga a la calle.
+
 ### Pedirle a un archivo una función que no exporta NO da error al cargar
 
 > [!CAUTION]

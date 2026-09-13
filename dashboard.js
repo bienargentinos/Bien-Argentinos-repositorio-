@@ -981,10 +981,30 @@ function dibujarConsumoHtml(nombre, plan, eventos, opts = {}) {
  * AUTH / ROLES / PREVIEW
  * =================================================================== */
 
+const haySesionDelPanel = (req) => Boolean(req.session && req.session.authed);
+
+// LA APP DE EDIFICA ENTRA CON UNA CLAVE, NO SIN CONTROL.
+//
+// > [!CAUTION]
+// > **Acá había cuatro líneas que dejaban pasar `/api/pases-qr` sin ninguna autenticación**, para
+// > que funcionara desde EdificaApp, que no tiene sesión de navegador. Con eso, cualquiera en
+// > internet podía crear un pase de acceso para el edificio que quisiera (el edificio viene en el
+// > cuerpo del pedido), leer los últimos 150 pases de TODOS los edificios con sus tokens, y revocar
+// > pases ajenos. Con `Access-Control-Allow-Origin: *` encima, desde cualquier página web.
+//
+// El detalle de por qué la clave se compara así, y por qué sin la variable configurada se RECHAZA
+// --al revés que el webhook de Meta--, está en `clave-app.js`.
+const { exigirSesionOClaveDeApp } = require('./clave-app');
+const claveDeEdifica = exigirSesionOClaveDeApp({
+  clave: process.env.EDIFICA_API_KEY,
+  haySesion: haySesionDelPanel,
+  nombre: 'pases QR',
+});
+
 function requireAuth(req, res, next) {
-  // Las llamadas al endpoint público de pases QR desde Edifica o Apps externas se autorizan directamente
+  // Los pases de acceso los puede pedir la app, pero con su clave.
   if (req.path === '/api/pases-qr' || req.path.startsWith('/api/pases-qr/')) {
-    return next();
+    return claveDeEdifica(req, res, next);
   }
   if (req.session && req.session.authed) return next();
   if (req.headers.accept && req.headers.accept.includes('application/json')) {
@@ -13940,6 +13960,23 @@ router.get('/api/pases-qr', async (req, res) => {
   try {
     const { edificio, depto } = req.query || {};
     const { listarPasesEdificio, pool } = require('./db-pg');
+
+    // > [!CAUTION]
+    // > **Sin `edificio`, esta consulta devolvía los últimos 150 pases de TODOS los edificios, con
+    // > sus tokens.** Cuando el endpoint estaba sin autenticación eso era el agujero más directo de
+    // > todos: para entrar a un edificio no hacía falta crear un pase, alcanzaba con leer uno que ya
+    // > funcionaba. Y de paso salían nombres de visitantes y departamentos, que son datos de
+    // > personas que nunca aceptaron nada.
+    //
+    // El volcado completo queda SOLO para una sesión del panel. La app tiene que decir de qué
+    // edificio pregunta: su clave es compartida y no identifica a ningún cliente en particular.
+    if (req.esAppExterna && (!edificio || edificio === 'todos')) {
+      return res.status(400).json({
+        ok: false,
+        error: 'falta_edificio',
+        mensaje: 'La app tiene que indicar de qué edificio pide los pases.',
+      });
+    }
 
     let pases = [];
     if (edificio && edificio !== 'todos') {
