@@ -478,6 +478,27 @@ async function desmarcarEntregasAlTecnico(id_evento) {
     return res;
 }
 
+/**
+ * Anota que Meta rechazó un envío a este caso, con la hora.
+ *
+ * Va junto con `desmarcarEntregasAlTecnico` y no en su lugar: borrar la marca sirve cuando el aviso
+ * de Meta llega después de escribirla, y esta fecha cubre el caso contrario --que es el que se vio
+ * en producción--. El detalle de la carrera está en `entregaSigueValida`, en `sheets.js`.
+ */
+async function marcarEntregaRebotada(id_evento, rebotado = true) {
+    const res = await sheets.marcarEntregaRebotada(id_evento, rebotado);
+    if (id_evento) {
+        copiarAPg(`el rebote de entrega de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET entrega_rebotada = $2 WHERE codigo_caso = $1`,
+                [id_evento, rebotado ? fechaHoraAR() : null]
+            );
+        });
+    }
+    return res;
+}
+
 async function fueMaterialEnviadoATecnico(id_evento) {
     return sheets.fueMaterialEnviadoATecnico(id_evento);
 }
@@ -620,6 +641,7 @@ module.exports = {
     fueContactoAccesoAvisado,
     marcarMaterialEnviadoATecnico,
     desmarcarEntregasAlTecnico,
+    marcarEntregaRebotada,
     fueMaterialEnviadoATecnico,
     marcarCasoResueltoPorId,
     guardarLlamada,

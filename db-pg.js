@@ -535,6 +535,15 @@ async function _initPgSchema() {
             -- un comentario SQL cierra la cadena y rompe el archivo entero. Aca paso, y el
             -- verificador no lo vio porque db-pg.js no estaba en su lista de node --check.
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS foto_url TEXT;
+            -- Cuando Meta rechazo por ultima vez un envio a este tecnico (ventana de 24hs cerrada).
+            -- Borrar las marcas de entrega al recibir el rechazo es una CARRERA: el aviso de Meta
+            -- llega segundos despues del envio y la marca se escribe justo despues de que Meta
+            -- acepta el pedido. Si el rechazo llega primero, el borrado no encuentra nada, la marca
+            -- se escribe igual, y queda diciendo "entregado" para siempre. Visto en produccion: el
+            -- contacto de ingreso del CASO-1002 nunca le llego al tecnico aunque lo pidio tres
+            -- veces. Con la fecha del rebote anotada, la comparacion se hace al reintentar y el
+            -- orden deja de importar.
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS entrega_rebotada VARCHAR(100);
 
             -- La lista maestra de proveedores de la planilla tiene "edificio".
             ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS edificio VARCHAR(150);

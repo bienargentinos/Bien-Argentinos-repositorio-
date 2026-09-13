@@ -1544,7 +1544,9 @@ async function fueContactoAccesoAvisado(id_evento) {
         if (!sheet) return false;
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
-        return !!(row && row.get('contacto_acceso_avisado'));
+        // No alcanza con que la marca exista: si Meta rechazó algo DESPUÉS de ponerla,
+        // la entrega no ocurrió. Ver `entregaSigueValida`.
+        return !!(row && entregaSigueValida(row, 'contacto_acceso_avisado'));
     } catch (err) {
         console.error('Error chequeando contacto_acceso_avisado:', err.message);
         return false;
@@ -1582,7 +1584,9 @@ async function fueMaterialEnviadoATecnico(id_evento) {
         if (!sheet) return false;
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
-        return !!(row && row.get('material_enviado_tecnico'));
+        // No alcanza con que la marca exista: si Meta rechazó algo DESPUÉS de ponerla,
+        // la entrega no ocurrió. Ver `entregaSigueValida`.
+        return !!(row && entregaSigueValida(row, 'material_enviado_tecnico'));
     } catch (err) {
         console.error('Error chequeando material_enviado_tecnico:', err.message);
         return false;
@@ -1624,6 +1628,65 @@ async function marcarMaterialEnviadoATecnico(id_evento) {
  * Borrar la marca cuesta, como mucho, un envío repetido. No borrarla deja al técnico sin la foto
  * para siempre, que es el error caro.
  */
+/**
+ * Si una marca de entrega sigue valiendo, o si Meta rechazó algo DESPUÉS de haberla puesto.
+ *
+ * > [!CAUTION]
+ * > **Borrar las marcas al recibir el rechazo es una CARRERA, y se puede perder.** El aviso de Meta
+ * > llega segundos después del envío, y la marca se escribe justo después de que Meta **acepta** el
+ * > pedido. Si el rechazo llega primero, el borrado no encuentra nada que borrar y la marca se
+ * > escribe igual: queda diciendo "entregado" para siempre.
+ *
+ * Visto en producción (13/09): el contacto de ingreso del CASO-1002 nunca le llegó al técnico,
+ * aunque lo pidió tres veces y hubo tres rechazos con 131047. En el log el borrado alcanzó al
+ * CASO-1001 y no al 1002, porque cuando llegó el aviso el 1002 todavía no tenía la marca puesta.
+ *
+ * > [!CAUTION]
+ * > **Comparar las dos fechas NO alcanza, y probarlo lo demostró.** La marca queda unos segundos
+ * > *después* del rebote --porque el aviso de Meta llega entre el envío y la escritura de la
+ * > marca--, así que "la marca es más nueva que el rebote" daría por entregado justo el caso que se
+ * > quiere atrapar. Y separar los dos casos por la diferencia de segundos sería un número mágico.
+ *
+ * Entonces la regla no mira fechas: **el rebote invalida hasta que una entrega buena lo limpia.**
+ * `entregarPendientesAlTecnico` borra la marca de rebote recién cuando no quedó nada pendiente, o
+ * sea cuando todo salió de verdad. La fecha se guarda igual, para poder diagnosticar después.
+ *
+ * Así el orden deja de importar: si el aviso llega antes de la marca, el rebote queda puesto y la
+ * marca no vale; si llega después, además se borran las marcas. Los dos caminos terminan igual.
+ */
+function entregaSigueValida(row, columnaMarca) {
+    const marca = String(row.get(columnaMarca) || '').trim();
+    if (!marca) return false;
+    // Mientras haya un rebote sin limpiar, lo marcado no cuenta como entregado.
+    return !String(row.get('entrega_rebotada') || '').trim();
+}
+
+/**
+ * Anota o limpia el rebote de entrega de un caso. Ver `entregaSigueValida`.
+ * @param {boolean} rebotado `true` cuando Meta rechazó; `false` cuando todo salió y hay que limpiar.
+ */
+async function marcarEntregaRebotada(id_evento, rebotado = true) {
+    if (!id_evento) return false;
+    try {
+        const doc = await getSheet();
+        const sheet = pestaña(doc, 'EVENTOS');
+        if (!sheet) return false;
+        await asegurarColumnas(sheet, ['entrega_rebotada'], 'EVENTOS');
+        const rows = await sheet.getRows();
+        const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
+        if (!row) return false;
+        // Limpiar cuando ya estaba limpio no vale un viaje a Google: esto corre en cada mensaje
+        // entrante del proveedor.
+        if (!rebotado && !String(row.get('entrega_rebotada') || '').trim()) return false;
+        row.set('entrega_rebotada', rebotado ? fechaHoraAR() : '');
+        await row.save();
+        return true;
+    } catch (err) {
+        console.error('Error anotando el rebote de entrega:', err.message);
+        return false;
+    }
+}
+
 async function desmarcarEntregasAlTecnico(id_evento) {
     if (!id_evento) return false;
     try {
@@ -2498,6 +2561,7 @@ module.exports = {
     fueMaterialEnviadoATecnico,
     marcarMaterialEnviadoATecnico,
     desmarcarEntregasAlTecnico,
+    marcarEntregaRebotada,
     guardarFactura,
     casoYaTieneFactura,
     buscarFacturasProveedor,

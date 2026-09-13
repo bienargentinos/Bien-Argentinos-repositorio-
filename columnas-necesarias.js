@@ -22,6 +22,13 @@ module.exports = {
         // seguido: en RAM, un reinicio hace que se vuelva a mandar todo.
         'tecnico_notificado', 'admin_notificado', 'contacto_acceso_avisado',
         'material_enviado_tecnico', 'tecnico_confirmado', 'tecnico_eta',
+        // Cuándo Meta rechazó por última vez un envío a este técnico. Existe porque borrar las
+        // marcas de entrega al recibir el rechazo es una CARRERA: el aviso de Meta llega segundos
+        // después del envío y la marca se escribe justo después de que Meta acepta el pedido. Si el
+        // rechazo llega primero, el borrado no encuentra nada y la marca se escribe igual, diciendo
+        // "entregado" para siempre. Anotando la fecha del rebote, la comparación se hace al
+        // reintentar y el orden deja de importar.
+        'entrega_rebotada',
         // El seguimiento: sin esto nadie vuelve a preguntar si el técnico fue.
         'proximo_seguimiento', 'seguimiento_paso', 'seguimiento_nota',
     ],

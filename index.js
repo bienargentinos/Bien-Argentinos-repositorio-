@@ -501,17 +501,35 @@ app.post('/webhook', firmaDeMeta, async (req, res) => {
                     try {
                         const { normalizarTelefonoWhatsApp } = require('./agentes/marcos-ops');
                         const tel = normalizarTelefonoWhatsApp(st.recipient_id);
-                        const { buscarRolPorTelefono, buscarCasosRecientesPorTecnico, desmarcarEntregasAlTecnico } = require('./datos');
+                        const { buscarRolPorTelefono, buscarCasosRecientesPorTecnico,
+                                desmarcarEntregasAlTecnico, marcarEntregaRebotada } = require('./datos');
                         const quien = await buscarRolPorTelefono(tel);
                         if (quien?.rol === 'proveedor') {
                             const casos = (await buscarCasosRecientesPorTecnico(quien.nombre, tel, 7)) || [];
                             for (const c of casos.filter(c => c.id_evento && !c.cerrado)) {
-                                if (await desmarcarEntregasAlTecnico(c.id_evento)) {
-                                    console.error(
-                                        `📎↩️ [${c.id_evento}] lo que se le había mandado a ${quien.nombre || tel} NO llegó. ` +
-                                        `Se borran las marcas de entrega: cuando conteste, se le manda de nuevo.`
-                                    );
-                                }
+                                // > [!CAUTION]
+                                // > **Borrar la marca NO alcanza, porque esto es una CARRERA.** El
+                                // > aviso de Meta llega segundos después del envío y la marca se
+                                // > escribe justo después de que Meta ACEPTA el pedido. Si el aviso
+                                // > llega primero, acá no hay nada que borrar y la marca se escribe
+                                // > igual: queda diciendo "entregado" para siempre.
+                                //
+                                // Visto en producción: el contacto de ingreso del CASO-1002 nunca le
+                                // llegó al técnico aunque lo pidió tres veces. El borrado alcanzó al
+                                // CASO-1001 --que ya tenía las marcas-- y no al 1002.
+                                //
+                                // Así que además se ANOTA la fecha del rebote. Eso convierte una
+                                // acción que depende del orden en un hecho con fecha: al reintentar
+                                // se compara, y da igual cuál llegó primero.
+                                await marcarEntregaRebotada(c.id_evento);
+                                const borradas = await desmarcarEntregasAlTecnico(c.id_evento);
+                                console.error(
+                                    `📎↩️ [${c.id_evento}] lo que se le había mandado a ${quien.nombre || tel} NO llegó. ` +
+                                    (borradas
+                                        ? `Se borran las marcas de entrega: cuando conteste, se le manda de nuevo.`
+                                        : `Todavía no había marcas puestas, así que queda anotado el rebote: ` +
+                                          `cualquier marca posterior a esta hora no cuenta como entregada.`)
+                                );
                             }
                         }
                     } catch (e) {
@@ -1082,6 +1100,23 @@ async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento
     } catch (e) {
         quedaPendiente = true;
         console.error('Error entregando el contacto de acceso pendiente al técnico:', e.message);
+    }
+
+    // ESTO ES LO QUE CIERRA EL CÍRCULO DEL REBOTE.
+    //
+    // Mientras `entrega_rebotada` tenga fecha, ninguna marca de entrega cuenta como entregada (ver
+    // `entregaSigueValida` en `sheets.js`). Se limpia acá, recién cuando no quedó nada pendiente, o
+    // sea cuando todo salió de verdad.
+    //
+    // Va al final y no en cada envío a propósito: la foto y el contacto salen uno atrás del otro, y
+    // limpiar después del primero dejaría valiendo la marca del segundo aunque ese rebotara.
+    if (!quedaPendiente) {
+        try {
+            const { marcarEntregaRebotada } = require('./datos');
+            if (await marcarEntregaRebotada(idEvento, false)) {
+                console.log(`📎🧹 [${idEvento}] se entregó todo lo que estaba pendiente: se limpia la marca de rebote.`);
+            }
+        } catch (e) { console.error('No se pudo limpiar la marca de rebote:', e.message); }
     }
 
     return quedaPendiente;
