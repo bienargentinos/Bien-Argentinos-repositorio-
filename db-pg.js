@@ -1385,7 +1385,7 @@ async function revocarPaseQR(tokenOrId, edificio = null) {
         params.push(String(tokenOrId).trim());
     }
     if (edificio) {
-        q += ` AND LOWER(TRIM(edificio)) = LOWER(TRIM(${params.length + 1}))`;
+        q += ` AND LOWER(TRIM(edificio)) = LOWER(TRIM($${params.length + 1}))`;
         params.push(edificio);
     }
     q += ` RETURNING *`;
@@ -1519,19 +1519,19 @@ async function obtenerEventosAcceso(filtros = {}) {
 
     if (edificio && edificio !== 'todos' && edificio !== 'Todos') {
         params.push(edificio);
-        q += ` AND LOWER(TRIM(edificio)) = LOWER(TRIM(${params.length}))`;
+        q += ` AND LOWER(TRIM(edificio)) = LOWER(TRIM($${params.length}))`;
     }
     if (desde) {
         params.push(desde);
-        q += ` AND fecha >= ${params.length}::timestamptz`;
+        q += ` AND fecha >= $${params.length}::timestamptz`;
     }
     if (hasta) {
         params.push(hasta);
-        q += ` AND fecha <= (${params.length}::timestamptz + INTERVAL '1 day')`;
+        q += ` AND fecha <= ($${params.length}::timestamptz + INTERVAL '1 day')`;
     }
     if (tipo_acceso) {
         params.push(tipo_acceso);
-        q += ` AND tipo_acceso = ${params.length}`;
+        q += ` AND tipo_acceso = $${params.length}`;
     }
 
     q += ` ORDER BY fecha DESC LIMIT ${Number(limite) || 100}`;
