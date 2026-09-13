@@ -1965,7 +1965,37 @@ function validarYSanitizarNombre(nombre) {
     // contrario. Cerrar un caso que sigue roto es peor que no cerrarlo: el vecino se queda sin
     // reclamo abierto justo cuando más lo necesita.
     const loNiega = /\bno\s+(se\s+|me\s+|lo\s+|la\s+)*(qued|resolv|solucion|arregl|funciona|anda|termin|finaliz|vino|pas[oó])/i.test(textoFinal);
-    const esGatilloResolucion = diceQueSeResolvio && !loNiega;
+
+    // > [!CAUTION]
+    // > **UN COMPROBANTE ADJUNTO MANDA SOBRE EL TEXTO QUE LO ACOMPAÑA.** Esta rama hace `return`, y
+    // > la lógica que archiva facturas vive ~350 líneas más abajo: un mensaje con texto Y adjunto
+    // > se resolvía por el texto y **el adjunto se perdía entero**.
+    //
+    // Caso real (13/09). El técnico mandó *"Ya resolví... Listo quedó funcionando, con materiales y
+    // todo"* junto con la factura. En el log el PDF se descargó y se guardó, y después no aparece
+    // NINGUNA línea `🧾` -- ni la de "tomado como comprobante" ni la de "NO se trató como factura",
+    // que sale siempre que hay adjunto. El comprobante N° 00001-00000639 nunca llegó a la planilla:
+    // quedó en el disco, en `documentos/`, como un archivo cualquiera.
+    //
+    // Y la misma rama causaba el otro síntoma que se vio desde afuera: cerraba un caso. Palabras de
+    // Daniel, describiendo lo que le pasa seguido: *"voy al edificio de al lado, justo sale el
+    // encargado y me dice podés ver esto, lo resuelvo, mando la factura… y no es del caso abierto,
+    // porque ese caso necesita material que no consigo. Marcos me puede cerrar un caso que no
+    // resolví"*.
+    //
+    // El adjunto se archiva primero y el texto se interpreta después. Perder una factura es peor
+    // que tardar un mensaje más en cerrar un caso -- y cerrar el caso equivocado es peor que las dos.
+    const traeComprobante = Boolean(media)
+        && (msgType === 'document' || msgType === 'image')
+        && datosEmisor.rol === 'proveedor';
+
+    const esGatilloResolucion = diceQueSeResolvio && !loNiega && !traeComprobante;
+
+    if (diceQueSeResolvio && !loNiega && traeComprobante) {
+        console.log(`🧾➡️ ${datosEmisor.nombre || from} dice que resolvió Y manda un adjunto: ` +
+            `el comprobante se archiva primero y NO se cierra ningún caso por este mensaje. ` +
+            `Antes esta rama cortaba acá y la factura se perdía entera.`);
+    }
 
     if (esGatilloResolucion) {
         // `session.nombreEdificio` para el vecino recién se completa más abajo en esta misma
