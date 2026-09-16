@@ -37,17 +37,26 @@ El botón **"Mis presupuestos"** de arriba sigue siendo el acceso rápido de sie
 
 ## El backend: `pe/apps-script/Codigo.gs`
 
-La planilla se quedaba clavada en la misma cantidad de registros: al guardar uno
-nuevo se perdía el anterior, porque el `doPost` pisaba la última fila en vez de
-agregar una.
+Planilla de presupuestos: `1k50q4RSGOQoBOJnGubLhjApT5dM-A_CuGjDyht_LE_Y`
+(**una pestaña por tipo**: hoy existe solo `Electricista`). Ojo que NO es la
+misma planilla que la Base Maestra de Marcos ni la de clientes.
 
-`pe/apps-script/Codigo.gs` es el reemplazo completo del `Código.gs` del proyecto
-de Apps Script ya publicado. Identifica cada presupuesto por `Num` + `Tipo`:
-si el número ya existe actualiza esa fila (editar), y si no existe usa
-`appendRow` (nunca pisa una fila anterior). Además toma un `LockService` para
-que dos guardados simultáneos no se pisen, y trae una función `probar()` para
-correr desde el editor y confirmar que apunta a la hoja correcta antes de
-publicar.
+El `doPost` original hacía `appendRow` siempre: nunca pisaba una fila, pero
+guardar dos veces el mismo N° creaba **filas duplicadas**, y como la app abre
+con `.find()` (el primer match), al reabrir el presupuesto cargaba la versión
+**más vieja** y la corrección parecía perderse.
+
+`pe/apps-script/Codigo.gs` es el reemplazo completo, manteniendo el diseño de
+una pestaña por tipo:
+
+- N° nuevo → `appendRow`; N° que ya existe → actualiza esa fila (sin duplicar).
+- Si la pestaña del tipo no existe, la crea con su encabezado (antes tiraba
+  error y el presupuesto se perdía sin aviso, porque la app mostraba igual un ✓).
+- Acepta `validez`/`validity` y `moneda`/`currency`: el front mandaba unos
+  nombres y el script leía los otros, por eso esas dos columnas estaban vacías.
+- `LockService` para guardados simultáneos y errores devueltos como JSON.
+- Función `probar()` para correr desde el editor: lista pestañas, cantidad de
+  registros y N° repetidos.
 
 ### Cómo publicarlo sin cambiar la URL
 

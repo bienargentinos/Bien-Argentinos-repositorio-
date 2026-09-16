@@ -2,92 +2,69 @@
  * Presupuestador Electricista — backend en Google Sheets
  * Bien Argentinos · bienargentinos.com/pe/
  *
- * Reemplaza el contenido de Código.gs del proyecto de Apps Script que ya está
- * publicado en:
+ * Reemplaza el Código.gs del proyecto publicado en:
  *   https://script.google.com/macros/s/AKfycbwsjXY6ahavwhyXafI9P8e4ZjPXWMhNV76MNgRiigRHPzgw4Ld1VybAhhBWkMFGZNk/exec
  *
- * Qué arregla: al guardar un presupuesto NUEVO ahora siempre se agrega una fila
- * al final (appendRow). Antes se pisaba la última fila y por eso la planilla
- * quedaba clavada en la misma cantidad de registros.
+ * Mantiene el diseño original: una pestaña por tipo (Electricista, Remito, ...).
  *
- * Un presupuesto se identifica por Num + Tipo:
- *   - si ese Num ya existe  -> se actualiza esa fila (editar un presupuesto)
- *   - si no existe          -> se agrega al final (presupuesto nuevo)
+ * Qué cambia respecto de la versión anterior:
+ *  1. Guardar dos veces el mismo N° ya no crea una fila duplicada: si el N° existe
+ *     se actualiza esa fila. Antes se agregaba otra, y al abrirlo desde la lista
+ *     la app cargaba siempre la MÁS VIEJA (parecía que la edición se perdía).
+ *  2. Si la pestaña del tipo no existe, se crea con su encabezado. Antes tiraba
+ *     error y el presupuesto se perdía sin aviso.
+ *  3. Acepta validez/moneda con los dos nombres posibles: por eso esas dos
+ *     columnas venían siempre vacías.
+ *  4. LockService: dos guardados al mismo tiempo no se pisan.
+ *  5. Los errores vuelven como JSON ({success:false, error:...}) en vez de una
+ *     página HTML de error que la app no sabe leer.
  */
 
-// Dejalo vacío si este script está adentro de la planilla (Extensiones > Apps Script).
-// Si es un proyecto suelto, pegá acá el ID de la planilla (lo que va entre /d/ y /edit en la URL).
-var SHEET_ID = '';
-
-// Dejalo vacío para que busque sola la hoja de presupuestos. Si querés fijarla, poné el nombre.
-var HOJA = '';
+var SHEET_ID = '1k50q4RSGOQoBOJnGubLhjApT5dM-A_CuGjDyht_LE_Y';
 
 var COLUMNAS = ['Timestamp', 'Num', 'Tipo', 'Fecha', 'Cliente', 'Direccion', 'Contacto',
                 'Fiscal', 'Notas', 'Descuento', 'Total', 'Validez', 'Moneda', 'Items'];
-
-function planilla_() {
-  return SHEET_ID ? SpreadsheetApp.openById(SHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
-}
-
-/** Devuelve la hoja de presupuestos (la que tiene Timestamp + Num en la fila 1). */
-function hoja_() {
-  var ss = planilla_();
-  if (!ss) throw new Error('No encuentro la planilla. Completá SHEET_ID arriba.');
-
-  if (HOJA) {
-    var fija = ss.getSheetByName(HOJA);
-    if (!fija) throw new Error('No existe la hoja "' + HOJA + '".');
-    return conEncabezado_(fija);
-  }
-
-  var hojas = ss.getSheets();
-  for (var i = 0; i < hojas.length; i++) {
-    if (hojas[i].getLastRow() < 1) continue;
-    var cab = hojas[i].getRange(1, 1, 1, 2).getValues()[0];
-    if (String(cab[0]).trim() === 'Timestamp' && String(cab[1]).trim() === 'Num') return hojas[i];
-  }
-
-  // Ninguna hoja tiene el encabezado: usamos la primera y se lo ponemos.
-  return conEncabezado_(hojas[0] || ss.insertSheet('Presupuestos'));
-}
-
-function conEncabezado_(sh) {
-  if (sh.getLastRow() === 0) sh.appendRow(COLUMNAS);
-  return sh;
-}
 
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+/** Pestaña de ese tipo. Si no existe, la crea con el encabezado. */
+function hoja_(tipo) {
+  if (!tipo) throw new Error('Falta el tipo (ej: Electricista).');
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sh = ss.getSheetByName(tipo);
+  if (!sh) {
+    sh = ss.insertSheet(tipo);
+    sh.appendRow(COLUMNAS);
+    sh.setFrozenRows(1);
+  } else if (sh.getLastRow() === 0) {
+    sh.appendRow(COLUMNAS);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
 /** GET ?tipo=Electricista -> { success:true, data:[encabezado, ...filas] } */
 function doGet(e) {
   try {
-    var sh = hoja_();
-    var data = sh.getDataRange().getValues();
-    var tipo = (e && e.parameter && e.parameter.tipo) ? String(e.parameter.tipo) : '';
-
-    if (tipo && data.length > 1) {
-      var cab = data[0];
-      var filas = data.slice(1).filter(function (r) {
-        return String(r[1]) !== '' && String(r[2]).trim() === tipo;
-      });
-      data = [cab].concat(filas);
-    }
-    return json_({ success: true, data: data });
+    var tipo = (e && e.parameter && e.parameter.tipo) ? String(e.parameter.tipo).trim() : '';
+    if (!tipo) throw new Error('Falta el parámetro tipo. Ejemplo: ?tipo=Electricista');
+    var sh = hoja_(tipo);
+    return json_({ success: true, data: sh.getDataRange().getValues() });
   } catch (err) {
-    return json_({ success: false, error: String(err) });
+    return json_({ success: false, error: String(err && err.message ? err.message : err) });
   }
 }
 
-/** POST con el presupuesto en JSON -> lo agrega al final, o actualiza el que ya existe. */
+/** POST con el presupuesto en JSON. N° nuevo -> se agrega. N° existente -> se actualiza. */
 function doPost(e) {
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(30000);
   } catch (err) {
-    return json_({ success: false, error: 'La planilla estaba ocupada, probá de nuevo.' });
+    return json_({ success: false, error: 'La planilla estaba ocupada. Probá de nuevo.' });
   }
 
   try {
@@ -98,9 +75,9 @@ function doPost(e) {
     if (!num) throw new Error('Falta el N° de presupuesto.');
     var tipo = String(d.tipo || 'Electricista').trim();
 
-    var sh = hoja_();
+    var sh = hoja_(tipo);
     var fila = [
-      new Date(),
+      new Date().toLocaleString('es-AR'),
       num,
       tipo,
       d.date || '',
@@ -111,21 +88,18 @@ function doPost(e) {
       d.notes || '',
       d.discount || 0,
       Number(d.total) || 0,
-      d.validez || '',
-      d.moneda || 'ARS',
+      d.validez || d.validity || '',
+      d.moneda || d.currency || '',
       JSON.stringify(d.items || [])
     ];
 
-    // ¿Ya existe ese N° para ese tipo? Miramos las columnas Num y Tipo (B y C).
+    // ¿Ya existe ese N° en esta pestaña? (columna B = Num)
     var destino = 0;
     var ultima = sh.getLastRow();
     if (ultima > 1) {
-      var claves = sh.getRange(2, 2, ultima - 1, 2).getValues();
-      for (var i = 0; i < claves.length; i++) {
-        if (String(claves[i][0]).trim() === num && String(claves[i][1]).trim() === tipo) {
-          destino = i + 2;  // +2 = saltear el encabezado y pasar a base 1
-          break;
-        }
+      var nums = sh.getRange(2, 2, ultima - 1, 1).getValues();
+      for (var i = 0; i < nums.length; i++) {
+        if (String(nums[i][0]).trim() === num) { destino = i + 2; break; }
       }
     }
 
@@ -134,7 +108,7 @@ function doPost(e) {
       sh.getRange(destino, 1, 1, fila.length).setValues([fila]);
       accion = 'actualizado';
     } else {
-      sh.appendRow(fila);            // siempre al final: nunca pisa una fila anterior
+      sh.appendRow(fila);
       destino = sh.getLastRow();
       accion = 'agregado';
     }
@@ -142,30 +116,37 @@ function doPost(e) {
     SpreadsheetApp.flush();
     return json_({
       success: true,
+      id: num,
       num: num,
       accion: accion,
       fila: destino,
       total_registros: sh.getLastRow() - 1
     });
   } catch (err) {
-    return json_({ success: false, error: String(err) });
+    return json_({ success: false, error: String(err && err.message ? err.message : err) });
   } finally {
     lock.releaseLock();
   }
 }
 
 /**
- * Corré esta función desde el editor (botón "Ejecutar") ANTES de publicar,
- * para confirmar que encuentra la hoja correcta. El resultado sale en "Registro de ejecución".
+ * Corré esta función desde el editor (▶ Ejecutar) antes de publicar.
+ * El resultado sale abajo, en "Registro de ejecución".
  */
 function probar() {
-  var sh = hoja_();
-  var n = Math.max(0, sh.getLastRow() - 1);
-  Logger.log('Planilla: %s', planilla_().getName());
-  Logger.log('Hoja: %s', sh.getName());
-  Logger.log('Presupuestos guardados hoy: %s', n);
-  if (n > 0) {
-    var nums = sh.getRange(2, 2, n, 1).getValues().map(function (r) { return r[0]; });
-    Logger.log('N° presentes: %s', nums.join(', '));
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  Logger.log('Planilla: %s', ss.getName());
+  var hojas = ss.getSheets();
+  for (var i = 0; i < hojas.length; i++) {
+    var sh = hojas[i];
+    var n = Math.max(0, sh.getLastRow() - 1);
+    Logger.log('  Pestaña "%s": %s registros', sh.getName(), n);
+    if (n > 0) {
+      var nums = sh.getRange(2, 2, n, 1).getValues().map(function (r) { return String(r[0]).trim(); });
+      Logger.log('    N°: %s', nums.join(', '));
+      var vistos = {}, repetidos = [];
+      nums.forEach(function (x) { if (vistos[x]) { repetidos.push(x); } vistos[x] = true; });
+      Logger.log('    N° repetidos: %s', repetidos.length ? repetidos.join(', ') : 'ninguno');
+    }
   }
 }

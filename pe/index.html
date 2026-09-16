@@ -1480,7 +1480,7 @@ async function savePresupuesto(){
   const dateInput=document.getElementById('q-date').value;
   function fmtDate(v){if(v&&v.includes('T')){const [dp,tp]=v.split('T');const [y,m,d]=dp.split('-');return `${d}/${m}/${y} ${tp.slice(0,5)}`;}const n=new Date();return `${String(n.getDate()).padStart(2,'0')}/${String(n.getMonth()+1).padStart(2,'0')}/${n.getFullYear()} ${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;}
   const dateFormatted=fmtDate(dateInput);
-  const snap={num,tipo:'Electricista',date:dateFormatted,client:document.getElementById('cl-name').value,addr:document.getElementById('cl-addr').value,contact:document.getElementById('cl-contact').value,fiscal:document.getElementById('cl-fiscal').value,notes:document.getElementById('notes').value,discount:document.getElementById('discount').value,validez:document.getElementById('q-validity').value,moneda:cur(),total:items.reduce((s,i)=>s+i.qty*i.price,0),items:JSON.parse(JSON.stringify(items))};
+  const snap={num,tipo:'Electricista',date:dateFormatted,client:document.getElementById('cl-name').value,addr:document.getElementById('cl-addr').value,contact:document.getElementById('cl-contact').value,fiscal:document.getElementById('cl-fiscal').value,notes:document.getElementById('notes').value,discount:document.getElementById('discount').value,validez:document.getElementById('q-validity').value,validity:document.getElementById('q-validity').value,moneda:cur(),currency:cur(),total:items.reduce((s,i)=>s+i.qty*i.price,0),items:JSON.parse(JSON.stringify(items))};
 
   // Aviso antes de pisar un presupuesto que ya existe con el mismo N\u00b0
   let eraNuevo=true, antesCount=0;
