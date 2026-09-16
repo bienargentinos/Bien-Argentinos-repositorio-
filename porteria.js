@@ -12,6 +12,7 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
+const { claveEdificio, mismoEdificio, claveUnidad } = require('./edificio-clave');
 
 let datosPg = null;
 try {
@@ -918,7 +919,10 @@ router.post('/api/tocar-timbre', async (req, res) => {
 
     // Guardar en cola de llamadas activas con canal de señales WebRTC y foto de seguridad
     const callId = 'ring_' + Date.now();
-    const ringKey = (edificio || '').toLowerCase().trim() + ':' + (departamento || unidad || '').toLowerCase().trim();
+    // La clave se arma con los MISMOS normalizadores con que después se busca. Con `toLowerCase`
+    // a secas, tocar el timbre del `4°B` y del `4 B` dejaba dos llamadas vivas para una sola
+    // puerta, y el vecino atendía una mientras la otra seguía sonando.
+    const ringKey = claveEdificio(edificio) + ':' + claveUnidad(departamento || unidad);
     const ringData = {
       id: callId,
       edificio: edificio || '',
@@ -1062,27 +1066,61 @@ router.post('/api/tocar-timbre', async (req, res) => {
   }
 });
 
-// Helper para encontrar llamadas activas con tolerancia de formato
+/**
+ * La llamada de timbre activa que corresponde a quien pregunta.
+ *
+ * > [!CAUTION]
+ * > **Acá se decide en el teléfono de quién suena un timbre, y por lo tanto quién puede abrirle la
+ * > puerta a quien está en la vereda.** Un match de más no es un dato feo en el panel: es un vecino
+ * > atendiendo a un desconocido que toca el timbre de otro consorcio.
+ *
+ * La versión vieja tenía tres agujeros, y los tres venían de la misma época en que había un solo
+ * edificio de prueba andando:
+ *
+ * ```js
+ * const edMatch = !edNorm || vEd === edNorm || vEd.includes(edNorm) || edNorm.includes(vEd)
+ *     || edNorm.includes('demo') || vEd.includes('demo')
+ *     || edNorm.includes('patricio') || vEd.includes('patricio');
+ * ...
+ * if (_timbresActivos.size === 1) return _timbresActivos.values().next().value;
+ * ```
+ *
+ * 1. **`!edNorm` hacía comodín a la falta de dato.** Quien preguntaba sin decir de qué edificio era
+ *    matcheaba con cualquier llamada. Preguntar sin decir el edificio es la condición normal de un
+ *    pedido mal armado, no una autorización.
+ * 2. **Dos nombres de edificio escritos a mano** (`'demo'`, `'patricio'`). Cualquier consorcio con
+ *    "patricio" en el nombre era el mismo que cualquier otro — y San Patricio 159 y San Patricio
+ *    270 son dos consorcios distintos, lo mismo que ya costó caro en `perfil-edificio.js`.
+ * 3. **`size === 1` devolvía la única llamada a cualquiera.** Con un solo timbre sonando en TODO el
+ *    sistema, cualquier vecino de cualquier edificio que consultara recibía esa llamada. Es el peor
+ *    de los tres y el más invisible: con un solo edificio de prueba nunca se nota.
+ *
+ * El `includes` del departamento tenía el mismo defecto en chico: pedir el `1` matcheaba con `1A`,
+ * `1B` y `11`.
+ *
+ * Ahora el edificio **tiene que coincidir, exacto y normalizado** (`mismoEdificio`), y sin edificio
+ * no hay match. El `callId` sigue siendo el camino preciso —es único por llamada— pero si además
+ * viene el edificio, tiene que ser el suyo.
+ */
 function encontrarLlamadaActiva(callId, edificio, depto) {
   if (callId) {
     for (const v of _timbresActivos.values()) {
-      if (v.id === callId) return v;
-    }
-  }
-  const edNorm = (edificio || '').toLowerCase().trim();
-  const depNorm = (depto || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
-
-  for (const v of _timbresActivos.values()) {
-    const vEd = (v.edificio || '').toLowerCase().trim();
-    const vDep = (v.departamento || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
-    const depMatch = !depNorm || vDep === depNorm || vDep.includes(depNorm) || depNorm.includes(vDep);
-    const edMatch = !edNorm || vEd === edNorm || vEd.includes(edNorm) || edNorm.includes(vEd) || edNorm.includes('demo') || vEd.includes('demo') || edNorm.includes('patricio') || vEd.includes('patricio');
-    if (depMatch && (edMatch || _timbresActivos.size === 1)) {
+      if (v.id !== callId) continue;
+      // Un `callId` es `ring_<timestamp>`, o sea adivinable. Si además dicen de qué edificio
+      // preguntan, se verifica: cuesta nada y cierra el único atajo que quedaba.
+      if (edificio && !mismoEdificio(v.edificio, edificio)) return null;
       return v;
     }
+    return null;
   }
-  if (_timbresActivos.size === 1) {
-    return _timbresActivos.values().next().value;
+
+  if (!claveEdificio(edificio)) return null;
+  const depNorm = claveUnidad(depto);
+
+  for (const v of _timbresActivos.values()) {
+    if (!mismoEdificio(v.edificio, edificio)) continue;
+    if (depNorm && claveUnidad(v.departamento) !== depNorm) continue;
+    return v;
   }
   return null;
 }
@@ -1188,8 +1226,24 @@ router.get('/api/timbre-visita-status', (req, res) => {
 // Cola en memoria de aperturas de puerta pendientes para el relé ESP32
 const _aperturasPuerta = new Map(); // key: edificioNorm -> { id, edificio, timestamp, motivo, consumido }
 
+/**
+ * Deja una apertura pendiente para que la plaquita ESP32 de ESE edificio la levante.
+ *
+ * > [!CAUTION]
+ * > **Una apertura sin edificio es una apertura para todos.** La clave del Map era
+ * > `(edificio||'').toLowerCase().trim()`, así que un pedido sin edificio quedaba guardado bajo la
+ * > clave `''` — y cualquier ESP32 que sondeara también sin edificio se la llevaba. Con un solo
+ * > edificio andando eso abre la puerta correcta de casualidad.
+ *
+ * Sin edificio no se registra nada y se dice fuerte. Es el mismo criterio que en el resto del
+ * archivo: la falta de un dato no es un comodín.
+ */
 function registrarAperturaPuerta(edificio, motivo, depto) {
-  const edNorm = (edificio || '').toLowerCase().trim();
+  const edNorm = claveEdificio(edificio);
+  if (!edNorm) {
+    console.warn('🚪❌ Se pidió abrir una puerta SIN decir de qué edificio. No se registra: una apertura sin edificio la puede consumir el relé de cualquier otro. Motivo recibido:', motivo || '(sin motivo)');
+    return null;
+  }
   const apertura = {
     id: 'door_' + Date.now(),
     edificio: edificio || '',
@@ -1252,7 +1306,12 @@ router.post('/api/validar-qr', async (req, res) => {
     }
 
     if (validacion.valido) {
-      registrarAperturaPuerta(edificio, 'Pase QR: ' + rawQr.substring(0, 16), (validacion.pase && validacion.pase.departamento) || 'QR');
+      // > [!CAUTION]
+      // > **El edificio que manda quien escanea no es el edificio del pase.** Acá se usaba el del
+      // > cuerpo del pedido, que lo escribe el tótem y no lo verifica nadie. El del pase es el que
+      // > quedó guardado cuando se lo emitió: es el único de los dos que dice de qué puerta es.
+      const edificioDelPase = (validacion.pase && validacion.pase.edificio) || edificio;
+      registrarAperturaPuerta(edificioDelPase, 'Pase QR: ' + rawQr.substring(0, 16), (validacion.pase && validacion.pase.departamento) || 'QR');
       return res.json({
         ok: true,
         valido: true,
@@ -1294,7 +1353,10 @@ router.post('/api/puerta/abrir', (req, res) => {
 // GET /porteria/api/puerta/status?edificio=...
 router.get('/api/puerta/status', (req, res) => {
   const { edificio } = req.query || {};
-  const edNorm = (edificio || '').toLowerCase().trim();
+  const edNorm = claveEdificio(edificio);
+  // Un relé que no dice de qué edificio es no puede recibir la apertura de ninguno. Antes sondear
+  // sin `edificio` leía la clave `''`, que es donde caían las aperturas sin edificio.
+  if (!edNorm) return res.json({ abrir: false });
   const apertura = _aperturasPuerta.get(edNorm);
 
   const ahora = Date.now();
@@ -1406,3 +1468,13 @@ new QRCode(document.getElementById("qrcode"), {
 });
 
 module.exports = router;
+
+// Para `pruebas-porteria-edificio.js`: a quién le corresponde una llamada y de qué edificio es una
+// apertura se verifican sin levantar el servidor ni tocar PostgreSQL. Un router de Express es una
+// función, así que colgarle esto no cambia en nada cómo lo monta `index.js`.
+module.exports._paraPruebas = {
+  encontrarLlamadaActiva,
+  registrarAperturaPuerta,
+  _timbresActivos,
+  _aperturasPuerta
+};

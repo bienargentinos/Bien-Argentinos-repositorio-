@@ -1119,6 +1119,62 @@ Prueba: `node pruebas-clave-app.js`, con un candado que detecta si vuelve el `re
 > tocó**. Queda escrito acá porque es más directo que todo lo de arriba y no puede quedar prendido
 > cuando esto salga a la calle.
 
+## El timbre de un edificio sonaba en otro
+
+> [!CAUTION]
+> **`encontrarLlamadaActiva` decide en el teléfono de QUIÉN suena un timbre, y por lo tanto quién
+> puede abrirle a alguien parado en la vereda.** No es un dato feo en el panel: es un vecino
+> atendiendo a un desconocido que tocó el timbre de otro consorcio.
+
+Lo que había en `porteria.js`, de cuando corría un solo edificio de prueba:
+
+```js
+const edMatch = !edNorm || vEd === edNorm || vEd.includes(edNorm) || edNorm.includes(vEd)
+    || edNorm.includes('demo') || vEd.includes('demo')
+    || edNorm.includes('patricio') || vEd.includes('patricio');
+...
+if (_timbresActivos.size === 1) return _timbresActivos.values().next().value;
+```
+
+Tres agujeros, de menor a mayor:
+
+1. **`!edNorm` hacía comodín a la falta de dato.** Quien preguntaba sin decir de qué edificio era
+   matcheaba con cualquier llamada. Que falte un dato es la condición normal de un pedido mal
+   armado, no una autorización.
+2. **Dos nombres de edificio escritos a mano.** Cualquier consorcio con "patricio" en el nombre era
+   el mismo que cualquier otro — y el 159 y el 270 de la misma calle son dos consorcios distintos,
+   lo mismo que ya costó caro en `perfil-edificio.js`.
+3. **`size === 1` devolvía la única llamada a cualquiera.** Con un solo timbre sonando en TODO el
+   sistema, cualquier vecino de cualquier edificio que consultara recibía esa llamada.
+
+El tercero es el peor y el más invisible: **con un solo edificio de prueba, los tres dan el
+resultado correcto por casualidad.** El bug solo existe con dos edificios a la vez, que es
+exactamente lo que nunca se probó. Por eso `pruebas-porteria-edificio.js` levanta siempre dos.
+
+- `edificio-clave.js` (`mismoEdificio`) compara **normalizado y exacto**: tolerante con la forma
+  (`San Patrício 270` = `san patricio 270`), intolerante con el contenido (el 270 no es el 159).
+  **No es `compararEdificios`**, que acepta parciales a propósito para leer un WhatsApp.
+- El departamento también se compara exacto: el `includes` viejo hacía que pedir el `1` matcheara
+  con `1A`, `1B` y `11`.
+- **Una apertura de puerta sin edificio ya no se registra.** Quedaba bajo la clave `''` y se la
+  llevaba cualquier relé que sondeara también sin edificio.
+- **El pase QR le pasa al relé el edificio del PASE, no el del pedido.** El del cuerpo lo escribe
+  el tótem y no lo verifica nadie; el del pase quedó guardado cuando se lo emitió.
+
+Prueba: `node pruebas-porteria-edificio.js`, con un candado que prohíbe que vuelva cualquiera de
+las tres formas (nombre de edificio hardcodeado, `size === 1`, `includes` entre nombres).
+
+> [!CAUTION]
+> **Lo que esto NO arregla: el estado sigue viviendo en RAM.** `_timbresActivos` y
+> `_aperturasPuerta` son `Map` del proceso, así que un `pm2 restart` en el medio de un timbre pierde
+> la llamada, y **el diseño no puede correr en más de un proceso**.
+>
+> El arreglo NO es "mover el Map a PostgreSQL". `/api/timbre-check` lo sondea el celular de cada
+> vecino cada pocos segundos **haya o no haya alguien tocando**: una consulta a la base por cada
+> sondeo, multiplicada por los vecinos de cada edificio, es peor que el problema que resuelve. Lo
+> que corresponde es dejar de sondear (SSE o WebSocket) o mantener la RAM como caché alimentada por
+> la base. Es su propio trabajo, no un renglón.
+
 ### Pedirle a un archivo una función que no exporta NO da error al cargar
 
 > [!CAUTION]
