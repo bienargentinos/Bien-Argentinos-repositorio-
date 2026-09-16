@@ -1122,6 +1122,26 @@ function encontrarLlamadaActiva(callId, edificio, depto) {
     if (depNorm && claveUnidad(v.departamento) !== depNorm) continue;
     return v;
   }
+
+  // > [!CAUTION]
+  // > **El `size === 1` que se sacó podía ser lo único que hacía andar una instalación.** Tapaba
+  // > cualquier diferencia de cómo escribe el edificio el tótem y cómo lo pregunta la app del
+  // > vecino: con una sola llamada viva, el nombre daba igual. Sacándolo, si los dos lados no
+  // > dicen lo mismo el timbre deja de sonar --que es correcto, pero desde afuera se ve idéntico
+  // > a "se rompió el timbre".
+  //
+  // Por eso se dice, pero SOLO cuando hay timbres sonando y ninguno era: un timbre que no suena
+  // porque no hay nadie tocando es la condición normal y llenaría el log, ya que `/timbre-check`
+  // lo sondea cada celular cada pocos segundos.
+  if (_timbresActivos.size) {
+    console.warn(
+      `🔔❔ Nadie recibió esta consulta de timbre. Se preguntó por edificio "${edificio}"` +
+      (depto ? ` depto "${depto}"` : ' (sin depto)') +
+      `, y los timbres sonando ahora son: ` +
+      [..._timbresActivos.values()].map(v => `"${v.edificio}" depto "${v.departamento}"`).join(' | ') +
+      '. Si alguno es el mismo edificio escrito distinto, el nombre está desfasado entre el tótem y la app del vecino.'
+    );
+  }
   return null;
 }
 
