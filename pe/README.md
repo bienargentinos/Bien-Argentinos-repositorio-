@@ -35,12 +35,33 @@ curl -L -s "https://raw.githubusercontent.com/bienargentinos/Bien-Argentinos-rep
 
 El botón **"Mis presupuestos"** de arriba sigue siendo el acceso rápido de siempre.
 
-## Pendiente: el bug del lado del Apps Script
+## El backend: `pe/apps-script/Codigo.gs`
 
-La planilla se queda clavada en la misma cantidad de registros: al guardar uno
-nuevo se pierde el anterior. El `index.html` ya avisa cuando eso pasa
-(verificación después de guardar) y guarda siempre una copia local, pero **el
-arreglo de fondo va en el código del Apps Script** (`doPost`), que vive en la
-cuenta de Google, no en este repo. Sospecha principal: escribe en
-`data.length` en vez de `data.length + 1`, o no hace `appendRow`, y por eso
-pisa la última fila en cada guardado.
+La planilla se quedaba clavada en la misma cantidad de registros: al guardar uno
+nuevo se perdía el anterior, porque el `doPost` pisaba la última fila en vez de
+agregar una.
+
+`pe/apps-script/Codigo.gs` es el reemplazo completo del `Código.gs` del proyecto
+de Apps Script ya publicado. Identifica cada presupuesto por `Num` + `Tipo`:
+si el número ya existe actualiza esa fila (editar), y si no existe usa
+`appendRow` (nunca pisa una fila anterior). Además toma un `LockService` para
+que dos guardados simultáneos no se pisen, y trae una función `probar()` para
+correr desde el editor y confirmar que apunta a la hoja correcta antes de
+publicar.
+
+### Cómo publicarlo sin cambiar la URL
+
+1. Abrir el proyecto correcto en <https://script.google.com/home> (el que tiene
+   la implementación `AKfycbwsjXY6aha...`; se verifica en **Implementar →
+   Gestionar implementaciones**).
+2. Reemplazar todo el contenido de `Código.gs` por este archivo y guardar.
+3. Ejecutar `probar()` y mirar el "Registro de ejecución".
+4. **Implementar → Gestionar implementaciones →** lápiz de editar **→ Versión:
+   "Nueva versión" → Implementar**. La URL `/exec` se mantiene igual.
+
+> Si se crea una implementación nueva en vez de actualizar la existente, cambia
+> la URL y hay que actualizar la constante `API_URL` de `pe/index.html`.
+
+El front (`index.html`) igual verifica cada guardado contra la planilla y guarda
+una copia local, así que un fallo del backend se avisa en pantalla en vez de
+perderse en silencio.
