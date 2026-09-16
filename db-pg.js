@@ -1414,13 +1414,10 @@ async function validarConsumirPaseQR(rawToken, edificio) {
 
     const pase = res.rows[0];
 
-    // Verificaci??n estricta can??nica de edificio (Anti-intrusi??n entre consorcios)
-    if (edificio && pase.edificio) {
-        const edPase = pase.edificio.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-        const edReq = edificio.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (edPase !== edReq) {
-            return { valido: false, resultado: 'rechazado_invalido', mensaje: `Pase no autorizado para este edificio (Emitido para: ${pase.edificio})`, pase };
-        }
+    // Verificación estricta canónica de edificio (Anti-intrusión entre consorcios)
+    const { mismoEdificio } = require('./edificio-clave');
+    if (!edificio || !pase.edificio || !mismoEdificio(pase.edificio, edificio)) {
+        return { valido: false, resultado: 'rechazado_invalido', mensaje: `Pase no autorizado para este edificio (Emitido para: ${pase.edificio || 'desconocido'})`, pase };
     }
 
     if (pase.estado === 'revocado') {
@@ -1480,6 +1477,9 @@ async function validarConsumirPaseQR(rawToken, edificio) {
         `UPDATE pases_qr SET usos_actuales = $1, estado = $2 WHERE id = $3`,
         [nuevoUso, nuevoEstado, pase.id]
     );
+
+    pase.usos_actuales = nuevoUso;
+    pase.estado = nuevoEstado;
 
     return { valido: true, resultado: 'exitoso', mensaje: `Pase válido: ${pase.nombre_invitado} (${pase.motivo})`, pase };
 }

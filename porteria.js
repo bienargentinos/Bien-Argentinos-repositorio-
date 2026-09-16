@@ -1276,6 +1276,98 @@ function registrarAperturaPuerta(edificio, motivo, depto) {
   return apertura;
 }
 
+/**
+ * Busca al vecino titular de una unidad dentro de un edificio para avisarle por WhatsApp.
+ * Usa comparación canónica exacta (edificio-clave) para no avisar al vecino equivocado.
+ * Si la unidad no está en la tabla `vecinos`, recurre a TIMBRE_PRUEBA del .env.
+ */
+async function buscarVecinoEnPadron(edificio, departamento) {
+  if (!edificio || !departamento) return null;
+  let vecino = null;
+
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `SELECT * FROM vecinos WHERE estado != 'eliminado' AND (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))`;
+      const result = await pool.query(q, [edificio, '%' + claveEdificio(edificio) + '%']);
+      if (result && result.rows && result.rows.length > 0) {
+        const uBuscada = claveUnidad(departamento);
+        vecino = result.rows.find(v => {
+          if (!mismoEdificio(v.edificio, edificio)) return false;
+          const u1 = claveUnidad(v.departamento || '');
+          const u2 = claveUnidad(v.unidad || '');
+          return (u1 && u1 === uBuscada) || (u2 && u2 === uBuscada);
+        }) || null;
+      }
+    }
+  } catch (errDb) {
+    console.warn('⚠️ Error al buscar vecino en padrón:', errDb.message);
+  }
+
+  if (vecino) {
+    return {
+      telefono: vecino.telefono || null,
+      nombre: vecino.nombre || ('Vecino del ' + departamento),
+      departamento: vecino.departamento || departamento,
+      edificio: vecino.edificio || edificio,
+      esDePrueba: false
+    };
+  }
+
+  // Fallback con TIMBRE_PRUEBA del .env
+  const deptoNorm = claveUnidad(departamento);
+  for (const entrada of String(process.env.TIMBRE_PRUEBA || '').split(',')) {
+    const [unidad, telPrueba, nombrePrueba] = entrada.split(':').map(x => String(x || '').trim());
+    if (!unidad || !telPrueba) continue;
+    if (claveUnidad(unidad) !== deptoNorm) continue;
+    return {
+      telefono: telPrueba,
+      nombre: nombrePrueba || ('Vecino del ' + departamento),
+      departamento,
+      edificio,
+      esDePrueba: true
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Notifica al vecino cuando un invitado o visitante valida su pase QR en el tótem de entrada.
+ */
+async function notificarIngresoQRWhatsApp(pase) {
+  if (!pase || !pase.departamento || !pase.edificio) return;
+  try {
+    const vecino = await buscarVecinoEnPadron(pase.edificio, pase.departamento);
+    const tel = vecino ? vecino.telefono : null;
+    const nombre = vecino ? vecino.nombre : ('Vecino del ' + pase.departamento);
+
+    if (tel && marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
+      const horaStr = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      const cantUsosStr = (pase.usos_permitidos && pase.usos_permitidos > 1)
+        ? `\n🔢 *Uso:* ${pase.usos_actuales || 1} de ${pase.usos_permitidos}`
+        : '';
+      const textoAviso = `🚪 *¡INGRESO CON PASE QR!* 🚪\n\n` +
+        `Hola ${nombre}, acaba de ingresar a *${pase.edificio}*:\n\n` +
+        `👤 *Invitado:* ${pase.nombre_invitado || 'Visita'}\n` +
+        `📋 *Motivo:* ${pase.motivo || 'Acceso con pase QR'}\n` +
+        `🏠 *Destino:* Depto ${pase.departamento}\n` +
+        `⏰ *Hora:* ${horaStr} hs${cantUsosStr}\n\n` +
+        `_Registro de seguridad automático de Marcos Portería._`;
+
+      const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_ID;
+      const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
+
+      await marcosOps.enviarWhatsApp(tel, textoAviso, phoneId, token);
+      console.log(`📱 Notificación WhatsApp enviada a ${tel} por ingreso de ${pase.nombre_invitado} (${pase.edificio} - Depto ${pase.departamento})`);
+    } else if (!tel) {
+      console.log(`📱 Acceso QR: No hay teléfono registrado para avisar al depto ${pase.departamento} de ${pase.edificio}`);
+    }
+  } catch (errWa) {
+    console.warn('⚠️ Error enviando WhatsApp de ingreso QR:', errWa.message);
+  }
+}
+
 // Endpoint para validar código QR escaneado por la cámara del tótem
 router.post('/api/validar-qr', async (req, res) => {
   try {
@@ -1332,6 +1424,14 @@ router.post('/api/validar-qr', async (req, res) => {
       // > quedó guardado cuando se lo emitió: es el único de los dos que dice de qué puerta es.
       const edificioDelPase = (validacion.pase && validacion.pase.edificio) || edificio;
       registrarAperturaPuerta(edificioDelPase, 'Pase QR: ' + rawQr.substring(0, 16), (validacion.pase && validacion.pase.departamento) || 'QR');
+
+      // Notificar al vecino por WhatsApp de forma asíncrona sin demorar la respuesta de la puerta
+      if (validacion.pase) {
+        notificarIngresoQRWhatsApp(validacion.pase).catch(errWa => {
+          console.warn('⚠️ Error notificando ingreso QR por WhatsApp:', errWa.message);
+        });
+      }
+
       return res.json({
         ok: true,
         valido: true,
@@ -1393,6 +1493,117 @@ router.get('/api/puerta/status', (req, res) => {
   }
 
   res.json({ abrir: false });
+});
+
+// -------------------------------------------------------------------
+// 3.5 GESTIÓN DE PASES QR (PARA EDIFICA / DASH / CONSERJERÍA)
+// -------------------------------------------------------------------
+
+// Crear un nuevo Pase QR (temporal o recurrente)
+router.post(['/api/pases-qr', '/api/pases-qr/crear'], async (req, res) => {
+  try {
+    const {
+      origen = 'edifica',
+      edificio,
+      departamento = '',
+      nombre_invitado,
+      motivo = 'Visita',
+      validez = '24h',
+      valido_hasta: customValidoHasta,
+      tipo_pase = 'temporal',
+      dias_semana = [],
+      hora_desde = null,
+      hora_hasta = null,
+      creado_por = '',
+      usos_permitidos = 1
+    } = req.body || {};
+
+    if (!edificio || !nombre_invitado) {
+      return res.status(400).json({ ok: false, error: 'Edificio y nombre del invitado son requeridos' });
+    }
+
+    const crypto = require('crypto');
+    const token = 'PASS-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+
+    const now = new Date();
+    let validoHasta = null;
+
+    if (customValidoHasta) {
+      validoHasta = new Date(customValidoHasta);
+    } else if (tipo_pase === 'recurrente') {
+      const f6 = new Date(now);
+      f6.setMonth(f6.getMonth() + 6);
+      validoHasta = f6;
+    } else {
+      const msMap = {
+        '2h': 2 * 3600 * 1000,
+        '4h': 4 * 3600 * 1000,
+        '12h': 12 * 3600 * 1000,
+        '24h': 24 * 3600 * 1000,
+        '7d': 7 * 24 * 3600 * 1000,
+        'todo_el_dia': 24 * 3600 * 1000
+      };
+      const extraMs = msMap[validez] || (24 * 3600 * 1000);
+      validoHasta = new Date(now.getTime() + extraMs);
+    }
+
+    const cantUsos = (tipo_pase === 'recurrente') ? (Number(usos_permitidos) || 999) : (Number(usos_permitidos) || 1);
+
+    const { crearPaseQR } = require('./db-pg');
+    const nuevoPase = await crearPaseQR({
+      token,
+      origen,
+      edificio,
+      departamento,
+      creado_por_nombre: creado_por || (req.session && req.session.user ? req.session.user : 'Edifica / Vecino'),
+      nombre_invitado,
+      motivo,
+      tipo_pase,
+      valido_desde: now,
+      valido_hasta: validoHasta,
+      dias_semana: Array.isArray(dias_semana) ? dias_semana : [],
+      hora_desde,
+      hora_hasta,
+      usos_permitidos: cantUsos
+    });
+
+    res.json({
+      ok: true,
+      pase: nuevoPase,
+      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(token)}`,
+      linkAcceso: `https://marcos.bienargentinos.com/porteria/pase/${token}`
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// Listar pases del edificio
+router.get('/api/pases-qr', async (req, res) => {
+  try {
+    const { edificio, depto } = req.query || {};
+    if (!edificio) {
+      return res.status(400).json({ ok: false, error: 'falta_edificio', mensaje: 'Debe indicar el edificio para listar pases' });
+    }
+    const { listarPasesEdificio } = require('./db-pg');
+    const pases = await listarPasesEdificio(edificio, depto || null);
+    res.json({ ok: true, pases });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// Revocar un pase QR
+router.post('/api/pases-qr/revocar', async (req, res) => {
+  try {
+    const { id, token, edificio } = req.body || {};
+    const { revocarPaseQR } = require('./db-pg');
+    const revocado = await revocarPaseQR(id || token, edificio || null);
+    if (!revocado) return res.status(404).json({ ok: false, error: 'Pase no encontrado' });
+    res.json({ ok: true, pase: revocado });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
 });
 
 // -------------------------------------------------------------------
@@ -1495,6 +1706,8 @@ module.exports = router;
 module.exports._paraPruebas = {
   encontrarLlamadaActiva,
   registrarAperturaPuerta,
+  buscarVecinoEnPadron,
+  notificarIngresoQRWhatsApp,
   _timbresActivos,
   _aperturasPuerta
 };
