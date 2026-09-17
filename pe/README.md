@@ -74,3 +74,30 @@ una pestaña por tipo:
 El front (`index.html`) igual verifica cada guardado contra la planilla y guarda
 una copia local, así que un fallo del backend se avisa en pantalla en vez de
 perderse en silencio.
+
+## Variantes por rubro
+
+`pe/generar-variante.py` genera un presupuestador nuevo a partir de
+`pe/index.html`, cambiando solo lo que distingue al rubro: título, tipo
+(= pestaña en la planilla), prefijo de guardado local, categorías, ítems
+precargados y notas por defecto. Todo lo demás —diseño, remito, clientes,
+historial con buscador, impresión, red de seguridad al guardar— se hereda.
+
+```bash
+python3 pe/generar-variante.py pe/variantes/pintura.json
+```
+
+| Variante | Config | Tipo (pestaña) | Prefijo local | Se sube a |
+|---|---|---|---|---|
+| Electricista | *(el original)* | `Electricista` | `elec-` | `/pe/` |
+| Arreglos generales y pintura | `pe/variantes/pintura.json` | `Pintura` | `pint-` | `/pintura/` |
+
+- **Los datos de empresa y la base de clientes se comparten** entre variantes
+  (claves `elec-empresa` y `elec-clientes`): el logo y el CUIT se cargan una vez
+  y aparecen en todas. Los presupuestos, en cambio, van separados por prefijo,
+  así la numeración de un rubro no pisa la del otro.
+- **Cada variante necesita su pestaña en la planilla.** El `Codigo.gs` nuevo la
+  crea sola la primera vez que se guarda; con el script viejo hay que crearla a
+  mano con la fila de encabezado.
+- Si se arregla algo en `pe/index.html`, regenerar las variantes para que el
+  arreglo se propague.

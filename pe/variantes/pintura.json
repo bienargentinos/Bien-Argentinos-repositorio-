@@ -1,0 +1,635 @@
+{
+ "titulo": "Presupuestador Arreglos Generales y Pintura",
+ "tipo": "Pintura",
+ "prefijo": "pint",
+ "salida": "pintura/index.html",
+ "notas": "- Presupuesto sujeto a medición y revisión en obra.\n- Los metros cuadrados se verifican en sitio antes de comenzar.\n- Incluye materiales, mano de obra y protección de superficies.\n- No incluye andamios ni alquiler de equipos, salvo que figure en el detalle.\n- Garantía de mano de obra: 1 año.\n- Forma de pago: 50% al inicio, 50% al finalizar los trabajos.",
+ "categorias": {
+  "prep": {
+   "label": "Preparación",
+   "bg": "#64748b",
+   "col": "#f1f5f9"
+  },
+  "int": {
+   "label": "Pintura interior",
+   "bg": "#0284c7",
+   "col": "#e0f2fe"
+  },
+  "ext": {
+   "label": "Pintura exterior",
+   "bg": "#059669",
+   "col": "#dcfce7"
+  },
+  "hum": {
+   "label": "Humedad",
+   "bg": "#0891b2",
+   "col": "#e0f7fa"
+  },
+  "alb": {
+   "label": "Albañilería",
+   "bg": "#d97706",
+   "col": "#fef3c7"
+  },
+  "yeso": {
+   "label": "Durlock/Cielorrasos",
+   "bg": "#a021f9",
+   "col": "#f3e8ff"
+  },
+  "carp": {
+   "label": "Carpintería",
+   "bg": "#7c3aed",
+   "col": "#ede9fe"
+  },
+  "herr": {
+   "label": "Herrería",
+   "bg": "#dc2626",
+   "col": "#fee2e2"
+  },
+  "plom": {
+   "label": "Plomería",
+   "bg": "#2563eb",
+   "col": "#dbeafe"
+  },
+  "elec": {
+   "label": "Electricidad",
+   "bg": "#ffd966",
+   "col": "#000000"
+  },
+  "lim": {
+   "label": "Limpieza/Retiro",
+   "bg": "#8fce00",
+   "col": "#000000"
+  },
+  "mat": {
+   "label": "Materiales",
+   "bg": "#8b5cf6",
+   "col": "#f3e8ff"
+  }
+ },
+ "items": [
+  {
+   "cat": "prep",
+   "desc": "Protección de pisos, muebles y aberturas con film y lona",
+   "unit": "gl",
+   "qty": 1
+  },
+  {
+   "cat": "prep",
+   "desc": "Lijado general de paredes",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "prep",
+   "desc": "Raspado de pintura floja o descascarada",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "prep",
+   "desc": "Sellado de fisuras con masilla elástica",
+   "unit": "ml",
+   "qty": 5
+  },
+  {
+   "cat": "prep",
+   "desc": "Aplicación de enduido plástico (2 manos)",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "prep",
+   "desc": "Aplicación de fijador sellador",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "prep",
+   "desc": "Lavado de superficie con hidrolavadora",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "prep",
+   "desc": "Tratamiento antihongo / fungicida",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "prep",
+   "desc": "Retiro de revestimiento o empapelado viejo",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "prep",
+   "desc": "Armado y desarmado de andamio",
+   "unit": "gl",
+   "qty": 1
+  },
+  {
+   "cat": "prep",
+   "desc": "Silleta / balancín para trabajo en altura (por jornada)",
+   "unit": "día",
+   "qty": 1
+  },
+  {
+   "cat": "int",
+   "desc": "Pintura látex en paredes interiores (2 manos)",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "int",
+   "desc": "Pintura látex en cielorraso (2 manos)",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "int",
+   "desc": "Pintura látex lavable en cocina y baños",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "int",
+   "desc": "Esmalte sintético en aberturas de madera",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "int",
+   "desc": "Esmalte sintético en aberturas metálicas",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "int",
+   "desc": "Pintura de zócalos",
+   "unit": "ml",
+   "qty": 10
+  },
+  {
+   "cat": "int",
+   "desc": "Pintura de barandas y pasamanos de escalera",
+   "unit": "ml",
+   "qty": 10
+  },
+  {
+   "cat": "int",
+   "desc": "Pintura de palier / hall de entrada",
+   "unit": "m2",
+   "qty": 20
+  },
+  {
+   "cat": "int",
+   "desc": "Pintura de caja de escalera (todos los pisos)",
+   "unit": "m2",
+   "qty": 50
+  },
+  {
+   "cat": "int",
+   "desc": "Pintura de pasillos y circulaciones",
+   "unit": "m2",
+   "qty": 20
+  },
+  {
+   "cat": "int",
+   "desc": "Pintura de sala de máquinas / sala de bombas",
+   "unit": "m2",
+   "qty": 15
+  },
+  {
+   "cat": "int",
+   "desc": "Pintura epoxi en pisos (cochera / SUM)",
+   "unit": "m2",
+   "qty": 20
+  },
+  {
+   "cat": "int",
+   "desc": "Terminación decorativa (veneciano / microcemento)",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "int",
+   "desc": "Pintura de puerta de departamento (por unidad)",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "ext",
+   "desc": "Pintura de frente del edificio (revestimiento acrílico)",
+   "unit": "m2",
+   "qty": 50
+  },
+  {
+   "cat": "ext",
+   "desc": "Pintura de contrafrente",
+   "unit": "m2",
+   "qty": 50
+  },
+  {
+   "cat": "ext",
+   "desc": "Pintura de medianera",
+   "unit": "m2",
+   "qty": 50
+  },
+  {
+   "cat": "ext",
+   "desc": "Pintura de tanque de agua exterior",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "ext",
+   "desc": "Pintura de balcón (por balcón)",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "ext",
+   "desc": "Pintura de barandas de balcón",
+   "unit": "ml",
+   "qty": 10
+  },
+  {
+   "cat": "ext",
+   "desc": "Pintura de rejas y portón de entrada",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "ext",
+   "desc": "Aplicación de revestimiento texturado",
+   "unit": "m2",
+   "qty": 20
+  },
+  {
+   "cat": "ext",
+   "desc": "Pintura de muros de cochera",
+   "unit": "m2",
+   "qty": 30
+  },
+  {
+   "cat": "ext",
+   "desc": "Sellado y pintura de juntas de dilatación",
+   "unit": "ml",
+   "qty": 10
+  },
+  {
+   "cat": "hum",
+   "desc": "Diagnóstico de filtración y humedad",
+   "unit": "gl",
+   "qty": 1
+  },
+  {
+   "cat": "hum",
+   "desc": "Membrana líquida en azotea (2 manos)",
+   "unit": "m2",
+   "qty": 20
+  },
+  {
+   "cat": "hum",
+   "desc": "Colocación de membrana asfáltica con aluminio",
+   "unit": "m2",
+   "qty": 20
+  },
+  {
+   "cat": "hum",
+   "desc": "Impermeabilización de terraza transitable",
+   "unit": "m2",
+   "qty": 20
+  },
+  {
+   "cat": "hum",
+   "desc": "Reparación de filtración en losa",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "hum",
+   "desc": "Tratamiento de humedad de cimientos",
+   "unit": "ml",
+   "qty": 5
+  },
+  {
+   "cat": "hum",
+   "desc": "Sellado de babetas y encuentros",
+   "unit": "ml",
+   "qty": 10
+  },
+  {
+   "cat": "hum",
+   "desc": "Reparación de canaleta y bajada pluvial",
+   "unit": "ml",
+   "qty": 5
+  },
+  {
+   "cat": "hum",
+   "desc": "Limpieza de desagües y rejillas de azotea",
+   "unit": "gl",
+   "qty": 1
+  },
+  {
+   "cat": "hum",
+   "desc": "Cielorraso manchado: tratamiento y repintado",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "alb",
+   "desc": "Reparación de revoque grueso y fino",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "alb",
+   "desc": "Reparación de grietas con puente de adherencia",
+   "unit": "ml",
+   "qty": 5
+  },
+  {
+   "cat": "alb",
+   "desc": "Reposición de cerámicos de fachada",
+   "unit": "m2",
+   "qty": 3
+  },
+  {
+   "cat": "alb",
+   "desc": "Tomado de juntas con pastina",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "alb",
+   "desc": "Reparación de escalones y descansos",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "alb",
+   "desc": "Colocación de cerámico en baño o cocina",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "alb",
+   "desc": "Apertura y cierre de canaleta para instalación",
+   "unit": "ml",
+   "qty": 3
+  },
+  {
+   "cat": "alb",
+   "desc": "Retiro de revestimiento flojo en fachada",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "alb",
+   "desc": "Reparación de contrapiso",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "yeso",
+   "desc": "Cielorraso suspendido de durlock",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "yeso",
+   "desc": "Reparación de cielorraso de yeso",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "yeso",
+   "desc": "Tabique de durlock (placa simple)",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "yeso",
+   "desc": "Buña perimetral / moldura",
+   "unit": "ml",
+   "qty": 10
+  },
+  {
+   "cat": "yeso",
+   "desc": "Tapa de inspección en cielorraso",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "carp",
+   "desc": "Ajuste y reparación de puerta",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "carp",
+   "desc": "Cambio de cerradura",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "carp",
+   "desc": "Colocación de burletes y cierrapuertas",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "carp",
+   "desc": "Reparación de ventana corrediza (ruedas y felpas)",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "carp",
+   "desc": "Colocación de zócalos",
+   "unit": "ml",
+   "qty": 10
+  },
+  {
+   "cat": "carp",
+   "desc": "Barnizado de puerta de entrada",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "carp",
+   "desc": "Reparación de mueble bajo mesada",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "herr",
+   "desc": "Tratamiento antióxido en rejas",
+   "unit": "m2",
+   "qty": 5
+  },
+  {
+   "cat": "herr",
+   "desc": "Soldadura y refuerzo de baranda",
+   "unit": "ml",
+   "qty": 3
+  },
+  {
+   "cat": "herr",
+   "desc": "Reparación de portón de cochera",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "herr",
+   "desc": "Colocación de reja de seguridad",
+   "unit": "m2",
+   "qty": 2
+  },
+  {
+   "cat": "herr",
+   "desc": "Pintura de estructura metálica (convertidor + esmalte)",
+   "unit": "m2",
+   "qty": 10
+  },
+  {
+   "cat": "plom",
+   "desc": "Cambio de canilla o grifería",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "plom",
+   "desc": "Cambio de flexibles y llaves de paso",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "plom",
+   "desc": "Destapación de cañería",
+   "unit": "gl",
+   "qty": 1
+  },
+  {
+   "cat": "plom",
+   "desc": "Reparación de pérdida en cañería embutida",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "plom",
+   "desc": "Cambio de rejilla de piso",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "plom",
+   "desc": "Reparación de mochila de inodoro",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "elec",
+   "desc": "Cambio de luminaria o artefacto",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "elec",
+   "desc": "Cambio de llave o tomacorriente",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "elec",
+   "desc": "Colocación de luz de emergencia",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "elec",
+   "desc": "Revisión de tablero de servicios generales",
+   "unit": "gl",
+   "qty": 1
+  },
+  {
+   "cat": "lim",
+   "desc": "Limpieza fina de obra",
+   "unit": "m2",
+   "qty": 20
+  },
+  {
+   "cat": "lim",
+   "desc": "Retiro de escombros y volquete",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "lim",
+   "desc": "Traslado de materiales a obra",
+   "unit": "gl",
+   "qty": 1
+  },
+  {
+   "cat": "mat",
+   "desc": "Látex interior (balde 20 L)",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "mat",
+   "desc": "Látex exterior para frentes (balde 20 L)",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "mat",
+   "desc": "Enduido plástico (balde 20 kg)",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "mat",
+   "desc": "Fijador sellador (bidón 10 L)",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "mat",
+   "desc": "Esmalte sintético (lata 4 L)",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "mat",
+   "desc": "Convertidor de óxido (lata 4 L)",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "mat",
+   "desc": "Membrana líquida (balde 20 kg)",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "mat",
+   "desc": "Masilla elástica / sellador (pomo)",
+   "unit": "u",
+   "qty": 1
+  },
+  {
+   "cat": "mat",
+   "desc": "Lijas, rodillos, pinceles y cintas",
+   "unit": "gl",
+   "qty": 1
+  },
+  {
+   "cat": "mat",
+   "desc": "Film y lona de protección",
+   "unit": "gl",
+   "qty": 1
+  }
+ ]
+}
