@@ -999,8 +999,67 @@ async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento
     // 2) El contacto de quien le abre la puerta. Se lee del legajo del vecino y no de la sesión:
     //    la sesión se borra en cada reinicio y este dato es justamente el que evita que el técnico
     //    llegue y se quede parado en la vereda.
+    if (await entregarContactoDeIngreso({
+        telTecnico, nombreTecnico, idEvento, edificio, telVecino, direccion,
+    })) {
+        quedaPendiente = true;
+    }
+
+    // ESTO ES LO QUE CIERRA EL CÍRCULO DEL REBOTE.
+    //
+    // Mientras `entrega_rebotada` tenga fecha, ninguna marca de entrega cuenta como entregada (ver
+    // `entregaSigueValida` en `sheets.js`). Se limpia acá, recién cuando no quedó nada pendiente, o
+    // sea cuando todo salió de verdad.
+    //
+    // Va al final y no en cada envío a propósito: la foto y el contacto salen uno atrás del otro, y
+    // limpiar después del primero dejaría valiendo la marca del segundo aunque ese rebotara.
+    if (!quedaPendiente) {
+        try {
+            const { marcarEntregaRebotada } = require('./datos');
+            if (await marcarEntregaRebotada(idEvento, false)) {
+                console.log(`📎🧹 [${idEvento}] se entregó todo lo que estaba pendiente: se limpia la marca de rebote.`);
+            }
+        } catch (e) { console.error('No se pudo limpiar la marca de rebote:', e.message); }
+    }
+
+    return quedaPendiente;
+}
+
+/**
+ * Le manda al técnico el contacto de quien le abre la puerta.
+ *
+ * Existe como función aparte porque hay **dos momentos** en que hace falta, y antes solo estaba
+ * escrito para uno:
+ *
+ * 1. **Solos, cuando se abre la ventana de 24hs de Meta** (`entregarPendientesAlTecnico`). Ahí se
+ *    manda UNA vez por caso y la marca `contacto_acceso_avisado` impide repetirlo.
+ * 2. **Cuando el técnico lo PIDE** (`"¿quién me abre?"`, `"estoy en la puerta y no me atienden"`).
+ *
+ * > [!CAUTION]
+ * > **Cuando lo pide, la marca de "ya se lo mandamos" NO puede callar la respuesta.** Que se lo
+ * > hayamos mandado hace tres días no contesta la pregunta de ahora: puede no haberlo visto, puede
+ * > haber rebotado, o el caso puede haber cambiado de encargado. Para eso está `forzar`.
+ *
+ * Esto es una función y no dos bloques porque copiarlo es exactamente lo que pasó con
+ * `buscarPerfilEdificio`, escrita dos veces, donde arreglar una copia no cambió nada en producción.
+ *
+ * @returns {boolean} `true` si quedó algo sin entregar (el envío rebotó).
+ */
+async function entregarContactoDeIngreso({ telTecnico, nombreTecnico, idEvento, edificio, telVecino, direccion, forzar = false }) {
+    if (!telTecnico || !idEvento) return false;
+
+    let quedaPendiente = false;
+    const { fueContactoAccesoAvisado, marcarContactoAccesoAvisado, guardarReporte } = require('./datos');
+
+    if (!direccion) {
+        try {
+            const { direccionParaTecnico } = require('./agentes/marcos-ops');
+            direccion = await direccionParaTecnico(edificio);
+        } catch (e) { direccion = edificio || ''; }
+    }
+
     try {
-        if (!(await fueContactoAccesoAvisado(idEvento))) {
+        if (forzar || !(await fueContactoAccesoAvisado(idEvento))) {
             // QUE ALGUIEN HAYA ABIERTO UNA VEZ NO QUIERE DECIR QUE ABRA SIEMPRE.
             //
             // Antes esto leía derecho el `contactoAcceso` del legajo del vecino y lo entregaba como
@@ -1090,33 +1149,37 @@ async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento
                         tel_tecnico: telTecnico,
                         historial_chat: JSON.stringify([`Marcos (a Proveedor): ${msg}`]),
                     }).catch(e => console.error('Error registrando el contacto de acceso entregado:', e.message));
-                    console.log(`📞✅ El contacto de acceso del [${idEvento}] que había rebotado le llegó ahora a ${nombreTecnico || telTecnico}.`);
+                    console.log(
+                        forzar
+                            ? `🔑✅ ${nombreTecnico || telTecnico} preguntó quién le abre en el [${idEvento}] y se le contestó.`
+                            : `📞✅ El contacto de acceso del [${idEvento}] que había rebotado le llegó ahora a ${nombreTecnico || telTecnico}.`
+                    );
                 } else {
                     quedaPendiente = true;
                     console.error(`📞❌ El contacto de acceso del [${idEvento}] volvió a rebotar. No se marca como avisado.`);
                 }
+            } else if (forzar) {
+                // PREGUNTÓ Y NO HAY NADA QUE CONTESTARLE. Quedarse callado es lo peor: está por
+                // salir, o ya está parado en la puerta. Se le dice la verdad y se escala.
+                const sinDato =
+                    `🔑 *MARCOS — INGRESO [${idEvento}]*\n\n` +
+                    `${nombreTecnico || 'Hola'}, todavía no tengo confirmado quién te abre en ${direccion}. ` +
+                    `Ya se lo estoy preguntando a la Administración y te aviso apenas lo tenga.`;
+                if (await enviarWhatsApp(telTecnico, sinDato, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN)) {
+                    await guardarReporte({
+                        id_evento: idEvento,
+                        edificio: edificio || '',
+                        tecnico: nombreTecnico || '',
+                        tel_tecnico: telTecnico,
+                        historial_chat: JSON.stringify([`Marcos (a Proveedor): ${sinDato}`]),
+                    }).catch(() => {});
+                }
+                console.warn(`🔑❔ ${nombreTecnico || telTecnico} preguntó quién le abre en el [${idEvento}] y NO hay ningún contacto cargado para ${edificio || 'ese edificio'}.`);
             }
         }
     } catch (e) {
         quedaPendiente = true;
-        console.error('Error entregando el contacto de acceso pendiente al técnico:', e.message);
-    }
-
-    // ESTO ES LO QUE CIERRA EL CÍRCULO DEL REBOTE.
-    //
-    // Mientras `entrega_rebotada` tenga fecha, ninguna marca de entrega cuenta como entregada (ver
-    // `entregaSigueValida` en `sheets.js`). Se limpia acá, recién cuando no quedó nada pendiente, o
-    // sea cuando todo salió de verdad.
-    //
-    // Va al final y no en cada envío a propósito: la foto y el contacto salen uno atrás del otro, y
-    // limpiar después del primero dejaría valiendo la marca del segundo aunque ese rebotara.
-    if (!quedaPendiente) {
-        try {
-            const { marcarEntregaRebotada } = require('./datos');
-            if (await marcarEntregaRebotada(idEvento, false)) {
-                console.log(`📎🧹 [${idEvento}] se entregó todo lo que estaba pendiente: se limpia la marca de rebote.`);
-            }
-        } catch (e) { console.error('No se pudo limpiar la marca de rebote:', e.message); }
+        console.error('Error entregando el contacto de acceso al técnico:', e.message);
     }
 
     return quedaPendiente;
@@ -4117,6 +4180,72 @@ function validarYSanitizarNombre(nombre) {
         // > es un PEDIDO hay que entender la oración, no encontrar una palabra adentro.
         const esSolicitudDatosPorTexto = /\bsolicitar|m[aá]s datos|mas datos|\bdetalles\b|\bpedirle?\b|\bped[ií]le\b|\bfoto|\bimagen|\bvideo|especifi|aclarar|\b(necesito|quiero|dejame|d[eé]jame|podr[ií]a|puedo|pod[eé]s|me deja) ver\b|\bver (bien|de cerca|mejor)\b/.test(txtLow);
         const esSolicitudDatos = seActiva('pide_datos_al_vecino', esSolicitudDatosPorTexto, ruteoIA, textoFinal);
+
+        // ── "¿QUIÉN ME ABRE?" ────────────────────────────────────────────────────────────────
+        //
+        // > [!CAUTION]
+        // > **Una intención que no está en el catálogo no tiene camino, y el mensaje cae en la
+        // > rama de al lado.** No había `pide_contacto_de_ingreso`, así que el modelo no tenía
+        // > dónde poner "¿quién me abre?" y lo clasificaba `pide_datos_al_vecino` — la más
+        // > parecida. Resultado: el técnico preguntaba quién le abría y Marcos le contestaba que
+        // > le iba a pedir una foto al vecino. Pasó dos veces en la misma prueba.
+        //
+        // `llego_y_no_le_abren` estaba en el catálogo desde el principio y **nadie la leía**:
+        // declarada y sin consumidor, que desde afuera se ve igual que no existir. Va acá, con la
+        // misma respuesta, porque alguien parado en la puerta necesita exactamente lo mismo que
+        // alguien que pregunta antes de salir — solo que con más urgencia.
+        //
+        // Va ANTES de `esSolicitudDatos` porque esa es la rama que se lo venía comiendo, y la
+        // primera que matchea corta.
+        const pideQuienLeAbre = seActiva('pide_contacto_de_ingreso', false, ruteoIA, textoFinal)
+            || seActiva('llego_y_no_le_abren', false, ruteoIA, textoFinal);
+
+        if (pideQuienLeAbre) {
+            // De qué caso habla. Mismo criterio y mismo modismo que la rama de la confirmación,
+            // unas líneas más arriba: el código sale de la cola en memoria, pero **el caso se
+            // relee de la base** — la memoria dice de qué se está hablando, la base dice la
+            // verdad. Si PM2 reinició, la memoria está vacía y no se adivina.
+            const colaIngreso = global.colasProveedores?.get(String(from).replace(/\D/g, ''));
+            let casoIngreso = null;
+            const idIngresoEnMemoria = colaIngreso?.eventoActivoId || '';
+            if (idIngresoEnMemoria) {
+                const c = await buscarCasoPorCodigo(idIngresoEnMemoria).catch(() => null);
+                if (c && !c.cerrado) casoIngreso = idIngresoEnMemoria;
+            }
+
+            if (casoIngreso) {
+                const vecinoDelCaso = await obtenerVecinoActivoDeProveedor({
+                    telTech: from,
+                    edificioNombre: session.nombreEdificio,
+                    datosEmisor,
+                    session
+                }).catch(() => null);
+
+                // `forzar: true` — LO ESTÁ PREGUNTANDO AHORA. Que se lo hayamos mandado hace tres
+                // días no contesta la pregunta de hoy: puede no haberlo visto, puede haber
+                // rebotado por la ventana de 24hs, o el caso puede haber cambiado de encargado.
+                await entregarContactoDeIngreso({
+                    telTecnico: from,
+                    nombreTecnico: datosEmisor?.nombre || '',
+                    idEvento: casoIngreso,
+                    edificio: vecinoDelCaso?.edificio || session.nombreEdificio || '',
+                    telVecino: vecinoDelCaso?.telefono || '',
+                    forzar: true,
+                });
+                return;
+            }
+
+            // Sin caso no se sabe de qué edificio habla, y mandarle el contacto del edificio
+            // equivocado lo deja parado en otra puerta. Se le pregunta, que es un dato que él
+            // tiene y nosotros no.
+            console.warn(`🔑❔ ${datosEmisor?.nombre || from} preguntó quién le abre y no hay caso activo con qué saber de qué edificio habla.`);
+            await despacharRespuesta(
+                from,
+                `${datosEmisor?.nombre || 'Hola'}, ¿a qué edificio estás yendo? Con eso te paso quién te abre.`,
+                msgType
+            );
+            return;
+        }
 
         if (esSolicitudDatos) {
             const vecinoActivo = await obtenerVecinoActivoDeProveedor({

@@ -101,9 +101,15 @@ const INTENCIONES = {
         'Le PIDE A MARCOS que consiga algo del vecino: una foto, un video, más detalles, una ' +
         'aclaración. Tiene que ser un pedido de él hacia Marcos. ' +
         'OJO: "te mando una foto", "la foto es del caso 1001" o "no te estoy pidiendo fotos" NO ' +
-        'son esto — ahí no está pidiendo nada, está aportando o corrigiendo.',
+        'son esto — ahí no está pidiendo nada, está aportando o corrigiendo. ' +
+        'Y preguntar QUIÉN LE ABRE tampoco es esto: eso es "pide_contacto_de_ingreso".',
+    pide_contacto_de_ingreso:
+        'Pregunta quién le va a abrir, a quién tiene que avisar para entrar, o pide el teléfono ' +
+        'del encargado o de quien lo recibe: "¿quién me abre?", "¿a quién le toco?", "pasame el ' +
+        'teléfono del encargado", "¿cómo entro?". Todavía NO está en la puerta.',
     llego_y_no_le_abren:
-        'Está en la puerta del edificio y nadie le abre.',
+        'Está en la puerta del edificio y nadie le abre. Ya llegó: "estoy en la puerta", ' +
+        '"toqué y no sale nadie", "llegué y está cerrado".',
     informa_resuelto:
         'Avisa que terminó el trabajo o que el problema quedó resuelto.',
     corrige_a_marcos:

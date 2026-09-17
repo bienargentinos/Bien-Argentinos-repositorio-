@@ -25,22 +25,41 @@ const path = require('path');
 
 const SRC = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
 
-const i = SRC.indexOf('async function entregarPendientesAlTecnico(');
-if (i === -1) throw new Error('No encontré entregarPendientesAlTecnico en index.js.');
-// El conteo de llaves arranca DESPUÉS de la lista de parámetros: la firma desestructura un objeto
-// (`{ telTecnico, ... }`), así que contar desde el principio cerraba en la primera llave y cortaba
-// la función por la mitad.
-let p = 0, finParams = -1;
-for (let k = SRC.indexOf('(', i); k < SRC.length; k++) {
-    if (SRC[k] === '(') p++;
-    else if (SRC[k] === ')') { p--; if (p === 0) { finParams = k; break; } }
+/**
+ * Recorta una función entera de `index.js`, con su cuerpo.
+ *
+ * El conteo de llaves arranca DESPUÉS de la lista de parámetros: la firma desestructura un objeto
+ * (`{ telTecnico, ... }`), así que contar desde el principio cerraba en la primera llave y cortaba
+ * la función por la mitad.
+ */
+function recortarFuncion(nombre) {
+    const i = SRC.indexOf(`async function ${nombre}(`);
+    if (i === -1) throw new Error(`No encontré ${nombre} en index.js.`);
+
+    let p = 0, finParams = -1;
+    for (let k = SRC.indexOf('(', i); k < SRC.length; k++) {
+        if (SRC[k] === '(') p++;
+        else if (SRC[k] === ')') { p--; if (p === 0) { finParams = k; break; } }
+    }
+    let d = 0, fin = -1, empezo = false;
+    for (let k = SRC.indexOf('{', finParams); k < SRC.length; k++) {
+        if (SRC[k] === '{') { d++; empezo = true; }
+        else if (SRC[k] === '}') { d--; if (empezo && d === 0) { fin = k + 1; break; } }
+    }
+    return SRC.slice(i, fin);
 }
-let d = 0, fin = -1, empezo = false;
-for (let k = SRC.indexOf('{', finParams); k < SRC.length; k++) {
-    if (SRC[k] === '{') { d++; empezo = true; }
-    else if (SRC[k] === '}') { d--; if (empezo && d === 0) { fin = k + 1; break; } }
-}
-const cuerpo = SRC.slice(i, fin);
+
+// Se cargan las DOS, porque el envío del contacto de ingreso se separó a su propia función: lo
+// necesitan dos caminos --el automático, cuando se abre la ventana, y el pedido, cuando el técnico
+// pregunta "¿quién me abre?"-- y escribirlo dos veces es lo que pasó con `buscarPerfilEdificio`.
+//
+// Si mañana `entregarPendientesAlTecnico` llama a una tercera, esta prueba se va a plantar con
+// "X is not defined" y hay que sumarla acá. Que se plante es lo correcto: una prueba que evalúa
+// el código real tiene que romperse cuando el código real cambia de forma.
+const cuerpo = [
+    recortarFuncion('entregarPendientesAlTecnico'),
+    recortarFuncion('entregarContactoDeIngreso'),
+].join('\n\n');
 
 let fallos = 0;
 function verificar(titulo, real, esperado) {
