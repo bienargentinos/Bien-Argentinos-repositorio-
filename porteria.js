@@ -1382,16 +1382,39 @@ router.post('/api/validar-qr', async (req, res) => {
     const { pool, validarConsumirPaseQR, registrarEventoAcceso } = require('./db-pg');
     let validacion = null;
 
+    // > [!CAUTION]
+    // > **Con la base disponible decide la base, siempre.** `validarConsumirPaseQR` es lo único
+    // > que puede saber si un pase fue revocado, si ya se usó o si hoy no es uno de sus días: eso
+    // > son hechos POSTERIORES a la emisión y no pueden viajar adentro del QR. Una firma válida
+    // > nunca contradice a la base — si no, revocar a alguien dejaría de servir de nada.
+    //
+    // Sin base se cae al pase firmado, que verifica autenticidad y vencimiento sin consultar nada.
+    // Lo que había antes acá era:
+    //
+    //     const esMarcosQr = rawQr.startsWith('MARCOS-') || rawQr.startsWith('PASS-') || ...
+    //
+    // o sea que con PostgreSQL caído --que en Argentina pasa seguido, junto con la luz-- escribir
+    // a mano `PASS-loquesea` abría la puerta de calle.
     if (pool && typeof validarConsumirPaseQR === 'function') {
       validacion = await validarConsumirPaseQR(rawQr, edificio);
     } else {
-      const esMarcosQr = rawQr.startsWith('MARCOS-') || rawQr.startsWith('PASS-') || rawQr.startsWith('EDIFICA-');
+      const { verificarPaseFirmado } = require('./qr-firmado');
+      const off = verificarPaseFirmado(rawQr, edificio);
       validacion = {
-        valido: esMarcosQr,
-        resultado: esMarcosQr ? 'exitoso' : 'rechazado_invalido',
-        mensaje: esMarcosQr ? 'Pase QR válido' : 'Código QR no reconocido o vencido',
-        pase: null
+        valido: off.valido,
+        resultado: off.resultado,
+        mensaje: off.mensaje,
+        // Se arma un `pase` con lo que venía adentro del QR para que el resto del endpoint
+        // --la auditoría, el aviso al vecino, a qué relé abrir-- siga leyendo lo mismo de siempre.
+        pase: off.datos
+          ? { edificio: off.datos.edificio, departamento: off.datos.unidad, nombre_invitado: '', token: rawQr, offline: true }
+          : null,
       };
+      console.warn(
+        `📴 PostgreSQL no está disponible: el pase se validó por firma, sin base. ` +
+        `${off.valido ? 'VÁLIDO' : 'RECHAZADO'} — ${off.mensaje}. ` +
+        `Sin base no se puede saber si fue revocado: por eso los pases que se usen offline tienen que vencer corto.`
+      );
     }
 
     const ip = (req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : (req.socket ? req.socket.remoteAddress : req.ip)) || '';
