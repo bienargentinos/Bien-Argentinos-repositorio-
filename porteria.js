@@ -1477,6 +1477,109 @@ router.post('/api/validar-qr', async (req, res) => {
   }
 });
 
+/**
+ * EL VECINO ABRE LA PUERTA DESDE SU CELULAR.
+ *
+ * Es lo que más se usa de un portero eléctrico y hasta ahora no existía: el vecino solo podía
+ * contestar con texto o hablar. La política --quién puede, en qué modo, con o sin timbre sonando--
+ * vive en `apertura-remota.js`, con sus pruebas.
+ *
+ * > [!CAUTION]
+ * > **No usa `getVecinoSession` de `portal-vecino.js`**, que devuelve un vecino de prueba cuando no
+ * > hay sesión. Acá eso significaría que cualquiera abre la puerta. Usa `sesionVecinoEstricta`, que
+ * > devuelve `null` y punto.
+ *
+ * El edificio y la unidad salen de SUS unidades, no del cuerpo del pedido: si vinieran del cuerpo
+ * sin verificar, un vecino del 159 podría abrir el 270.
+ *
+ * Y no abre la puerta: **deja la apertura pendiente para la placa con relé que está adentro del
+ * edificio**. El tótem de la vereda no tiene por qué poder abrir nada — sus cables están al alcance
+ * de un destornillador.
+ */
+const _ultimaAperturaVecino = new Map(); // clave edificio:unidad -> timestamp
+const ESPERA_ENTRE_APERTURAS_MS = 5000;
+
+router.post('/api/puerta/abrir-vecino', async (req, res) => {
+  try {
+    const { sesionVecinoEstricta, modoDelEdificio, puedeAbrir } = require('./apertura-remota');
+    const { edificio, depto, departamento, callId } = req.body || {};
+
+    const vecino = sesionVecinoEstricta(req);
+    if (!vecino) {
+      console.warn('🚪🔒 Alguien pidió abrir la puerta sin sesión de vecino. Rechazado.');
+      return res.status(401).json({ ok: false, abierto: false, mensaje: 'Iniciá sesión para abrir la puerta' });
+    }
+
+    // El modo lo decide el edificio. Si no se puede leer el perfil, queda el default
+    // (`con_llamada`): un edificio del que no sabemos nada no autorizó la apertura sin timbre.
+    let perfil = null;
+    try {
+      const { buscarPerfilEdificio } = require('./datos');
+      perfil = await buscarPerfilEdificio(edificio || vecino.edificio);
+    } catch (e) {
+      console.warn('🚪 No se pudo leer la configuración del edificio, se usa el modo por defecto:', e.message);
+    }
+    const modo = modoDelEdificio(perfil);
+
+    const llamada = encontrarLlamadaActiva(callId, edificio || vecino.edificio, depto || departamento || vecino.departamento);
+    const fallo = puedeAbrir({
+      vecino, modo, llamada,
+      edificioPedido: edificio || '',
+      unidadPedida: depto || departamento || '',
+    });
+
+    if (!fallo.permitido) {
+      console.warn(`🚪🔒 ${vecino.nombre || vecino.usuario_id} no pudo abrir: ${fallo.motivo} (modo ${modo}).`);
+      return res.status(403).json({ ok: false, abierto: false, mensaje: fallo.motivo, modo });
+    }
+
+    // Un freno contra el apretado repetido. No es el control de acceso --ese ya pasó-- sino que
+    // evita veinte aperturas seguidas por un botón que rebota o un dedo nervioso.
+    const clave = `${fallo.edificio}:${fallo.unidad}`.toLowerCase();
+    const ahora = Date.now();
+    const ultima = _ultimaAperturaVecino.get(clave) || 0;
+    if (ahora - ultima < ESPERA_ENTRE_APERTURAS_MS) {
+      return res.status(429).json({ ok: false, abierto: false, mensaje: 'La puerta ya se abrió recién' });
+    }
+    _ultimaAperturaVecino.set(clave, ahora);
+
+    const motivo = `${fallo.motivo}: ${vecino.nombre || 'vecino'} (${fallo.unidad || 's/u'})`;
+    const apertura = registrarAperturaPuerta(fallo.edificio, motivo, fallo.unidad);
+
+    // Una apertura por llamada: si ya abrió, el botón de ese timbre se apaga.
+    if (llamada) llamada.abrioLaPuerta = true;
+
+    // QUEDA ESCRITO QUIÉN ABRIÓ. Es lo que protege al vecino y a vos: cuando alguien pregunte
+    // quién dejó entrar a alguien un martes a las 3 de la mañana, la respuesta tiene que existir.
+    try {
+      const { pool, registrarEventoAcceso } = require('./db-pg');
+      if (pool && typeof registrarEventoAcceso === 'function') {
+        await registrarEventoAcceso({
+          edificio: fallo.edificio,
+          departamento: fallo.unidad,
+          tipo_acceso: 'Apertura remota',
+          resultado: 'exitoso',
+          detalle: motivo + ` [modo ${modo}]`,
+          qr_id: null,
+          ip: (req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : (req.socket ? req.socket.remoteAddress : req.ip)) || '',
+          user_agent: String(req.headers['user-agent'] || ''),
+          metadata: { usuario_id: vecino.usuario_id, modo, callId: llamada ? llamada.id : null }
+        });
+      }
+    } catch (e) { console.warn('⚠️ No se pudo registrar la apertura remota:', e.message); }
+
+    console.log(`🚪✅ ${vecino.nombre || vecino.usuario_id} abrió la puerta de ${fallo.edificio} (${fallo.unidad || 's/u'}) — modo ${modo}.`);
+    return res.json({ ok: true, abierto: true, mensaje: 'Puerta abierta', modo, apertura });
+
+  } catch (err) {
+    console.error('Error en la apertura remota del vecino:', err.message);
+    res.status(500).json({ ok: false, abierto: false, error: err.message });
+  }
+});
+
+/** Para las pruebas: el freno entre aperturas es de RAM y hay que poder limpiarlo. */
+router.__limpiarFrenoAperturas = () => _ultimaAperturaVecino.clear();
+
 // Endpoint para disparar apertura de puerta (desde tótem, vecino o conserje)
 router.post('/api/puerta/abrir', (req, res) => {
   try {
