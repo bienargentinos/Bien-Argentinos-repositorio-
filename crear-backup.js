@@ -12,11 +12,33 @@
 //
 // QUÉ SE RESPALDA Y POR QUÉ.
 //
-// El código está en GitHub y los datos en Google Sheets: eso no hace falta respaldarlo. Lo único
-// que existe en un solo lugar del mundo son las credenciales:
-//
 //   .env                        el token de Meta es lo único caro de regenerar
 //   gen-lang-client-*.json      la llave de la planilla
+//   PostgreSQL (pg_dump)        ← ver abajo
+//   almacenamiento/             ← ver abajo
+//
+// > [!CAUTION]
+// > **Este script decía que PostgreSQL y `almacenamiento/` no hacían falta, y era falso.**
+// >
+// > El razonamiento escrito acá era: *"el código está en GitHub y los datos en Google Sheets, eso
+// > no hace falta respaldarlo"*. La primera mitad es cierta. La segunda no, y de la peor forma:
+// >
+// > **PostgreSQL NO es un espejo de Sheets.** `copiarAPg` es "dispará y seguí", la sincronización
+// > solo AGREGA, y hay una docena larga de tablas que existen únicamente del lado de PostgreSQL:
+// >
+// >     usuarios · usuario_unidades · reservas_amenities · edificio_amenities
+// >     timbres · pases_qr · eventos_acceso · accesos
+// >     mensajes · mensajes_wa · consejo · personal · suscripciones_planes
+// >
+// > O sea: el portal del vecino entero, la portería entera, y todo el historial de chat que
+// > alimenta el visor del panel. Nada de eso está en ninguna planilla.
+// >
+// > Y **`almacenamiento/` estaba excluido a mano**: son todas las fotos de reclamos, todos los
+// > audios y todas las facturas que llegaron alguna vez. Existen en ese disco y en ningún otro
+// > lado --`material-caso.js` las recupera de ahí--.
+// >
+// > El respaldo anterior devolvía las credenciales y perdía todo lo demás. Lo peor de un backup
+// > así no es que falte: es que **parece que está**, y uno deja de preocuparse.
 //
 // La versión anterior de este script las dejaba afuera sin avisar. El comando era:
 //
@@ -60,12 +82,56 @@ if (problemas.length) {
     process.exit(1);
 }
 
-const imprescindibles = ['.env', ...jsonGoogle];
+// ── EL VOLCADO DE POSTGRESQL ────────────────────────────────────────────────────────────────
+//
+// Va primero porque es lo que no se puede reconstruir de ningún lado. Si esto falla, el respaldo
+// NO se arma: mejor ningún backup que uno al que le falta la base y parece completo.
+//
+// La URL sale del `.env` como la lee `db-pg.js`, para que no haya dos formas de conectarse.
+const relDump = path.join('backups', `postgres-${sello}.sql`);
+const absDump = path.join(raiz, relDump);
+
+try { require('dotenv').config(); } catch (_) {}
+const urlPg = process.env.DATABASE_URL || 'postgresql://marcos:marcos2024@127.0.0.1:5432/marcos_db';
+
+console.log('\n🗄️  Volcando PostgreSQL …');
+try {
+    // `--no-owner` y `--no-acl` para que el volcado se pueda restaurar en un servidor nuevo donde
+    // los roles todavía no existen. Sin eso, restaurar en un VPS limpio falla en la primera línea
+    // --y restaurar en un VPS limpio es exactamente para lo que existe este archivo--.
+    execFileSync('pg_dump', ['--no-owner', '--no-acl', '--clean', '--if-exists', '-d', urlPg, '-f', absDump],
+        { stdio: ['ignore', 'inherit', 'inherit'] });
+} catch (err) {
+    console.error(`\n❌ NO SE PUDO VOLCAR POSTGRESQL: ${err.message}`);
+    console.error('   El respaldo NO se arma. Sin la base, restaurar en otro servidor te devuelve');
+    console.error('   las credenciales y ningún vecino, ningún pase QR y ningún historial de chat.\n');
+    console.error('   Si el problema es que falta pg_dump:');
+    console.error('     apt-get install -y postgresql-client\n');
+    process.exit(1);
+}
+
+const mbDump = (fs.statSync(absDump).size / (1024 * 1024)).toFixed(2);
+console.log(`   ✅ ${mbDump} MB de base volcados.`);
 
 // Todo lo que hay, menos lo que se puede volver a bajar o generar. Se listan los nombres a mano
 // --incluidos los que empiezan con punto-- en vez de usar `*`, que es lo que dejaba afuera al .env.
-const excluidos = new Set(['node_modules', '.git', 'backups', 'temp', 'almacenamiento']);
+//
+// `almacenamiento` YA NO SE EXCLUYE: son las fotos, los audios y las facturas, y no están en
+// ningún otro lado. Es lo que más pesa y es lo que más duele perder.
+const excluidos = new Set(['node_modules', '.git', 'backups', 'temp']);
 const aGuardar = fs.readdirSync(raiz).filter(f => !excluidos.has(f) && !f.endsWith('.log'));
+
+// El volcado vive adentro de `backups/`, que está excluido — se nombra aparte para que entre igual.
+aGuardar.push(relDump);
+
+const hayMultimedia = fs.existsSync(path.join(raiz, 'almacenamiento'));
+if (!hayMultimedia) {
+    console.log('\nℹ️  No hay carpeta `almacenamiento/` en este equipo: no hay multimedia que guardar.');
+}
+
+// Lo que NO puede faltar adentro del archivo final. El volcado y la multimedia se suman a las
+// credenciales: son las tres cosas que no se recuperan de GitHub ni de la planilla.
+const imprescindibles = ['.env', ...jsonGoogle, relDump];
 
 console.log(`\n📦 Armando ${path.basename(archivo)} …`);
 
@@ -73,6 +139,7 @@ try {
     execFileSync('tar', ['-czf', archivo, ...aGuardar], { cwd: raiz, stdio: 'inherit' });
 } catch (err) {
     console.error(`\n❌ No se pudo armar el respaldo: ${err.message}\n`);
+    try { fs.unlinkSync(absDump); } catch (_) {}
     process.exit(1);
 }
 
@@ -87,16 +154,32 @@ try {
 }
 
 const faltan = imprescindibles.filter(f => !adentro.some(l => l === f || l.endsWith('/' + f)));
+
+// LA MULTIMEDIA SE VERIFICA APARTE, contando archivos y no buscando un nombre: `almacenamiento/`
+// es un árbol, no un archivo, y que aparezca la carpeta vacía no querría decir nada.
+const archivosMultimedia = adentro.filter(l => l.startsWith('almacenamiento/') && !l.endsWith('/')).length;
+if (hayMultimedia && archivosMultimedia === 0) {
+    faltan.push('almacenamiento/ (la carpeta existe y no entró ni un archivo)');
+}
+
 if (faltan.length) {
     console.error(`\n❌ EL RESPALDO NO SIRVE: quedaron afuera ${faltan.join(', ')}`);
     console.error('   Son justamente los archivos que no se pueden recuperar de ningún otro lado.\n');
     fs.unlinkSync(archivo);   // mejor ningún respaldo que uno que parece bueno y está vacío
+    try { fs.unlinkSync(absDump); } catch (_) {}
     process.exit(1);
 }
 
+// EL VOLCADO SE BORRA ACÁ, ya verificado que entró al archivo. Queda en disco el menor tiempo
+// posible: es la base entera en texto plano, con teléfonos, nombres y conversaciones adentro.
+try { fs.unlinkSync(absDump); } catch (_) {}
+
 const mb = (fs.statSync(archivo).size / (1024 * 1024)).toFixed(2);
 console.log(`\n✅ Listo: ${adentro.filter(Boolean).length} archivos, ${mb} MB`);
-console.log(`   Verificado que están adentro: ${imprescindibles.join(', ')}`);
+console.log(`   Verificado que están adentro:`);
+console.log(`     • credenciales: ${['.env', ...jsonGoogle].join(', ')}`);
+console.log(`     • PostgreSQL:   ${path.basename(relDump)} (${mbDump} MB)`);
+console.log(`     • multimedia:   ${archivosMultimedia} archivos de almacenamiento/`);
 
 console.log(`\n⚠️  ESTE ARCHIVO TIENE TUS CREDENCIALES ADENTRO.`);
 console.log(`   No lo subas a GitHub, ni a un Drive compartido, ni lo mandes por chat.`);
