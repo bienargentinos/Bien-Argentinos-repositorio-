@@ -2899,6 +2899,25 @@ function validarYSanitizarNombre(nombre) {
         // Administración no tiene ningún otro registro. Ahí el evento es la ayuda memoria: qué se
         // hizo, quién lo hizo, qué quedó pendiente y quién lo avisó, con la conversación a la vista.
         let respExtra = '';
+
+        // ── AL TÉCNICO SE LE HABLA POR DIRECCIÓN, TAMBIÉN ACÁ ────────────────────────────
+        //
+        // > [!CAUTION]
+        // > **La regla estaba escrita y estos tres mensajes se la salteaban.**
+        //
+        // CLAUDE.md lo dice desde hace rato: *"Dirección, nunca el nombre interno del edificio"*.
+        // La lista de casos de acá arriba ya lo hacía; las tres respuestas de abajo no, y el
+        // 20/09/2026 al técnico le llegó:
+        //
+        //     La dejé asociada al CASO-1004 de san patricio casa
+        //
+        // `san patricio casa` es un alias nuestro. Él estuvo en una calle y una altura, y lo que
+        // lee es un edificio que no reconoce --o peor, uno que cree reconocer y es otro--. Justo
+        // en el mensaje que le dice a qué consorcio se le está cobrando su trabajo.
+        const dirFactura = edificioFactura
+            ? await require('./agentes/marcos-ops').direccionParaTecnico(edificioFactura).catch(() => edificioFactura)
+            : '';
+
         if (!edificioFactura) {
             // Sin edificio no podemos imputar el gasto a nadie: se lo pedimos al técnico, y de
             // paso le enseñamos el atajo del número de caso.
@@ -2931,7 +2950,7 @@ function validarYSanitizarNombre(nombre) {
             }
         } else if (idCasoFactura && !quedoPorLaMitad) {
             // Se engancha al caso que documenta. No se abre nada nuevo.
-            respExtra = ` La dejé asociada al *${idCasoFactura}* de ${edificioFactura}.`;
+            respExtra = ` La dejé asociada al *${idCasoFactura}* de ${dirFactura}.`;
         } else if (explicaElTrabajo || quedoPorLaMitad || loMandaElTecnico) {
             // Trabajo coordinado por fuera, con explicación: acá sí vale registrar el evento.
             //
@@ -2984,9 +3003,9 @@ function validarYSanitizarNombre(nombre) {
                 console.log(`🧾 Evento ${idCasoFactura || '(nuevo)'} registrado en "${edificioFactura}" desde la factura — estado ${quedoPorLaMitad ? 'ABIERTO (quedó pendiente)' : 'resuelto'}.`);
 
                 respExtra = quedoPorLaMitad
-                    ? ` Y te tomo la indicación: la dejé anotada en el *${idCasoFactura || 'caso'}* de ${edificioFactura}, que queda ABIERTO${gremioQueFalta ? ` a la espera del ${gremioQueFalta}` : ' porque falta terminar'}. Ya le avisé a la Administración con tus palabras, así queda constancia de que lo dijiste vos y cuándo.`
+                    ? ` Y te tomo la indicación: la dejé anotada en el *${idCasoFactura || 'caso'}* de ${dirFactura}, que queda ABIERTO${gremioQueFalta ? ` a la espera del ${gremioQueFalta}` : ' porque falta terminar'}. Ya le avisé a la Administración con tus palabras, así queda constancia de que lo dijiste vos y cuándo.`
                     : explicaElTrabajo
-                        ? ` Y como me contaste qué se hizo, lo dejé anotado en ${edifDetectadoTexto?.direccion || edificioFactura} como trabajo ya resuelto, así la Administración tiene el antecedente.`
+                        ? ` Y como me contaste qué se hizo, lo dejé anotado en ${edifDetectadoTexto?.direccion || dirFactura} como trabajo ya resuelto, así la Administración tiene el antecedente.`
                         : ` La dejé anotada en el *${idCasoFactura || 'caso'}* así la Administración tiene el antecedente del gasto. Si me contás en una línea qué se hizo, se lo agrego.`;
             } catch (e) {
                 console.error('Error registrando el evento desde la factura:', e.message);
@@ -2995,7 +3014,7 @@ function validarYSanitizarNombre(nombre) {
             // Llega acá una factura que reenvió el vecino o el encargado sin contar nada. El
             // evento lo abre igual el camino de arriba cuando la manda el técnico; acá no, porque
             // quien la reenvía no es quien hizo el trabajo y no puede describirlo.
-            respExtra = ` Quedó cargada a ${edificioFactura}. Si me contás en una línea qué se hizo, se lo dejo anotado a la Administración como antecedente.`;
+            respExtra = ` Quedó cargada a ${dirFactura}. Si me contás en una línea qué se hizo, se lo dejo anotado a la Administración como antecedente.`;
         }
 
         // ── AVISO A LA ADMINISTRACIÓN ────────────────────────────────────────────────────
@@ -4090,8 +4109,15 @@ function validarYSanitizarNombre(nombre) {
                     // El `entraSolo` del ruteo va aparte de la intención: "tengo llave y voy en
                     // 2hs" dice las dos cosas, y la que tiene consecuencia --no mandarle el
                     // contacto de ingreso-- se perdía si había que elegir una sola.
-                    const { tieneAccesoPropio } = require('./contacto-ingreso');
-                    const entraSolo = tieneAccesoPropio(msgBodyParaRegistro) || ruteoIA?.entraSolo === true;
+                    //
+                    // Y `pideQueLeAbran` VETA al ruteo, no solo a la condición de texto: el 20/09
+                    // Dario escribió "no necesito esa llave solo necesito que alguien esté ahí
+                    // para abrirme" y recibió "perfecto que tengas acceso, no te gestiono nada".
+                    // Pedir que alguien lo espere es incompatible con entrar solo, lo diga el
+                    // texto o lo diga el modelo.
+                    const { tieneAccesoPropio, pideQueLeAbran } = require('./contacto-ingreso');
+                    const entraSolo = !pideQueLeAbran(msgBodyParaRegistro)
+                        && (tieneAccesoPropio(msgBodyParaRegistro) || ruteoIA?.entraSolo === true);
                     if (entraSolo) {
                         try {
                             const { marcarContactoAccesoAvisado } = require('./datos');
@@ -4214,6 +4240,44 @@ function validarYSanitizarNombre(nombre) {
             }
 
             if (casoIngreso) {
+                // ── LA HORA QUE DIJO NO SE PIERDE POR HABER PREGUNTADO OTRA COSA ──────
+                //
+                // > [!CAUTION]
+                // > **El ruteo devuelve UNA intención, y un mensaje dice dos cosas.**
+                //
+                // Prueba del 20/09/2026, CASO-1004:
+                //
+                //     16:39  Dario:  "Llegaré en 2 hs para revisar el problema. Quien me abre?"
+                //     17:04  Marcos → al vecino: "confirmó la visita, pero aún no precisó la
+                //                                hora exacta"
+                //
+                // Él la precisó, en el mismo mensaje. Lo que pasó es que el modelo eligió
+                // `pide_contacto_de_ingreso` --que es verdad, y es lo que esta rama atiende-- y
+                // con eso `confirma_que_va` quedó en false, así que la rama que escribe
+                // `tecnico_eta` no llegó a correr.
+                //
+                // Para el vecino eso no es un detalle: está esperando en su casa y le dicen que
+                // no se sabe cuándo viene, veinticinco minutos después de que el técnico lo dijo.
+                //
+                // Acá no se rutea nada: si el mensaje trae una hora, se anota. Guardar de más no
+                // cuesta --`guardarConfirmacionTecnico` completa, no pisa-- y guardar de menos es
+                // una promesa que el vecino nunca escucha.
+                try {
+                    const { interpretarRespuestaTecnico } = require('./agentes/marcos-ops');
+                    const { guardarConfirmacionTecnico } = require('./datos');
+                    const eta = (await interpretarRespuestaTecnico({ mensaje: textoFinal }))?.eta || '';
+                    if (eta) {
+                        await guardarConfirmacionTecnico({
+                            id_evento: casoIngreso,
+                            eta,
+                            tecnico: datosEmisor?.nombre || ''
+                        });
+                        console.log(`📌 ${datosEmisor?.nombre || from} preguntó quién le abre Y dijo cuándo llega: se anotó "${eta}" en el [${casoIngreso}].`);
+                    }
+                } catch (e) {
+                    console.error('No se pudo anotar la hora que dijo al preguntar quién le abre:', e.message);
+                }
+
                 const vecinoDelCaso = await obtenerVecinoActivoDeProveedor({
                     telTech: from,
                     edificioNombre: session.nombreEdificio,

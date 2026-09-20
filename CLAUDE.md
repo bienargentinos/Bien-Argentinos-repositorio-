@@ -1569,6 +1569,88 @@ Prueba: `node pruebas-contacto-ingreso.js`.
   distintos— y los manda todos juntos.
 - Cuando llega una factura y no se sabe de qué trabajo es, la lista de casos recientes se muestra
   **por dirección**, no por alias.
+- **Y la respuesta de la factura también**. La regla estaba escrita y tres mensajes se la
+  salteaban: al técnico le llegó *"La dejé asociada al CASO-1004 de **san patricio casa**"*, que
+  es un alias nuestro. Él estuvo en una calle y una altura. La dirección se resuelve una sola vez
+  (`dirFactura`) y `pruebas-quien-le-abre.js` prohíbe que vuelva a interpolarse `edificioFactura`
+  crudo en una respuesta al técnico.
+
+### Un relleno de ficha con la longitud justa pasa el control de teléfono
+
+> [!CAUTION]
+> **Contar dígitos no alcanza.** El relleno casi siempre tiene el largo correcto.
+
+Se había arreglado `pachu (12345667)` --ocho dígitos, muy corto-- exigiendo los 10 que tiene todo
+número argentino. El 20/09/2026, al técnico le llegó:
+
+```
+te abre chechuliso (11111111111)
+```
+
+Once unos. Pasa el piso de 10 sin despeinarse, y Marcos se lo afirmó con toda seguridad. Para el
+técnico es idéntico al caso anterior: disca, no existe, se queda en la puerta.
+
+Lo que distingue un relleno no es el largo: es que **nadie teclea un número real apretando siempre
+la misma tecla ni corriendo el dedo por el teclado**. `telefonoUsable()` rechaza las dos formas
+(la cuenta del teclado va en módulo 10, porque quien lo corre entero escribe `…7890`) más el techo
+de 15 dígitos de E.164.
+
+> Con dos dígitos distintos o menos se rechaza, así que `11 5555 1111` queda afuera aunque podría
+> ser real. Es deliberado y es el error barato: rechazar de más baja al escalón siguiente
+> --suplente, seguridad, o decir que se está averiguando-- y eso *le pregunta a una persona*.
+> Aceptar de más manda a alguien a llamar a la nada creyendo que tiene con quién, y nadie se
+> entera nunca.
+>
+> Los fixtures de `pruebas-contacto-ingreso.js` eran justamente `1111111111`, `2222222222`… o sea
+> que la prueba vieja medía con la misma forma que el bug.
+
+### "No necesito esa llave, necesito que alguien esté ahí" no es entrar solo
+
+> [!CAUTION]
+> **Un mensaje dice dos cosas y la regla leía la primera mitad.**
+
+```
+16:48  Dario:  "no necesito esa llave solo necesito que alguien esté ahí para abrirme"
+16:50  Marcos: "Perfecto que tengas acceso, entonces no te gestiono nada para entrar."
+```
+
+`tieneAccesoPropio` buscaba *"no necesito"* + una palabra de la lista (`llave`, `abr`, `acceso`…),
+y las dos mitades de esa frase las traen. Pero él no estaba diciendo que entra solo: estaba
+diciendo, con todas las letras, **lo único que sí necesitaba**. Dos minutos antes había escrito
+*"si no hay nadie no voy"*.
+
+`pideQueLeAbran()` va aparte y manda sobre todo lo demás, **incluido el `entraSolo` del ruteo por
+IA**: pedir que alguien esté es incompatible con entrar por su cuenta, lo diga el texto o lo diga
+el modelo. Mismo criterio que la negación de siempre — ante la duda se manda el contacto, porque
+el error caro es siempre el mismo.
+
+### El ruteo devuelve UNA intención, y el técnico dice dos cosas en un renglón
+
+> [!CAUTION]
+> **`seActiva` con el ruteo prendido devuelve `ruteo.intencion === intencion` y nada más.** La
+> intención que no salió elegida no activa su ramal, aunque el mensaje también la diga.
+
+```
+16:39  Dario:  "Llegaré en 2 hs para revisar el problema. Quien me abre?"
+17:04  Marcos → al vecino: "confirmó la visita, pero aún no precisó la hora exacta"
+```
+
+La precisó, en el mismo mensaje. El modelo eligió `pide_contacto_de_ingreso` --que es verdad, y es
+lo que esa rama atiende-- y con eso `confirma_que_va` quedó en false, así que nadie escribió
+`tecnico_eta`. Es el mismo defecto de fondo que ya está anotado más arriba con otro disfraz: **la
+información estaba, el orden no.**
+
+Para el vecino no es un detalle de implementación: está esperando en su casa y le dicen que no se
+sabe cuándo viene, veinticinco minutos después de que el técnico lo dijo.
+
+- La rama de "¿quién me abre?" ahora **anota la hora si el mensaje la trae**, sin rutear nada.
+  `guardarConfirmacionTecnico` completa y no pisa, así que guardar de más no cuesta.
+- **Sin hora no se inventa ninguna** (`if (eta)`): el vecino espera la que se le diga.
+- `entraSolo` ya estaba resuelto así --va aparte de la intención, a propósito--. Esto es lo mismo
+  para el horario, y probablemente haya más: **cada dato con consecuencia que hoy dependa de haber
+  ganado el ruteo es un candidato.**
+
+Prueba: `node pruebas-quien-le-abre.js`.
 
 ### El contacto de ingreso se da si lo piden, no porque esté a mano
 

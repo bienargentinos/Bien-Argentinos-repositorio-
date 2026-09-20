@@ -71,9 +71,44 @@ function datosDelEncargado(texto) {
  * Todo número argentino real tiene área + local = 10 dígitos como piso. Con menos, es mejor decir
  * "estoy averiguando quién te abre" que mandar a alguien a discar un número que no existe: lo
  * primero se arregla con un mensaje, lo segundo lo deja parado en la puerta.
+ *
+ * > [!CAUTION]
+ * > **Contar dígitos no alcanza: el relleno de una ficha casi siempre tiene la longitud justa.**
+ *
+ * Prueba del 20/09/2026, y es el mismo error otra vez con otro disfraz. Se había arreglado
+ * `pachu (12345667)` --ocho dígitos, muy corto-- y al técnico le llegó:
+ *
+ *     te abre chechuliso (11111111111)
+ *
+ * Once unos. Pasa el piso de 10 dígitos sin despeinarse. Para el técnico es exactamente lo mismo
+ * que el caso anterior: disca, no existe, y se queda parado en la puerta — con la diferencia de
+ * que esta vez Marcos se lo afirmó con toda seguridad.
+ *
+ * Lo que distingue un relleno de un teléfono no es el largo, es que **nadie teclea un número de
+ * verdad apretando siempre la misma tecla ni corriendo el dedo por el teclado**. Se rechazan las
+ * dos formas, más el techo de 15 dígitos de E.164 (con `54 9` adelante, un celular argentino
+ * llega a 13).
+ *
+ * Con dos dígitos distintos o menos se rechaza. Un `1155555555` real existiría en teoría y
+ * quedaría afuera: es el precio, y es el barato. Rechazar de más baja al escalón siguiente
+ * --suplente, seguridad, o decir que se está averiguando--; aceptar de más manda a una persona a
+ * llamar a la nada creyendo que tiene con quién.
  */
 function telefonoUsable(tel) {
-    return String(tel || '').replace(/\D/g, '').length >= 10;
+    const d = String(tel || '').replace(/\D/g, '');
+    if (d.length < 10 || d.length > 15) return false;
+
+    // Siempre la misma tecla: 11111111111, 0000000000, 5555555555.
+    if (new Set(d).size <= 2) return false;
+
+    // El dedo corrido por el teclado: 1234567890, 0987654321. La cuenta se hace en módulo 10
+    // porque el teclado no termina en el 9: quien lo corre entero escribe "…7890", y el paso de
+    // 9 a 0 es el que hacía pasar al relleno más obvio de todos.
+    const subeOBaja = (paso) =>
+        [...d].every((c, i) => i === 0 || Number(c) === (Number(d[i - 1]) + paso + 10) % 10);
+    if (subeOBaja(1) || subeOBaja(-1)) return false;
+
+    return true;
 }
 
 /**
@@ -227,6 +262,40 @@ function mensajeDeIngreso({ contacto, idEvento, direccion, nombreTecnico = '' })
 }
 
 /**
+ * Si el técnico pidió que alguien lo espere, le abra o lo reciba.
+ *
+ * > [!CAUTION]
+ * > **Un mensaje dice dos cosas, y la regla leía solo la primera mitad.**
+ *
+ * Prueba del 20/09/2026, textual:
+ *
+ *     Dario:  "no necesito esa llave solo necesito que alguien esté ahí para abrirme"
+ *     Marcos: "Perfecto que tengas acceso, entonces no te gestiono nada para entrar."
+ *
+ * La condición de `tieneAccesoPropio` --"no necesito" + una palabra de la lista-- matcheaba con
+ * "no necesito esa llave" y daba el tema por cerrado. Pero él no estaba diciendo que entra solo:
+ * estaba diciendo, con todas las letras, **lo único que sí necesitaba**. Marcos le contestó que
+ * no le gestiona nada justo a eso.
+ *
+ * Dos minutos antes había escrito *"si no hay nadie no voy"*. Más claro no se puede.
+ *
+ * Por eso esto va SEPARADO y manda sobre el resto, incluso sobre el `entraSolo` del ruteo por IA:
+ * pedir que alguien esté es incompatible con entrar por su cuenta, aunque en la misma oración
+ * diga que no necesita una llave. Es el mismo criterio que la negación --ante la duda se manda el
+ * contacto-- porque el error caro es siempre el mismo: dejarlo parado en la puerta.
+ */
+function pideQueLeAbran(texto) {
+    const t = String(texto || '').toLowerCase();
+    if (!t.trim()) return false;
+
+    return /\b(que|q)\s+(alguien|alguno|el encargado|la encargada|me|nos)\b[^.]{0,20}\b(est[eé]n?|abra|abran|espere|esperen|reciba|reciban|atienda|atiendan)\b/.test(t)
+        || /\b(necesito|preciso|requiero|quiero|har[ií]a falta|hace falta)\b[^.]{0,30}\b(alguien|alguno|una persona|el encargado|la encargada)\b/.test(t)
+        || /\bpara\s+(abrirme|abrirnos|recibirme|recibirnos|esperarme|esperarnos)\b/.test(t)
+        || /\bsi\s+no\s+hay\s+nadie\b/.test(t)
+        || /\b(tiene que|debe|deber[ií]a)\s+haber\s+alguien\b/.test(t);
+}
+
+/**
  * Si el técnico ya dijo que entra solo.
  *
  * > **Preguntar y después no escuchar la respuesta es peor que no preguntar.**
@@ -241,6 +310,9 @@ function mensajeDeIngreso({ contacto, idEvento, direccion, nombreTecnico = '' })
 function tieneAccesoPropio(texto) {
     const t = String(texto || '').toLowerCase();
     if (!t.trim()) return false;
+
+    // Pedir que alguien lo espere es lo contrario de entrar solo, y manda sobre todo lo demás.
+    if (pideQueLeAbran(t)) return false;
 
     // PRIMERO LA NEGACIÓN, porque "NO tengo llave" contiene "tengo llave".
     //
@@ -263,6 +335,6 @@ function tieneAccesoPropio(texto) {
 }
 
 module.exports = {
-    contactoParaElIngreso, mensajeDeIngreso, tieneAccesoPropio,
+    contactoParaElIngreso, mensajeDeIngreso, tieneAccesoPropio, pideQueLeAbran,
     datosDelEncargado, telefonoUsable,
 };

@@ -36,7 +36,7 @@ const NATALIA = 'Natalia Zeballos (5491167350436)';
 console.log('\n── EL EDIFICIO MANDA, NO LO QUE PASÓ UNA VEZ ──');
 {
     const conEncargado = contactoParaElIngreso({
-        perfil: { encargado: 'Roberto', telEncargado: '1155551111', encargadoEstado: 'activo' },
+        perfil: { encargado: 'Roberto', telEncargado: '1145030101', encargadoEstado: 'activo' },
         contactoDeCasoAnterior: NATALIA,
         casoAnterior: 'CASO-1001',
         edificio: 'San Patricio 270',
@@ -49,8 +49,8 @@ console.log('\n── EL EDIFICIO MANDA, NO LO QUE PASÓ UNA VEZ ──');
     // El encargado de licencia no abre. El suplente está en la ficha y sigue siendo un dato firme.
     const deLicencia = contactoParaElIngreso({
         perfil: {
-            encargado: 'Roberto', telEncargado: '1155551111', encargadoEstado: 'licencia',
-            encargadoSuplente: 'Marta', telSuplente: '1155552222',
+            encargado: 'Roberto', telEncargado: '1145030101', encargadoEstado: 'licencia',
+            encargadoSuplente: 'Marta', telSuplente: '1145030202',
         },
         contactoDeCasoAnterior: NATALIA,
         edificio: 'San Patricio 270',
@@ -61,7 +61,7 @@ console.log('\n── EL EDIFICIO MANDA, NO LO QUE PASÓ UNA VEZ ──');
 
 {
     const soloSeguridad = contactoParaElIngreso({
-        perfil: { telSeguridad: '1155553333' },
+        perfil: { telSeguridad: '1145030303' },
         contactoDeCasoAnterior: NATALIA,
         edificio: 'San Patricio 270',
     });
@@ -74,7 +74,7 @@ console.log('\n── EL EDIFICIO MANDA, NO LO QUE PASÓ UNA VEZ ──');
     // sí es firme. Es distinto de un favor puntual en un caso.
     const porAccesos = contactoParaElIngreso({
         perfil: {},
-        accesos: [{ quien_tiene: 'Portería', telefono: '1155554444', instalacion: 'sala de máquinas' }],
+        accesos: [{ quien_tiene: 'Portería', telefono: '1145030404', instalacion: 'sala de máquinas' }],
         contactoDeCasoAnterior: NATALIA,
         edificio: 'San Patricio 270',
     });
@@ -130,23 +130,24 @@ console.log('\n── EL ORDEN COMPLETO ──');
 {
     // Con todo cargado gana el encargado; sacándole uno por uno se ve bajar la escalera.
     //
-    // Los teléfonos son de 10 dígitos y no `1111` como estaban antes: un número de relleno ya no
-    // se acepta como contacto (ver la sección siguiente), y usar uno acá hacía que la prueba
-    // midiera otra cosa.
+    // Los teléfonos tienen que poder discarse de verdad, y eso ahora incluye tener dígitos
+    // variados: `1111111111` y `1155551111` quedaron afuera el 20/09/2026, cuando al técnico le
+    // llegó `chechuliso (11111111111)` y el control de entonces --contar diez dígitos-- lo dejó
+    // pasar. Estos fixtures eran justamente de esa forma, así que medían otra cosa.
     const todo = {
         perfil: {
-            encargado: 'Roberto', telEncargado: '1111111111', encargadoEstado: 'activo',
-            encargadoSuplente: 'Marta', telSuplente: '2222222222', telSeguridad: '3333333333',
+            encargado: 'Roberto', telEncargado: '1145030101', encargadoEstado: 'activo',
+            encargadoSuplente: 'Marta', telSuplente: '1145030202', telSeguridad: '1145030303',
         },
-        accesos: [{ quien_tiene: 'Portería', telefono: '4444444444' }],
+        accesos: [{ quien_tiene: 'Portería', telefono: '1145030404' }],
         contactoDeCasoAnterior: NATALIA,
         edificio: 'San Patricio 270',
         momentoVisita: new Date('2026-09-04T13:00:00Z'),   // 10 AM en Argentina
     };
-    verificar('1º encargado', contactoParaElIngreso(todo).telefono, '1111111111');
-    verificar('2º suplente', contactoParaElIngreso({ ...todo, perfil: { ...todo.perfil, telEncargado: '' } }).telefono, '2222222222');
-    verificar('3º seguridad', contactoParaElIngreso({ ...todo, perfil: { telSeguridad: '3333333333' } }).telefono, '3333333333');
-    verificar('4º accesos del edificio', contactoParaElIngreso({ ...todo, perfil: {} }).telefono, '4444444444');
+    verificar('1º encargado', contactoParaElIngreso(todo).telefono, '1145030101');
+    verificar('2º suplente', contactoParaElIngreso({ ...todo, perfil: { ...todo.perfil, telEncargado: '' } }).telefono, '1145030202');
+    verificar('3º seguridad', contactoParaElIngreso({ ...todo, perfil: { telSeguridad: '1145030303' } }).telefono, '1145030303');
+    verificar('4º accesos del edificio', contactoParaElIngreso({ ...todo, perfil: {} }).telefono, '1145030404');
     verificar('5º lo de la otra vez', contactoParaElIngreso({ ...todo, perfil: {}, accesos: [] }).firme, false);
 }
 
