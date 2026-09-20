@@ -11,7 +11,9 @@
 const express = require('express');
 const router = express.Router();
 const session = require('express-session');
-router.use(session({ secret: process.env.DASHBOARD_SECRET || 'secret', resave: false, saveUninitialized: true }));
+// El secreto era, literalmente, la palabra 'secret'. Con eso se falsifica una sesión de vecino
+// — y una sesión de vecino es lo que `apertura-remota.js` autoriza para abrir la puerta de calle.
+router.use(session({ secret: require('./credenciales').secretoDeSesion(), resave: false, saveUninitialized: true }));
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');

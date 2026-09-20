@@ -3,7 +3,9 @@ const crypto = require('crypto');
 const { fechaHoraAR, fechaAR } = require('./fecha');
 
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://marcos:marcos2024@127.0.0.1:5432/marcos_db',
+    // La contraseña NO vive acá. Estaba escrita como valor por defecto y el repositorio se hace
+    // público cada vez que se usa el `curl` de CLAUDE.md. Ver `credenciales.js`.
+    connectionString: require('./credenciales').urlPostgres(),
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 3000,

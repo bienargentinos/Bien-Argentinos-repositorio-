@@ -94,8 +94,12 @@ const LOGO_URL = '/admin/assets/logo.png';
  * CONFIGURACION
  * =================================================================== */
 
-const ADMIN_USER = process.env.DASHBOARD_USER || 'admin';
-const ADMIN_PASS = process.env.DASHBOARD_PASS || 'marcos2024';
+// > [!CAUTION]
+// > **La contraseña del panel estaba escrita acá como valor por defecto**, y es la misma que la
+// > de PostgreSQL. El repositorio se hace público cada vez que se usa el `curl` de CLAUDE.md.
+// > Ahora sale del `.env` y **sin ella no entra nadie**: ver `credenciales.js`.
+const { credencialesPanel } = require('./credenciales');
+const ADMIN_USER = credencialesPanel().usuario;
 
 // Usuarios de administradores de consorcio via .env (fallback historico).
 // Formato: CONSORCIO_USERS={"usuario1":"pass1:Edificio A,Edificio B"}
@@ -113,8 +117,10 @@ try {
   }
 } catch (_) {}
 
-const SESSION_SECRET =
-  process.env.DASHBOARD_SECRET || 'marcos-secret-cambiar-en-produccion-2024';
+// Este secreto FIRMA las cookies de sesión: quien lo conoce se fabrica una que diga
+// `{authed:true, role:'dueno'}` y entra sin contraseña. Estaba escrito acá, en un repositorio que
+// se hace público. Sin la variable se genera uno al azar por arranque — ver `credenciales.js`.
+const SESSION_SECRET = require('./credenciales').secretoDeSesion();
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const CREDENTIALS_FILE =
   process.env.GOOGLE_CREDENTIALS_FILE ||
@@ -9308,7 +9314,9 @@ router.get('/login', (req, res) => {
 
 router.post('/login', async (req, res) => {
   const { user, pass } = req.body || {};
-  if (user === ADMIN_USER && pass === ADMIN_PASS) {
+  // `entraAlPanel` devuelve false cuando no hay `DASHBOARD_PASS` configurada, **incluso con el
+  // campo vacío**: sin ese cuidado, "no hay contraseña" y "acertó la contraseña" serían lo mismo.
+  if (require('./credenciales').entraAlPanel(user, pass)) {
     req.session.authed = true;
     req.session.role = 'dueno';
     req.session.user = user;
@@ -14391,7 +14399,22 @@ router.post('/api/actualizar-perfil', async (req, res) => {
     if (!currentUser) return res.status(401).json({ error: 'No autenticado' });
 
     if (esDuenoReal(req)) {
-      if (pass) process.env.ADMIN_PASS = pass;
+      // > [!CAUTION]
+      // > **Cambiar la contraseña desde el panel nunca funcionó.** Escribía en `ADMIN_PASS` y el
+      // > login lee `DASHBOARD_PASS`: dos nombres distintos para la misma cosa. Y aunque el nombre
+      // > hubiera coincidido, `process.env` vive en RAM — PM2 reinicia seguido y volvía la vieja.
+      // > Devolvía `{ok:true}` igual, que es lo que lo hacía invisible.
+      //
+      // Ahora se aplica de verdad para esta corrida Y se dice que no sobrevive al reinicio. Que la
+      // contraseña quede de verdad es escribirla en el `.env`, y eso lo hace una persona.
+      if (pass) {
+        process.env.DASHBOARD_PASS = pass;
+        return res.json({
+          ok: true,
+          temporal: true,
+          mensaje: 'Cambiada solo hasta el próximo reinicio. Para que quede, ponela en DASHBOARD_PASS del .env del servidor.'
+        });
+      }
       res.json({ ok: true });
     } else {
       const { rows: cliRows, headers: cliHeaders } = await readTab(TAB_CLIENTES);

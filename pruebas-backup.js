@@ -65,9 +65,16 @@ console.log('1) La base de datos entra al respaldo');
         /catch[\s\S]{0,400}?NO SE PUDO VOLCAR POSTGRESQL[\s\S]{0,600}?process\.exit\(1\)/.test(crear),
         'Un respaldo al que le falta la base y parece completo es peor que ninguno.');
 
-    vale('la URL sale de DATABASE_URL, como `db-pg.js`',
-        /process\.env\.DATABASE_URL/.test(codCrear),
+    // Antes esta prueba buscaba `process.env.DATABASE_URL` acá mismo. Ahora la credencial sale de
+    // `credenciales.js`, que es el único lugar del proyecto que la lee — justamente para que no
+    // haya tres archivos armando la conexión cada uno a su manera, como estaba.
+    vale('la URL sale de `credenciales.js`, como `db-pg.js`',
+        /require\('\.\/credenciales'\)\.urlPostgres\(\)/.test(codCrear),
         'Dos formas de conectarse es una de más.');
+
+    vale('y no tiene ninguna contraseña escrita',
+        !/postgresql:\/\/[^\s'"]+:[^\s'"@]+@/.test(codCrear),
+        'Este archivo tenía la contraseña de PostgreSQL como valor por defecto.');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

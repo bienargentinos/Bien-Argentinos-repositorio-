@@ -18,7 +18,15 @@ sudo make install
 
 # 3. Configurar usuario y base de datos 'marcos_db'
 sudo -u postgres psql -c "CREATE DATABASE marcos_db;" 2>/dev/null || true
-sudo -u postgres psql -c "CREATE USER marcos WITH PASSWORD 'marcos2024';" 2>/dev/null || true
+# La contraseña NO va escrita acá: este archivo está en un repositorio que se hace público.
+# Se toma de PG_PASSWORD del entorno y, si no está, el script se planta en vez de crear un
+# usuario con una clave conocida.
+if [ -z "$PG_PASSWORD" ]; then
+  echo "❌ Falta PG_PASSWORD. Exportala antes de correr esto (no la escribas en el comando:"
+  echo "   usá 'read -s PG_PASSWORD; export PG_PASSWORD' para que no quede en el historial)."
+  exit 1
+fi
+sudo -u postgres psql -c "CREATE USER marcos WITH PASSWORD '$PG_PASSWORD';" 2>/dev/null || true
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE marcos_db TO marcos;" 2>/dev/null || true
 sudo -u postgres psql -d marcos_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
@@ -28,7 +36,7 @@ echo "✅ PostgreSQL + pgvector configurados correctamente."
 echo "🌐 Configurando NocoDB en el puerto 8080..."
 npm install -g nocodb 2>/dev/null || true
 
-NC_DB="pg://127.0.0.1:5432?u=marcos&p=marcos2024&d=marcos_db" PORT=8080 pm2 start nocodb --name "nocodb" 2>/dev/null || true
+NC_DB="pg://127.0.0.1:5432?u=marcos&p=$PG_PASSWORD&d=marcos_db" PORT=8080 pm2 start nocodb --name "nocodb" 2>/dev/null || true
 pm2 save
 
 echo "🎉 ¡NocoDB activo y accesible en: http://200.58.102.182:8080 !"

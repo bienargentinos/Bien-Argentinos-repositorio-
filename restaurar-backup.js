@@ -59,7 +59,21 @@ console.log(`   Modo:     ${APLICAR ? '⚠️  APLICAR (escribe de verdad)' : 's
 // ── 1. ¿QUÉ TIENE ADENTRO? ──────────────────────────────────────────────────────────────────
 let contenido;
 try {
-    contenido = execFileSync('tar', ['-tzf', archivo], { encoding: 'utf8' }).split('\n').filter(Boolean);
+    // > [!CAUTION]
+    // > **En Windows, `tar` termina cada línea con `\r`**, y este script se corre justamente ahí:
+    // > el respaldo se baja a la PC y se verifica desde la PC.
+    // >
+    // > Sin limpiarlo, `l === '.env'` y las expresiones ancladas con `$` fallan todas, mientras
+    // > que `startsWith('almacenamiento/')` sigue andando — así que el informe decía que faltaban
+    // > las credenciales y la base, y que la multimedia estaba. Los cuatro resultados mal, de
+    // > forma verosímil, sobre un respaldo perfecto. Es el peor tipo de error: te hace desconfiar
+    // > de algo que está bien.
+    //
+    // También se normalizan las barras, por si algún `tar` lista con `\\`.
+    contenido = execFileSync('tar', ['-tzf', archivo], { encoding: 'utf8' })
+        .split('\n')
+        .map(l => l.replace(/\r$/, '').replace(/\\/g, '/'))
+        .filter(Boolean);
 } catch (err) {
     console.error(`❌ No se puede leer el respaldo: ${err.message}\n`);
     process.exit(1);
@@ -113,7 +127,7 @@ try {
 // ── 3. POSTGRESQL ───────────────────────────────────────────────────────────────────────────
 if (dump) {
     try { require('dotenv').config({ path: path.join(destino, '.env') }); } catch (_) {}
-    const urlPg = process.env.DATABASE_URL || 'postgresql://marcos:marcos2024@127.0.0.1:5432/marcos_db';
+    const urlPg = require('./credenciales').urlPostgres();
 
     // ¿La base ya tiene algo? Restaurar encima de un Marcos vivo borra lo que hay: el volcado se
     // crea con `--clean --if-exists`, así que las tablas se eliminan y se vuelven a crear.

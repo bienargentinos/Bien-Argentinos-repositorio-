@@ -39,7 +39,7 @@ Columnas Auxiliares Exclusivas de PostgreSQL:
 ## 3. Comando y Script de Migración
 - Script SQL: `01-base-de-datos.sql`
 - Comando de ejecución en VPS:
-  `PGPASSWORD=marcos2024 psql -U marcos -h 127.0.0.1 -d marcos_db -f 01-base-de-datos.sql`
+  `psql -d "$DATABASE_URL" -f 01-base-de-datos.sql`
 
 ## 4. Flujo Actual de Creación y Escritura de Facturas
 - La app escribe primero en PostgreSQL (`marcos_db`) y luego replica de forma asíncrona a la pestaña `facturas` de Google Sheets.

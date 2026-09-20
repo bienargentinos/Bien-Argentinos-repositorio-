@@ -32,7 +32,9 @@ privateKey: require('fs').readFileSync(process.env.USERPROFILE + '\\.ssh\\marcos
 - Process manager: PM2 → `pm2 list` / `pm2 restart marcos-ia` / `pm2 logs marcos-ia`
 - Nginx + SSL en: `marcos.bienargentinos.com`
 - Dashboard admin: `https://marcos.bienargentinos.com/admin`
-  - Usuario dueño: `admin` / `marcos2024` (o env `DASHBOARD_USER` / `DASHBOARD_PASS`)
+  - Usuario dueño: `admin`. **La contraseña sale de `DASHBOARD_PASS` del `.env` y no está
+    escrita en ningún archivo del repo**: estaba acá y en `dashboard.js`, y era la misma que
+    la de PostgreSQL. Sin esa variable no entra nadie, a propósito.
 
 ## Repositorio GitHub
 

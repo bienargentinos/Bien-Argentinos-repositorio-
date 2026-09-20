@@ -55,12 +55,14 @@ Crear el archivo `/root/marcos/Consorcio-AI-Assistant/.env` con tus credenciales
 
 ```env
 PORT=3000
-DATABASE_URL=postgresql://marcos:MarcosConsorcio2026!@localhost:5432/consorcio_db
+# Poné tu contraseña de PostgreSQL entre los dos puntos y la arroba.
+# NO la escribas en ningún archivo del repo: este documento es público cuando se usa el curl.
+DATABASE_URL=postgresql://marcos:@localhost:5432/consorcio_db
 WHATSAPP_PHONE_NUMBER_ID=tu_phone_id
 WHATSAPP_ACCESS_TOKEN=tu_meta_token
 GEMINI_API_KEY=tu_api_key
 OPENAI_API_KEY=tu_openai_key
-SESSION_SECRET=marcos_super_secret_2026
+DASHBOARD_SECRET=generalo_con_el_comando_de_abajo
 BASE_URL=https://marcos.bienargentinos.com
 ```
 

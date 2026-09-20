@@ -92,7 +92,7 @@ const relDump = path.join('backups', `postgres-${sello}.sql`);
 const absDump = path.join(raiz, relDump);
 
 try { require('dotenv').config(); } catch (_) {}
-const urlPg = process.env.DATABASE_URL || 'postgresql://marcos:marcos2024@127.0.0.1:5432/marcos_db';
+const urlPg = require('./credenciales').urlPostgres();
 
 console.log('\n🗄️  Volcando PostgreSQL …');
 try {
@@ -147,7 +147,11 @@ try {
 // Que el comando no falle no quiere decir que el archivo tenga lo que tiene que tener.
 let adentro = [];
 try {
-    adentro = execFileSync('tar', ['-tzf', archivo], { encoding: 'utf8' }).split('\n');
+    // Se limpia el `\r` de Windows y se normalizan las barras, igual que en
+    // `restaurar-backup.js`: ahí ese detalle hacía que un respaldo bueno se informara como roto.
+    adentro = execFileSync('tar', ['-tzf', archivo], { encoding: 'utf8' })
+        .split('\n')
+        .map(l => l.replace(/\r$/, '').replace(/\\/g, '/'));
 } catch (err) {
     console.error(`\n❌ El archivo se creó pero no se puede leer: ${err.message}\n`);
     process.exit(1);
