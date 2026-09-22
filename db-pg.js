@@ -1099,6 +1099,57 @@ async function obtenerUsuarioPorId(id) {
     return res.rows[0] || null;
 }
 
+// Datos de contacto del propio usuario, desde "Mi Perfil" del portal del vecino.
+//
+// Solo toca las tres columnas que el vecino puede cambiar de sí mismo. El email NO está: es la
+// llave con la que el propietario lo da de alta en la unidad (`/api/buscar-usuario-email`), así
+// que cambiarlo solo lo desvincularía de su propio departamento sin avisarle a nadie.
+//
+// `COALESCE(NULLIF(...))` deja el valor viejo cuando llega vacío: un formulario que manda el campo
+// en blanco no tiene por qué borrar el teléfono que ya estaba.
+async function actualizarPerfilUsuario(usuarioId, { nombre, apellido, telefono } = {}) {
+    if (!usuarioId) throw new Error('Falta el usuario');
+    const res = await pool.query(
+        `UPDATE usuarios
+            SET nombre   = COALESCE(NULLIF($2, ''), nombre),
+                apellido = COALESCE(NULLIF($3, ''), apellido),
+                telefono = COALESCE(NULLIF($4, ''), telefono),
+                updated_at = NOW()
+          WHERE id = $1
+      RETURNING id, email, nombre, apellido, telefono`,
+        [usuarioId, String(nombre || '').trim(), String(apellido || '').trim(), String(telefono || '').trim()]
+    );
+    if (!res.rows[0]) throw new Error('No existe ese usuario');
+    return res.rows[0];
+}
+
+// Cambio de contraseña del vecino. Pide la actual y la verifica contra el hash guardado ANTES de
+// escribir: si no, cualquiera que se siente frente a una sesión abierta se queda con la cuenta.
+//
+// Devuelve `{ ok: false, error }` en vez de tirar excepción cuando la actual no coincide, porque
+// eso no es una falla del sistema: es el camino normal de alguien que se equivocó de clave.
+async function cambiarPasswordUsuario(usuarioId, passwordActual, passwordNueva) {
+    if (!usuarioId) throw new Error('Falta el usuario');
+    const nueva = String(passwordNueva || '');
+    if (nueva.length < 6) return { ok: false, error: 'La contraseña nueva tiene que tener al menos 6 caracteres' };
+
+    const res = await pool.query('SELECT id, password_hash FROM usuarios WHERE id = $1 AND activo = TRUE', [usuarioId]);
+    const u = res.rows[0];
+    if (!u) return { ok: false, error: 'No existe ese usuario' };
+
+    // Una cuenta sin contraseña (alta por PIN de WhatsApp) está eligiendo la primera, no cambiando
+    // una: ahí no hay nada contra qué verificar.
+    if (u.password_hash) {
+        if (!verificarPassword(String(passwordActual || ''), u.password_hash)) {
+            return { ok: false, error: 'La contraseña actual no es correcta' };
+        }
+    }
+
+    await pool.query('UPDATE usuarios SET password_hash = $2, updated_at = NOW() WHERE id = $1',
+        [usuarioId, hashPassword(nueva)]);
+    return { ok: true, eraPrimera: !u.password_hash };
+}
+
 async function obtenerUnidadesDeUsuario(usuarioId) {
     if (!usuarioId) return [];
     // 1. Unidades directas asignadas al usuario
@@ -1572,6 +1623,8 @@ module.exports = {
     registrarOUsuario,
     obtenerUsuarioPorEmail,
     obtenerUsuarioPorId,
+    actualizarPerfilUsuario,
+    cambiarPasswordUsuario,
     obtenerUnidadesDeUsuario,
     asignarUsuarioAUnidad,
     reubicarHuesped,
