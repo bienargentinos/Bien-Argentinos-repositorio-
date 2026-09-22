@@ -1424,6 +1424,14 @@ a{color:inherit;text-decoration:none}
 .inp{width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;color:#16233B;outline:none;background:#F8FAFD}
 .inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)}
 textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-height:1.5}
+/* chips seleccionables para rubros (mobile & touch friendly) */
+.chips-rubros-wrap{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
+.chip-rubro{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;border:1.5px solid #CBD5E1;background:#F8FAFC;color:#334155;font-size:13px;font-weight:600;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;transition:all .15s ease}
+.chip-rubro:hover{border-color:#94A3B8;background:#F1F5F9}
+.chip-rubro.chip-active{border-color:#1E5FB4;background:#EBF3FC;color:#1E5FB4;font-weight:700;box-shadow:0 1px 3px rgba(30,95,180,.18)}
+.chip-rubro .chip-icon{font-size:14px}
+.chip-rubro .chip-check{display:none;font-size:11px;font-weight:800;background:#1E5FB4;color:#fff;width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;line-height:1}
+.chip-rubro.chip-active .chip-check{display:inline-flex}
 .mobile-bottom-nav {
   display: none;
   position: fixed;
@@ -2713,6 +2721,74 @@ html.dark-theme, body.dark-theme {
 .dark-theme div[style*="background:#F8FAFC"] p[style*="color:#64748B"] {
   color: #F1F5F9 !important;
 }
+
+/* Card de alta y edición de proveedores en modo oscuro (Alto Contraste) */
+.dark-theme div[style*="border-radius:16px"][style*="background:#fff"],
+.dark-theme div[style*="border-radius: 16px"][style*="background: #fff"],
+.dark-theme div[style*="border-radius:16px"][style*="background: #fff"],
+.dark-theme div[style*="border-radius: 16px"][style*="background:#fff"] {
+  background: #111C33 !important;
+  border-color: #23355C !important;
+  color: #F1F5F9 !important;
+}
+
+.dark-theme details[style*="background:#F8FAFD"],
+.dark-theme details[style*="background: #F8FAFD"],
+.dark-theme details {
+  background: #182647 !important;
+  border-color: #2A3E6D !important;
+}
+
+.dark-theme summary {
+  color: #F8FAFC !important;
+}
+.dark-theme summary span,
+.dark-theme summary span[style*="color:#8595AD"],
+.dark-theme summary span[style*="color: #8595AD"] {
+  color: #94A3B8 !important;
+}
+
+.dark-theme div[style*="color:#8595AD"],
+.dark-theme div[style*="color: #8595AD"],
+.dark-theme span[style*="color:#8595AD"],
+.dark-theme span[style*="color: #8595AD"] {
+  color: #93C5FD !important;
+  font-weight: 700 !important;
+}
+
+.dark-theme div[style*="color:#64748B"],
+.dark-theme div[style*="color: #64748B"],
+.dark-theme span[style*="color:#64748B"],
+.dark-theme span[style*="color: #64748B"] {
+  color: #CBD5E1 !important;
+}
+
+.dark-theme div[style*="color:#334259"],
+.dark-theme div[style*="color: #334259"] {
+  color: #F8FAFC !important;
+}
+
+/* Chips táctiles en modo oscuro */
+.dark-theme .chip-rubro {
+  border: 1.5px solid #2A3E6D !important;
+  background: #182647 !important;
+  color: #E2E8F0 !important;
+}
+.dark-theme .chip-rubro:hover {
+  border-color: #38BDF8 !important;
+  background: #20335C !important;
+}
+.dark-theme .chip-rubro.chip-active {
+  border-color: #38BDF8 !important;
+  background: #0C4A6E !important;
+  color: #38BDF8 !important;
+  box-shadow: 0 1px 4px rgba(56,189,248,.25) !important;
+}
+.dark-theme .chip-rubro.chip-active .chip-check {
+  background: #38BDF8 !important;
+  color: #082F49 !important;
+}
+
 
 `;
 
@@ -5842,6 +5918,24 @@ async function guardarCampoEditado(btn){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
+// Manejo táctil de chips de rubros (mobile friendly)
+function toggleRubroChip(selectId, rubroVal, btnEl){
+  var sel = document.getElementById(selectId);
+  if (!sel) return;
+  for (var i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value.toLowerCase() === rubroVal.toLowerCase()) {
+      sel.options[i].selected = !sel.options[i].selected;
+      if (sel.options[i].selected) {
+        btnEl.classList.add('chip-active');
+      } else {
+        btnEl.classList.remove('chip-active');
+      }
+      break;
+    }
+  }
+}
+window.toggleRubroChip = toggleRubroChip;
+
 // Agregar proveedor a la lista maestra del cliente (una sola vez).
 async function agregarProveedor(btn){
   var selRub=document.getElementById('prov-rubro');
@@ -5882,10 +5976,22 @@ async function quitarProveedor(btn,row){
 function abrirEditarProveedor(row, rubro, nombre, tel, notas){
   var r=document.getElementById('edit-prov-row');if(r)r.value=row;
   var rb=document.getElementById('edit-prov-rubro');
+  var lista=String(rubro||'').split(',').map(function(s){return s.trim().toLowerCase();}).filter(Boolean);
   if(rb){
-    var lista=String(rubro||'').split(',').map(function(s){return s.trim().toLowerCase();}).filter(Boolean);
     for(var i=0;i<rb.options.length;i++){
       rb.options[i].selected=lista.indexOf(rb.options[i].value.toLowerCase())!==-1;
+    }
+  }
+  var box = document.getElementById('chips-edit-prov-rubro');
+  if (box) {
+    var chips = box.querySelectorAll('.chip-rubro');
+    for (var j = 0; j < chips.length; j++) {
+      var rVal = (chips[j].getAttribute('data-rubro') || '').toLowerCase();
+      if (lista.indexOf(rVal) !== -1) {
+        chips[j].classList.add('chip-active');
+      } else {
+        chips[j].classList.remove('chip-active');
+      }
     }
   }
   var n=document.getElementById('edit-prov-nombre');if(n)n.value=nombre||'';
@@ -11315,6 +11421,36 @@ router.get('/proveedores', async (req, res) => {
 
     const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
 
+    const RUBRO_ICONOS = {
+      'Electricista': '⚡',
+      'Plomero': '🔧',
+      'Gasista': '🔥',
+      'Cerrajero': '🔑',
+      'Portería': '🚪',
+      'CCTV': '📹',
+      'Control de acceso': '💳',
+      'Albañilería': '🧱',
+      'Ascensores': '🛗',
+      'Refrigeración': '❄️',
+      'Pintor': '🎨',
+      'Limpieza': '🧹',
+      'Seguridad': '🛡️',
+      'Otro': '📦'
+    };
+
+    function renderRubroChipsHtml(selectId, containerId) {
+      return `<div id="${containerId}" class="chips-rubros-wrap">` +
+        RUBROS_PROVEEDOR.map((r) => {
+          const ico = RUBRO_ICONOS[r] || '🛠️';
+          return `<button type="button" class="chip-rubro" data-rubro="${r}" onclick="toggleRubroChip('${selectId}','${r}',this)">` +
+            `<span class="chip-icon">${ico}</span>` +
+            `<span>${r}</span>` +
+            `<span class="chip-check">✓</span>` +
+            `</button>`;
+        }).join('') +
+        `</div>`;
+    }
+
     const modalEditarProveedorHtml = `
       <div id="modal-editar-proveedor" class="modal-overlay" onclick="cerrarModal('modal-editar-proveedor')">
         <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
@@ -11324,9 +11460,9 @@ router.get('/proveedores', async (req, res) => {
           </div>
           <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="edit-prov-row">
-            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Rubro / Especialidad</div>
-            <select id="edit-prov-rubro" class="inp" multiple style="height:110px;padding:6px 10px;margin-bottom:4px">${rubroOptions}</select>
-            <div style="font-size:11.5px;color:#64748B;margin-bottom:14px">Podés seleccionar varios rubros manteniendo presionada la tecla Ctrl / Cmd.</div>
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:2px">Rubro(s) — tocá para seleccionar uno o varios:</div>
+            ${renderRubroChipsHtml('edit-prov-rubro', 'chips-edit-prov-rubro')}
+            <select id="edit-prov-rubro" class="inp" multiple style="display:none">${rubroOptions}</select>
 
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre / Empresa</div>
             <input id="edit-prov-nombre" class="inp" style="margin-bottom:14px">
@@ -11392,13 +11528,15 @@ router.get('/proveedores', async (req, res) => {
 
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px">
           <div style="font-size:15px;font-weight:800;margin-bottom:14px">Agregar proveedor a mi lista</div>
-          <div style="display:grid;grid-template-columns:190px 1fr;gap:12px;margin-bottom:14px">
-            <div>
-              ${label('Rubro(s)')}
-              <select id="prov-rubro" class="inp" multiple style="height:110px;padding:6px 10px">${rubroOptions}</select>
-              <div style="font-size:11.5px;color:#64748B;margin-top:4px">Podés elegir varios con Ctrl / Cmd.</div>
-            </div>
-            <div>${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:44px" placeholder="Ej: Gastón, Plomería del Oeste"></div>
+          
+          <div style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:2px">Rubro(s) — tocá para seleccionar uno o varios:</div>
+            ${renderRubroChipsHtml('prov-rubro', 'chips-prov-rubro')}
+            <select id="prov-rubro" class="inp" multiple style="display:none">${rubroOptions}</select>
+          </div>
+
+          <div style="margin-bottom:14px">
+            ${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:44px" placeholder="Ej: Gastón, Plomería del Oeste">
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
             <div>
