@@ -17,11 +17,25 @@ const path = require('path');
 
 const SRC = fs.readFileSync(path.join(__dirname, 'dashboard.js'), 'utf8');
 
+// ── ESTA PRUEBA ERA EL OBSTÁCULO PARA UNIFICAR EL RENOMBRADO ────────────────────────────────
+//
+// > [!CAUTION]
+// > **Una prueba que recorta código de otro archivo y lo evalúa CONGELA ese archivo.**
+//
+// El bloque de propagación de `/api/aprobar-solicitud` se sacaba de `dashboard.js` con
+// `SRC.slice()` y se corría dentro de un `new Function(...)`, donde `require` no existe. Así que
+// reemplazar ese bloque por una llamada a `renombrarEdificio()` --que es lo correcto, para que no
+// haya dos criterios de qué se renombra-- rompía esta prueba, y la prueba ganaba.
+//
+// Antigravity lo diagnosticó y no lo forzó, que fue lo correcto. El arreglo es de este lado.
+//
+// Ahora la prueba se adapta: mientras el bloque siga escrito ahí adentro, se lo prueba como
+// siempre; cuando pase a ser una llamada, **se exige que la llamada esté** y los escenarios los
+// cubre el módulo, que ya se puede probar sin credenciales.
 const ini = SRC.indexOf('let filasRenombradas = 0;');
-if (ini === -1) throw new Error('No encontré el bloque de renombrado en dashboard.js.');
-const fin = SRC.indexOf('// Si no se escribió nada, la solicitud NO se marca como aplicada.', ini);
-if (fin === -1) throw new Error('No encontré el final del bloque de renombrado en dashboard.js.');
-const cuerpo = SRC.slice(ini, fin);
+const fin = ini === -1 ? -1
+    : SRC.indexOf('// Si no se escribió nada, la solicitud NO se marca como aplicada.', ini);
+const cuerpo = (ini !== -1 && fin !== -1) ? SRC.slice(ini, fin) : null;
 
 let fallos = 0;
 function verificar(titulo, real, esperado) {
@@ -355,6 +369,55 @@ console.log('\n── UNA PESTAÑA QUE NO EXISTE NO FRENA AL RESTO ──');
     });
     verificar('las que sí existen se renombran igual', filasRenombradas, 6);
     verificar('la ficha del vecino cambió', planilla.vecinos.filas[0][2], 'san patricio 270 casa');
+}
+
+// ── EL MÓDULO SE PUEDE PROBAR SIN CREDENCIALES ──────────────────────────────────────────────
+//
+// Esto es lo que desbloquea el cambio en `dashboard.js`: `renombrarEdificio` acepta que le
+// inyecten de dónde sale la planilla y cuál es la conexión, así que corre entero en el CI sin un
+// solo secreto. Los `require` de `./sheets` y `./db-pg` ya eran perezosos; lo que faltaba era
+// poder reemplazarlos.
+console.log('\n── renombrarEdificio, sin tocar una credencial ──');
+{
+    const { renombrarEdificio } = require('./renombrar-edificio');
+
+    const escritas = [];
+    const filaFalsa = (datos) => ({
+        get: (c) => datos[c],
+        set: (c, v) => { datos[c] = v; escritas.push(`${c}=${v}`); },
+        save: async () => {},
+    });
+    const hoja = {
+        title: 'proveedor_asignaciones',
+        loadHeaderRow: async () => {},
+        headerValues: ['cliente', 'edificio', 'proveedor'],
+        getRows: async () => [
+            filaFalsa({ cliente: 'alfa_01', edificio: "san patricio 27'0 casa", proveedor: 'Dario' }),
+            filaFalsa({ cliente: 'alfa_01', edificio: 'San patricio 270', proveedor: 'julio' }),
+        ],
+    };
+
+    const r = await renombrarEdificio({
+        viejo: "san patricio 27'0 casa",
+        nuevo: 'san patricio casa',
+        aplicar: true,
+        log: () => {},
+        getSheet: async () => ({ sheetsByTitle: { proveedor_asignaciones: hoja } }),
+        pool: { query: async () => ({ rows: [] }) },
+    });
+
+    verificar('renombra la fila que corresponde', r.cambios, 1);
+    verificar('y no toca la del otro edificio', escritas.join('|'), 'edificio=san patricio casa');
+    verificar('sin fallidos', r.fallidos, 0);
+
+    // El candado que importa: que no vuelvan a existir dos criterios de qué se renombra.
+    if (cuerpo === null) {
+        verificar('`/api/aprobar-solicitud` llama al módulo',
+            /renombrarEdificio\s*\(/.test(SRC), true);
+    } else {
+        console.log('  ℹ️  el bloque inline de `/api/aprobar-solicitud` sigue en dashboard.js.');
+        console.log('     Reemplazarlo por `renombrarEdificio()` ya no rompe esta prueba.');
+    }
 }
 
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);

@@ -57,9 +57,30 @@ const DONDE_NOMBRE_ES_EL_EDIFICIO = new Set(['edificios']);
  * @param {string}  nuevo    nombre nuevo
  * @param {boolean} aplicar  false = solo lista lo que cambiaría, no escribe
  * @param {(linea:string)=>void} log
+ *
+ * @param {function} [getSheet]  de dónde sale el documento de Google. Por defecto `sheets.js`.
+ * @param {object}   [pool]      la conexión a PostgreSQL. Por defecto la de `db-pg.js`.
+ *
+ * Los dos últimos existen **para poder probar esto sin credenciales**, y esa no es una comodidad
+ * de la prueba: es lo que permite que `dashboard.js` llame a esta función en vez de tener su
+ * propia copia de la lógica.
+ *
+ * > [!CAUTION]
+ * > **Antigravity no pudo hacer que `/api/aprobar-solicitud` llamara acá, y el obstáculo era esta
+ * > función.** `pruebas-renombrar-edificio.js` recortaba el bloque de propagación de `dashboard.js`
+ * > con `SRC.slice()` y lo evaluaba en un `new Function(...)` --donde `require` no existe--, así
+ * > que reemplazar ese bloque por una llamada rompía la prueba. Quedaron dos copias del mismo
+ * > criterio, que es exactamente lo que este archivo vino a evitar.
+ * >
+ * > Los `require` de `./sheets` y `./db-pg` ya eran perezosos, así que importar el módulo nunca
+ * > tocó una credencial. Lo que faltaba era poder **reemplazar** esas dos puertas al probar.
+ *
  * @returns {Promise<{cambios:number, fallidos:number}>}
  */
-async function renombrarEdificio({ viejo, nuevo, aplicar = false, log = console.log }) {
+async function renombrarEdificio({
+    viejo, nuevo, aplicar = false, log = console.log,
+    getSheet = null, pool: poolInyectado = null,
+}) {
     const N_VIEJO = norm(viejo);
     const N_NUEVO = norm(nuevo);
 
@@ -87,8 +108,8 @@ async function renombrarEdificio({ viejo, nuevo, aplicar = false, log = console.
     // ── GOOGLE SHEETS ────────────────────────────────────────────────────────────────────────
     log(`\n📄 Google Sheets\n`);
     try {
-        const sheets = require('./sheets');
-        const doc = await sheets.getSheet();
+        const abrirPlanilla = getSheet || require('./sheets').getSheet;
+        const doc = await abrirPlanilla();
 
         for (const titulo of Object.keys(doc.sheetsByTitle || {})) {
             const hoja = doc.sheetsByTitle[titulo];
@@ -144,7 +165,7 @@ async function renombrarEdificio({ viejo, nuevo, aplicar = false, log = console.
     log(`\n🐘 PostgreSQL\n`);
     let pool = null;
     try {
-        ({ pool } = require('./db-pg'));
+        pool = poolInyectado || require('./db-pg').pool;
 
         const { rows: columnas } = await pool.query(`
             SELECT table_name, column_name
