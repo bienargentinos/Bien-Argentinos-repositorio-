@@ -90,6 +90,23 @@ const IMPRESCINDIBLES = {
         'function exigirFirmaMeta(',
         'timingSafeEqual',
     ],
+    // El portal del vecino monta sus propios parsers de cuerpo. Sin `urlencoded` el formulario
+    // del login llega vacío y NADA falla: `req.body || {}` da un objeto vacío y el `rol` del botón
+    // de huésped se pierde sin una línea en el log.
+    'portal-vecino.js': [
+        'router.use(express.urlencoded(',
+        "router.get('/perfil'",
+        "router.post('/api/perfil'",
+        "router.post('/api/cambiar-password'",
+    ],
+    'sesion-demo.js': [
+        'function sesionDemoVecino(',
+        'module.exports = {',
+    ],
+    'db-pg.js': [
+        'async function actualizarPerfilUsuario(',
+        'async function cambiarPasswordUsuario(',
+    ],
     'material-caso.js': ['async function materialDelVecinoEnCaso('],
     'rubros.js':        ['function coincideRubro('],
     'cbu.js':           ['function validarCBU('],

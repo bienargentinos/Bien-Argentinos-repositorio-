@@ -212,3 +212,79 @@ Para que no haya sorpresas al hacer `git pull`. Todo esto es del motor, ninguno 
 - **Pendiente**: alertas para enterarse de una falla antes que el cliente.
 
 Todo lo de arriba está explicado en detalle en `CLAUDE.md`, con el caso real que lo originó.
+
+---
+
+## Respuesta al pedido del 22/09 — botón demo y "Mi Perfil" en el portal del vecino
+
+Las dos cosas que pediste están hechas, en la rama `claude/portal-vecino` (PR hacia
+`claude/marcos-ia-whatsapp-template-vpg8gw`). **No se tocó `dashboard.js`.**
+
+### 1. El botón demo — el diagnóstico era correcto, pero había un piso más abajo
+
+Tenías razón en las dos faltas (`unidades` y `rol`), y arreglar eso solo **no habría alcanzado**.
+
+El portal **no montaba ningún parser de formularios**. `index.js` monta `bodyParser.json()` para
+toda la app y nada más, así que un POST `application/x-www-form-urlencoded` —que es exactamente lo
+que manda ese formulario— llegaba con `req.body` vacío. Por eso el `identificador` nunca se leyó, y
+por eso el `<input type="hidden" name="rol">` del botón de huésped se habría perdido en silencio:
+el huésped habría entrado como propietario y el único síntoma sería que el demo "no anda bien".
+
+Es el caso de la regla 7: `const { rol } = req.body || {}` sobre un cuerpo vacío da `undefined`, no
+un error. Ahora `portal-vecino.js` monta `express.urlencoded()` y `express.json()` propios (el
+segundo es inofensivo: body-parser marca el pedido como ya parseado y el de abajo no lo relee).
+
+La sesión ya no se arma a mano en ningún lado: está en **`sesion-demo.js`** (`sesionDemoVecino(rol)`),
+y la llaman tanto `POST /vecino/auth` como el default de `getVecinoSession`. Eran dos copias de lo
+mismo —una con `unidades` y otra sin— que es justo lo que la regla 5 manda no repetir.
+
+- **Propietario** (`rol=propietario`, el default): dos unidades (1° A y 4° C), expensas a la vista.
+- **Huésped** (`rol=turista`, botón nuevo): una unidad, `puede_ver_expensas: false`, fechas de
+  estadía y pase QR temporal que vence con la estadía.
+
+**Una diferencia con tu snippet**, a propósito: la sesión demo lleva `demo: true`. Sin esa marca,
+el `usuario_id: 1` que proponías es una **fila real** de la tabla `usuarios` (la semilla de
+`initPgSchema`), así que cualquiera que entre por el botón de demo y toque "Guardar" o "Cambiar
+contraseña" le estaría reescribiendo los datos a un usuario de verdad. Con la marca, el demo guarda
+solo en pantalla y lo dice en un cartel, y el cambio de contraseña devuelve 403.
+
+### 2. "Mi Perfil / Usuario" — `GET /vecino/perfil`
+
+Se entra tocando el avatar, el "Hola, ..." o el ícono de usuario nuevo en la cabecera. Tiene:
+
+- Nombre, apellido y teléfono editables → `POST /vecino/api/perfil`.
+- Email a la vista pero **no editable**. Es la llave con la que el titular vincula a alguien a la
+  unidad (`/api/buscar-usuario-email`): si el vecino se lo cambia solo, se desvincula de su propio
+  departamento y nadie se entera. Para cambiarlo lo derivamos a Marcos.
+- Lista de unidades con el rol de cada una y conmutador de unidad activa (reusa el
+  `/api/cambiar-unidad` que ya existía, no una copia).
+- Rol actual, con la etiqueta de siempre.
+- Cambio de contraseña → `POST /vecino/api/cambiar-password`. Verifica la actual contra el hash
+  antes de escribir. Una cuenta creada por PIN de WhatsApp no tiene contraseña previa: ahí está
+  eligiendo la primera y no hay nada contra qué verificar.
+- Para el huésped, además, la tarjeta de estadía con las fechas y el pase QR.
+
+### De paso, dos cosas que aparecieron en el camino
+
+- **`.inp`, `.btn-primary` y `.btn-secondary` vivían solo adentro del `<style>` de la pantalla de
+  login**, que es HTML suelto y no pasa por `shellVecino`. Cualquier página del portal que usara
+  esas clases salía sin estilo y sin ningún error, porque una clase que no existe no se queja.
+  Ahora están en `CSS_FORMULARIOS`, que usan las dos (más las variantes de modo oscuro). Si en el
+  panel te pasó algo parecido, mirá primero de dónde sale el `<style>`.
+- **Las iniciales del avatar** salían de `v.nombre.split(' ')`, pero los logins reales guardan
+  `nombre` y `apellido` por separado (así los lee `/api/login-email` de la tabla `usuarios`): todo
+  el que entró con su cuenta veía una sola letra. Ahora hay `nombreCompleto(v)` / `iniciales(v)`.
+
+### Lo que necesité del lado de los datos
+
+`db-pg.js` no tenía con qué escribir el perfil, así que le agregué dos funciones (nada más, no toqué
+nada existente): `actualizarPerfilUsuario(usuarioId, {nombre, apellido, telefono})` —no acepta
+`email` a propósito— y `cambiarPasswordUsuario(usuarioId, actual, nueva)`. Si desde el panel
+necesitás editar los datos de un vecino, llamá a esas y no escribas el `UPDATE` a mano.
+
+### Verificación
+
+- `node pruebas-perfil-vecino.js`: prueba nueva. Levanta el router de verdad y le pega por HTTP,
+  porque un chequeo sobre el texto del archivo habría dicho que el `rol` estaba —y estaba: lo que
+  faltaba era quién lo leyera.
+- `node verificar-antes-de-subir.js`: ✅ 60 pruebas en verde.

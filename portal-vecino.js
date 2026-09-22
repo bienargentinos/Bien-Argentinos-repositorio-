@@ -14,9 +14,22 @@ const session = require('express-session');
 // El secreto era, literalmente, la palabra 'secret'. Con eso se falsifica una sesión de vecino
 // — y una sesión de vecino es lo que `apertura-remota.js` autoriza para abrir la puerta de calle.
 router.use(session({ secret: require('./credenciales').secretoDeSesion(), resave: false, saveUninitialized: true }));
+// Los formularios del login (`/vecino/auth`) mandan `application/x-www-form-urlencoded`, y de eso
+// no se encargaba NADIE: `index.js` monta `bodyParser.json()` solamente. Así que `req.body` llegaba
+// vacío y el `identificador` del formulario nunca se leía — sin un solo error en el log, porque
+// `const { identificador } = req.body || {}` sobre un cuerpo vacío simplemente da `undefined`.
+// Con el botón de huésped eso era peor: el `rol` se perdía y el demo del turista entraba como
+// propietario.
+router.use(express.urlencoded({ extended: true }));
+// Y el JSON lo parsea hoy `index.js` para toda la app. Se monta igual acá para que el portal no
+// dependa de quién lo monte: body-parser marca el pedido como ya parseado, así que el segundo no
+// vuelve a leerlo ni pisa nada.
+router.use(express.json());
+
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const { sesionDemoVecino } = require('./sesion-demo');
 
 // Almacenamiento seguro de comprobantes de pago subidos por vecinos
 const storageComprobantes = multer.diskStorage({
@@ -70,7 +83,25 @@ function escJs(s) {
 }
 
 // Estilos visuales oficiales de Marcos IA (Tokens exactos)
+// Los campos y botones de formulario. Vivían SOLO adentro del `<style>` de la pantalla de login,
+// que es HTML suelto y no pasa por `shellVecino`: cualquier página del portal que usara `class="inp"`
+// o `class="btn-primary"` salía sin estilo y nadie se enteraba, porque una clase que no existe no
+// da error — simplemente no hace nada.
+const CSS_FORMULARIOS = `
+.inp{width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:12px;padding:0 14px;font-size:14.5px;color:#16233B;background:#F8FAFD;outline:none;margin-bottom:12px;font-family:inherit}
+.inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.12)}
+.inp:disabled{background:#F1F5F9;color:#64748B;cursor:not-allowed}
+.btn-primary{width:100%;height:48px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-size:15px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 14px rgba(15,50,106,.3);font-family:inherit}
+.btn-primary:disabled{opacity:.6;cursor:progress}
+.btn-secondary{width:100%;height:44px;border:1.5px solid #E2E8F0;border-radius:12px;background:#F8FAFD;color:#475569;font-size:13.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit}
+.btn-secondary:disabled{opacity:.6;cursor:progress}
+`;
+
 const CSS_VECINO = `
+${CSS_FORMULARIOS}
+.dark-theme .inp{background:#111C33;border-color:#23355C;color:#F8FAFC}
+.dark-theme .inp:disabled{background:#0B1426;color:#94A3B8}
+.dark-theme .btn-secondary{background:#111C33;border-color:#23355C;color:#CBD5E1}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{margin:0;padding:0;width:100%;min-height:100vh;background:#F1F5F9;color:#0F172A;font-family:'Hanken Grotesk',system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased;overscroll-behavior-y:contain;-webkit-tap-highlight-color:transparent}
 a{color:inherit;text-decoration:none}
@@ -808,27 +839,38 @@ function getVecinoSession(req) {
   if (req.session && req.session.vecino) {
     return req.session.vecino;
   }
-  // Default de prueba con soporte multi-unidad
-  return {
-    usuario_id: 1,
-    nombre: 'Daniel Morales',
-    email: 'daniel@consorcio.ai',
-    telefono: '+5491150542005',
-    edificio: 'San Patricio 159',
-    departamento: '1° A',
-    rol: 'propietario',
-    puede_ver_expensas: true,
-    timbre_activo: true,
-    timbre_silencio_desde: '23:00',
-    timbre_silencio_hasta: '07:30',
-    timbre_no_molestar_activo: false,
-    saldoExpensa: '$120.000,00',
-    estadoExpensa: 'Al día',
-    unidades: [
-      { edificio: 'San Patricio 159', departamento: '1° A', rol: 'propietario', puede_ver_expensas: true },
-      { edificio: 'San Patricio 159', departamento: '4° C', rol: 'propietario', puede_ver_expensas: true }
-    ]
-  };
+  // Sin sesión se devuelve la de prueba. La arma `sesion-demo.js`, que es la MISMA que usa el
+  // botón "Demo Rápido" del login: cuando eran dos copias, una tenía `unidades` y la otra no.
+  return sesionDemoVecino('propietario');
+}
+
+// El nombre para mostrar. Los logins reales guardan `nombre` y `apellido` por separado
+// (`/api/login-email` los lee así de la tabla `usuarios`), así que las iniciales del avatar salían
+// con una sola letra para todo el mundo que entró de verdad.
+function nombreCompleto(v) {
+  return [v && v.nombre, v && v.apellido].filter(Boolean).join(' ').trim() || 'Vecino';
+}
+
+function primerNombre(v) {
+  return nombreCompleto(v).split(' ')[0];
+}
+
+// Cómo se muestra cada rol. Estaba escrito cuatro veces (topbar, integrantes, badges de la lista
+// de ocupantes) con emojis distintos en cada una; acá queda uno solo para lo nuevo.
+const ROLES_VECINO = {
+  propietario: { txt: '👑 Propietario', bg: '#FEF3C7', color: '#92400E', borde: '#FDE68A' },
+  inquilino:   { txt: '🔑 Inquilino',   bg: '#EFF6FF', color: '#1D4ED8', borde: '#BFDBFE' },
+  turista:     { txt: '🧳 Huésped',     bg: '#FEF3C7', color: '#92400E', borde: '#FDE68A' },
+  asistente:   { txt: '🏢 Gestor',      bg: '#E0E7FF', color: '#3730A3', borde: '#C7D2FE' },
+  registrado:  { txt: '📝 Sin unidad',  bg: '#F1F5F9', color: '#475569', borde: '#E2E8F0' },
+};
+
+function etiquetaRol(rol) {
+  return ROLES_VECINO[rol] || ROLES_VECINO.propietario;
+}
+
+function iniciales(v) {
+  return nombreCompleto(v).split(' ').filter(Boolean).map(n => n[0].toUpperCase()).slice(0, 2).join('');
 }
 
 function shellVecino(title, activeTab, content, vecinoData) {
@@ -919,12 +961,12 @@ function shellVecino(title, activeTab, content, vecinoData) {
   <header style="background:linear-gradient(180deg,#0F326A 0%,#1A4A8F 100%);color:#ffffff;padding:16px 16px 20px;position:sticky;top:0;z-index:40;box-shadow:0 4px 15px rgba(15,50,106,.2)">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
       <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.4);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff">
-          ${v.nombre.split(' ').map(n=>n[0]).slice(0,2).join('')}
-        </div>
+        <a href="/vecino/perfil" title="Mi Perfil" style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.4);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;text-decoration:none;flex-shrink:0">
+          ${iniciales(v)}
+        </a>
         <div>
           <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em">Hola, ${v.nombre.split(' ')[0]} 👋</span>
+            <a href="/vecino/perfil" style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em;color:#fff;text-decoration:none">Hola, ${primerNombre(v)} 👋</a>
             ${v.rol === 'turista' ? '<span style="font-size:10px;font-weight:800;background:#38BDF8;color:#0F172A;padding:1px 6px;border-radius:6px">🧳 Huésped</span>' :
               v.rol === 'asistente' ? '<span style="font-size:10px;font-weight:800;background:#FBBF24;color:#0F172A;padding:1px 6px;border-radius:6px">🏢 Gestor</span>' :
               v.rol === 'inquilino' ? '<span style="font-size:10px;font-weight:800;background:#4ADE80;color:#0F172A;padding:1px 6px;border-radius:6px">🔑 Inquilino</span>' :
@@ -943,6 +985,9 @@ function shellVecino(title, activeTab, content, vecinoData) {
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
+        <a href="/vecino/perfil" title="Mi Perfil" style="width:36px;height:36px;border-radius:50%;background:${activeTab === 'perfil' ? 'rgba(255,255,255,.35)' : 'rgba(255,255,255,.15)'};display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none">
+          <i class="ph ph-user-circle" style="font-size:19px"></i>
+        </a>
         <button onclick="toggleTheme()" style="width:36px;height:36px;border-radius:50%;border:none;background:rgba(255,255,255,.15);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff">
           <i class="ph ph-moon" style="font-size:18px"></i>
         </button>
@@ -1710,10 +1755,7 @@ router.get('/login', (req, res) => {
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%,#1B4D9B 100%);color:#fff;font-family:'Hanken Grotesk',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .login-card{background:#ffffff;color:#16233B;border-radius:24px;padding:30px 22px;width:100%;max-width:420px;box-shadow:0 25px 60px rgba(0,0,0,.45)}
-.inp{width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:12px;padding:0 14px;font-size:14.5px;color:#16233B;background:#F8FAFD;outline:none;margin-bottom:12px;font-family:inherit}
-.inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.12)}
-.btn-primary{width:100%;height:48px;border:none;border-radius:12px;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;font-size:15px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 14px rgba(15,50,106,.3);font-family:inherit}
-.btn-secondary{width:100%;height:44px;border:1.5px solid #E2E8F0;border-radius:12px;background:#F8FAFD;color:#475569;font-size:13.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit}
+${CSS_FORMULARIOS}
 .btn-pwa{width:100%;height:40px;border:1.5px solid #BFDBFE;border-radius:12px;background:#EFF6FF;color:#1E5FB4;font-size:13px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:14px}
 .pin-box{width:100%;height:54px;border:2px solid #2E6FC0;border-radius:14px;font-size:26px;font-weight:900;text-align:center;letter-spacing:14px;color:#0F326A;background:#F8FAFD;outline:none;margin-bottom:16px}
 </style>
@@ -1929,10 +1971,19 @@ body{background:#0F326A;background:linear-gradient(165deg,#070D1E 0%,#0F326A 45%
   <div id="login-error-msg" style="display:none;margin-top:14px;padding:10px;border-radius:10px;background:#FEE2E2;border:1px solid #FCA5A5;color:#991B1B;font-size:12.5px;text-align:center"></div>
 
   <!-- Acceso Directo de Prueba / Demo -->
-  <div style="margin-top:16px;border-top:1px solid #F1F5F9;padding-top:12px">
+  <!-- Dos entradas, porque el portal se ve distinto según el rol: el propietario tiene dos
+       unidades y ve expensas; el huésped tiene una sola, con fechas de estadía, y NO las ve. -->
+  <div style="margin-top:16px;border-top:1px solid #F1F5F9;padding-top:12px;display:flex;flex-direction:column;gap:8px">
     <form action="/vecino/auth" method="POST">
+      <input type="hidden" name="rol" value="propietario">
       <button type="submit" class="btn-secondary" style="font-size:12.5px">
-        <span>🚀 Entrar como Daniel Morales (Demo Rápido)</span>
+        <span>🚀 Entrar como Daniel Morales (Demo Propietario)</span>
+      </button>
+    </form>
+    <form action="/vecino/auth" method="POST">
+      <input type="hidden" name="rol" value="turista">
+      <button type="submit" class="btn-secondary" style="font-size:12.5px">
+        <span>🧳 Entrar como Huésped / Turista (Demo)</span>
       </button>
     </form>
   </div>
@@ -2300,6 +2351,310 @@ router.post('/api/cambiar-unidad', async (req, res) => {
   }
 });
 
+// -------------------------------------------------------------------
+// MI PERFIL / USUARIO
+// -------------------------------------------------------------------
+// Lo que el vecino puede ver y cambiar de sí mismo: nombre, teléfono, sus unidades (con cuál está
+// mirando ahora) y la contraseña. El email queda a la vista pero NO se edita: es la llave con la
+// que el titular lo da de alta en el departamento, así que cambiarlo acá lo dejaría afuera de su
+// propia unidad sin que nadie se entere.
+router.get('/perfil', (req, res) => {
+  const v = getVecinoSession(req);
+  const unidades = v.unidades || [];
+  const rol = etiquetaRol(v.rol);
+
+  // Las fechas de la estadía viven en la UNIDAD, no en la sesión: `obtenerUnidadesDeUsuario` las
+  // devuelve por fila de `usuario_unidades`, y `/api/login-email` arma la sesión sin copiarlas
+  // arriba. Leerlas solo de `v` le mostraba "—" a todo huésped que entró con su cuenta de verdad;
+  // andaba nada más con la sesión de demo, que sí las lleva sueltas. `/api/cambiar-unidad` tampoco
+  // las actualiza al cambiar de departamento, así que la unidad activa es la única fuente sana.
+  const unidadActiva = unidades.find(u =>
+    String(u.edificio || '').toLowerCase() === String(v.edificio || '').toLowerCase() &&
+    String(u.departamento || '').toLowerCase() === String(v.departamento || '').toLowerCase()
+  ) || {};
+  const estadiaDesde = unidadActiva.fecha_desde || v.fecha_desde || '';
+  const estadiaHasta = unidadActiva.fecha_hasta || v.fecha_hasta || '';
+  const esDemo = v.demo === true || !req.session || !req.session.vecino;
+
+  const filaUnidad = (u) => {
+    const activa = String(u.edificio || '').toLowerCase() === String(v.edificio || '').toLowerCase()
+                && String(u.departamento || '').toLowerCase() === String(v.departamento || '').toLowerCase();
+    const rolU = etiquetaRol(u.rol);
+    const fechas = (u.fecha_desde && u.fecha_hasta)
+      ? `<div style="font-size:11px;color:#92400E;margin-top:3px">🗓️ Del ${esc(String(u.fecha_desde).slice(0, 10))} al ${esc(String(u.fecha_hasta).slice(0, 10))}</div>`
+      : '';
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-radius:14px;border:2px solid ${activa ? '#2E6FC0' : '#E2E8F0'};background:${activa ? '#EFF6FF' : '#F8FAFD'}">
+        <div style="min-width:0">
+          <div style="font-size:13.5px;font-weight:900;color:#0F172A">${esc(u.edificio)} · ${esc(u.departamento)}</div>
+          <div style="display:inline-flex;align-items:center;gap:6px;margin-top:4px">
+            <span style="font-size:10.5px;font-weight:800;background:${rolU.bg};color:${rolU.color};border:1px solid ${rolU.borde};padding:1px 7px;border-radius:6px">${rolU.txt}</span>
+            ${u.puede_ver_expensas === false ? '<span style="font-size:10.5px;color:#64748B">· sin expensas</span>' : ''}
+          </div>
+          ${fechas}
+        </div>
+        ${activa
+          ? '<span style="font-size:11px;font-weight:900;color:#1D4ED8;flex-shrink:0">● Viendo</span>'
+          : `<button type="button" onclick="usarUnidad('${escJs(u.edificio)}', '${escJs(u.departamento)}')" style="flex-shrink:0;border:none;background:#0F326A;color:#fff;font-size:11.5px;font-weight:800;padding:7px 12px;border-radius:10px;cursor:pointer">Usar esta</button>`}
+      </div>`;
+  };
+
+  const bloqueUnidades = unidades.length === 0 ? `
+    <div style="padding:14px;border-radius:14px;background:#FFF7ED;border:1px solid #FED7AA;font-size:12.5px;color:#9A3412;line-height:1.5">
+      Todavía no tenés ninguna unidad vinculada. Pedile al titular del departamento (o a la
+      administración) que te habilite con tu email <strong>${esc(v.email || '')}</strong> desde la
+      pestaña Integrantes.
+    </div>` : unidades.map(filaUnidad).join('');
+
+  const bloqueEstadia = (v.rol === 'turista' && (v.pase_demo || estadiaHasta)) ? `
+    <div class="card" style="padding:16px;background:#fff;border-radius:18px;margin-bottom:14px">
+      <div style="font-size:13.5px;font-weight:900;color:#0F172A;margin-bottom:10px">🧳 Tu estadía</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:${v.pase_demo ? '12px' : '0'}">
+        <div style="flex:1;min-width:120px;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:10px 12px">
+          <div style="font-size:10.5px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.04em">Desde</div>
+          <div style="font-size:14px;font-weight:900;color:#0F172A">${esc(String(estadiaDesde || '—').slice(0, 10))}</div>
+        </div>
+        <div style="flex:1;min-width:120px;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:10px 12px">
+          <div style="font-size:10.5px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.04em">Hasta</div>
+          <div style="font-size:14px;font-weight:900;color:#0F172A">${esc(String(estadiaHasta || '—').slice(0, 10))}</div>
+        </div>
+      </div>
+      ${v.pase_demo ? `
+      <div style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:12px;padding:12px 14px">
+        <div style="font-size:11px;font-weight:800;color:#92400E;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Pase QR temporal</div>
+        <div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;font-weight:900;color:#0F172A;letter-spacing:.05em">${esc(v.pase_demo.codigo)}</div>
+        <div style="font-size:11.5px;color:#92400E;margin-top:4px">Vence el ${esc(String(v.pase_demo.vence || '').slice(0, 10))} · mostralo en el tótem de la entrada</div>
+      </div>` : ''}
+    </div>` : '';
+
+  const content = `
+    <div style="margin-bottom:16px">
+      <h1 style="font-size:20px;font-weight:900;color:#0F172A;letter-spacing:-.02em">Mi Perfil</h1>
+      <p style="font-size:12.5px;color:#64748B">Tus datos, tus unidades y tu acceso</p>
+    </div>
+
+    <!-- IDENTIDAD -->
+    <div class="card" style="padding:18px 16px;background:#fff;border-radius:18px;margin-bottom:14px;display:flex;align-items:center;gap:14px">
+      <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900;flex-shrink:0">${iniciales(v)}</div>
+      <div style="min-width:0">
+        <div style="font-size:16.5px;font-weight:900;color:#0F172A;letter-spacing:-.01em">${esc(nombreCompleto(v))}</div>
+        <div style="font-size:12px;color:#64748B;word-break:break-all">${esc(v.email || 'Sin email registrado')}</div>
+        <span style="display:inline-block;margin-top:5px;font-size:10.5px;font-weight:800;background:${rol.bg};color:${rol.color};border:1px solid ${rol.borde};padding:2px 8px;border-radius:6px">${rol.txt}</span>
+      </div>
+    </div>
+
+    ${esDemo ? `
+    <div style="padding:11px 13px;border-radius:12px;background:#FEF3C7;border:1px solid #FDE68A;font-size:12px;color:#92400E;margin-bottom:14px;line-height:1.45">
+      🚧 Estás en la <strong>sesión de prueba</strong>. Los cambios de datos y de contraseña no se
+      guardan hasta que entres con tu cuenta.
+    </div>` : ''}
+
+    <!-- MIS DATOS -->
+    <div class="card" style="padding:16px;background:#fff;border-radius:18px;margin-bottom:14px">
+      <div style="font-size:13.5px;font-weight:900;color:#0F172A;margin-bottom:12px">Mis datos</div>
+      <form onsubmit="guardarPerfil(event)">
+        <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Nombre</label>
+        <input type="text" id="perfil-nombre" class="inp" value="${esc(v.nombre || '')}" placeholder="Tu nombre" required>
+
+        <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Apellido</label>
+        <input type="text" id="perfil-apellido" class="inp" value="${esc(v.apellido || '')}" placeholder="Tu apellido">
+
+        <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Teléfono de contacto</label>
+        <input type="tel" id="perfil-telefono" class="inp" value="${esc(v.telefono || '')}" placeholder="Ej: +54 9 11 5054 2005">
+
+        <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Email registrado</label>
+        <input type="email" class="inp" value="${esc(v.email || '')}" disabled style="background:#F1F5F9;color:#64748B;margin-bottom:6px">
+        <div style="font-size:11.5px;color:#64748B;line-height:1.45;margin-bottom:12px">
+          El email es con el que el titular te vincula a la unidad. Para cambiarlo, escribinos por
+          <a href="/vecino/chat" style="color:#1E5FB4;font-weight:700;text-decoration:none">Marcos IA</a>.
+        </div>
+
+        <div id="perfil-msg" style="display:none;margin-bottom:10px;padding:9px 11px;border-radius:10px;font-size:12.5px"></div>
+        <button type="submit" class="btn-primary" style="height:44px;font-size:14px">Guardar cambios</button>
+      </form>
+    </div>
+
+    ${bloqueEstadia}
+
+    <!-- MIS UNIDADES -->
+    <div class="card" style="padding:16px;background:#fff;border-radius:18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <div style="font-size:13.5px;font-weight:900;color:#0F172A">Mis unidades</div>
+        <span style="font-size:11.5px;color:#64748B">${unidades.length}</span>
+      </div>
+      <div style="font-size:11.5px;color:#64748B;margin-bottom:12px">Elegí cuál estás mirando. Expensas, reclamos y amenities siguen a la unidad activa.</div>
+      <div style="display:flex;flex-direction:column;gap:10px">${bloqueUnidades}</div>
+    </div>
+
+    <!-- ACCESO -->
+    <div class="card" style="padding:16px;background:#fff;border-radius:18px;margin-bottom:14px">
+      <div style="font-size:13.5px;font-weight:900;color:#0F172A;margin-bottom:4px">Acceso y seguridad</div>
+      <div style="font-size:11.5px;color:#64748B;margin-bottom:12px">También podés entrar con un código que te llega por WhatsApp, sin contraseña.</div>
+      <form onsubmit="cambiarPassword(event)">
+        <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Contraseña actual</label>
+        <input type="password" id="pass-actual" class="inp" placeholder="Dejala vacía si nunca pusiste una" autocomplete="current-password">
+
+        <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Contraseña nueva</label>
+        <input type="password" id="pass-nueva" class="inp" placeholder="Mínimo 6 caracteres" autocomplete="new-password" required>
+
+        <label style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Repetir la nueva</label>
+        <input type="password" id="pass-repetir" class="inp" placeholder="Igual que la anterior" autocomplete="new-password" required>
+
+        <div id="pass-msg" style="display:none;margin-bottom:10px;padding:9px 11px;border-radius:10px;font-size:12.5px"></div>
+        <button type="submit" class="btn-secondary" style="height:44px">🔒 Cambiar contraseña</button>
+      </form>
+    </div>
+
+    <a href="/vecino/logout" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:13px;border-radius:14px;border:1.5px solid #FCA5A5;background:#FEF2F2;color:#991B1B;font-size:13.5px;font-weight:800;text-decoration:none;margin-bottom:10px">
+      <i class="ph ph-sign-out" style="font-size:18px"></i> Cerrar sesión
+    </a>
+
+    <script>
+      function mostrarMsg(id, texto, ok) {
+        var box = document.getElementById(id);
+        if (!box) return;
+        box.style.display = 'block';
+        box.textContent = texto;
+        box.style.background = ok ? '#DCFCE7' : '#FEE2E2';
+        box.style.border = '1px solid ' + (ok ? '#86EFAC' : '#FCA5A5');
+        box.style.color = ok ? '#166534' : '#991B1B';
+      }
+
+      async function guardarPerfil(ev) {
+        ev.preventDefault();
+        var btn = ev.target.querySelector('button[type=submit]');
+        btn.disabled = true;
+        try {
+          var res = await fetch('/vecino/api/perfil', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nombre: document.getElementById('perfil-nombre').value,
+              apellido: document.getElementById('perfil-apellido').value,
+              telefono: document.getElementById('perfil-telefono').value
+            })
+          });
+          var data = await res.json();
+          if (data.ok) {
+            mostrarMsg('perfil-msg', '✅ Datos guardados.', true);
+            setTimeout(function(){ location.reload(); }, 800);
+          } else {
+            mostrarMsg('perfil-msg', '❌ ' + (data.error || 'No se pudo guardar.'), false);
+          }
+        } catch (e) {
+          mostrarMsg('perfil-msg', '❌ ' + e.message, false);
+        }
+        btn.disabled = false;
+      }
+
+      async function cambiarPassword(ev) {
+        ev.preventDefault();
+        var nueva = document.getElementById('pass-nueva').value;
+        if (nueva !== document.getElementById('pass-repetir').value) {
+          mostrarMsg('pass-msg', '❌ Las dos contraseñas nuevas no son iguales.', false);
+          return;
+        }
+        var btn = ev.target.querySelector('button[type=submit]');
+        btn.disabled = true;
+        try {
+          var res = await fetch('/vecino/api/cambiar-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              actual: document.getElementById('pass-actual').value,
+              nueva: nueva
+            })
+          });
+          var data = await res.json();
+          if (data.ok) {
+            mostrarMsg('pass-msg', '✅ Contraseña actualizada.', true);
+            ev.target.reset();
+          } else {
+            mostrarMsg('pass-msg', '❌ ' + (data.error || 'No se pudo cambiar.'), false);
+          }
+        } catch (e) {
+          mostrarMsg('pass-msg', '❌ ' + e.message, false);
+        }
+        btn.disabled = false;
+      }
+
+      async function usarUnidad(edificio, departamento) {
+        try {
+          var res = await fetch('/vecino/api/cambiar-unidad', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ edificio: edificio, departamento: departamento })
+          });
+          var data = await res.json();
+          if (data.ok) location.reload();
+          else alert(data.error || 'No se pudo cambiar de unidad.');
+        } catch (e) {
+          alert(e.message);
+        }
+      }
+    </script>
+  `;
+
+  res.send(shellVecino('Mi Perfil', 'perfil', content, v));
+});
+
+// Guarda nombre / apellido / teléfono. Escribe en la base cuando la sesión es de un usuario real;
+// la sesión de prueba no tiene fila que actualizar y se queda solo con el cambio en pantalla.
+router.post('/api/perfil', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const { nombre, apellido, telefono } = req.body || {};
+    if (!String(nombre || '').trim()) {
+      return res.status(400).json({ ok: false, error: 'El nombre no puede quedar vacío' });
+    }
+
+    const enSesion = !!(req.session && req.session.vecino);
+    if (enSesion && v.usuario_id && !v.demo) {
+      const { actualizarPerfilUsuario } = require('./db-pg');
+      const u = await actualizarPerfilUsuario(v.usuario_id, { nombre, apellido, telefono });
+      // Lo que quedó en la base es lo que tiene que mostrar la pantalla, no lo que se tipeó:
+      // si un campo llegó vacío la base conservó el anterior y la sesión tiene que seguirlo.
+      req.session.vecino.nombre = u.nombre;
+      req.session.vecino.apellido = u.apellido;
+      req.session.vecino.telefono = u.telefono;
+      return res.json({ ok: true, usuario: u });
+    }
+
+    if (enSesion) {
+      req.session.vecino.nombre = String(nombre).trim();
+      req.session.vecino.apellido = String(apellido || '').trim();
+      req.session.vecino.telefono = String(telefono || '').trim();
+    }
+    res.json({ ok: true, demo: true });
+  } catch (err) {
+    console.error('Error en /vecino/api/perfil:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Cambio de contraseña. La verificación de la actual la hace `cambiarPasswordUsuario` contra el
+// hash guardado — acá no se compara nada a mano.
+router.post('/api/cambiar-password', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const { actual, nueva } = req.body || {};
+
+    // La sesión de prueba lleva el `usuario_id` de la fila semilla: si no se la excluyera, el
+    // botón de demo dejaría cambiarle la contraseña a un usuario real.
+    if (!req.session || !req.session.vecino || !v.usuario_id || v.demo) {
+      return res.status(403).json({ ok: false, error: 'Entrá con tu cuenta para cambiar la contraseña' });
+    }
+
+    const { cambiarPasswordUsuario } = require('./db-pg');
+    const r = await cambiarPasswordUsuario(v.usuario_id, actual, nueva);
+    if (!r.ok) return res.status(400).json(r);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error en /vecino/api/cambiar-password:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // API SOLICITAR PIN DE ACCESO (WHATSAPP)
 router.post('/api/solicitar-pin', async (req, res) => {
   const { telefono } = req.body || {};
@@ -2463,20 +2818,20 @@ router.get('/logout', (req, res) => {
   }
 });
 
+// Entrada de prueba, sin contraseña. `rol` elige a quién se entra: propietario (el default, con
+// dos unidades y expensas a la vista) o turista (una unidad, con fechas de estadía y sin expensas).
+//
+// La sesión la arma `sesion-demo.js` ENTERA. Antes se escribía acá a mano y le faltaba `unidades`:
+// `/vecino` chequea `if (!v.unidades || v.unidades.length === 0)` y mandaba a la pantalla de
+// "Cuenta Creada — todavía no tenés ningún departamento asignado", con el edificio y el depto
+// escritos justo arriba.
 router.post('/auth', async (req, res) => {
-  const { identificador } = req.body || {};
+  const { identificador, rol } = req.body || {};
   const limpio = String(identificador || '').trim();
   const telLimpio = limpio.replace(/\D/g, '');
 
   if (req.session) {
-    req.session.vecino = {
-      nombre: 'Daniel Morales',
-      telefono: telLimpio || '+5491150542005',
-      edificio: 'San Patricio 159',
-      departamento: '1° A',
-      saldoExpensa: '$120.000,00',
-      estadoExpensa: 'Al día',
-    };
+    req.session.vecino = sesionDemoVecino(rol === 'turista' ? 'turista' : 'propietario', telLimpio);
   }
   res.redirect('/vecino');
 });

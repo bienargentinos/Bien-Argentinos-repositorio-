@@ -27,6 +27,72 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-22 — Pedido a Claude: Corrección botón demo y sección "Mi Perfil / Usuario" en portal-vecino.js
+
+- **Qué necesito de Claude (en `portal-vecino.js`):**
+  1. **Bug en el botón demo rápido (`POST /vecino/auth`, línea 2466):**
+     - Daniel probó ingresar con *"🚀 Entrar como Daniel Morales (Demo Rápido)"*.
+     - El endpoint actual solo guarda en sesión `{ nombre, telefono, edificio, departamento, saldoExpensa, estadoExpensa }`.
+     - **Problema 1:** No define `unidades: [...]`. Al entrar a `/vecino`, la validación `if (!v.unidades || v.unidades.length === 0)` salta y muestra la pantalla vacía de *"Cuenta Creada - Todavía no tenés ningún departamento asignado"*, a pesar de que arriba dice "San Patricio 159 · Depto 1° A".
+     - **Problema 2:** No define `rol`. El topbar por defecto hace fallback a `👑 Propietario` si no es `turista`/`inquilino`/`asistente`.
+     - **Solución propuesta:**
+       - Inicializar la sesión del demo rápido completa:
+         ```javascript
+         req.session.vecino = {
+           usuario_id: 1,
+           nombre: 'Daniel Morales',
+           email: 'daniel@consorcio.ai',
+           telefono: telLimpio || '+5491150542005',
+           edificio: 'San Patricio 159',
+           departamento: '1° A',
+           rol: 'propietario',
+           puede_ver_expensas: true,
+           saldoExpensa: '$120.000,00',
+           estadoExpensa: 'Al día',
+           unidades: [
+             { edificio: 'San Patricio 159', departamento: '1° A', rol: 'propietario', puede_ver_expensas: true },
+             { edificio: 'San Patricio 159', departamento: '4° C', rol: 'propietario', puede_ver_expensas: true }
+           ]
+         };
+         ```
+       - Agregar opcionalmente un segundo botón demo explícito: *"🧳 Entrar como Huésped / Turista (Demo)"* con `rol: 'turista'`, `puede_ver_expensas: false`, pase QR temporal y fechas de estadía, para poder probar el modo huésped directamente sin confusiones.
+
+  2. **Nueva sección "Mi Perfil / Usuario" solicitada por Daniel:**
+     - Falta en la app/portal una pantalla donde el vecino pueda ver y gestionar sus datos:
+       - Nombre y Apellido.
+       - Email registrado.
+       - Teléfono de contacto.
+       - Lista de departamentos/unidades vinculadas (y conmutador de unidad activa).
+       - Rol actual (`Propietario`, `Inquilino`, `Huésped`).
+       - Gestión de acceso / cambio de contraseña o PIN.
+     - Agregar el acceso a "Mi Perfil" desde el menú de navegación o tocando el avatar/nombre en la cabecera superior.
+
+- **Verificación:**
+  - `node verificar-antes-de-subir.js`: ✅ 58 pruebas pasando en verde.
+
+### 2026-09-22 — Selector de rubros táctil (Chips recorriendo RUBROS_PROVEEDOR) y alto contraste en modo oscuro
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Selector táctil de rubros (Chips / Pills) para Proveedores**:
+    1. Se eliminó el texto de escritorio *"Podés elegir varios con Ctrl / Cmd."* y el `<select multiple>` visible, reemplazándolo por una cuadrícula táctil de botones tipo chip (`.chip-rubro`).
+    2. Los chips recorren estrictamente `RUBROS_PROVEEDOR` (proveniente de `rubros.js.RUBROS_CATALOGO`, 14 rubros oficiales: Electricista, Plomero, Gasista, Cerrajero, Portería, CCTV, Control de acceso, Albañilería, Ascensores, Refrigeración, Pintor, Limpieza, Seguridad, Otro). No hay listas propias ni duplicadas.
+    3. Al tocar un chip, se conmuta visualmente (`.chip-active` con tilde ✓) y sincroniza el valor en el `<select>` subyacente para mantener total compatibilidad con `agregarProveedor` y `guardarEditarProveedor`.
+    4. Aplicado tanto en el formulario de alta ("Agregar proveedor a mi lista") como en el modal de edición (`#modal-editar-proveedor`), donde `abrirEditarProveedor` sincroniza el estado activo de los chips según los rubros cargados.
+  - **Corrección de Alto Contraste en Modo Oscuro**:
+    1. La tarjeta contenedora de alta de proveedores ahora adopta fondo azul oscuro (`#111C33` con borde `#23355C`) en `.dark-theme`, eliminando el parche blanco deslumbrante.
+    2. El bloque desplegable `<details>` de datos de cobro adopta fondo `#182647` con borde `#2A3E6D`.
+    3. El título *"Datos de cobro"* y subtítulos ahora usan texto blanco nítido (`#F8FAFC`) y gris claro (`#94A3B8`).
+    4. Etiquetas de formulario (`CBU`, `ALIAS`, `TITULAR`, `CUIT`) con alto contraste celeste (`#93C5FD`).
+    5. Textos de ayuda y advertencias con contraste claro (`#CBD5E1`).
+    6. Chips táctiles con estilo nocturno y resaltado cyan eléctrico (`#38BDF8`) al estar activos.
+
+- **Verificación:**
+  - `node pruebas-rubros.js`: ✅ 38 bien, 0 mal (100% verde).
+  - `node pruebas-porteria-qr.js`: ✅ 15 bien, 0 mal.
+  - `node pruebas-porteria-edificio.js`: ✅ 35 bien, 0 mal.
+  - `node verificar-antes-de-subir.js`: ✅ 58 pruebas pasando en verde (100% OK sin credenciales).
+
 ### 2026-09-22 — Menú de navegación completo en modo móvil (Proveedores, Portería, Expensas, etc.)
 
 - **Qué cambié y en qué archivo:**

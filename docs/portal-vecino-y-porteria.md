@@ -10,10 +10,11 @@ de este rincón, para no tener que leerlo entero.
 
 | Archivo | Qué hace | Tamaño |
 |---|---|---|
-| `portal-vecino.js` | El portal web del vecino: reservas de amenities, expensas, reclamos, pases QR, integrantes de la unidad, chat. Montado en `/vecino` y `/portal`. | 6441 líneas, 36 rutas |
+| `portal-vecino.js` | El portal web del vecino: reservas de amenities, expensas, reclamos, pases QR, integrantes de la unidad, chat. Montado en `/vecino` y `/portal`. | 6784 líneas, 39 rutas |
 | `porteria.js` | El timbre y la apertura de puerta. Quién suena en el teléfono de quién, y quién puede abrirle a alguien parado en la vereda. | 1839 |
 | `qr-firmado.js` | Firma y verificación de los pases QR. | 192 |
 | `clave-app.js` | La clave que manda la app Edifica cuando no hay sesión del panel. | 93 |
+| `sesion-demo.js` | La sesión de prueba del portal (propietario / huésped), en un solo lugar. | 88 |
 
 **Edifica** es la app móvil del vecino. Su código **no está en este repo**: acá viven solo los
 puntos por donde el servidor le habla (`clave-app.js`, `qr-firmado.js`, las rutas `/api/pases-qr`).
@@ -58,6 +59,7 @@ node pruebas-qr-firmado.js
 node pruebas-clave-app.js
 node pruebas-apertura-remota.js
 node pruebas-timbre-destino.js
+node pruebas-perfil-vecino.js
 node pruebas-reserva-evento.js
 ```
 
@@ -91,9 +93,11 @@ El portal dice, en el arranque del servidor:
    No dejar prendido en producción.
 ```
 
-Hay `/api/solicitar-pin`, `/api/verificar-pin`, `/api/login-email` y `/api/registro-email`, pero el
-pendiente de **auth real** —contraseñas hasheadas con bcrypt, activación por token, recuperación
-por email— está sin hacer en todo el proyecto.
+Hay `/api/solicitar-pin`, `/api/verificar-pin`, `/api/login-email` y `/api/registro-email`, y desde
+el 22/09 el vecino puede cambiar su contraseña desde `/vecino/perfil` (`cambiarPasswordUsuario` en
+`db-pg.js`, que verifica la actual contra el hash antes de escribir). Lo que sigue faltando es el
+resto del **auth real**: activación por token y recuperación por email. Las contraseñas se guardan
+con PBKDF2 (`hashPassword`), no en texto plano, pero el pendiente del proyecto dice bcrypt.
 
 La clave de Edifica **es compartida y viaja adentro de la app**, así que quien la extrae puede
 pedir pases de cualquier edificio. Cierra la puerta a internet, no la cierra a alguien decidido. Lo
@@ -107,6 +111,21 @@ Abre la puerta con solo el nombre del edificio en el cuerpo. Ni hace falta un QR
 > **Esto es una decisión de Daniel, no un descuido**: es el laboratorio del prototipo del timbre y
 > queda abierto a propósito hasta dar de alta el servicio. **No cerrarlo sin preguntarle.** Pero no
 > puede quedar prendido cuando el sistema salga a la calle.
+
+### 4. La sesión de prueba entraba a una pantalla vacía (arreglado el 22/09)
+
+Queda anotado porque la forma del error se repite. El botón "Demo Rápido" armaba la sesión a mano
+con seis campos; le faltaba `unidades`, y `/vecino` arranca con
+`if (!v.unidades || v.unidades.length === 0)`: el que entraba por ahí caía siempre en "Cuenta
+Creada — todavía no tenés ningún departamento asignado", con el edificio y el depto escritos dos
+centímetros más arriba.
+
+Debajo había algo peor: **el portal no montaba ningún parser de formularios**. `index.js` monta
+`bodyParser.json()` y nada más, así que un POST `urlencoded` llegaba con `req.body` vacío y
+`const { identificador } = req.body || {}` daba `undefined` sin un solo error en el log. Ahora
+`portal-vecino.js` monta los suyos y `pruebas-perfil-vecino.js` levanta el router de verdad y le
+pega por HTTP — un chequeo sobre el texto del archivo no habría visto nada, porque el campo estaba:
+faltaba quién lo leyera.
 
 ## Cómo trabajar
 
