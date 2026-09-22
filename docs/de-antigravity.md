@@ -27,6 +27,24 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-22 — Multi-rubro en la ficha de proveedor, cliente en desasignar y queryPg directo (sin if pool)
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Multi-rubro en la ficha del proveedor (`#prov-rubro` y `#edit-prov-rubro`)**:
+    1. Tanto en el formulario de alta (`#prov-rubro`) como en el modal de edición (`#edit-prov-rubro`), los `<select>` pasaron a ser de selección múltiple (`multiple`), permitiendo elegir varios rubros de `RUBROS_PROVEEDOR` (manteniendo Ctrl / Cmd).
+    2. Se adaptaron las funciones de cliente `agregarProveedor` y `guardarEditarProveedor` para leer todas las opciones seleccionadas (`Array.from(sel.selectedOptions).map(...)`) y unirlas con coma y espacio (`"Electricidad, CCTV"`).
+    3. En `abrirEditarProveedor`, se parsea la cadena con comas y se marcan como `selected` todos los rubros que correspondan en el `<select>`.
+    4. En el listado maestro de proveedores (`filas`), si un proveedor tiene varios rubros separados por comas, se renderiza una etiqueta / badge individual (`rubro-badge`) para cada uno.
+  - **Cliente en el `UPDATE` de desasignar (`/api/proveedor-desasignar`)**:
+    1. Se agregó la condición de `cliente` en la cláusula `WHERE` del `UPDATE proveedor_asignaciones SET estado = 'eliminado'`, resolviendo `normEdificio(a.cliente || clienteDeSesion(req) || '')` para evitar colisiones accidentales entre clientes distintos.
+  - **Eliminación de `if (pool)` y llamada directa a `queryPg`**:
+    1. En `/api/proveedor-asignar` y `/api/proveedor-desasignar`, se removió `const { pool } = require('./db-pg')` y el wrapper condicional `if (pool)`.
+    2. Se invoca directamente `queryPg(sql, params)` (definido a nivel módulo). Cualquier fallo en PostgreSQL escala de forma transparente al catch del endpoint, devolviendo HTTP 500 con el mensaje de error.
+
+- **Verificación:**
+  - `node verificar-antes-de-subir.js`: ✅ 56 pruebas pasando en verde (100% OK sin credenciales).
+
 ### 2026-09-22 — Resolución de observaciones de Claude en PR (desplegable rubro, pliegue acentos SQL, errores PG, /api/aprobar-solicitud)
 
 - **Qué cambié y en qué archivo:**

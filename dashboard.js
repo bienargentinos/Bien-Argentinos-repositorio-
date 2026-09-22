@@ -5804,7 +5804,9 @@ async function guardarCampoEditado(btn){
 }
 // Agregar proveedor a la lista maestra del cliente (una sola vez).
 async function agregarProveedor(btn){
-  var rubro=(document.getElementById('prov-rubro')||{}).value||'';
+  var selRub=document.getElementById('prov-rubro');
+  var rubrosElegidos=selRub&&selRub.selectedOptions?Array.from(selRub.selectedOptions).map(function(o){return o.value.trim();}).filter(Boolean):[];
+  var rubro=rubrosElegidos.join(', ')||(selRub?selRub.value:'')||'Otro';
   var nombre=(document.getElementById('prov-nombre')||{}).value||'';
   var tel=(document.getElementById('prov-tel')||{}).value||'';
   var notas=(document.getElementById('prov-notas')||{}).value||'';
@@ -5839,7 +5841,13 @@ async function quitarProveedor(btn,row){
 }
 function abrirEditarProveedor(row, rubro, nombre, tel, notas){
   var r=document.getElementById('edit-prov-row');if(r)r.value=row;
-  var rb=document.getElementById('edit-prov-rubro');if(rb)rb.value=rubro||'Otro';
+  var rb=document.getElementById('edit-prov-rubro');
+  if(rb){
+    var lista=String(rubro||'').split(',').map(function(s){return s.trim().toLowerCase();}).filter(Boolean);
+    for(var i=0;i<rb.options.length;i++){
+      rb.options[i].selected=lista.indexOf(rb.options[i].value.toLowerCase())!==-1;
+    }
+  }
   var n=document.getElementById('edit-prov-nombre');if(n)n.value=nombre||'';
   var t=document.getElementById('edit-prov-tel');if(t)t.value=tel||'';
   var nt=document.getElementById('edit-prov-notas');if(nt)nt.value=notas||'';
@@ -5847,7 +5855,9 @@ function abrirEditarProveedor(row, rubro, nombre, tel, notas){
 }
 async function guardarEditarProveedor(btn){
   var row=valEl('edit-prov-row');
-  var rubro=valEl('edit-prov-rubro');
+  var selRub=document.getElementById('edit-prov-rubro');
+  var rubrosElegidos=selRub&&selRub.selectedOptions?Array.from(selRub.selectedOptions).map(function(o){return o.value.trim();}).filter(Boolean):[];
+  var rubro=rubrosElegidos.join(', ')||(selRub?selRub.value:'')||'Otro';
   var nombre=valEl('edit-prov-nombre');
   var tel=valEl('edit-prov-tel');
   var notas=valEl('edit-prov-notas');
@@ -11259,9 +11269,14 @@ router.get('/proveedores', async (req, res) => {
               </div>`;
     };
 
-    const filas = maestros.length ? maestros.map((m) => `
+    const filas = maestros.length ? maestros.map((m) => {
+      const rubrosLista = String(m.rubro || 'Otro').split(',').map((s) => s.trim()).filter(Boolean);
+      const badgesRubro = (rubrosLista.length ? rubrosLista : ['Otro'])
+        .map((r) => `<span class="rubro-badge ${getRubroClass(r)}">${esc(r)}</span>`)
+        .join(' ');
+      return `
       <div style="display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid ${(m.cbu_pendiente || m.alias_pendiente) ? '#FDBA74' : '#E7ECF3'};border-radius:12px;background:#fff;flex-wrap:wrap">
-        <span class="rubro-badge ${getRubroClass(m.rubro)}">${esc(m.rubro)}</span>
+        <div style="display:inline-flex;gap:6px;flex-wrap:wrap">${badgesRubro}</div>
         <div style="flex:1;min-width:140px">
           <div style="font-size:14.5px;font-weight:700">${esc(m.nombre || '—')}</div>
           ${m.notas ? `<div style="font-size:12px;color:#8595AD">${esc(m.notas)}</div>` : ''}
@@ -11273,7 +11288,8 @@ router.get('/proveedores', async (req, res) => {
           <button onclick="quitarProveedor(this,${m._row})" class="btn-remove hv-red">Quitar</button>
         </div>
         ${bloqueCobro(m)}
-      </div>`).join('') : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
+      </div>`;
+    }).join('') : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
 
     const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
 
@@ -11287,7 +11303,8 @@ router.get('/proveedores', async (req, res) => {
           <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="edit-prov-row">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Rubro / Especialidad</div>
-            <select id="edit-prov-rubro" class="inp" style="margin-bottom:14px">${rubroOptions}</select>
+            <select id="edit-prov-rubro" class="inp" multiple style="height:110px;padding:6px 10px;margin-bottom:4px">${rubroOptions}</select>
+            <div style="font-size:11.5px;color:#64748B;margin-bottom:14px">Podés seleccionar varios rubros manteniendo presionada la tecla Ctrl / Cmd.</div>
 
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre / Empresa</div>
             <input id="edit-prov-nombre" class="inp" style="margin-bottom:14px">
@@ -11353,8 +11370,12 @@ router.get('/proveedores', async (req, res) => {
 
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px">
           <div style="font-size:15px;font-weight:800;margin-bottom:14px">Agregar proveedor a mi lista</div>
-          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;margin-bottom:14px">
-            <div>${label('Rubro')}<select id="prov-rubro" class="inp" style="height:44px">${rubroOptions}</select></div>
+          <div style="display:grid;grid-template-columns:190px 1fr;gap:12px;margin-bottom:14px">
+            <div>
+              ${label('Rubro(s)')}
+              <select id="prov-rubro" class="inp" multiple style="height:110px;padding:6px 10px">${rubroOptions}</select>
+              <div style="font-size:11.5px;color:#64748B;margin-top:4px">Podés elegir varios con Ctrl / Cmd.</div>
+            </div>
             <div>${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:44px" placeholder="Ej: Gastón, Plomería del Oeste"></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -15431,34 +15452,31 @@ router.post('/api/proveedor-asignar', async (req, res) => {
     // Sincronizar en PostgreSQL (proveedor_asignaciones)
     // Se pliegan acentos con translate() en SQL para coincidir con la normalización de Sheets.
     // Si PostgreSQL falla, el error NO se silencia: burbujea al catch y devuelve 500.
-    const { pool } = require('./db-pg');
-    if (pool) {
-      const normCli = normEdificio(cliente || '');
-      const normEd = normEdificio(edificio);
-      const normProv = normEdificio(m.nombre);
-      const normRub = normEdificio(rubroElegido);
+    const normCli = normEdificio(cliente || '');
+    const normEd = normEdificio(edificio);
+    const normProv = normEdificio(m.nombre);
+    const normRub = normEdificio(rubroElegido);
 
-      const existentePg = await pool.query(`
-        SELECT id FROM proveedor_asignaciones
-        WHERE translate(lower(trim(coalesce(cliente, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
-          AND translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
-          AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
-          AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $4
-        LIMIT 1
-      `, [normCli, normEd, normProv, normRub]);
+    const existentePg = await queryPg(`
+      SELECT id FROM proveedor_asignaciones
+      WHERE translate(lower(trim(coalesce(cliente, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
+        AND translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
+        AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
+        AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $4
+      LIMIT 1
+    `, [normCli, normEd, normProv, normRub]);
 
-      if (existentePg && existentePg.rows && existentePg.rows.length > 0) {
-        await pool.query(`
-          UPDATE proveedor_asignaciones
-          SET prioridad = $1, estado = 'activo', telefono = $2
-          WHERE id = $3
-        `, [prioridad || 'primera', m.telefono || '', existentePg.rows[0].id]);
-      } else {
-        await pool.query(`
-          INSERT INTO proveedor_asignaciones (cliente, edificio, proveedor, rubro, telefono, prioridad, estado)
-          VALUES ($1, $2, $3, $4, $5, $6, 'activo')
-        `, [cliente || '', edificio, m.nombre, rubroElegido, m.telefono || '', prioridad || 'primera']);
-      }
+    if (existentePg && existentePg.rows && existentePg.rows.length > 0) {
+      await queryPg(`
+        UPDATE proveedor_asignaciones
+        SET prioridad = $1, estado = 'activo', telefono = $2
+        WHERE id = $3
+      `, [prioridad || 'primera', m.telefono || '', existentePg.rows[0].id]);
+    } else {
+      await queryPg(`
+        INSERT INTO proveedor_asignaciones (cliente, edificio, proveedor, rubro, telefono, prioridad, estado)
+        VALUES ($1, $2, $3, $4, $5, $6, 'activo')
+      `, [cliente || '', edificio, m.nombre, rubroElegido, m.telefono || '', prioridad || 'primera']);
     }
 
     res.json({ ok: true });
@@ -15480,15 +15498,28 @@ router.post('/api/proveedor-desasignar', async (req, res) => {
     await writeCell(TAB_ASIGNACIONES, plan.col, Number(row), 'eliminado');
 
     // Sincronizar en PostgreSQL (proveedor_asignaciones)
-    const { pool } = require('./db-pg');
-    if (pool) {
-      await pool.query(`
+    const normCliDesasig = normEdificio(a.cliente || clienteDeSesion(req) || '');
+    const normEdDesasig = normEdificio(a.edificio || '');
+    const normProvDesasig = normEdificio(a.proveedor || '');
+    const normRubDesasig = normEdificio(a.rubro || '');
+
+    if (normCliDesasig) {
+      await queryPg(`
+        UPDATE proveedor_asignaciones
+        SET estado = 'eliminado'
+        WHERE translate(lower(trim(coalesce(cliente, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
+          AND translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
+          AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
+          AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $4
+      `, [normCliDesasig, normEdDesasig, normProvDesasig, normRubDesasig]);
+    } else {
+      await queryPg(`
         UPDATE proveedor_asignaciones
         SET estado = 'eliminado'
         WHERE translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
           AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
           AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
-      `, [normEdificio(a.edificio || ''), normEdificio(a.proveedor || ''), normEdificio(a.rubro || '')]);
+      `, [normEdDesasig, normProvDesasig, normRubDesasig]);
     }
 
     res.json({ ok: true });
