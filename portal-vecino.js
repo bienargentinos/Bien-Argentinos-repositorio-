@@ -855,6 +855,22 @@ function primerNombre(v) {
   return nombreCompleto(v).split(' ')[0];
 }
 
+// ¿Esta fila guardada es de este vecino?
+//
+// Hasta el 22/09 el portal escribía `v.nombre` en `reportes`, `reclamos` y `reservas_amenities`,
+// y los logins reales guardan el nombre de pila y el apellido por separado: lo que quedó en la
+// base fue "Daniel", sin apellido. Ahora se escribe el nombre completo, así que las filas viejas
+// y las nuevas NO dicen lo mismo.
+//
+// Por eso se acepta cualquiera de las dos formas. Comparar solo contra la nueva le escondería al
+// vecino todos sus reclamos y reservas anteriores al cambio — y él no tendría forma de saber por
+// qué desaparecieron.
+function esElMismoVecino(guardado, v) {
+  const g = String(guardado || '').trim().toLowerCase();
+  if (!g) return false;
+  return g === nombreCompleto(v).toLowerCase() || g === String(v.nombre || '').trim().toLowerCase();
+}
+
 // Cómo se muestra cada rol. Estaba escrito cuatro veces (topbar, integrantes, badges de la lista
 // de ocupantes) con emojis distintos en cada una; acá queda uno solo para lo nuevo.
 const ROLES_VECINO = {
@@ -4297,7 +4313,7 @@ router.post('/api/pases-qr', async (req, res) => {
       edificio: v.edificio,
       departamento: v.departamento,
       creado_por_usuario_id: v.usuario_id || null,
-      creado_por_nombre: v.nombre || 'Vecino',
+      creado_por_nombre: nombreCompleto(v),
       nombre_invitado,
       motivo,
       tipo_pase: tipoPase,
@@ -4485,7 +4501,7 @@ router.get('/api/ocupantes-unidad', async (req, res) => {
         {
           usuario_id: v.usuario_id || 1,
           nombre: v.nombre,
-          apellido: '',
+          apellido: v.apellido || '',
           email: v.email,
           telefono: v.telefono,
           rol: v.rol || 'propietario',
@@ -4714,7 +4730,7 @@ router.get('/chat', (req, res) => {
     <!-- Muro de Mensajes -->
     <div id="chat-stream" style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px;min-height:320px">
       <div class="chat-bubble-marcos">
-        ¡Hola ${v.nombre.split(' ')[0]}! Soy <strong>Marcos IA</strong>, el asistente de <strong>${v.edificio}</strong>. ¿En qué te puedo ayudar hoy? Podés consultarme sobre expensas, reportar una rotura o pedir datos del edificio.
+        ¡Hola ${primerNombre(v)}! Soy <strong>Marcos IA</strong>, el asistente de <strong>${v.edificio}</strong>. ¿En qué te puedo ayudar hoy? Podés consultarme sobre expensas, reportar una rotura o pedir datos del edificio.
       </div>
     </div>
 
@@ -4803,7 +4819,7 @@ router.post('/api/chat', async (req, res) => {
     const { mensaje } = req.body || {};
     const v = getVecinoSession(req);
 
-    let respuestaTexto = `Entendido ${v.nombre.split(' ')[0]}. Estoy procesando tu consulta para ${v.edificio} (${v.departamento}).`;
+    let respuestaTexto = `Entendido ${primerNombre(v)}. Estoy procesando tu consulta para ${v.edificio} (${v.departamento}).`;
 
     // Si el módulo de Marcos IA está disponible, responder contextualmente
     if (marcosCara && typeof marcosCara.responderVecino === 'function') {
@@ -4816,7 +4832,7 @@ router.post('/api/chat', async (req, res) => {
 
         const resp = await marcosCara.responderVecino({
           historial: [{ rol: 'vecino', texto: mensajeContextualizado }],
-          vecino: { nombre: v.nombre, telefono: v.telefono, edificio: v.edificio, departamento: v.departamento },
+          vecino: { nombre: nombreCompleto(v), telefono: v.telefono, edificio: v.edificio, departamento: v.departamento },
           memoriaVecino: null,
           personalDeTurno: null,
           decisionCaso: { esProblema: false, tipoProblema: 'consulta' },
@@ -5246,7 +5262,7 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
     const nuevoComprobante = {
       id: Date.now(),
       edificio: v.edificio,
-      vecino: v.nombre + ' (' + v.departamento + ')',
+      vecino: nombreCompleto(v) + ' (' + v.departamento + ')',
       monto: monto ? ('$' + monto.replace(/^\$/, '')) : '$120.000',
       fecha: new Date().toLocaleDateString('es-AR'),
       url: archivoUrl,
@@ -5263,11 +5279,11 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
         await pool.query(q, [
           v.edificio,
           'comprobante_pago',
-          v.nombre + ' (' + v.departamento + ')',
+          nombreCompleto(v) + ' (' + v.departamento + ')',
           monto || '0',
           archivoUrl,
           'pendiente_aprobacion',
-          'Comprobante de transferencia subido por vecino ' + v.nombre + ' (' + v.departamento + ')'
+          'Comprobante de transferencia subido por vecino ' + nombreCompleto(v) + ' (' + v.departamento + ')'
         ]);
       }
     } catch (errDb) {
@@ -5285,7 +5301,7 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
         const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
         const msgAlerta = `💳 *NUEVO COMPROBANTE DE EXPENSAS INFORMADO*\n\n` +
           `🏢 *Edificio:* ${v.edificio}\n` +
-          `👤 *Vecino:* ${v.nombre} (${v.departamento})\n` +
+          `👤 *Vecino:* ${nombreCompleto(v)} (${v.departamento})\n` +
           `💵 *Monto:* ${nuevoComprobante.monto}\n` +
           `📅 *Fecha:* ${nuevoComprobante.fecha}\n\n` +
           `👉 Ver en Panel: https://marcos.bienargentinos.com/admin/archivos`;
@@ -5464,7 +5480,7 @@ router.get('/reclamos', async (req, res) => {
   // Separar los propios del vecino vs los del edificio
   const misReclamos = reclamosLista.filter(r => 
     (r.depto && r.depto.toLowerCase().includes(v.departamento.toLowerCase())) ||
-    (r.vecino && r.vecino.toLowerCase() === v.nombre.toLowerCase())
+    esElMismoVecino(r.vecino, v)
   );
   const otrosReclamos = reclamosLista.filter(r => !misReclamos.includes(r));
 
@@ -5752,7 +5768,7 @@ router.post('/api/reclamos', async (req, res) => {
     codigo_caso: codigoCaso,
     edificio: v.edificio,
     depto: ubicacion === 'comun' ? 'Área Común' : (v.departamento || '1° A'),
-    vecino: v.nombre,
+    vecino: nombreCompleto(v),
     telefono: v.telefono || '+5491150542005',
     rubro: rubro || 'Mantenimiento General',
     problema: descripcion.trim(),
@@ -5772,7 +5788,7 @@ router.post('/api/reclamos', async (req, res) => {
           codigoCaso,
           v.edificio,
           nuevoReclamo.depto,
-          v.nombre,
+          nombreCompleto(v),
           nuevoReclamo.telefono,
           `[${nuevoReclamo.rubro}] ${nuevoReclamo.problema}`,
           nuevoReclamo.urgencia,
@@ -5839,7 +5855,7 @@ router.get('/amenities', async (req, res) => {
         todasReservasEdificio = result.rows;
         misReservas = result.rows.filter(r => 
           (r.departamento && r.departamento.toLowerCase() === v.departamento.toLowerCase()) ||
-          (r.nombre_vecino && r.nombre_vecino.toLowerCase() === v.nombre.toLowerCase())
+          esElMismoVecino(r.nombre_vecino, v)
         );
       }
 
@@ -6609,7 +6625,7 @@ router.post('/api/reservar-amenity', async (req, res) => {
         hora_hasta,
         turnoLabel,
         v.departamento,
-        v.nombre,
+        nombreCompleto(v),
         v.telefono || '',
         'confirmada',
         notas || '',
@@ -6627,7 +6643,7 @@ router.post('/api/reservar-amenity', async (req, res) => {
       require('./reserva-evento').registrarReservaComoEvento({
         edificio:     v.edificio,
         departamento: v.departamento,
-        vecino:       v.nombre,
+        vecino:       nombreCompleto(v),
         telefono:     v.telefono || '',
         amenity,
         fecha,
@@ -6693,13 +6709,13 @@ router.post('/api/comprobante-reserva', uploadComprobante.single('comprobante'),
           v.edificio,
           'Recibo',
           'Gasto fijo',
-          v.nombre + ' (' + v.departamento + ')',
+          nombreCompleto(v) + ' (' + v.departamento + ')',
           'Comprobante de pago de reserva ' + amenityNombre + (reserva_id ? (' #' + reserva_id) : ''),
           monto || '0',
           archivoUrl,
           archivoUrl,
           'Pendiente',
-          'Comprobante de pago de reserva ' + amenityNombre + (reserva_id ? (' #' + reserva_id) : '') + ' - ' + v.nombre + ' (' + v.departamento + ')'
+          'Comprobante de pago de reserva ' + amenityNombre + (reserva_id ? (' #' + reserva_id) : '') + ' - ' + nombreCompleto(v) + ' (' + v.departamento + ')'
         ]);
       }
     } catch (errDb) {
@@ -6710,7 +6726,7 @@ router.post('/api/comprobante-reserva', uploadComprobante.single('comprobante'),
     const nuevoComprobante = {
       id: Date.now(),
       edificio: v.edificio,
-      vecino: v.nombre + ' (' + v.departamento + ')',
+      vecino: nombreCompleto(v) + ' (' + v.departamento + ')',
       monto: montoFormateado,
       fecha: new Date().toLocaleDateString('es-AR'),
       url: archivoUrl,
@@ -6728,7 +6744,7 @@ router.post('/api/comprobante-reserva', uploadComprobante.single('comprobante'),
         const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
         const msgAlerta = `🎟️ *NUEVO COMPROBANTE DE RESERVA DE AMENITY*\n\n` +
           `🏢 *Edificio:* ${v.edificio}\n` +
-          `👤 *Vecino:* ${v.nombre} (${v.departamento})\n` +
+          `👤 *Vecino:* ${nombreCompleto(v)} (${v.departamento})\n` +
           `🎉 *Espacio:* ${amenityNombre}\n` +
           `💵 *Monto informado:* ${montoFormateado}\n` +
           `📅 *Fecha:* ${nuevoComprobante.fecha}\n\n` +

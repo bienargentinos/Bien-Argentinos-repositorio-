@@ -229,6 +229,59 @@ const PANTALLA_VACIA = 'Todavía no tenés ningún departamento asignado';
         verificar('toma las de la unidad activa', resolver(dos, dos.unidades).estadiaHasta, '2026-11-20');
     }
 
+    console.log('\n── EL APELLIDO NO SE PIERDE AL GUARDAR ──');
+    {
+        // Los logins reales guardan `nombre` y `apellido` por separado, y el portal escribía
+        // `v.nombre` solo. En `reportes`, en el reclamo y en el aviso por WhatsApp al
+        // administrador figuraba "Daniel" — con dos Danieles en el edificio, no se sabe cuál.
+        const SRC = fs.readFileSync(path.join(__dirname, 'portal-vecino.js'), 'utf8');
+
+        // Lo que se guarda o se manda ya no puede ser el nombre pelado. Las excepciones son
+        // el campo editable de "Mi Perfil" y la fila de integrante, que lleva su apellido al lado.
+        const lineas = SRC.split('\n');
+        const sueltos = [];
+        for (let i = 0; i < lineas.length; i++) {
+            const l = lineas[i];
+            if (!/\bv\.nombre\b/.test(l)) continue;
+            if (/^\s*\/\//.test(l)) continue;                      // un comentario
+            if (/v && v\.nombre/.test(l)) continue;                 // el propio nombreCompleto
+            if (/String\(v\.nombre \|\| ''\)/.test(l)) continue;    // el propio esElMismoVecino
+            if (/perfil-nombre/.test(l)) continue;                  // el campo editable de Mi Perfil
+            // `nombre:` con su `apellido:` al lado NO pierde nada: son dos columnas.
+            if (/nombre: v\.nombre,/.test(l) && /apellido:/.test(lineas[i + 1] || '')) continue;
+            sueltos.push(i + 1);
+        }
+        verificar('no queda ningún v.nombre suelto', sueltos, []);
+
+        afirmar('el saludo usa el primer nombre', SRC.includes('¡Hola ${primerNombre(v)}!'));
+        afirmar('el reclamo guarda el nombre completo', SRC.includes('vecino: nombreCompleto(v),'));
+        afirmar('el pase QR también', SRC.includes('creado_por_nombre: nombreCompleto(v),'));
+        afirmar('y el aviso al administrador', SRC.includes('*Vecino:* ${nombreCompleto(v)}'));
+    }
+
+    console.log('\n── Y LAS FILAS VIEJAS NO DESAPARECEN ──');
+    {
+        // Lo que ya está guardado dice "Daniel" a secas. Si la comparación solo aceptara la forma
+        // nueva, el vecino entraría y no vería ninguno de sus reclamos anteriores al cambio, sin
+        // ningún error y sin forma de saber por qué.
+        const SRC = fs.readFileSync(path.join(__dirname, 'portal-vecino.js'), 'utf8');
+        const ini = SRC.indexOf('function esElMismoVecino(');
+        afirmar('existe esElMismoVecino', ini !== -1);
+        const cuerpo = SRC.slice(ini, SRC.indexOf('\n}', ini) + 2);
+        // eslint-disable-next-line no-new-func
+        const esElMismo = new Function('nombreCompleto',
+            `${cuerpo}; return esElMismoVecino;`)(v => [v.nombre, v.apellido].filter(Boolean).join(' ').trim() || 'Vecino');
+
+        const v = { nombre: 'Daniel', apellido: 'Morales' };
+        afirmar('una fila nueva ("Daniel Morales") es suya', esElMismo('Daniel Morales', v));
+        afirmar('una fila vieja ("Daniel") también', esElMismo('Daniel', v));
+        afirmar('no le importan las mayúsculas', esElMismo('  DANIEL MORALES ', v));
+        afirmar('otro vecino NO es suyo', !esElMismo('Daniel Gómez', v));
+        afirmar('una fila vacía no es de nadie', !esElMismo('', v));
+        // Sin este caso, un vecino sin apellido cargado se llevaría puesta cualquier fila vacía.
+        afirmar('y con el vecino sin apellido tampoco', !esElMismo('', { nombre: 'Daniel' }));
+    }
+
     console.log('\n── LO QUE ESCRIBE EN LA BASE ──');
     {
         // Sin credenciales no se puede ejecutar, pero sí revisar que el código diga lo que tiene
