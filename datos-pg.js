@@ -526,6 +526,18 @@ async function obtenerSeguimientosVencidos() {
             problema:  r.get('mensaje') || r.get('problema') || '',
             urgencia:  r.get('urgencia') || '',
             tecnico:   r.get('tecnico') || '',
+            // EL ESTADO VIAJA, igual que en la versión de Sheets.
+            //
+            // Faltaba acá y solo acá. El paso 1 pregunta distinto según él: a un caso `avisado`
+            // --el técnico avisó que lo convocaron pero NO confirmó que iba-- hay que preguntarle
+            // "¿vas a poder pasar?", no "¿pudiste pasar?". Reclamarle a alguien por un
+            // incumplimiento que nunca prometió es peor que no preguntar nada.
+            //
+            // Sin esta línea `caso.estado` llegaba `undefined`, `sinConfirmar` daba false siempre,
+            // y la distinción quedaba muerta. Y como PostgreSQL es de donde se lee PRIMERO, estaba
+            // muerta en producción: solo funcionaba cuando PostgreSQL se caía y el barrido tenía
+            // que usar el respaldo. El mismo arreglo escrito dos veces y aplicado en una.
+            estado:    r.get('estado') || '',
             paso:      parseInt(r.get('seguimiento_paso') || '1', 10) || 1,
             nota:      r.get('seguimiento_nota') || '',
         }));

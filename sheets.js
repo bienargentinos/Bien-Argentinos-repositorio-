@@ -2422,18 +2422,48 @@ async function guardarConfirmacionTecnico({ id_evento, eta = '', tecnico = '' })
 // ─────────────────────────────────────────────
 
 async function programarSeguimiento({ id_evento, cuando, paso = 1, nota = '', forzar = false }) {
+    // > [!CAUTION]
+    // > **Una salida muda acá traba el seguimiento PARA SIEMPRE y no deja rastro.**
+    //
+    // El barrido corre cada 5 minutos y `revisarSeguimientos` se abstiene de mandar cuando esto
+    // devuelve `false` --a propósito: mandar sin reservar es lo que hacía que al técnico le
+    // llegara la misma pregunta una y otra vez--. Pero si el `false` no dice por qué, el caso se
+    // levanta, se abstiene y vuelve, eternamente, sin una línea en el log.
+    //
+    // Pasó en producción: los mismos 3 casos vencidos cada 5 minutos durante horas, y lo único
+    // escrito era `🛠️ [CASO-1004] no se pudo agendar el paso 2`. Las cuatro salidas de más abajo
+    // se anunciaban; estas tres, no. Cambié una repetición infinita por un estancamiento
+    // infinito, que es peor porque es mudo.
+    //
+    // Ninguna de las tres puede volver a callarse. `pruebas-seguimiento-mudo.js` es el candado.
     try {
-        if (!id_evento || !cuando) return false;
+        if (!id_evento || !cuando) {
+            console.warn(`⏱️🔇 programarSeguimiento sin ${!id_evento ? 'id_evento' : 'fecha'}: no hay a qué caso agendarle nada.`);
+            return false;
+        }
         const doc = await getSheet();
         const sheet = pestaña(doc, 'EVENTOS');
-        if (!sheet) return false;
+        if (!sheet) {
+            console.error(`⏱️🧱 [${id_evento}] no se encontró la pestaña EVENTOS en la planilla: ` +
+                          `no se puede agendar ningún control hasta que aparezca.`);
+            return false;
+        }
 
         await asegurarColumnas(sheet, ['proximo_seguimiento', 'seguimiento_paso', 'seguimiento_nota'], 'EVENTOS');
 
         const rows = await sheet.getRows();
         const buscado = String(id_evento).toUpperCase().trim();
         const fila = rows.find(r => String(r.get('id_evento') || '').toUpperCase().trim() === buscado);
-        if (!fila) return false;
+        if (!fila) {
+            // Esta es la que más duele, y tiene un motivo estructural: el barrido lee de
+            // PostgreSQL (`reportes.codigo_caso`) y el agendado escribe en Sheets
+            // (`EVENTOS.id_evento`). Un caso que está de un lado y no del otro se levanta en cada
+            // barrido y no se puede agendar en ninguno.
+            console.error(`⏱️🔎 [${id_evento}] el barrido lo levanta pero NO está en la pestaña EVENTOS. ` +
+                          `Se va a repetir en cada vuelta sin avanzar. Está en una base y no en la otra: ` +
+                          `node revisar-seguimientos.js`);
+            return false;
+        }
 
         // Un caso cerrado no se vuelve a controlar. El técnico sigue escribiendo después de
         // resolverlo --manda la factura, saluda-- y cualquiera de esos mensajes que se lea como
@@ -2676,6 +2706,10 @@ async function quitarAccesoEdificio({ edificio, lugar }) {
 
 module.exports = {
     getSheet,
+    // Se exporta para que las herramientas de diagnóstico busquen la pestaña como la busca Marcos
+    // —tolerando cómo esté escrita— en vez de escribir su propio `sheetsByTitle[...]`, que es
+    // exactamente el error que `pruebas-pestanias.js` prohíbe adentro de este archivo.
+    pestaña,
     asegurarColumnas,
     buscarVecinoPorTelefono,
     buscarVecinosPorTelefono,

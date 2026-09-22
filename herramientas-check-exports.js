@@ -67,16 +67,30 @@ function loQueExporta(ruta) {
             // grita por cosas que están bien, se lo deja de mirar.
             const cuerpo = src.slice(ini, fin + 1);
             // `a,` · `a: loQueSea` · `async a(...)` · `a(...)`
-            for (const m of cuerpo.matchAll(/(?:^|[,{\s])(?:async\s+)?([A-Za-z_$][\w$]*)\s*(?=[,:(}\n])/g)) {
+            //
+            // > [!CAUTION]
+            // > **`\w` NO incluye las vocales acentuadas ni la `ñ`**, y un nombre de función en
+            // > castellano las tiene. Es el mismo defecto que ya costó caro dos veces: en
+            // > `avisaQueVa` ("llamó el encargado" no abría caso) y en el filtro de insultos
+            // > ("me estafó" le llegaba al técnico).
+            //
+            // Acá salía al revés y por eso engaña más: `pestaña` se exportaba bien, el patrón la
+            // leía como `pesta`, y el verificador informaba que **faltaba una función que estaba**.
+            // Su propio comentario de acá arriba advierte que un falso positivo es peor que no
+            // verificar: si grita por cosas que están bien, se lo deja de mirar.
+            //
+            // `\p{L}` con la bandera `u` toma cualquier letra, tenga tilde o no.
+            for (const m of cuerpo.matchAll(/(?:^|[,{\s])(?:async\s+)?([\p{L}_$][\p{L}\p{N}_$]*)\s*(?=[,:(}\n])/gu)) {
                 nombres.add(m[1]);
             }
         }
     }
 
     // `module.exports = unaFuncion;` — el archivo exporta una sola cosa y no un objeto.
-    if (/module\.exports\s*=\s*[A-Za-z_$][\w$]*\s*;/.test(src)) nombres.add('*');
+    // Mismo motivo que arriba para `\p{L}`: un nombre con tilde o con `ñ` es un nombre válido.
+    if (/module\.exports\s*=\s*[\p{L}_$][\p{L}\p{N}_$]*\s*;/u.test(src)) nombres.add('*');
 
-    for (const m of src.matchAll(/(?:module\.)?exports\.([A-Za-z_$][\w$]*)\s*=/g)) nombres.add(m[1]);
+    for (const m of src.matchAll(/(?:module\.)?exports\.([\p{L}_$][\p{L}\p{N}_$]*)\s*=/gu)) nombres.add(m[1]);
 
     return nombres;
 }
