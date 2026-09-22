@@ -2362,6 +2362,18 @@ router.get('/perfil', (req, res) => {
   const v = getVecinoSession(req);
   const unidades = v.unidades || [];
   const rol = etiquetaRol(v.rol);
+
+  // Las fechas de la estadía viven en la UNIDAD, no en la sesión: `obtenerUnidadesDeUsuario` las
+  // devuelve por fila de `usuario_unidades`, y `/api/login-email` arma la sesión sin copiarlas
+  // arriba. Leerlas solo de `v` le mostraba "—" a todo huésped que entró con su cuenta de verdad;
+  // andaba nada más con la sesión de demo, que sí las lleva sueltas. `/api/cambiar-unidad` tampoco
+  // las actualiza al cambiar de departamento, así que la unidad activa es la única fuente sana.
+  const unidadActiva = unidades.find(u =>
+    String(u.edificio || '').toLowerCase() === String(v.edificio || '').toLowerCase() &&
+    String(u.departamento || '').toLowerCase() === String(v.departamento || '').toLowerCase()
+  ) || {};
+  const estadiaDesde = unidadActiva.fecha_desde || v.fecha_desde || '';
+  const estadiaHasta = unidadActiva.fecha_hasta || v.fecha_hasta || '';
   const esDemo = v.demo === true || !req.session || !req.session.vecino;
 
   const filaUnidad = (u) => {
@@ -2394,17 +2406,17 @@ router.get('/perfil', (req, res) => {
       pestaña Integrantes.
     </div>` : unidades.map(filaUnidad).join('');
 
-  const bloqueEstadia = (v.rol === 'turista' && (v.pase_demo || v.fecha_hasta)) ? `
+  const bloqueEstadia = (v.rol === 'turista' && (v.pase_demo || estadiaHasta)) ? `
     <div class="card" style="padding:16px;background:#fff;border-radius:18px;margin-bottom:14px">
       <div style="font-size:13.5px;font-weight:900;color:#0F172A;margin-bottom:10px">🧳 Tu estadía</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:${v.pase_demo ? '12px' : '0'}">
         <div style="flex:1;min-width:120px;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:10px 12px">
           <div style="font-size:10.5px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.04em">Desde</div>
-          <div style="font-size:14px;font-weight:900;color:#0F172A">${esc(String(v.fecha_desde || '—').slice(0, 10))}</div>
+          <div style="font-size:14px;font-weight:900;color:#0F172A">${esc(String(estadiaDesde || '—').slice(0, 10))}</div>
         </div>
         <div style="flex:1;min-width:120px;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:10px 12px">
           <div style="font-size:10.5px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.04em">Hasta</div>
-          <div style="font-size:14px;font-weight:900;color:#0F172A">${esc(String(v.fecha_hasta || '—').slice(0, 10))}</div>
+          <div style="font-size:14px;font-weight:900;color:#0F172A">${esc(String(estadiaHasta || '—').slice(0, 10))}</div>
         </div>
       </div>
       ${v.pase_demo ? `

@@ -191,6 +191,44 @@ const PANTALLA_VACIA = 'Todavía no tenés ningún departamento asignado';
         verificar('y con la sesión de demo tampoco', demo.codigo, 403);
     }
 
+    console.log('\n── LAS FECHAS DE LA ESTADÍA SALEN DE LA UNIDAD ──');
+    {
+        // `obtenerUnidadesDeUsuario` devuelve `fecha_desde` / `fecha_hasta` por fila de
+        // `usuario_unidades`, y `/api/login-email` arma la sesión SIN copiarlas al nivel de arriba.
+        // Leerlas solo de la sesión le mostraba "—" a todo huésped que entró con su cuenta: andaba
+        // nada más con la de demo, que sí las lleva sueltas. Por eso se prueba con las dos formas.
+        const SRC = fs.readFileSync(path.join(__dirname, 'portal-vecino.js'), 'utf8');
+        const ini = SRC.indexOf('  const unidadActiva = unidades.find(u =>');
+        const marcaFin = "const estadiaHasta = unidadActiva.fecha_hasta || v.fecha_hasta || '';";
+        const fin = SRC.indexOf(marcaFin, ini);
+        afirmar('está el bloque que resuelve las fechas', ini !== -1 && fin !== -1);
+        const cuerpoFechas = SRC.slice(ini, fin + marcaFin.length);
+        // eslint-disable-next-line no-new-func
+        const resolver = new Function('v', 'unidades',
+            `${cuerpoFechas}; return { estadiaDesde, estadiaHasta };`);
+
+        const comoLoArmaLoginEmail = {
+            edificio: 'San Patricio 159', departamento: '4° C', rol: 'turista',
+            unidades: [{ edificio: 'San Patricio 159', departamento: '4° C', fecha_desde: '2026-10-01', fecha_hasta: '2026-10-07' }],
+        };
+        verificar('un huésped de verdad ve el inicio de su estadía',
+            resolver(comoLoArmaLoginEmail, comoLoArmaLoginEmail.unidades).estadiaDesde, '2026-10-01');
+        verificar('y el final', resolver(comoLoArmaLoginEmail, comoLoArmaLoginEmail.unidades).estadiaHasta, '2026-10-07');
+
+        const demo = sesionDemoVecino('turista', '', new Date('2026-09-22T12:00:00Z'));
+        verificar('la sesión de demo sigue andando', resolver(demo, demo.unidades).estadiaDesde, '2026-09-22');
+
+        // Con dos unidades tiene que ganar la que está mirando, no la primera de la lista.
+        const dos = {
+            edificio: 'San Patricio 159', departamento: '2° B', rol: 'turista',
+            unidades: [
+                { edificio: 'San Patricio 159', departamento: '4° C', fecha_desde: '2026-10-01', fecha_hasta: '2026-10-07' },
+                { edificio: 'San Patricio 159', departamento: '2° B', fecha_desde: '2026-11-15', fecha_hasta: '2026-11-20' },
+            ],
+        };
+        verificar('toma las de la unidad activa', resolver(dos, dos.unidades).estadiaHasta, '2026-11-20');
+    }
+
     console.log('\n── LO QUE ESCRIBE EN LA BASE ──');
     {
         // Sin credenciales no se puede ejecutar, pero sí revisar que el código diga lo que tiene
