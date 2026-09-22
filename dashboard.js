@@ -1423,38 +1423,77 @@ a{color:inherit;text-decoration:none}
 .inp{width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;color:#16233B;outline:none;background:#F8FAFD}
 .inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)}
 textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-height:1.5}
-/* Responsive Mobile Adjustments & Mobile Navigation Bar */
 .mobile-bottom-nav {
   display: none;
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 62px;
+  height: 64px;
   background: #ffffff;
   border-top: 1px solid #E4E9F1;
   z-index: 55;
   box-shadow: 0 -4px 20px rgba(16, 35, 59, 0.12);
-  justify-content: space-around;
+  justify-content: flex-start;
   align-items: center;
-  padding: 0 4px;
+  padding: 0 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.mobile-bottom-nav::-webkit-scrollbar {
+  display: none;
 }
 .mobile-bottom-nav a {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  flex: 1;
+  flex: 0 0 72px;
+  min-width: 68px;
   height: 100%;
   color: #64748B;
   font-size: 11px;
   font-weight: 700;
   text-decoration: none;
-  gap: 3px;
+  gap: 2px;
   transition: color 0.15s ease;
+  position: relative;
+  text-align: center;
+  padding: 4px 2px;
+  box-sizing: border-box;
 }
 .mobile-bottom-nav a .nav-icon {
   font-size: 19px;
+  line-height: 1;
+  position: relative;
+  display: inline-block;
+}
+.mobile-bottom-nav a .nav-label {
+  display: block;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+.mobile-bottom-nav a .nav-badge {
+  position: absolute;
+  top: -4px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #E5484D;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
 }
 .mobile-bottom-nav a.active {
@@ -8840,6 +8879,18 @@ function shell(req, d, activeKey, contenido) {
       </a>`;
   }).join('');
 
+  const mobileNavHtml = nav.map((n) => {
+    const active = n.key === activeKey;
+    return `
+    <a href="${n.href}" data-tour="nav-${n.key}" class="${active ? 'active' : ''}">
+      <span class="nav-icon">
+        ${n.icon}
+        ${n.badge ? `<span class="nav-badge">${n.badge}</span>` : ''}
+      </span>
+      <span class="nav-label">${n.label}</span>
+    </a>`;
+  }).join('');
+
   const previewBanner = preview ? `
     <div style="background:linear-gradient(90deg,#8A6410,#B4841C);color:#fff;min-height:42px;display:flex;align-items:center;justify-content:center;gap:14px;padding:6px 16px;font-size:13.5px;font-weight:600;flex-wrap:wrap">
       <span>👁 Vista previa — así ve su panel <strong>${esc(d.clienteActual ? d.clienteActual.nombre : req.session.previewOwner)}</strong></span>
@@ -8973,37 +9024,7 @@ function shell(req, d, activeKey, contenido) {
     </main>
   <!-- BARRA DE NAVEGACION INFERIOR PARA MOVIL -->
   <div class="mobile-bottom-nav">
-    <a href="/admin" data-tour="nav-resumen" class="${activeKey === 'resumen' ? 'active' : ''}">
-      <span class="nav-icon">📊</span>
-      <span class="nav-label">Resumen</span>
-    </a>
-    <a href="/admin/mi-edificio" data-tour="nav-edificio" class="${activeKey === 'edificio' ? 'active' : ''}">
-      <span class="nav-icon">🏢</span>
-      <span class="nav-label">Edificio</span>
-    </a>
-    <a href="/admin/eventos" data-tour="nav-eventos" class="${activeKey === 'eventos' ? 'active' : ''}">
-      <span class="nav-icon">📋</span>
-      <span class="nav-label">Eventos</span>
-    </a>
-    ${dueno ? `
-    <a href="/admin/clientes" data-tour="nav-edificios" class="${activeKey === 'clientes' ? 'active' : ''}">
-      <span class="nav-icon">👥</span>
-      <span class="nav-label">Clientes</span>
-    </a>
-    <a href="/admin/suscripciones" data-tour="nav-suscripciones" class="${activeKey === 'suscripciones' ? 'active' : ''}">
-      <span class="nav-icon">💳</span>
-      <span class="nav-label">Planes</span>
-    </a>
-    ` : `
-    <a href="/admin/archivos" data-tour="nav-facturas" class="${activeKey === 'archivos' ? 'active' : ''}">
-      <span class="nav-icon">🧾</span>
-      <span class="nav-label">Facturas</span>
-    </a>
-    <a href="/admin/sugerencias" data-tour="nav-sugerencias" class="${activeKey === 'sugerencias' ? 'active' : ''}">
-      <span class="nav-icon">💡</span>
-      <span class="nav-label">Ideas</span>
-    </a>
-    `}
+    ${mobileNavHtml}
   </div>
 </div>
 <div id="toast" class="toast"></div>

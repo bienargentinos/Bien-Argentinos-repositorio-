@@ -27,6 +27,19 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-22 — Menú de navegación completo en modo móvil (Proveedores, Portería, Expensas, etc.)
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Barra de navegación inferior móvil (`.mobile-bottom-nav`)**:
+    1. Anteriormente la barra inferior móvil en pantallas $\le 900$px (`.mobile-bottom-nav`) tenía solo 5 accesos estáticos prefijados, dejando afuera secciones clave como `Proveedores` (`/admin/proveedores`), `Control de Accesos & Portería` (`/admin/accesos-porteria`) y `Expensas` (`/admin/expensas`) para clientes, y `Consumos`/`Solicitudes` para dueño.
+    2. Se generó dinámicamente `mobileNavHtml` a partir del arreglo completo `nav` (`navCliente` o `navDueno` según corresponda), asegurando que todas las secciones del menú estén presentes y sincronizadas tanto en escritorio como en móvil.
+    3. Se actualizó el CSS de `.mobile-bottom-nav` para soportar desplazamiento horizontal suave con touch (`overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;`), ancho fijo por ítem (`flex: 0 0 72px; min-width: 68px;`) y etiquetas con truncado prolijo.
+    4. Se incorporó soporte para insignias/badges numéricas (`.nav-badge`) sobre los íconos de la navegación móvil (por ejemplo, el contador de eventos no resueltos o solicitudes pendientes).
+
+- **Verificación:**
+  - `node verificar-antes-de-subir.js`: ✅ 56 pruebas pasando en verde (100% OK sin credenciales).
+
 ### 2026-09-22 — Multi-rubro en la ficha de proveedor, cliente en desasignar y queryPg directo (sin if pool)
 
 - **Qué cambié y en qué archivo:**
