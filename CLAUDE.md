@@ -1438,6 +1438,22 @@ se las llevaba todas puestas.
 > rubros de verdad (`electricidad, portería, control de acceso, cctv`) — y eso ya funciona, porque
 > la comparación mira si un texto contiene al otro.
 
+**Daniel lo confirmó el 22/09** y es una decisión de producto, no un detalle de implementación:
+
+> *"en los edificios soy electricista primero y urgencias, CCTV urgencias y primero también; antes
+> hacía plomería y también era el plomero y reparador de bombas de agua como primero y de
+> urgencias… tengo colegas que son gasistas y electricistas y deben poder asignarse como tal"*.
+
+O sea: **un proveedor, varios rubros, y cada rubro con su propia prioridad**, decidida por el
+administrador al asignar. La tabla `proveedor_asignaciones` ya tiene esa forma (`cliente + edificio
++ proveedor + rubro + prioridad`, una fila por rubro): no hay nada que migrar.
+
+Lo que falta es del panel, y son dos lugares: **`#prov-rubro` y `#edit-prov-rubro` son `<select>`
+de opción única**, así que la ficha guarda un rubro solo. Mientras sigan así, el desplegable de la
+asignación muestra una opción sola y el resto de la cadena no sirve de nada — está todo bien hecho
+río abajo y seco en la fuente. Tienen que pasar a selección múltiple sobre `RUBROS_PROVEEDOR` y
+guardarse separados por comas.
+
 ### Cuándo se manda la plantilla, y por qué a veces "no se mandó"
 
 La plantilla se manda **una vez por caso**, no una vez por técnico: un caso nuevo en el mismo

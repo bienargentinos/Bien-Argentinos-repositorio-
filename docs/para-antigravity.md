@@ -156,11 +156,19 @@ que son gasistas y electricistas a la vez. Lo decide el administrador al asignar
 La tabla ya tiene esa forma: `proveedor_asignaciones` es `cliente + edificio + proveedor + rubro +
 prioridad`, una fila por rubro. **No hay nada que migrar.** Falta el panel:
 
-- El rubro se elige **al asignar**. Hoy se copia de la ficha (`rubro: m.rubro || 'Otro'`).
-- El control de duplicado compara `edificio + proveedor` e **ignora el rubro**, así que la segunda
-  asignación pisa la primera en vez de agregar otra fila. Tiene que incluir el rubro.
-- La ficha del proveedor pasa a listar los rubros que la persona hace, separados por coma, para
-  llenar el desplegable. Del lado del motor eso ya funciona: `atiendeRubro` compara por contenido.
+- ~~El rubro se elige **al asignar**~~ — hecho en `542dde1`.
+- ~~El control de duplicado tiene que incluir el rubro~~ — hecho en `542dde1`.
+- **La ficha del proveedor tiene que poder guardar VARIOS rubros.** Es lo único que falta para que
+  la cadena sirva, y es donde está seca la fuente: `#prov-rubro` y `#edit-prov-rubro` son
+  `<select>` de opción única, así que la ficha guarda un rubro solo y el desplegable de la
+  asignación muestra una sola opción. Tienen que pasar a **selección múltiple** sobre
+  `RUBROS_PROVEEDOR` y guardarse **separados por comas**. Del lado del motor eso ya funciona:
+  `atiendeRubro` compara por contenido, así que `"electricidad, cctv"` entiende `cctv` sola.
+
+  > **Daniel lo confirmó el 22/09**, con estas palabras: *"en los edificios soy electricista
+  > primero y urgencias, CCTV urgencias y primero también… tengo colegas que son gasistas y
+  > electricistas y deben poder asignarse como tal"*. Es decisión de producto, no una preferencia
+  > de implementación: no revertirla sin preguntarle.
 
 ### Lo que rompe y no se ve
 
