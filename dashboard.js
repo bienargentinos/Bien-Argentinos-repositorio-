@@ -1424,38 +1424,77 @@ a{color:inherit;text-decoration:none}
 .inp{width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;color:#16233B;outline:none;background:#F8FAFD}
 .inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)}
 textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-height:1.5}
-/* Responsive Mobile Adjustments & Mobile Navigation Bar */
 .mobile-bottom-nav {
   display: none;
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 62px;
+  height: 64px;
   background: #ffffff;
   border-top: 1px solid #E4E9F1;
   z-index: 55;
   box-shadow: 0 -4px 20px rgba(16, 35, 59, 0.12);
-  justify-content: space-around;
+  justify-content: flex-start;
   align-items: center;
-  padding: 0 4px;
+  padding: 0 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.mobile-bottom-nav::-webkit-scrollbar {
+  display: none;
 }
 .mobile-bottom-nav a {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  flex: 1;
+  flex: 0 0 72px;
+  min-width: 68px;
   height: 100%;
   color: #64748B;
   font-size: 11px;
   font-weight: 700;
   text-decoration: none;
-  gap: 3px;
+  gap: 2px;
   transition: color 0.15s ease;
+  position: relative;
+  text-align: center;
+  padding: 4px 2px;
+  box-sizing: border-box;
 }
 .mobile-bottom-nav a .nav-icon {
   font-size: 19px;
+  line-height: 1;
+  position: relative;
+  display: inline-block;
+}
+.mobile-bottom-nav a .nav-label {
+  display: block;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+.mobile-bottom-nav a .nav-badge {
+  position: absolute;
+  top: -4px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #E5484D;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
 }
 .mobile-bottom-nav a.active {
@@ -5805,7 +5844,9 @@ async function guardarCampoEditado(btn){
 }
 // Agregar proveedor a la lista maestra del cliente (una sola vez).
 async function agregarProveedor(btn){
-  var rubro=(document.getElementById('prov-rubro')||{}).value||'';
+  var selRub=document.getElementById('prov-rubro');
+  var rubrosElegidos=selRub&&selRub.selectedOptions?Array.from(selRub.selectedOptions).map(function(o){return o.value.trim();}).filter(Boolean):[];
+  var rubro=rubrosElegidos.join(', ')||(selRub?selRub.value:'')||'Otro';
   var nombre=(document.getElementById('prov-nombre')||{}).value||'';
   var tel=(document.getElementById('prov-tel')||{}).value||'';
   var notas=(document.getElementById('prov-notas')||{}).value||'';
@@ -5840,7 +5881,13 @@ async function quitarProveedor(btn,row){
 }
 function abrirEditarProveedor(row, rubro, nombre, tel, notas){
   var r=document.getElementById('edit-prov-row');if(r)r.value=row;
-  var rb=document.getElementById('edit-prov-rubro');if(rb)rb.value=rubro||'Otro';
+  var rb=document.getElementById('edit-prov-rubro');
+  if(rb){
+    var lista=String(rubro||'').split(',').map(function(s){return s.trim().toLowerCase();}).filter(Boolean);
+    for(var i=0;i<rb.options.length;i++){
+      rb.options[i].selected=lista.indexOf(rb.options[i].value.toLowerCase())!==-1;
+    }
+  }
   var n=document.getElementById('edit-prov-nombre');if(n)n.value=nombre||'';
   var t=document.getElementById('edit-prov-tel');if(t)t.value=tel||'';
   var nt=document.getElementById('edit-prov-notas');if(nt)nt.value=notas||'';
@@ -5848,7 +5895,9 @@ function abrirEditarProveedor(row, rubro, nombre, tel, notas){
 }
 async function guardarEditarProveedor(btn){
   var row=valEl('edit-prov-row');
-  var rubro=valEl('edit-prov-rubro');
+  var selRub=document.getElementById('edit-prov-rubro');
+  var rubrosElegidos=selRub&&selRub.selectedOptions?Array.from(selRub.selectedOptions).map(function(o){return o.value.trim();}).filter(Boolean):[];
+  var rubro=rubrosElegidos.join(', ')||(selRub?selRub.value:'')||'Otro';
   var nombre=valEl('edit-prov-nombre');
   var tel=valEl('edit-prov-tel');
   var notas=valEl('edit-prov-notas');
@@ -6344,15 +6393,31 @@ async function toggleServicioGastos(btn,edificio,nuevoEstado){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
-// Asignar un proveedor de la lista a ESTE edificio con prioridad.
+function actualizarRubrosAsignacion(){
+  var selProv=document.getElementById('asig-prov');
+  var selRub=document.getElementById('asig-rubro');
+  if(!selProv||!selRub)return;
+  var opt=selProv.options[selProv.selectedIndex];
+  if(!opt){selRub.innerHTML='';return;}
+  var raw=opt.getAttribute('data-rubros')||'';
+  var rubros=raw.split(',').map(function(s){return s.trim();}).filter(Boolean);
+  if(!rubros.length)rubros=['Otro'];
+  selRub.innerHTML=rubros.map(function(r){
+    return '<option value="'+escapeHtml(r)+'">'+escapeHtml(r)+'</option>';
+  }).join('');
+}
+
+// Asignar un proveedor de la lista a ESTE edificio con prioridad y rubro.
 async function asignarProveedor(btn,edificio){
   var prov=(document.getElementById('asig-prov')||{}).value||'';
   var prio=(document.getElementById('asig-prio')||{}).value||'primera';
+  var rub=(document.getElementById('asig-rubro')||{}).value||'';
   if(!prov){toast('Elegí un proveedor','err');return;}
+  if(!rub){toast('Elegí un rubro','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Asignando...';
   try{
     var r=await fetch('/admin/api/proveedor-asignar',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({proveedor:prov,prioridad:prio,edificio:edificio})});
+      body:JSON.stringify({proveedor:prov,prioridad:prio,rubro:rub,edificio:edificio})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Proveedor asignado a este edificio','ok');
@@ -8815,6 +8880,18 @@ function shell(req, d, activeKey, contenido) {
       </a>`;
   }).join('');
 
+  const mobileNavHtml = nav.map((n) => {
+    const active = n.key === activeKey;
+    return `
+    <a href="${n.href}" data-tour="nav-${n.key}" class="${active ? 'active' : ''}">
+      <span class="nav-icon">
+        ${n.icon}
+        ${n.badge ? `<span class="nav-badge">${n.badge}</span>` : ''}
+      </span>
+      <span class="nav-label">${n.label}</span>
+    </a>`;
+  }).join('');
+
   const previewBanner = preview ? `
     <div style="background:linear-gradient(90deg,#8A6410,#B4841C);color:#fff;min-height:42px;display:flex;align-items:center;justify-content:center;gap:14px;padding:6px 16px;font-size:13.5px;font-weight:600;flex-wrap:wrap">
       <span>👁 Vista previa — así ve su panel <strong>${esc(d.clienteActual ? d.clienteActual.nombre : req.session.previewOwner)}</strong></span>
@@ -8948,37 +9025,7 @@ function shell(req, d, activeKey, contenido) {
     </main>
   <!-- BARRA DE NAVEGACION INFERIOR PARA MOVIL -->
   <div class="mobile-bottom-nav">
-    <a href="/admin" data-tour="nav-resumen" class="${activeKey === 'resumen' ? 'active' : ''}">
-      <span class="nav-icon">📊</span>
-      <span class="nav-label">Resumen</span>
-    </a>
-    <a href="/admin/mi-edificio" data-tour="nav-edificio" class="${activeKey === 'edificio' ? 'active' : ''}">
-      <span class="nav-icon">🏢</span>
-      <span class="nav-label">Edificio</span>
-    </a>
-    <a href="/admin/eventos" data-tour="nav-eventos" class="${activeKey === 'eventos' ? 'active' : ''}">
-      <span class="nav-icon">📋</span>
-      <span class="nav-label">Eventos</span>
-    </a>
-    ${dueno ? `
-    <a href="/admin/clientes" data-tour="nav-edificios" class="${activeKey === 'clientes' ? 'active' : ''}">
-      <span class="nav-icon">👥</span>
-      <span class="nav-label">Clientes</span>
-    </a>
-    <a href="/admin/suscripciones" data-tour="nav-suscripciones" class="${activeKey === 'suscripciones' ? 'active' : ''}">
-      <span class="nav-icon">💳</span>
-      <span class="nav-label">Planes</span>
-    </a>
-    ` : `
-    <a href="/admin/archivos" data-tour="nav-facturas" class="${activeKey === 'archivos' ? 'active' : ''}">
-      <span class="nav-icon">🧾</span>
-      <span class="nav-label">Facturas</span>
-    </a>
-    <a href="/admin/sugerencias" data-tour="nav-sugerencias" class="${activeKey === 'sugerencias' ? 'active' : ''}">
-      <span class="nav-icon">💡</span>
-      <span class="nav-label">Ideas</span>
-    </a>
-    `}
+    ${mobileNavHtml}
   </div>
 </div>
 <div id="toast" class="toast"></div>
@@ -10089,23 +10136,25 @@ router.get('/mi-edificio', async (req, res) => {
       }).join('')
       : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">Todavía no asignaste proveedores a este edificio. Elegí de tu lista abajo.</div>';
 
-    // Opciones para asignar: los de la maestra que no estan ya asignados.
-    const yaAsignados = new Set(asignados.map((a) => String(a.proveedor).trim().toLowerCase()));
-    const disponibles = maestros.filter((m) => !yaAsignados.has(String(m.nombre).trim().toLowerCase()));
-    const optMaestros = disponibles.length
-      ? disponibles.map((m) => `<option value="${esc(m.nombre)}">${esc(m.rubro)} · ${esc(m.nombre)}${m.telefono ? ' (' + esc(m.telefono) + ')' : ''}</option>`).join('')
+    // Opciones para asignar: proveedores maestros con soporte de múltiples rubros por edificio.
+    const optMaestros = maestros.length
+      ? maestros.map((m) => `<option value="${esc(m.nombre)}" data-rubros="${esc(m.rubro || 'Otro')}">${esc(m.nombre)}${m.telefono ? ' (' + esc(m.telefono) + ')' : ''}</option>`).join('')
       : '';
+    const primerRubroStr = maestros.length ? String(maestros[0].rubro || 'Otro') : 'Otro';
+    const rubrosIniciales = primerRubroStr.split(',').map((s) => s.trim()).filter(Boolean);
+    if (!rubrosIniciales.length) rubrosIniciales.push('Otro');
+    const optRubros = rubrosIniciales.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
     const optPrioridad = PRIORIDADES.map((p) => `<option value="${p.key}">${p.label}</option>`).join('');
 
     const asignarBloque = maestros.length ? `
       <div style="border-top:1px dashed #E4E9F1;padding-top:16px">
         <div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:10px">Asignar un proveedor de tu lista a este edificio</div>
-        ${disponibles.length ? `
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-          <div style="flex:1;min-width:200px">${label('Proveedor')}<select id="asig-prov" class="inp" style="height:44px">${optMaestros}</select></div>
-          <div style="width:170px">${label('Prioridad')}<select id="asig-prio" class="inp" style="height:44px">${optPrioridad}</select></div>
+          <div style="flex:1;min-width:180px">${label('Proveedor')}<select id="asig-prov" class="inp" style="height:44px" onchange="actualizarRubrosAsignacion()">${optMaestros}</select></div>
+          <div style="flex:1;min-width:150px">${label('Rubro')}<select id="asig-rubro" class="inp" style="height:44px">${optRubros}</select></div>
+          <div style="width:160px">${label('Prioridad')}<select id="asig-prio" class="inp" style="height:44px">${optPrioridad}</select></div>
           <button onclick="asignarProveedor(this,'${escJs(cur.nombre)}')" style="height:44px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Asignar</button>
-        </div>` : '<div style="font-size:13px;color:#8595AD">Ya asignaste todos tus proveedores a este edificio.</div>'}
+        </div>
       </div>` : `
       <div style="border-top:1px dashed #E4E9F1;padding-top:16px;font-size:13.5px;color:#8595AD">
         Todavía no tenés proveedores en tu lista. Cargalos una vez con el botón de arriba y después asignalos a cada edificio.
@@ -11242,9 +11291,14 @@ router.get('/proveedores', async (req, res) => {
               </div>`;
     };
 
-    const filas = maestros.length ? maestros.map((m) => `
+    const filas = maestros.length ? maestros.map((m) => {
+      const rubrosLista = String(m.rubro || 'Otro').split(',').map((s) => s.trim()).filter(Boolean);
+      const badgesRubro = (rubrosLista.length ? rubrosLista : ['Otro'])
+        .map((r) => `<span class="rubro-badge ${getRubroClass(r)}">${esc(r)}</span>`)
+        .join(' ');
+      return `
       <div style="display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid ${(m.cbu_pendiente || m.alias_pendiente) ? '#FDBA74' : '#E7ECF3'};border-radius:12px;background:#fff;flex-wrap:wrap">
-        <span class="rubro-badge ${getRubroClass(m.rubro)}">${esc(m.rubro)}</span>
+        <div style="display:inline-flex;gap:6px;flex-wrap:wrap">${badgesRubro}</div>
         <div style="flex:1;min-width:140px">
           <div style="font-size:14.5px;font-weight:700">${esc(m.nombre || '—')}</div>
           ${m.notas ? `<div style="font-size:12px;color:#8595AD">${esc(m.notas)}</div>` : ''}
@@ -11256,7 +11310,8 @@ router.get('/proveedores', async (req, res) => {
           <button onclick="quitarProveedor(this,${m._row})" class="btn-remove hv-red">Quitar</button>
         </div>
         ${bloqueCobro(m)}
-      </div>`).join('') : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
+      </div>`;
+    }).join('') : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
 
     const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
 
@@ -11270,7 +11325,8 @@ router.get('/proveedores', async (req, res) => {
           <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="edit-prov-row">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Rubro / Especialidad</div>
-            <select id="edit-prov-rubro" class="inp" style="margin-bottom:14px">${rubroOptions}</select>
+            <select id="edit-prov-rubro" class="inp" multiple style="height:110px;padding:6px 10px;margin-bottom:4px">${rubroOptions}</select>
+            <div style="font-size:11.5px;color:#64748B;margin-bottom:14px">Podés seleccionar varios rubros manteniendo presionada la tecla Ctrl / Cmd.</div>
 
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre / Empresa</div>
             <input id="edit-prov-nombre" class="inp" style="margin-bottom:14px">
@@ -11336,8 +11392,12 @@ router.get('/proveedores', async (req, res) => {
 
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px">
           <div style="font-size:15px;font-weight:800;margin-bottom:14px">Agregar proveedor a mi lista</div>
-          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;margin-bottom:14px">
-            <div>${label('Rubro')}<select id="prov-rubro" class="inp" style="height:44px">${rubroOptions}</select></div>
+          <div style="display:grid;grid-template-columns:190px 1fr;gap:12px;margin-bottom:14px">
+            <div>
+              ${label('Rubro(s)')}
+              <select id="prov-rubro" class="inp" multiple style="height:110px;padding:6px 10px">${rubroOptions}</select>
+              <div style="font-size:11.5px;color:#64748B;margin-top:4px">Podés elegir varios con Ctrl / Cmd.</div>
+            </div>
             <div>${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:44px" placeholder="Ej: Gastón, Plomería del Oeste"></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -14910,136 +14970,16 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
     // Cambiarlo en `EDIFICIOS` y en ningún otro lado parte el edificio en dos. Las filas viejas
     // siguen diciendo "san patricio 27'0 casa", el panel las muestra tal cual, y el apóstrofe
     // "vuelve solo" -- nunca se había ido, estaba en las otras pestañas.
-    let filasRenombradas = 0;
     if (campo === 'nombre' && valor_nuevo) {
-      // Dónde figura el nombre de un edificio en cada pestaña. `edificios` (en plural, en
-      // CLIENTES) es una lista separada por comas y se trata aparte.
-      const DONDE_FIGURA = [
-        [TAB_EVENTOS,      ['edificio', 'consorcio']],
-        [TAB_ARCHIVOS,     ['edificio']],
-        [TAB_SUGERENCIAS,  ['edificio']],
-        [TAB_SOLICITUDES,  ['edificio']],
-        [TAB_EXPENSAS,     ['edificio']],
-        [TAB_ASIGNACIONES, ['edificio']],
-        ['vecinos',        ['edificio']],
-      ];
-
-      for (const viejo of targetEdificios) {
-        // Comparación exacta, no `compararEdificios`: ese acepta coincidencias parciales, así que
-        // un cambio de "san patricio 270" a "san patricio 270 casa" se leería como "ya se llamaba
-        // así" y no se renombraría nada.
-        if (normEdificio(viejo) === normEdificio(valor_nuevo)) continue;
-
-        for (const [tab, columnas] of DONDE_FIGURA) {
-          let datos;
-          try { datos = await readTab(tab); } catch { continue; }
-          if (!datos.headers.length) continue;
-
-          for (const nombreCol of columnas) {
-            const i = datos.headers.indexOf(nombreCol);
-            if (i < 0) continue;
-            const letra = columnLetter(i + 1);
-            for (const fila of datos.rows) {
-              // Comparación exacta y normalizada: `compararEdificios` acepta coincidencias
-              // parciales, y con eso un "san patricio 159" se llevaría por delante al 270.
-              if (normEdificio(fila[nombreCol]) !== normEdificio(viejo)) continue;
-              await writeCell(tab, letra, fila._row, valor_nuevo);
-              filasRenombradas++;
-            }
-          }
-        }
-
-        // La lista de edificios del cliente es una sola celda con comas: se reemplaza el ítem
-        // que corresponde y se deja el resto intacto.
-        try {
-          const { rows: cliRows, headers: cliHeaders } = await readTab(TAB_CLIENTES);
-          const iCol = cliHeaders.findIndex(h => h === 'edificios' || h === 'edificio');
-          if (iCol >= 0) {
-            const letra = columnLetter(iCol + 1);
-            const nombreCol = cliHeaders[iCol];
-            for (const fila of cliRows) {
-              const partes = String(fila[nombreCol] || '').split(',').map(s => s.trim()).filter(Boolean);
-              if (!partes.some(p => normEdificio(p) === normEdificio(viejo))) continue;
-              const nuevas = partes.map(p => (normEdificio(p) === normEdificio(viejo) ? valor_nuevo : p));
-              await writeCell(TAB_CLIENTES, letra, fila._row, nuevas.join(', '));
-              filasRenombradas++;
-            }
-          }
-        } catch (e) {
-          console.error(`[Solicitud ${row}] No se pudo actualizar la lista de edificios del cliente: ${e.message}`);
-        }
-      }
-
-      // ── Y EN POSTGRESQL, QUE ES DE DONDE LEE MARCOS ──────────────────────────────────────
-      //
-      // Son dos bases: este panel lee Sheets, pero el motor de Marcos y los permisos del cliente
-      // (`obtenerEdificiosPermitidosUsuario`, `expandirEdificiosPermitidos`) leen PostgreSQL.
-      // Renombrar solo en Sheets deja a Marcos llamando al edificio por el nombre viejo y al
-      // cliente con el permiso apuntando a un edificio que ya no se llama así.
-      //
-      // Y no alcanza con reimportar después: `importar-sheets-a-pg.js` usa la columna `edificio`
-      // como clave, así que con el nombre ya cambiado en Sheets no actualiza la fila -- crea una
-      // segunda. Hay que renombrar la que existe.
+      const { renombrarEdificio } = require('./renombrar-edificio');
+      let totalCambios = 0;
       for (const viejo of targetEdificios) {
         if (normEdificio(viejo) === normEdificio(valor_nuevo)) continue;
-        try {
-          const cols = await queryPg(`
-            SELECT table_name, column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND data_type IN ('text','character varying','character')
-              AND (column_name IN ('edificio', 'consorcio', 'edificios')
-                   OR (table_name = 'edificios' AND column_name = 'nombre'))
-          `);
-
-          // FILA POR FILA, con `ctid`, y cada una en su propio try.
-          //
-          // Un UPDATE masivo aborta la sentencia entera ante una restricción única, y de paso se
-          // lleva puestas las tablas que faltaban: PostgreSQL queda a medias y la aprobación
-          // igual dice que salió bien. Ya pasó con uq_proveedor_asignaciones al renombrar un
-          // proveedor. Acá lo que falla es una fila, no el renombrado.
-          for (const { table_name: tabla, column_name: col } of (cols.rows || [])) {
-            let filas;
-            try {
-              filas = await queryPg(`SELECT ctid, "${col}" AS v FROM "${tabla}" WHERE "${col}" IS NOT NULL AND "${col}" <> ''`);
-            } catch (e) {
-              console.error(`[Solicitud ${row}] No se pudo leer ${tabla}.${col}: ${e.message}`);
-              continue;
-            }
-
-            for (const f of (filas.rows || [])) {
-              let destino = null;
-              if (col === 'edificios') {
-                // Lista separada por comas: se cambia el ítem y se deja el resto.
-                const partes = String(f.v || '').split(',').map(s => s.trim()).filter(Boolean);
-                if (!partes.some(p => normEdificio(p) === normEdificio(viejo))) continue;
-                destino = partes.map(p => (normEdificio(p) === normEdificio(viejo) ? valor_nuevo : p)).join(', ');
-              } else if (normEdificio(f.v) === normEdificio(viejo)) {
-                destino = valor_nuevo;
-              }
-              if (destino === null) continue;
-
-              try {
-                await queryPg(`UPDATE "${tabla}" SET "${col}" = $2 WHERE ctid = $1`, [f.ctid, destino]);
-                filasRenombradas++;
-              } catch (e) {
-                console.error(
-                  `[Solicitud ${row}] ⚠️ No se pudo renombrar ${tabla}.${col} ("${f.v}"): ${e.message}. ` +
-                  `El resto sí se renombró. Revisalo con: node buscar-texto.js "${viejo}"`
-                );
-              }
-            }
-          }
-        } catch (e) {
-          // Que falle PostgreSQL no puede tirar abajo la aprobación: Sheets ya quedó bien. Pero
-          // tiene que verse, porque mientras no se corrija, Marcos y el panel ven cosas distintas.
-          console.error(`[Solicitud ${row}] ⚠️ Sheets quedó renombrado pero PostgreSQL NO: ${e.message}. ` +
-                        `Corregilo con: node renombrar-edificio.js "${viejo}" "${valor_nuevo}" --aplicar`);
-        }
+        const r = await renombrarEdificio({ viejo, nuevo: valor_nuevo, aplicar: true });
+        totalCambios += (r.cambios || 0);
       }
-
-      if (filasRenombradas) {
-        console.log(`[Solicitud ${row}] "${targetEdificios.join(', ')}" → "${valor_nuevo}": ${filasRenombradas} referencia(s) actualizadas fuera de EDIFICIOS.`);
+      if (totalCambios) {
+        console.log(`[Solicitud ${row}] "${targetEdificios.join(', ')}" → "${valor_nuevo}": ${totalCambios} referencia(s) actualizadas fuera de EDIFICIOS.`);
       }
     }
 
@@ -15476,7 +15416,7 @@ router.post('/api/proveedor-cambio-cobro', async (req, res) => {
 router.post('/api/proveedor-asignar', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { proveedor, prioridad, edificio: reqEdificio } = req.body || {};
+    const { proveedor, prioridad, rubro: reqRubro, edificio: reqEdificio } = req.body || {};
     let cliente = clienteDeSesion(req);
     if (!cliente && esDueno(req)) {
       cliente = req.session.user;
@@ -15495,10 +15435,13 @@ router.post('/api/proveedor-asignar', async (req, res) => {
 
     if (!m) return res.status(404).json({ error: 'Ese proveedor no está en tu lista' });
 
+    const rubroElegido = String(reqRubro || m.rubro || 'Otro').trim();
+
     const { rows: aRows } = await readTab(TAB_ASIGNACIONES);
     const existente = aRows.map(mapAsignacion).find((a) =>
-      compararEdificios(a.edificio, edificio) &&
-      String(a.proveedor).trim().toLowerCase() === String(proveedor).trim().toLowerCase()
+      normEdificio(a.edificio) === normEdificio(edificio) &&
+      normEdificio(a.proveedor) === normEdificio(proveedor) &&
+      normEdificio(a.rubro || '') === normEdificio(rubroElegido)
     );
 
     if (existente) {
@@ -15515,19 +15458,49 @@ router.post('/api/proveedor-asignar', async (req, res) => {
       await writeCell(TAB_ASIGNACIONES, cPrio.col, existente._row, prioridad || 'primera');
       await writeCell(TAB_ASIGNACIONES, cEst.col, existente._row, 'activo');
       await writeCell(TAB_ASIGNACIONES, cTel.col, existente._row, m.telefono || '');
-      await writeCell(TAB_ASIGNACIONES, cRub.col, existente._row, m.rubro || 'Otro');
-      return res.json({ ok: true });
+      await writeCell(TAB_ASIGNACIONES, cRub.col, existente._row, rubroElegido);
+    } else {
+      await appendRow(TAB_ASIGNACIONES, {
+        cliente: cliente || '',
+        edificio,
+        proveedor: m.nombre,
+        rubro: rubroElegido,
+        telefono: m.telefono || '',
+        prioridad: prioridad || 'primera',
+        estado: 'activo',
+      });
     }
 
-    await appendRow(TAB_ASIGNACIONES, {
-      cliente: cliente || '',
-      edificio,
-      proveedor: m.nombre,
-      rubro: m.rubro || 'Otro',
-      telefono: m.telefono || '',
-      prioridad: prioridad || 'primera',
-      estado: 'activo',
-    });
+    // Sincronizar en PostgreSQL (proveedor_asignaciones)
+    // Se pliegan acentos con translate() en SQL para coincidir con la normalización de Sheets.
+    // Si PostgreSQL falla, el error NO se silencia: burbujea al catch y devuelve 500.
+    const normCli = normEdificio(cliente || '');
+    const normEd = normEdificio(edificio);
+    const normProv = normEdificio(m.nombre);
+    const normRub = normEdificio(rubroElegido);
+
+    const existentePg = await queryPg(`
+      SELECT id FROM proveedor_asignaciones
+      WHERE translate(lower(trim(coalesce(cliente, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
+        AND translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
+        AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
+        AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $4
+      LIMIT 1
+    `, [normCli, normEd, normProv, normRub]);
+
+    if (existentePg && existentePg.rows && existentePg.rows.length > 0) {
+      await queryPg(`
+        UPDATE proveedor_asignaciones
+        SET prioridad = $1, estado = 'activo', telefono = $2
+        WHERE id = $3
+      `, [prioridad || 'primera', m.telefono || '', existentePg.rows[0].id]);
+    } else {
+      await queryPg(`
+        INSERT INTO proveedor_asignaciones (cliente, edificio, proveedor, rubro, telefono, prioridad, estado)
+        VALUES ($1, $2, $3, $4, $5, $6, 'activo')
+      `, [cliente || '', edificio, m.nombre, rubroElegido, m.telefono || '', prioridad || 'primera']);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -15545,6 +15518,32 @@ router.post('/api/proveedor-desasignar', async (req, res) => {
     const plan = await findOrPlanColumn(TAB_ASIGNACIONES, ['estado']);
     if (plan.create) await ensureHeader(TAB_ASIGNACIONES, plan.col, 'estado', false);
     await writeCell(TAB_ASIGNACIONES, plan.col, Number(row), 'eliminado');
+
+    // Sincronizar en PostgreSQL (proveedor_asignaciones)
+    const normCliDesasig = normEdificio(a.cliente || clienteDeSesion(req) || '');
+    const normEdDesasig = normEdificio(a.edificio || '');
+    const normProvDesasig = normEdificio(a.proveedor || '');
+    const normRubDesasig = normEdificio(a.rubro || '');
+
+    if (normCliDesasig) {
+      await queryPg(`
+        UPDATE proveedor_asignaciones
+        SET estado = 'eliminado'
+        WHERE translate(lower(trim(coalesce(cliente, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
+          AND translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
+          AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
+          AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $4
+      `, [normCliDesasig, normEdDesasig, normProvDesasig, normRubDesasig]);
+    } else {
+      await queryPg(`
+        UPDATE proveedor_asignaciones
+        SET estado = 'eliminado'
+        WHERE translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
+          AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
+          AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
+      `, [normEdDesasig, normProvDesasig, normRubDesasig]);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });

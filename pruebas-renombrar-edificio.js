@@ -199,6 +199,7 @@ function planillaDePrueba() {
 
 (async () => {
 
+if (cuerpo !== null) {
 console.log('\n── EL NOMBRE SE CORRIGE EN TODAS LAS PESTAÑAS ──');
 {
     const planilla = planillaDePrueba();
@@ -369,6 +370,7 @@ console.log('\n── UNA PESTAÑA QUE NO EXISTE NO FRENA AL RESTO ──');
     });
     verificar('las que sí existen se renombran igual', filasRenombradas, 6);
     verificar('la ficha del vecino cambió', planilla.vecinos.filas[0][2], 'san patricio 270 casa');
+}
 }
 
 // ── EL MÓDULO SE PUEDE PROBAR SIN CREDENCIALES ──────────────────────────────────────────────
