@@ -27,6 +27,29 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-22 — Selector de rubros táctil (Chips recorriendo RUBROS_PROVEEDOR) y alto contraste en modo oscuro
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Selector táctil de rubros (Chips / Pills) para Proveedores**:
+    1. Se eliminó el texto de escritorio *"Podés elegir varios con Ctrl / Cmd."* y el `<select multiple>` visible, reemplazándolo por una cuadrícula táctil de botones tipo chip (`.chip-rubro`).
+    2. Los chips recorren estrictamente `RUBROS_PROVEEDOR` (proveniente de `rubros.js.RUBROS_CATALOGO`, 14 rubros oficiales: Electricista, Plomero, Gasista, Cerrajero, Portería, CCTV, Control de acceso, Albañilería, Ascensores, Refrigeración, Pintor, Limpieza, Seguridad, Otro). No hay listas propias ni duplicadas.
+    3. Al tocar un chip, se conmuta visualmente (`.chip-active` con tilde ✓) y sincroniza el valor en el `<select>` subyacente para mantener total compatibilidad con `agregarProveedor` y `guardarEditarProveedor`.
+    4. Aplicado tanto en el formulario de alta ("Agregar proveedor a mi lista") como en el modal de edición (`#modal-editar-proveedor`), donde `abrirEditarProveedor` sincroniza el estado activo de los chips según los rubros cargados.
+  - **Corrección de Alto Contraste en Modo Oscuro**:
+    1. La tarjeta contenedora de alta de proveedores ahora adopta fondo azul oscuro (`#111C33` con borde `#23355C`) en `.dark-theme`, eliminando el parche blanco deslumbrante.
+    2. El bloque desplegable `<details>` de datos de cobro adopta fondo `#182647` con borde `#2A3E6D`.
+    3. El título *"Datos de cobro"* y subtítulos ahora usan texto blanco nítido (`#F8FAFC`) y gris claro (`#94A3B8`).
+    4. Etiquetas de formulario (`CBU`, `ALIAS`, `TITULAR`, `CUIT`) con alto contraste celeste (`#93C5FD`).
+    5. Textos de ayuda y advertencias con contraste claro (`#CBD5E1`).
+    6. Chips táctiles con estilo nocturno y resaltado cyan eléctrico (`#38BDF8`) al estar activos.
+
+- **Verificación:**
+  - `node pruebas-rubros.js`: ✅ 38 bien, 0 mal (100% verde).
+  - `node pruebas-porteria-qr.js`: ✅ 15 bien, 0 mal.
+  - `node pruebas-porteria-edificio.js`: ✅ 35 bien, 0 mal.
+  - `node verificar-antes-de-subir.js`: ✅ 58 pruebas pasando en verde (100% OK sin credenciales).
+
 ### 2026-09-22 — Menú de navegación completo en modo móvil (Proveedores, Portería, Expensas, etc.)
 
 - **Qué cambié y en qué archivo:**
