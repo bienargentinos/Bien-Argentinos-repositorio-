@@ -25,6 +25,11 @@
 // NO se borra: se muestra la diferencia y se deja quieta. Perder ese dato sería peor que tener una
 // fila de más, y decidirlo es de quien conoce el edificio, no de un script.
 //
+// Cuando ya lo miraste y la fila sobra igual, `--aunque-difiera` la borra e **imprime qué se
+// pierde**. Existe por la misma razón que el `--si-encima` de `restaurar-backup.js`: una negativa
+// que no se puede levantar deja el trabajo a medias y obliga a hacerlo a mano en `psql`, que es
+// peor. Lo que no puede pasar es que se borre en silencio.
+//
 // Tampoco borra la última fila de un grupo: si la gemela no está, no hay duplicado que sacar --hay
 // un renombre pendiente, y eso lo hace `renombrar-edificio.js`.
 //
@@ -40,11 +45,44 @@ const norm = (t) => String(t || '')
 // Columnas que no cuentan para decidir si dos filas dicen lo mismo: las pone la base, no la persona.
 const IGNORAR = new Set(['id', 'ctid', 'created_at', 'updated_at']);
 
+/**
+ * EL MISMO TELÉFONO ESCRITO DE DOS FORMAS NO ES UNA DIFERENCIA.
+ *
+ * > [!CAUTION]
+ * > **Una diferencia falsa es peor que ninguna comparación**: tapa la de verdad.
+ *
+ * Visto el 22/09/2026. La fila huérfana y su gemela eran la misma asignación, y el informe dijo
+ * que diferían en `telefono`:
+ *
+ *     telefono:  "1169241157"   vs   "541169241157"
+ *
+ * Es el mismo número con y sin el código de país. `revisar-sobrantes.js` ya los compara por los
+ * últimos 10 dígitos --"el mismo número está escrito de cuatro formas entre las dos bases"-- y acá
+ * faltaba. La diferencia real era una sola (`prioridad`) y quedaba escondida entre dos falsas.
+ */
+const esColumnaTelefono = (c) => /(^|_)(tel|telefono|telefonos|celular|movil)(_|$)/.test(String(c));
+const soloDigitos = (t) => String(t ?? '').replace(/\D/g, '');
+
+function mismoValor(columna, a, b) {
+    if (esColumnaTelefono(columna)) {
+        const x = soloDigitos(a), y = soloDigitos(b);
+        // Con alguno vacío no se puede comparar por dígitos: se cae al texto, que es más estricto.
+        if (x.length >= 10 && y.length >= 10) return x.slice(-10) === y.slice(-10);
+    }
+    return norm(a) === norm(b);
+}
+
 const tabla = process.argv[2];
 const columna = process.argv[3];
 const viejo = process.argv[4];
 const nuevo = process.argv[5];
 const aplicar = process.argv.includes('--aplicar');
+
+// La salida de emergencia. La negativa a borrar una fila que trae algo propio es el default
+// correcto, y justamente por eso tiene que existir una forma de decir "ya lo miré, sobra". Es el
+// mismo criterio que el `--si-encima` de `restaurar-backup.js`: se escribe entero, no se acierta
+// de casualidad, y lo que se descarta se imprime.
+const aunqueDifiera = process.argv.includes('--aunque-difiera');
 
 if (!tabla || !columna || !viejo || !nuevo) {
     console.error(
@@ -118,7 +156,7 @@ if (norm(viejo) === norm(nuevo)) {
         for (const vieja of viejas.rows) {
             // Su gemela: la que dice lo mismo en TODO lo demás.
             const gemela = gemelas.rows.find(g =>
-                comparables.every(c => norm(g[c]) === norm(vieja[c])));
+                comparables.every(c => mismoValor(c, g[c], vieja[c])));
 
             if (gemela) {
                 console.log(`   🗑️  ${resumen(vieja)}`);
@@ -132,17 +170,57 @@ if (norm(viejo) === norm(nuevo)) {
             }
 
             // Hay filas con el nombre bueno, pero ninguna dice lo mismo: esta trae algo propio.
-            const parecida = gemelas.rows.find(g =>
-                comparables.some(c => norm(g[c]) === norm(vieja[c]) && String(vieja[c] ?? '').trim()));
+            //
+            // > [!CAUTION]
+            // > **"La más parecida" tiene que ser la más parecida de verdad.**
+            //
+            // Esto era `gemelas.rows.find(g => comparables.some(...))`: `some` dentro de `find` es
+            // "la PRIMERA que coincida en ALGO", y el orden lo decide PostgreSQL. El 22/09/2026,
+            // con dos filas `Dario` --una en `san patricio casa` y otra en `San patricio 270`--
+            // eligió la del 270 porque coincidía en `rubro=Electricista` y estaba antes en el
+            // montón. El informe mostró entonces una diferencia de EDIFICIO que no existía: la
+            // gemela verdadera estaba en el mismo edificio y difería en una sola cosa.
+            //
+            // Para quien lee eso, la conclusión es la contraria a la correcta: "la otra es de otro
+            // consorcio, entonces esta fila es única y hay que conservarla". Una herramienta que
+            // existe para que una persona decida no puede mostrarle la comparación equivocada.
+            //
+            // Ahora gana la que coincide en MÁS campos. Con empate queda la primera, que es lo de
+            // antes: si dos son igual de parecidas, cuál se muestre da lo mismo.
+            let parecida = null, mejorCoincidencias = 0;
+            for (const g of gemelas.rows) {
+                const coinciden = comparables.filter(c =>
+                    String(vieja[c] ?? '').trim() && mismoValor(c, g[c], vieja[c])).length;
+                if (coinciden > mejorCoincidencias) { mejorCoincidencias = coinciden; parecida = g; }
+            }
 
             if (parecida) {
-                const difieren = comparables.filter(c => norm(parecida[c]) !== norm(vieja[c]));
+                const difieren = comparables.filter(c => !mismoValor(c, parecida[c], vieja[c]));
                 console.log(`   ⚠️  ${resumen(vieja)}`);
                 console.log(`       NO se borra: la más parecida con "${nuevo}" difiere en ${difieren.join(', ')}.`);
                 for (const c of difieren) {
                     console.log(`         ${c}:  "${vieja[c] ?? ''}"   vs   "${parecida[c] ?? ''}"`);
                 }
+
+                // La salida de emergencia, del mismo tipo que el `--si-encima` de
+                // `restaurar-backup.js`: la negativa es el default correcto, y para eso mismo tiene
+                // que existir una forma de decir "ya lo miré, borrala igual". Se imprime lo que se
+                // descarta, porque un borrado silencioso de un dato que alguien decidió perder es
+                // exactamente lo que esta herramienta vino a evitar.
+                if (aunqueDifiera) {
+                    const sePierde = difieren.map(c => `${c}="${vieja[c] ?? ''}"`).join(', ');
+                    if (aplicar) {
+                        await pool.query(`DELETE FROM "${tabla}" WHERE ctid = $1`, [vieja.ctid]);
+                        console.log(`       ✏️ borrada igual (--aunque-difiera). Se perdió: ${sePierde}`);
+                    } else {
+                        console.log(`       → con --aplicar se borraría igual, perdiendo: ${sePierde}`);
+                    }
+                    borradas++;
+                    continue;
+                }
+
                 console.log(`       Decidilo mirándolo: si el dato de esta fila importa, hay que pasarlo a la otra.`);
+                console.log(`       Si ya lo miraste y sobra, agregá --aunque-difiera.`);
                 conservadas++;
                 continue;
             }
