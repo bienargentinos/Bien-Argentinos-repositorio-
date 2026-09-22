@@ -27,6 +27,49 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-22 — Pedido a Claude: Corrección botón demo y sección "Mi Perfil / Usuario" en portal-vecino.js
+
+- **Qué necesito de Claude (en `portal-vecino.js`):**
+  1. **Bug en el botón demo rápido (`POST /vecino/auth`, línea 2466):**
+     - Daniel probó ingresar con *"🚀 Entrar como Daniel Morales (Demo Rápido)"*.
+     - El endpoint actual solo guarda en sesión `{ nombre, telefono, edificio, departamento, saldoExpensa, estadoExpensa }`.
+     - **Problema 1:** No define `unidades: [...]`. Al entrar a `/vecino`, la validación `if (!v.unidades || v.unidades.length === 0)` salta y muestra la pantalla vacía de *"Cuenta Creada - Todavía no tenés ningún departamento asignado"*, a pesar de que arriba dice "San Patricio 159 · Depto 1° A".
+     - **Problema 2:** No define `rol`. El topbar por defecto hace fallback a `👑 Propietario` si no es `turista`/`inquilino`/`asistente`.
+     - **Solución propuesta:**
+       - Inicializar la sesión del demo rápido completa:
+         ```javascript
+         req.session.vecino = {
+           usuario_id: 1,
+           nombre: 'Daniel Morales',
+           email: 'daniel@consorcio.ai',
+           telefono: telLimpio || '+5491150542005',
+           edificio: 'San Patricio 159',
+           departamento: '1° A',
+           rol: 'propietario',
+           puede_ver_expensas: true,
+           saldoExpensa: '$120.000,00',
+           estadoExpensa: 'Al día',
+           unidades: [
+             { edificio: 'San Patricio 159', departamento: '1° A', rol: 'propietario', puede_ver_expensas: true },
+             { edificio: 'San Patricio 159', departamento: '4° C', rol: 'propietario', puede_ver_expensas: true }
+           ]
+         };
+         ```
+       - Agregar opcionalmente un segundo botón demo explícito: *"🧳 Entrar como Huésped / Turista (Demo)"* con `rol: 'turista'`, `puede_ver_expensas: false`, pase QR temporal y fechas de estadía, para poder probar el modo huésped directamente sin confusiones.
+
+  2. **Nueva sección "Mi Perfil / Usuario" solicitada por Daniel:**
+     - Falta en la app/portal una pantalla donde el vecino pueda ver y gestionar sus datos:
+       - Nombre y Apellido.
+       - Email registrado.
+       - Teléfono de contacto.
+       - Lista de departamentos/unidades vinculadas (y conmutador de unidad activa).
+       - Rol actual (`Propietario`, `Inquilino`, `Huésped`).
+       - Gestión de acceso / cambio de contraseña o PIN.
+     - Agregar el acceso a "Mi Perfil" desde el menú de navegación o tocando el avatar/nombre en la cabecera superior.
+
+- **Verificación:**
+  - `node verificar-antes-de-subir.js`: ✅ 58 pruebas pasando en verde.
+
 ### 2026-09-22 — Selector de rubros táctil (Chips recorriendo RUBROS_PROVEEDOR) y alto contraste en modo oscuro
 
 - **Qué cambié y en qué archivo:**
