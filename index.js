@@ -2115,7 +2115,83 @@ function validarYSanitizarNombre(nombre) {
             `Antes esta rama cortaba acá y la factura se perdía entera.`);
     }
 
+    // ── EL TÉCNICO NO ES UN VECINO ───────────────────────────────────────────────────────
+    //
+    // > [!CAUTION]
+    // > **El cierre de un caso busca el caso por el EDIFICIO DEL VECINO.** Un proveedor no tiene
+    // > ninguna de esas tres fuentes (sesión, tabla `vecinos`, ficha), así que el edificio queda
+    // > vacío — y con el edificio vacío, `obtenerCasosAbiertosEdificio` devuelve TODOS los casos
+    // > abiertos del sistema.
+    //
+    // Visto el 21/09/2026. Dario escribió *"Pero ya lo resolví que querés? Ya te dije q resolvi"*
+    // --la segunda vez que lo decía-- y en vez de cerrar su caso le llegó la lista de todos los
+    // reclamos abiertos de todos los edificios pidiéndole que eligiera un número. El CASO-1004
+    // siguió abierto, el seguimiento siguió corriendo, y al vecino se le preguntó si el técnico
+    // había pasado por un trabajo que ya estaba hecho.
+    //
+    // El técnico SÍ tiene un caso conocido, y por tres vías. Vive en `caso-del-tecnico.js` porque
+    // esa búsqueda ya estaba escrita dos veces en este archivo y esta habría sido la tercera.
+    //
+    // Está en una función porque la llaman DOS caminos: este (la condición de texto, que corre
+    // antes de que el ruteo exista) y la intención `informa_resuelto` del ruteo por IA, que atiende
+    // lo que el texto no reconoce. Escribirlo dos veces es exactamente lo que pasó con
+    // `buscarPerfilEdificio`.
+    const cerrarCasoQueElTecnicoDiceResuelto = async () => {
+        const { casoActivoDelTecnico } = require('./caso-del-tecnico');
+        const { direccionParaTecnico } = require('./agentes/marcos-ops');
+        const quien = datosEmisor.nombre || from;
+
+        const { caso, candidatos, motivo } = await casoActivoDelTecnico({
+            telefono: from, nombre: datosEmisor.nombre
+        });
+        console.log(`✅🔧 ${quien} avisa que resolvió: ${motivo}.`);
+
+        if (caso) {
+            const { marcarCasoResueltoPorId } = require('./datos');
+            await marcarCasoResueltoPorId(caso.id_evento);
+            const dirCierre = await direccionParaTecnico(caso.edificio).catch(() => caso.edificio);
+            const probCierre = limpiarTextoProblema(caso.problema);
+            await despacharRespuesta(recipient,
+                `✅ Listo${datosEmisor.nombre ? ` ${datosEmisor.nombre}` : ''}, marqué el *${caso.id_evento}* de ${dirCierre}` +
+                `${probCierre ? ` (${probCierre})` : ''} como *RESUELTO* y le aviso a la Administración.\n\n` +
+                `Si me mandás la factura por acá, la asocio a ese caso.`,
+                msgTypeRespuesta);
+            return true;
+        }
+
+        // Con dos o más no se adivina: cerrar el caso equivocado deja un problema sin atender y al
+        // vecino sin reclamo abierto justo cuando más lo necesita. Se listan por DIRECCIÓN y con el
+        // número de caso, que es como se le habla a un técnico.
+        if (candidatos.length > 1) {
+            session.esperandoSeleccionCasoResuelto = candidatos;
+            const dirs = await Promise.all(candidatos.slice(0, 5).map(c =>
+                direccionParaTecnico(c.edificio).catch(() => c.edificio)));
+            const lista = candidatos.slice(0, 5).map((c, i) => {
+                const p = limpiarTextoProblema(c.problema);
+                return `${i + 1}️⃣ *${c.id_evento}* — ${dirs[i]}${p ? `: ${String(p).slice(0, 60)}` : ''}`;
+            }).join('\n');
+            await despacharRespuesta(recipient,
+                `Gracias${datosEmisor.nombre ? ` ${datosEmisor.nombre}` : ''}. Tenés estos trabajos abiertos, ` +
+                `¿cuál es el que terminaste?\n\n${lista}\n\n` +
+                `Contestame con el número o con el código del caso.`,
+                msgTypeRespuesta);
+            return true;
+        }
+
+        await despacharRespuesta(recipient,
+            `Gracias por avisar${datosEmisor.nombre ? ` ${datosEmisor.nombre}` : ''}. No me figura ningún trabajo tuyo abierto ` +
+            `en este momento, así que no cierro nada por las dudas. Si me decís de qué dirección era, lo busco.`,
+            msgTypeRespuesta);
+        return true;
+    };
+
     if (esGatilloResolucion) {
+        // El técnico va por su propio camino: el de abajo es el del vecino y no le sirve.
+        if (datosEmisor.rol === 'proveedor') {
+            await cerrarCasoQueElTecnicoDiceResuelto();
+            return;
+        }
+
         // `session.nombreEdificio` para el vecino recién se completa más abajo en esta misma
         // función (línea ~1358). Si esta es la primera respuesta de una sesión nueva -- lo típico
         // es que el seguimiento automático haya despertado al vecino horas después, con un
@@ -4019,10 +4095,6 @@ function validarYSanitizarNombre(nombre) {
                 let casoPendiente = null;
                 if (confirmaQueVa || pareceRespuestaDeAgenda) {
                     try {
-                        const { buscarCasosRecientesPorTecnico, buscarCasoPorCodigo } = require('./datos');
-
-                        // 1. El caso que la conversación ya tiene abierto con este técnico.
-                        //
                         // > [!CAUTION]
                         // > **Preguntarle la dirección que él acaba de decir --y que Marcos ya
                         // > anotó-- es lo que más rápido lo convence de que no lo están leyendo.**
@@ -4031,36 +4103,19 @@ function validarYSanitizarNombre(nombre) {
                         // CASO-1001 en San Patricio 270" y a las 21:35 preguntó "¿a qué dirección
                         // vas?". Daniel: *"¿tenés memoria de pajarito o qué?"*.
                         //
-                        // El código de la conversación viene de la cola en memoria, pero el CASO se
-                        // relee de la base: la memoria dice de qué se está hablando, la base dice
-                        // la verdad. Si PM2 reinició, la memoria está vacía y sigue el punto 2.
-                        const colaConf0 = global.colasProveedores?.get(String(from).replace(/\D/g, ''));
-                        const idEnMemoria = colaConf0?.eventoActivoId || '';
-                        if (idEnMemoria) {
-                            const c = await buscarCasoPorCodigo(idEnMemoria);
-                            if (c && !c.cerrado) casoPendiente = c;
-                        }
-
-                        // 2. Si no, el caso más reciente suyo que siga abierto.
-                        //
-                        // Antes esto exigía que el estado dijera "avisado" o "sin confirmar", y con
-                        // eso alcanzaba para no encontrarlo. La pregunta que importa no es en qué
-                        // estado está: es si YA SABEMOS de qué trabajo habla. Cualquier caso suyo
-                        // abierto responde eso, y preguntarle la dirección teniéndolo es igual de
-                        // molesto venga el estado que venga.
-                        if (!casoPendiente) {
-                            const suyos = (await buscarCasosRecientesPorTecnico(datosEmisor.nombre, from, 7)) || [];
-                            const abiertos = suyos.filter(c => !c.cerrado && c.edificio);
-                            casoPendiente = abiertos.find(c => /avisad|sin confirmar/i.test(String(c.estado || '')))
-                                || (abiertos.length === 1 ? abiertos[0] : null);
-
-                            if (!casoPendiente && abiertos.length > 1) {
-                                console.log(`🤔 ${datosEmisor.nombre} confirmó una visita pero tiene ${abiertos.length} casos abiertos: no se adivina cuál y se le pregunta la dirección.`);
-                            }
-                        }
+                        // Las tres fuentes --el caso activo de la conversación, el que espera
+                        // confirmación, su único caso abierto-- estaban escritas acá a mano y son
+                        // exactamente las mismas que necesita el cierre. Ahora viven en
+                        // `caso-del-tecnico.js`: una sola implementación, una sola prueba, y un
+                        // arreglo no puede volver a llegar a la mitad de los caminos.
+                        const { casoActivoDelTecnico } = require('./caso-del-tecnico');
+                        const elegido = await casoActivoDelTecnico({
+                            telefono: from, nombre: datosEmisor.nombre
+                        });
+                        casoPendiente = elegido.caso;
 
                         if (!casoPendiente) {
-                            console.log(`🔎 ${datosEmisor.nombre} confirmó una visita y no se encontró ningún caso suyo abierto (memoria: ${idEnMemoria || 'vacía'}). Se le pregunta la dirección.`);
+                            console.log(`🔎 ${datosEmisor.nombre} confirmó una visita y no se usa ningún caso: ${elegido.motivo}. Se le pregunta la dirección.`);
                         }
                     } catch (e) { console.error('No se pudo buscar el caso pendiente de confirmar:', e.message); }
                 }
@@ -4223,6 +4278,28 @@ function validarYSanitizarNombre(nombre) {
         //
         // Va ANTES de `esSolicitudDatos` porque esa es la rama que se lo venía comiendo, y la
         // primera que matchea corta.
+        // ── "YA ESTÁ" ────────────────────────────────────────────────────────────────────────
+        //
+        // > [!CAUTION]
+        // > **`informa_resuelto` estaba en el catálogo del ruteo y NO LA LEÍA NADIE.** Cero
+        // > consumidores. Declarada y sin consumidor se ve, desde afuera, igual que no existir —
+        // > el mismo caso que `llego_y_no_le_abren`, tres bloques más abajo.
+        //
+        // La condición de texto (`diceQueSeResolvio`, arriba en este archivo) corre ANTES de que
+        // exista el ruteo, así que agarra todo lo que reconoce y cierra ahí. Acá llega lo que esa
+        // lista de palabras no reconoce: "ya está", "quedó", "terminé con eso", "listo jefe". El
+        // modelo lo entiende y la lista nunca va a estar completa.
+        //
+        // **Con adjunto no se cierra nada**, igual que en el camino de texto: un comprobante manda
+        // sobre el texto que lo acompaña, y el caso del comprobante casi nunca es el caso abierto.
+        // Y una negación tampoco cierra: "todavía no se resolvió" trae las mismas palabras.
+        if (!traeComprobante && !loNiega && !diceQueSeResolvio
+            && seActiva('informa_resuelto', false, ruteoIA, textoFinal)) {
+            console.log(`🧭✅ El texto no lo reconoció como "resuelto" y la IA sí: ${ruteoIA?.motivo || ''}`);
+            await cerrarCasoQueElTecnicoDiceResuelto();
+            return;
+        }
+
         const pideQuienLeAbre = seActiva('pide_contacto_de_ingreso', false, ruteoIA, textoFinal)
             || seActiva('llego_y_no_le_abren', false, ruteoIA, textoFinal);
 

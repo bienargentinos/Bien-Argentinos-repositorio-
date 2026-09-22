@@ -42,14 +42,13 @@ function verificar(titulo, real, esperado) {
     if (!ok) console.log(`     esperaba ${JSON.stringify(esperado)}, dio ${JSON.stringify(real)}`);
 }
 
-// Se extrae la búsqueda real de index.js: la prueba tiene que validar el código que corre.
-const ini = SRC.indexOf('let casoPendiente = null;');
-if (ini === -1) throw new Error('No encontré la búsqueda del caso pendiente en index.js.');
-const marcaFin = '\n                }';
-const iniCatch = SRC.indexOf("} catch (e) { console.error('No se pudo buscar el caso pendiente de confirmar:", ini);
-if (iniCatch === -1) throw new Error('No encontré el cierre de la búsqueda en index.js.');
-// Se incluye la llave que cierra el `if`, o el bloque extraído no compila.
-const cuerpo = SRC.slice(ini, SRC.indexOf(marcaFin, iniCatch) + marcaFin.length);
+// La búsqueda vivía copiada adentro de `index.js` y esta prueba la recortaba del archivo para
+// evaluarla. El 22/09/2026 se mudó a `caso-del-tecnico.js`, porque la misma regla la necesitaba
+// también el cierre de un caso desde el técnico y estaba por escribirse una tercera vez.
+//
+// Los escenarios de acá abajo NO cambian: son los del episodio real y siguen siendo lo que hay
+// que garantizar. Lo único que cambia es a qué se le preguntan.
+const { casoActivoDelTecnico } = require('./caso-del-tecnico');
 
 /**
  * Corre la búsqueda real contra datos de mentira.
@@ -57,27 +56,17 @@ const cuerpo = SRC.slice(ini, SRC.indexOf(marcaFin, iniCatch) + marcaFin.length)
  * @param enLaBase    los casos que devuelve la planilla
  * @param elCaso      lo que devuelve `buscarCasoPorCodigo` para el de memoria
  */
-async function buscar({ enMemoria = '', enLaBase = [], elCaso = null, confirma = true }) {
-    const falso = {
-        buscarCasosRecientesPorTecnico: async () => enLaBase,
-        buscarCasoPorCodigo: async (cod) => (elCaso && elCaso.id_evento === cod ? elCaso : null),
-    };
-    const globalFalso = {
-        colasProveedores: new Map(enMemoria ? [['5491169241157', { eventoActivoId: enMemoria }]] : []),
-    };
-    // eslint-disable-next-line no-new-func
-    const fn = new Function('require', 'global', 'console', 'confirmaQueVa', 'pareceRespuestaDeAgenda',
-        'datosEmisor', 'from',
-        `return (async () => {\n${cuerpo}\nreturn casoPendiente;\n})();`);
-
-    return fn(
-        (m) => (m === './datos' ? falso : require(m)),
-        globalFalso,
-        { log: () => {}, error: () => {} },
-        confirma, false,
-        { nombre: 'a dario juju' },
-        '5491169241157'
-    );
+async function buscar({ enMemoria = '', enLaBase = [], elCaso = null }) {
+    const r = await casoActivoDelTecnico({
+        telefono: '5491169241157',
+        nombre: 'a dario juju',
+        colas: new Map(enMemoria ? [['5491169241157', { eventoActivoId: enMemoria }]] : []),
+        datos: {
+            buscarCasosRecientesPorTecnico: async () => enLaBase,
+            buscarCasoPorCodigo: async (cod) => (elCaso && elCaso.id_evento === cod ? elCaso : null),
+        },
+    });
+    return r.caso;
 }
 
 const abierto = (id, edificio, estado) => ({ id_evento: id, edificio, estado, cerrado: false });
@@ -171,8 +160,18 @@ console.log('\n── LO QUE NO CAMBIA ──');
         await buscar({ enMemoria: '', enLaBase: [abierto('CASO-1001', '', 'en_proceso')] }), null);
 
     // Y si no confirmó nada, ni se busca.
-    verificar('sin confirmación no se busca nada',
-        await buscar({ enMemoria: 'CASO-1001', elCaso: abierto('CASO-1001', 'x', 'avisado'), confirma: false }), null);
+    //
+    // Esa condición NO vive en el módulo --él contesta siempre "de qué caso habla"-- sino en
+    // `index.js`, que decide cuándo preguntárselo. Un "dale" suelto que no confirma nada no puede
+    // quedarse con el mensaje: tiene que seguir su camino por el resto de la rama. Así que esto se
+    // verifica donde está escrito.
+    // Se busca desde la condición hacia adelante, no al revés: `casoActivoDelTecnico` se llama
+    // también desde el cierre de un caso, que está MÁS ARRIBA en el archivo, y buscando hacia
+    // atrás se encontraba esa otra.
+    const guarda = SRC.indexOf('if (confirmaQueVa || pareceRespuestaDeAgenda) {');
+    const llamada = SRC.indexOf('casoActivoDelTecnico({', guarda);
+    verificar('la búsqueda sigue detrás de "confirmó o parece respuesta de agenda"',
+        guarda !== -1 && llamada !== -1 && llamada - guarda < 1800, true);
 }
 
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);

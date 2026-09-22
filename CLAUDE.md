@@ -1652,6 +1652,43 @@ sabe cuándo viene, veinticinco minutos después de que el técnico lo dijo.
 
 Prueba: `node pruebas-quien-le-abre.js`.
 
+### "Ya lo resolví" no cerraba nada, porque el cierre es del vecino
+
+> [!CAUTION]
+> **El cierre de un caso busca el caso por el EDIFICIO DEL VECINO.** Un proveedor no tiene ninguna
+> de esas tres fuentes, y con el edificio vacío `obtenerCasosAbiertosEdificio` devuelve **todos los
+> casos abiertos del sistema**.
+
+```js
+const edificioParaCierre = session.nombreEdificio || vecinosEnSheets?.[0]?.edificio || datosEmisor?.edificio || '';
+```
+
+Producción, 21/09. Dario mandó la factura del CASO-1004 con *"Ya resolvi"*. Eso **no** cerró nada y
+está bien: un comprobante adjunto manda sobre el texto que lo acompaña (regla puesta por un caso de
+Daniel — resuelve algo en el edificio de al lado y manda la factura, que no es del caso abierto).
+
+Lo que falló fue el mensaje siguiente, sin adjunto: *"Pero ya lo resolví que querés? Ya te dije q
+resolvi"*. La condición de texto **sí** matchea —verificado— y el cierre arrancó… con el edificio
+vacío. En vez de cerrar su caso le llegó la lista de todos los reclamos abiertos de todos los
+edificios pidiéndole que eligiera un número. El CASO-1004 siguió abierto, el seguimiento siguió
+corriendo, y al vecino se le preguntó si el técnico había pasado por un trabajo ya hecho.
+
+- **`caso-del-tecnico.js`** (`casoActivoDelTecnico`) elige por él, no por el edificio: el caso
+  activo de la conversación (releído de la base) → el que espera confirmación → su único caso
+  abierto. Con **dos o más** devuelve los candidatos y **no elige**.
+- La respuesta lista los trabajos **por dirección y con el número de caso**, como todo lo que se le
+  manda a un proveedor.
+- **`informa_resuelto` estaba en el catálogo del ruteo y no la leía nadie** — cero consumidores, el
+  mismo caso que `llego_y_no_le_abren`. Ahora atiende lo que la condición de texto no reconoce
+  ("ya está", "terminé con eso"), y **no cierra si hay adjunto o si el mensaje lo niega**.
+- La búsqueda estaba escrita **dos veces** en `index.js` y esta era la tercera. Ahora la rama de la
+  confirmación también llama al módulo. El candado mira la **regla de desempate**, no el acceso a
+  la tabla: leer los casos de un técnico sirve para tres preguntas distintas (de qué habla ahora /
+  a qué caso va esta factura, 30 días e incluye cerrados / a cuáles borrarles las marcas de
+  entrega, que son todos) y mezclarlas sería peor que duplicar.
+
+Prueba: `node pruebas-caso-del-tecnico.js`.
+
 ### El contacto de ingreso se da si lo piden, no porque esté a mano
 
 El técnico escribió *"perdón, es del caso 1003, no del 1001"* y Marcos contestó *"para el CASO-1001
