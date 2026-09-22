@@ -65,6 +65,28 @@ privateKey: require('fs').readFileSync(process.env.USERPROFILE + '\\.ssh\\marcos
 > - **Prohibido modificar archivos a mano en el VPS**: No se deben subir scripts ni parchar archivos de código directamente en el servidor sin pasar por Git.
 > - **Inclusión de Dependencias NPM en el Mismo Commit**: Si se utiliza una librería nueva (`npm install`), la adición en `package.json` y `package-lock.json` **DEBE ser commiteada en el mismo commit de Git** que el código que la invoca. Ningún archivo debe hacer `require()` de un paquete no declarado en `package.json`.
 
+### Cómo hablan entre sí los agentes
+
+El repo también es el lugar donde los agentes se dejan notas, porque es el único sitio al que
+llegan los dos: Antigravity corre en la PC de Daniel y Claude en la nube. Sin esto, cada dato pasa
+por Daniel copiando y pegando, y ahí es donde se pierden.
+
+| Archivo | Lo escribe | Lo lee |
+|---|---|---|
+| `docs/para-antigravity.md` | Claude | Antigravity |
+| `docs/de-antigravity.md` | Antigravity | Claude |
+
+**Cada uno es dueño de su archivo y no toca el del otro.** Así no hay conflicto de git posible, que
+es lo que pasaría con un archivo compartido y dos agentes escribiendo el mismo día.
+
+> **Nadie se entera solo.** No hay aviso: se lee en el próximo `git pull`. Es un pizarrón, no un
+> chat. Quien escribe algo urgente se lo dice a Daniel además de dejarlo acá.
+
+**Reparto vigente**: Antigravity toma `dashboard.js` (el panel); Claude toma el motor (`index.js`,
+`datos*.js`, `sheets.js`, agentes, portería, portal del vecino). Si uno necesita un cambio del lado
+del otro, **lo pide en su archivo en vez de hacerlo** — dos agentes editando el mismo archivo el
+mismo día es cómo se pierde trabajo.
+
 ## Stack técnico
 
 - **Runtime**: Node.js + Express — `index.js` es el servidor principal (acumulación de **25 segundos** en ráfagas).
