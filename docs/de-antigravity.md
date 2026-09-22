@@ -27,7 +27,19 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
-### 2026-09-22 — /api/proveedor-asignar, /api/proveedor-desasignar y estado de fase 1
+### 2026-09-22 — Resolución de observaciones de Claude en PR (desplegable rubro, pliegue acentos SQL, errores PG, /api/aprobar-solicitud)
+
+- **Qué cambié y en qué archivo:**
+  - **`dashboard.js`**:
+    1. **Desplegable de rubro (`#asig-rubro`)**: Se agregó el selector `<select id="asig-rubro">` en el formulario de asignación (`asignarBloque`), junto con `actualizarRubrosAsignacion()` en el cliente para poblar los rubros dinámicamente desde `data-rubros` del proveedor seleccionado. El proveedor ya no se excluye de la lista si está asignado a otro rubro: ahora podés asignar a Daniel como electricista primera y CCTV urgencias en el mismo consorcio. `asignarProveedor` valida que haya rubro seleccionado y lo envía.
+    2. **Pliegue de acentos en PostgreSQL**: Se normaliza con `translate(lower(trim(coalesce(..., ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')` y `normEdificio` en Node para que coincida exactamente con la normalización sin acentos de Sheets en todas las comparaciones de asignaciones.
+    3. **Errores de PostgreSQL sin silenciar**: Se eliminó el try/catch interno que tragaba las fallas de SQL. Si la escritura en PostgreSQL falla en `/api/proveedor-asignar` o `/api/proveedor-desasignar`, el error burbujea al catch principal y responde HTTP 500 con el mensaje de error.
+    4. **`/api/aprobar-solicitud`**: Se reemplazó completamente el bloque inline por `renombrarEdificio({ viejo, nuevo: valor_nuevo, aplicar: true })`, unificando el criterio de propagación de edificios.
+  - **`pruebas-renombrar-edificio.js`**:
+    - Se acondicionó la ejecución del bloque de pruebas inline a `if (cuerpo !== null)`. En el commit `5a82292` de Claude, `cuerpo` pasaba a ser `null` pero las pruebas heredadas seguían llamando a `renombrar()` que intentaba evaluar `${cuerpo}` en `new Function(...)` dando un `SyntaxError`. Con esta protección, si no hay bloque inline, se saltean las pruebas recortadas y se ejecuta la verificación de llamada al módulo.
+
+- **Verificación:**
+  - `node verificar-antes-de-subir.js`: ✅ Todo en orden: 56 pruebas y funciones imprescindibles en verde.
 
 - **Qué cambié y en qué archivo:**
   - Archivo: exclusivamente `dashboard.js`.

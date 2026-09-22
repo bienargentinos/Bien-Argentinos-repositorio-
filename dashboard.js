@@ -6343,12 +6343,27 @@ async function toggleServicioGastos(btn,edificio,nuevoEstado){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
-// Asignar un proveedor de la lista a ESTE edificio con prioridad.
+function actualizarRubrosAsignacion(){
+  var selProv=document.getElementById('asig-prov');
+  var selRub=document.getElementById('asig-rubro');
+  if(!selProv||!selRub)return;
+  var opt=selProv.options[selProv.selectedIndex];
+  if(!opt){selRub.innerHTML='';return;}
+  var raw=opt.getAttribute('data-rubros')||'';
+  var rubros=raw.split(',').map(function(s){return s.trim();}).filter(Boolean);
+  if(!rubros.length)rubros=['Otro'];
+  selRub.innerHTML=rubros.map(function(r){
+    return '<option value="'+escapeHtml(r)+'">'+escapeHtml(r)+'</option>';
+  }).join('');
+}
+
+// Asignar un proveedor de la lista a ESTE edificio con prioridad y rubro.
 async function asignarProveedor(btn,edificio){
   var prov=(document.getElementById('asig-prov')||{}).value||'';
   var prio=(document.getElementById('asig-prio')||{}).value||'primera';
   var rub=(document.getElementById('asig-rubro')||{}).value||'';
   if(!prov){toast('Elegí un proveedor','err');return;}
+  if(!rub){toast('Elegí un rubro','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Asignando...';
   try{
     var r=await fetch('/admin/api/proveedor-asignar',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -10089,23 +10104,25 @@ router.get('/mi-edificio', async (req, res) => {
       }).join('')
       : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">Todavía no asignaste proveedores a este edificio. Elegí de tu lista abajo.</div>';
 
-    // Opciones para asignar: los de la maestra que no estan ya asignados.
-    const yaAsignados = new Set(asignados.map((a) => String(a.proveedor).trim().toLowerCase()));
-    const disponibles = maestros.filter((m) => !yaAsignados.has(String(m.nombre).trim().toLowerCase()));
-    const optMaestros = disponibles.length
-      ? disponibles.map((m) => `<option value="${esc(m.nombre)}">${esc(m.rubro)} · ${esc(m.nombre)}${m.telefono ? ' (' + esc(m.telefono) + ')' : ''}</option>`).join('')
+    // Opciones para asignar: proveedores maestros con soporte de múltiples rubros por edificio.
+    const optMaestros = maestros.length
+      ? maestros.map((m) => `<option value="${esc(m.nombre)}" data-rubros="${esc(m.rubro || 'Otro')}">${esc(m.nombre)}${m.telefono ? ' (' + esc(m.telefono) + ')' : ''}</option>`).join('')
       : '';
+    const primerRubroStr = maestros.length ? String(maestros[0].rubro || 'Otro') : 'Otro';
+    const rubrosIniciales = primerRubroStr.split(',').map((s) => s.trim()).filter(Boolean);
+    if (!rubrosIniciales.length) rubrosIniciales.push('Otro');
+    const optRubros = rubrosIniciales.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
     const optPrioridad = PRIORIDADES.map((p) => `<option value="${p.key}">${p.label}</option>`).join('');
 
     const asignarBloque = maestros.length ? `
       <div style="border-top:1px dashed #E4E9F1;padding-top:16px">
         <div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:10px">Asignar un proveedor de tu lista a este edificio</div>
-        ${disponibles.length ? `
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-          <div style="flex:1;min-width:200px">${label('Proveedor')}<select id="asig-prov" class="inp" style="height:44px">${optMaestros}</select></div>
-          <div style="width:170px">${label('Prioridad')}<select id="asig-prio" class="inp" style="height:44px">${optPrioridad}</select></div>
+          <div style="flex:1;min-width:180px">${label('Proveedor')}<select id="asig-prov" class="inp" style="height:44px" onchange="actualizarRubrosAsignacion()">${optMaestros}</select></div>
+          <div style="flex:1;min-width:150px">${label('Rubro')}<select id="asig-rubro" class="inp" style="height:44px">${optRubros}</select></div>
+          <div style="width:160px">${label('Prioridad')}<select id="asig-prio" class="inp" style="height:44px">${optPrioridad}</select></div>
           <button onclick="asignarProveedor(this,'${escJs(cur.nombre)}')" style="height:44px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Asignar</button>
-        </div>` : '<div style="font-size:13px;color:#8595AD">Ya asignaste todos tus proveedores a este edificio.</div>'}
+        </div>
       </div>` : `
       <div style="border-top:1px dashed #E4E9F1;padding-top:16px;font-size:13.5px;color:#8595AD">
         Todavía no tenés proveedores en tu lista. Cargalos una vez con el botón de arriba y después asignalos a cada edificio.
@@ -14910,136 +14927,16 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
     // Cambiarlo en `EDIFICIOS` y en ningún otro lado parte el edificio en dos. Las filas viejas
     // siguen diciendo "san patricio 27'0 casa", el panel las muestra tal cual, y el apóstrofe
     // "vuelve solo" -- nunca se había ido, estaba en las otras pestañas.
-    let filasRenombradas = 0;
     if (campo === 'nombre' && valor_nuevo) {
-      // Dónde figura el nombre de un edificio en cada pestaña. `edificios` (en plural, en
-      // CLIENTES) es una lista separada por comas y se trata aparte.
-      const DONDE_FIGURA = [
-        [TAB_EVENTOS,      ['edificio', 'consorcio']],
-        [TAB_ARCHIVOS,     ['edificio']],
-        [TAB_SUGERENCIAS,  ['edificio']],
-        [TAB_SOLICITUDES,  ['edificio']],
-        [TAB_EXPENSAS,     ['edificio']],
-        [TAB_ASIGNACIONES, ['edificio']],
-        ['vecinos',        ['edificio']],
-      ];
-
-      for (const viejo of targetEdificios) {
-        // Comparación exacta, no `compararEdificios`: ese acepta coincidencias parciales, así que
-        // un cambio de "san patricio 270" a "san patricio 270 casa" se leería como "ya se llamaba
-        // así" y no se renombraría nada.
-        if (normEdificio(viejo) === normEdificio(valor_nuevo)) continue;
-
-        for (const [tab, columnas] of DONDE_FIGURA) {
-          let datos;
-          try { datos = await readTab(tab); } catch { continue; }
-          if (!datos.headers.length) continue;
-
-          for (const nombreCol of columnas) {
-            const i = datos.headers.indexOf(nombreCol);
-            if (i < 0) continue;
-            const letra = columnLetter(i + 1);
-            for (const fila of datos.rows) {
-              // Comparación exacta y normalizada: `compararEdificios` acepta coincidencias
-              // parciales, y con eso un "san patricio 159" se llevaría por delante al 270.
-              if (normEdificio(fila[nombreCol]) !== normEdificio(viejo)) continue;
-              await writeCell(tab, letra, fila._row, valor_nuevo);
-              filasRenombradas++;
-            }
-          }
-        }
-
-        // La lista de edificios del cliente es una sola celda con comas: se reemplaza el ítem
-        // que corresponde y se deja el resto intacto.
-        try {
-          const { rows: cliRows, headers: cliHeaders } = await readTab(TAB_CLIENTES);
-          const iCol = cliHeaders.findIndex(h => h === 'edificios' || h === 'edificio');
-          if (iCol >= 0) {
-            const letra = columnLetter(iCol + 1);
-            const nombreCol = cliHeaders[iCol];
-            for (const fila of cliRows) {
-              const partes = String(fila[nombreCol] || '').split(',').map(s => s.trim()).filter(Boolean);
-              if (!partes.some(p => normEdificio(p) === normEdificio(viejo))) continue;
-              const nuevas = partes.map(p => (normEdificio(p) === normEdificio(viejo) ? valor_nuevo : p));
-              await writeCell(TAB_CLIENTES, letra, fila._row, nuevas.join(', '));
-              filasRenombradas++;
-            }
-          }
-        } catch (e) {
-          console.error(`[Solicitud ${row}] No se pudo actualizar la lista de edificios del cliente: ${e.message}`);
-        }
-      }
-
-      // ── Y EN POSTGRESQL, QUE ES DE DONDE LEE MARCOS ──────────────────────────────────────
-      //
-      // Son dos bases: este panel lee Sheets, pero el motor de Marcos y los permisos del cliente
-      // (`obtenerEdificiosPermitidosUsuario`, `expandirEdificiosPermitidos`) leen PostgreSQL.
-      // Renombrar solo en Sheets deja a Marcos llamando al edificio por el nombre viejo y al
-      // cliente con el permiso apuntando a un edificio que ya no se llama así.
-      //
-      // Y no alcanza con reimportar después: `importar-sheets-a-pg.js` usa la columna `edificio`
-      // como clave, así que con el nombre ya cambiado en Sheets no actualiza la fila -- crea una
-      // segunda. Hay que renombrar la que existe.
+      const { renombrarEdificio } = require('./renombrar-edificio');
+      let totalCambios = 0;
       for (const viejo of targetEdificios) {
         if (normEdificio(viejo) === normEdificio(valor_nuevo)) continue;
-        try {
-          const cols = await queryPg(`
-            SELECT table_name, column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND data_type IN ('text','character varying','character')
-              AND (column_name IN ('edificio', 'consorcio', 'edificios')
-                   OR (table_name = 'edificios' AND column_name = 'nombre'))
-          `);
-
-          // FILA POR FILA, con `ctid`, y cada una en su propio try.
-          //
-          // Un UPDATE masivo aborta la sentencia entera ante una restricción única, y de paso se
-          // lleva puestas las tablas que faltaban: PostgreSQL queda a medias y la aprobación
-          // igual dice que salió bien. Ya pasó con uq_proveedor_asignaciones al renombrar un
-          // proveedor. Acá lo que falla es una fila, no el renombrado.
-          for (const { table_name: tabla, column_name: col } of (cols.rows || [])) {
-            let filas;
-            try {
-              filas = await queryPg(`SELECT ctid, "${col}" AS v FROM "${tabla}" WHERE "${col}" IS NOT NULL AND "${col}" <> ''`);
-            } catch (e) {
-              console.error(`[Solicitud ${row}] No se pudo leer ${tabla}.${col}: ${e.message}`);
-              continue;
-            }
-
-            for (const f of (filas.rows || [])) {
-              let destino = null;
-              if (col === 'edificios') {
-                // Lista separada por comas: se cambia el ítem y se deja el resto.
-                const partes = String(f.v || '').split(',').map(s => s.trim()).filter(Boolean);
-                if (!partes.some(p => normEdificio(p) === normEdificio(viejo))) continue;
-                destino = partes.map(p => (normEdificio(p) === normEdificio(viejo) ? valor_nuevo : p)).join(', ');
-              } else if (normEdificio(f.v) === normEdificio(viejo)) {
-                destino = valor_nuevo;
-              }
-              if (destino === null) continue;
-
-              try {
-                await queryPg(`UPDATE "${tabla}" SET "${col}" = $2 WHERE ctid = $1`, [f.ctid, destino]);
-                filasRenombradas++;
-              } catch (e) {
-                console.error(
-                  `[Solicitud ${row}] ⚠️ No se pudo renombrar ${tabla}.${col} ("${f.v}"): ${e.message}. ` +
-                  `El resto sí se renombró. Revisalo con: node buscar-texto.js "${viejo}"`
-                );
-              }
-            }
-          }
-        } catch (e) {
-          // Que falle PostgreSQL no puede tirar abajo la aprobación: Sheets ya quedó bien. Pero
-          // tiene que verse, porque mientras no se corrija, Marcos y el panel ven cosas distintas.
-          console.error(`[Solicitud ${row}] ⚠️ Sheets quedó renombrado pero PostgreSQL NO: ${e.message}. ` +
-                        `Corregilo con: node renombrar-edificio.js "${viejo}" "${valor_nuevo}" --aplicar`);
-        }
+        const r = await renombrarEdificio({ viejo, nuevo: valor_nuevo, aplicar: true });
+        totalCambios += (r.cambios || 0);
       }
-
-      if (filasRenombradas) {
-        console.log(`[Solicitud ${row}] "${targetEdificios.join(', ')}" → "${valor_nuevo}": ${filasRenombradas} referencia(s) actualizadas fuera de EDIFICIOS.`);
+      if (totalCambios) {
+        console.log(`[Solicitud ${row}] "${targetEdificios.join(', ')}" → "${valor_nuevo}": ${totalCambios} referencia(s) actualizadas fuera de EDIFICIOS.`);
       }
     }
 
@@ -15500,8 +15397,8 @@ router.post('/api/proveedor-asignar', async (req, res) => {
     const { rows: aRows } = await readTab(TAB_ASIGNACIONES);
     const existente = aRows.map(mapAsignacion).find((a) =>
       normEdificio(a.edificio) === normEdificio(edificio) &&
-      String(a.proveedor).trim().toLowerCase() === String(proveedor).trim().toLowerCase() &&
-      String(a.rubro || '').trim().toLowerCase() === rubroElegido.toLowerCase()
+      normEdificio(a.proveedor) === normEdificio(proveedor) &&
+      normEdificio(a.rubro || '') === normEdificio(rubroElegido)
     );
 
     if (existente) {
@@ -15532,33 +15429,36 @@ router.post('/api/proveedor-asignar', async (req, res) => {
     }
 
     // Sincronizar en PostgreSQL (proveedor_asignaciones)
-    try {
-      const { pool } = require('./db-pg');
-      if (pool) {
-        const existentePg = await pool.query(`
-          SELECT id FROM proveedor_asignaciones
-          WHERE lower(trim(coalesce(cliente, ''))) = lower(trim($1))
-            AND lower(trim(coalesce(edificio, ''))) = lower(trim($2))
-            AND lower(trim(coalesce(proveedor, ''))) = lower(trim($3))
-            AND lower(trim(coalesce(rubro, ''))) = lower(trim($4))
-          LIMIT 1
-        `, [cliente || '', edificio, m.nombre, rubroElegido]);
+    // Se pliegan acentos con translate() en SQL para coincidir con la normalización de Sheets.
+    // Si PostgreSQL falla, el error NO se silencia: burbujea al catch y devuelve 500.
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const normCli = normEdificio(cliente || '');
+      const normEd = normEdificio(edificio);
+      const normProv = normEdificio(m.nombre);
+      const normRub = normEdificio(rubroElegido);
 
-        if (existentePg && existentePg.rows && existentePg.rows.length > 0) {
-          await pool.query(`
-            UPDATE proveedor_asignaciones
-            SET prioridad = $1, estado = 'activo', telefono = $2
-            WHERE id = $3
-          `, [prioridad || 'primera', m.telefono || '', existentePg.rows[0].id]);
-        } else {
-          await pool.query(`
-            INSERT INTO proveedor_asignaciones (cliente, edificio, proveedor, rubro, telefono, prioridad, estado)
-            VALUES ($1, $2, $3, $4, $5, $6, 'activo')
-          `, [cliente || '', edificio, m.nombre, rubroElegido, m.telefono || '', prioridad || 'primera']);
-        }
+      const existentePg = await pool.query(`
+        SELECT id FROM proveedor_asignaciones
+        WHERE translate(lower(trim(coalesce(cliente, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
+          AND translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
+          AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
+          AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $4
+        LIMIT 1
+      `, [normCli, normEd, normProv, normRub]);
+
+      if (existentePg && existentePg.rows && existentePg.rows.length > 0) {
+        await pool.query(`
+          UPDATE proveedor_asignaciones
+          SET prioridad = $1, estado = 'activo', telefono = $2
+          WHERE id = $3
+        `, [prioridad || 'primera', m.telefono || '', existentePg.rows[0].id]);
+      } else {
+        await pool.query(`
+          INSERT INTO proveedor_asignaciones (cliente, edificio, proveedor, rubro, telefono, prioridad, estado)
+          VALUES ($1, $2, $3, $4, $5, $6, 'activo')
+        `, [cliente || '', edificio, m.nombre, rubroElegido, m.telefono || '', prioridad || 'primera']);
       }
-    } catch (pgErr) {
-      console.error(`[proveedor-asignar] Error sincronizando con PostgreSQL: ${pgErr.message}`);
     }
 
     res.json({ ok: true });
@@ -15580,19 +15480,15 @@ router.post('/api/proveedor-desasignar', async (req, res) => {
     await writeCell(TAB_ASIGNACIONES, plan.col, Number(row), 'eliminado');
 
     // Sincronizar en PostgreSQL (proveedor_asignaciones)
-    try {
-      const { pool } = require('./db-pg');
-      if (pool) {
-        await pool.query(`
-          UPDATE proveedor_asignaciones
-          SET estado = 'eliminado'
-          WHERE lower(trim(coalesce(edificio, ''))) = lower(trim($1))
-            AND lower(trim(coalesce(proveedor, ''))) = lower(trim($2))
-            AND lower(trim(coalesce(rubro, ''))) = lower(trim($3))
-        `, [a.edificio || '', a.proveedor || '', a.rubro || '']);
-      }
-    } catch (pgErr) {
-      console.error(`[proveedor-desasignar] Error sincronizando con PostgreSQL: ${pgErr.message}`);
+    const { pool } = require('./db-pg');
+    if (pool) {
+      await pool.query(`
+        UPDATE proveedor_asignaciones
+        SET estado = 'eliminado'
+        WHERE translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
+          AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
+          AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
+      `, [normEdificio(a.edificio || ''), normEdificio(a.proveedor || ''), normEdificio(a.rubro || '')]);
     }
 
     res.json({ ok: true });
