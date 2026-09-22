@@ -6347,11 +6347,12 @@ async function toggleServicioGastos(btn,edificio,nuevoEstado){
 async function asignarProveedor(btn,edificio){
   var prov=(document.getElementById('asig-prov')||{}).value||'';
   var prio=(document.getElementById('asig-prio')||{}).value||'primera';
+  var rub=(document.getElementById('asig-rubro')||{}).value||'';
   if(!prov){toast('Elegí un proveedor','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Asignando...';
   try{
     var r=await fetch('/admin/api/proveedor-asignar',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({proveedor:prov,prioridad:prio,edificio:edificio})});
+      body:JSON.stringify({proveedor:prov,prioridad:prio,rubro:rub,edificio:edificio})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Proveedor asignado a este edificio','ok');
@@ -15475,7 +15476,7 @@ router.post('/api/proveedor-cambio-cobro', async (req, res) => {
 router.post('/api/proveedor-asignar', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { proveedor, prioridad, edificio: reqEdificio } = req.body || {};
+    const { proveedor, prioridad, rubro: reqRubro, edificio: reqEdificio } = req.body || {};
     let cliente = clienteDeSesion(req);
     if (!cliente && esDueno(req)) {
       cliente = req.session.user;
@@ -15494,10 +15495,13 @@ router.post('/api/proveedor-asignar', async (req, res) => {
 
     if (!m) return res.status(404).json({ error: 'Ese proveedor no está en tu lista' });
 
+    const rubroElegido = String(reqRubro || m.rubro || 'Otro').trim();
+
     const { rows: aRows } = await readTab(TAB_ASIGNACIONES);
     const existente = aRows.map(mapAsignacion).find((a) =>
-      compararEdificios(a.edificio, edificio) &&
-      String(a.proveedor).trim().toLowerCase() === String(proveedor).trim().toLowerCase()
+      normEdificio(a.edificio) === normEdificio(edificio) &&
+      String(a.proveedor).trim().toLowerCase() === String(proveedor).trim().toLowerCase() &&
+      String(a.rubro || '').trim().toLowerCase() === rubroElegido.toLowerCase()
     );
 
     if (existente) {
@@ -15514,19 +15518,49 @@ router.post('/api/proveedor-asignar', async (req, res) => {
       await writeCell(TAB_ASIGNACIONES, cPrio.col, existente._row, prioridad || 'primera');
       await writeCell(TAB_ASIGNACIONES, cEst.col, existente._row, 'activo');
       await writeCell(TAB_ASIGNACIONES, cTel.col, existente._row, m.telefono || '');
-      await writeCell(TAB_ASIGNACIONES, cRub.col, existente._row, m.rubro || 'Otro');
-      return res.json({ ok: true });
+      await writeCell(TAB_ASIGNACIONES, cRub.col, existente._row, rubroElegido);
+    } else {
+      await appendRow(TAB_ASIGNACIONES, {
+        cliente: cliente || '',
+        edificio,
+        proveedor: m.nombre,
+        rubro: rubroElegido,
+        telefono: m.telefono || '',
+        prioridad: prioridad || 'primera',
+        estado: 'activo',
+      });
     }
 
-    await appendRow(TAB_ASIGNACIONES, {
-      cliente: cliente || '',
-      edificio,
-      proveedor: m.nombre,
-      rubro: m.rubro || 'Otro',
-      telefono: m.telefono || '',
-      prioridad: prioridad || 'primera',
-      estado: 'activo',
-    });
+    // Sincronizar en PostgreSQL (proveedor_asignaciones)
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        const existentePg = await pool.query(`
+          SELECT id FROM proveedor_asignaciones
+          WHERE lower(trim(coalesce(cliente, ''))) = lower(trim($1))
+            AND lower(trim(coalesce(edificio, ''))) = lower(trim($2))
+            AND lower(trim(coalesce(proveedor, ''))) = lower(trim($3))
+            AND lower(trim(coalesce(rubro, ''))) = lower(trim($4))
+          LIMIT 1
+        `, [cliente || '', edificio, m.nombre, rubroElegido]);
+
+        if (existentePg && existentePg.rows && existentePg.rows.length > 0) {
+          await pool.query(`
+            UPDATE proveedor_asignaciones
+            SET prioridad = $1, estado = 'activo', telefono = $2
+            WHERE id = $3
+          `, [prioridad || 'primera', m.telefono || '', existentePg.rows[0].id]);
+        } else {
+          await pool.query(`
+            INSERT INTO proveedor_asignaciones (cliente, edificio, proveedor, rubro, telefono, prioridad, estado)
+            VALUES ($1, $2, $3, $4, $5, $6, 'activo')
+          `, [cliente || '', edificio, m.nombre, rubroElegido, m.telefono || '', prioridad || 'primera']);
+        }
+      }
+    } catch (pgErr) {
+      console.error(`[proveedor-asignar] Error sincronizando con PostgreSQL: ${pgErr.message}`);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -15544,6 +15578,23 @@ router.post('/api/proveedor-desasignar', async (req, res) => {
     const plan = await findOrPlanColumn(TAB_ASIGNACIONES, ['estado']);
     if (plan.create) await ensureHeader(TAB_ASIGNACIONES, plan.col, 'estado', false);
     await writeCell(TAB_ASIGNACIONES, plan.col, Number(row), 'eliminado');
+
+    // Sincronizar en PostgreSQL (proveedor_asignaciones)
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        await pool.query(`
+          UPDATE proveedor_asignaciones
+          SET estado = 'eliminado'
+          WHERE lower(trim(coalesce(edificio, ''))) = lower(trim($1))
+            AND lower(trim(coalesce(proveedor, ''))) = lower(trim($2))
+            AND lower(trim(coalesce(rubro, ''))) = lower(trim($3))
+        `, [a.edificio || '', a.proveedor || '', a.rubro || '']);
+      }
+    } catch (pgErr) {
+      console.error(`[proveedor-desasignar] Error sincronizando con PostgreSQL: ${pgErr.message}`);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
