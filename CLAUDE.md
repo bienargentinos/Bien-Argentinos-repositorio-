@@ -2027,6 +2027,130 @@ palabra "casa" en el nombre daba exactamente al revés.
 
 Prueba: `node pruebas-unidad-vecino.js`.
 
+## Una caída de PostgreSQL deja las dos bases distintas PARA SIEMPRE
+
+> [!CAUTION]
+> **`copiarAPg` dispara y sigue: la escritura que falla se pierde y nadie reintenta.**
+
+Es a propósito, y está bien que lo sea: un PostgreSQL caído no puede romper el camino de Sheets,
+que es el que le contesta a la persona. Lo que faltaba es lo que eso cuesta, que no estaba escrito
+en ningún lado.
+
+El CASO-1001 se cerró justo mientras PostgreSQL rechazaba la contraseña. `marcarCasoResueltoPorId`
+**sí** escribe en las dos bases, pero la copia se perdió: quedó una línea en el log y nada más. En
+la planilla figuraba `resuelto` y en PostgreSQL `nuevo`. Y como el motor **lee PostgreSQL primero**,
+para Marcos ese caso seguía abierto: se lo podía elegir como caso activo del técnico o imputarle
+una factura. CASO-1003 y CASO-1004 quedaron igual, con `en_proceso` de un lado y `nuevo` del otro.
+
+```bash
+node emparejar-casos.js                              # solo muestra
+node emparejar-casos.js --aplicar                    # cierra lo que la planilla ya dio por cerrado
+node emparejar-casos.js --aplicar --tambien-estados  # además, estados que difieren sin estar cerrados
+```
+
+**La reparación NO es simétrica, y ese es el punto:**
+
+| | Qué hace |
+|---|---|
+| Planilla **cerrada** + PostgreSQL abierta | Se cierra solo. Cerrar es siempre una acción explícita de alguien; que falte de un lado significa que no llegó del todo. |
+| PostgreSQL **cerrada** + planilla abierta | **No se reabre, con ninguna bandera.** Reabrir le mete a la Administración un reclamo ya resuelto y reinicia el seguimiento contra un técnico que ya pasó. |
+
+`--tambien-estados` es opt-in porque la dirección *planilla gana* vale **para una caída de
+PostgreSQL** —que es cuando se perdieron esas escrituras— y no es una ley general.
+
+La decisión vive en `casos-desfasados.js` (`loQueSePuedeAplicar`), separada de la herramienta, y se
+prueba con datos en vez de leyendo el código: un candado que mira texto se esquiva sin querer en
+cualquier refactor.
+
+> **Lo que esto NO resuelve**: limpia lo que dejó una caída, no evita la próxima. El arreglo de
+> verdad es que una copia fallida quede anotada y se reintente sola. Es su propio trabajo.
+
+Prueba: `node pruebas-casos-desfasados.js`.
+
+### Y un arreglo que solo funcionaba cuando PostgreSQL se caía
+
+`obtenerSeguimientosVencidos` de `datos-pg.js` **no mandaba `estado`**, y su gemela de `sheets.js`
+sí. El paso 1 lo usa para preguntarle a un caso `avisado` *"¿vas a poder pasar?"* en vez de
+*"¿pudiste pasar?"* —reclamarle a alguien por un incumplimiento que nunca prometió es peor que no
+preguntar nada—. Como PostgreSQL es de donde se lee primero, esa distinción **estaba muerta en
+producción**: solo andaba cuando PostgreSQL fallaba y el barrido tenía que usar el respaldo.
+
+## Un contador que cuenta antes de filtrar manda a buscar un problema que no existe
+
+> [!CAUTION]
+> **La línea del barrido se imprimía ANTES de descartar los casos ya escalados.**
+
+En el log, cada cinco minutos durante horas:
+
+```
+⏱️ 3 caso(s) con seguimiento vencido.
+```
+
+y nada más: ningún mensaje, ningún caso avanzando. Parecía un estancamiento. Se buscó la causa en
+el agendado, en las dos bases y en el techo de pedidos de Google — **tres hipótesis, las tres
+falsas**. Los tres casos estaban en **paso 9**, ya en manos del administrador, y el `continue` los
+descartaba correctamente. El sistema estaba al día; la línea mentía.
+
+Un contador que cuenta lo que está por descartar es peor que no tener contador: manda a buscar un
+problema que no existe y mientras tanto tapa los que sí. La regla queda: **el barrido habla solo
+cuando hace algo.**
+
+### Y las salidas mudas que hicieron falta para diagnosticarlo
+
+`programarSeguimiento` tenía **tres `return false` sin una línea de log** (sin `id_evento`, sin la
+pestaña `EVENTOS`, y sin encontrar la fila). Las otras cuatro salidas sí se anunciaban. Un caso que
+cae en una de esas tres se levanta en cada barrido y no avanza nunca, sin dejar rastro.
+
+El arreglo anterior —*reservar el próximo control antes de mandar*— evitó que al técnico le llegara
+la misma pregunta cien veces, pero cambió una **repetición infinita** por un **estancamiento
+infinito**. El mudo es peor.
+
+La tercera es la más probable y tiene motivo estructural: el barrido lee de PostgreSQL
+(`reportes.codigo_caso`) y el agendado escribe en Sheets (`EVENTOS.id_evento`).
+
+```bash
+node revisar-seguimientos.js     # solo lee: para cada vencido, qué camino va a tomar
+```
+
+Pruebas: `node pruebas-seguimiento-mudo.js` (prohíbe que cualquier `return false` de esa función
+vuelva a callarse, y corre el barrido de verdad para escuchar lo que dice).
+
+## `\w` sin acentos, tercera vez — ahora en el verificador
+
+> [!CAUTION]
+> **Un falso positivo en un verificador es peor que no verificar: si grita por cosas que están
+> bien, se lo deja de mirar.** Su propio comentario lo decía.
+
+`herramientas-check-exports.js` buscaba los nombres exportados con `[A-Za-z_$][\w$]*`. Con
+`pestaña` leía `pesta`, no la encontraba, e informaba que **faltaba una función que estaba
+exportada**. Pasó a `\p{L}` con bandera `u`.
+
+Es el tercer caso del mismo defecto en este repo, después de `avisaQueVa` (*"llamó el encargado"* no
+abría caso) y el filtro de insultos (*"me estafó"* le llegaba al técnico).
+
+## `git add -A` en el VPS casi publica las credenciales
+
+> [!CAUTION]
+> **`.gitignore` tenía `.env` a secas, y en el servidor conviven `.env.save` y `.enov11`.**
+
+Un agente de otra conversación editó `dashboard.js` **directo en el VPS** —hizo lo que le pidieron,
+sin conocer las reglas de este repo—. La secuencia de rescate para recuperar ese cambio empezaba
+con `git add -A`, y el commit se llevó adentro:
+
+- `.env.save` (26 líneas) y `.enov11` (21) — las credenciales.
+- `almacenamiento/` — audios, fotos, PDFs y facturas de vecinos y proveedores reales.
+- `marcos_database.sqlite`.
+
+**No llegó a GitHub** porque se miró el `git status` antes de empujar. El repo se hace público cada
+vez que se usa el `curl`, así que ese push habría sido la filtración más grande del proyecto.
+
+Ahora `.gitignore` cubre `.env*`, `.enov*`, `almacenamiento/`, `*.sqlite`, `*.bak`, `*.roto` y
+`*.local`, con `!.env.ejemplo` para que la plantilla siga yendo al repo. Verificado con
+`git check-ignore`.
+
+Y para que no dependa de que alguien avise: **`docs/para-cualquier-agente.md`** — siete reglas
+cortas, pegables, para cualquier agente que llegue al repo desde otra conversación.
+
 ## Modificaciones Recientes de Visualización, Multimedia y Chat
 
 ### 1. Separación de Chats y Eliminación de Duplicados en Dashboard
@@ -2153,5 +2277,11 @@ Después de cualquiera de los tres arreglos, esos dos tienen que seguir diciendo
 - [x] **Panel**: renombrar un proveedor no llega a PostgreSQL, o sea a Marcos (punto 3)
 - [x] Sacar un edificio de un cliente deja huérfanas sus asignaciones, su consejo y el permiso —
       resuelto con `eliminar-edificio.js` y endpoint `/api/edificio-eliminar` con saneamiento en cascada
+- [x] **Panel**: la ficha del proveedor guarda VARIOS rubros, y la lista sale de `rubros.js`
+      (`RUBROS_CATALOGO`, 14) en vez de estar escrita a mano en `dashboard.js`. En móvil son
+      botones que se tocan: un `<select multiple>` necesita `Ctrl`/`Cmd`, que en un teléfono no existe.
+- [x] Casos cerrados de un solo lado por una caída de PostgreSQL — `emparejar-casos.js`
+- [ ] **Que una copia a PostgreSQL que falla no se pierda**: anotarla y reintentarla sola.
+      `emparejar-casos.js` limpia lo que dejó una caída; esto evitaría la próxima.
 - [ ] Twilio + chip Movistar: agregar `VAPI_API_KEY`, `TWILIO_*` al `.env`
 - [ ] Test end-to-end WhatsApp + llamadas
