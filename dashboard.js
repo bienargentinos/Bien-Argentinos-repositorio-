@@ -630,7 +630,8 @@ function mapConsejo(r) {
 }
 
 // Rubros sugeridos (el cliente puede escribir otro).
-const RUBROS_PROVEEDOR = ['Plomero', 'Gasista', 'Electricista', 'Ascensores', 'Cerrajero', 'Pintor', 'Limpieza', 'Seguridad', 'Otro'];
+// La lista la manda el motor: ver `rubros.js`. Tener una propia acá es como se separaron.
+const RUBROS_PROVEEDOR = require('./rubros').RUBROS_CATALOGO;
 const PRIORIDADES = [
   { key: 'primera', label: '1ra opción', bg: '#E7F4EC', fg: '#1B7A43' },
   { key: 'segunda', label: '2da opción', bg: '#EAF1FB', fg: '#2C55A8' },

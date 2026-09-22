@@ -5,6 +5,70 @@
 // reclamo nuevo es la continuación de un caso abierto o es otro caso) y la derivación de casos.
 // Tenerlo copiado en cada uno garantizaba que un rubro se leyera distinto según quién preguntara.
 
+// ── LAS FAMILIAS, Y LA LISTA QUE SE LE OFRECE A UNA PERSONA ─────────────────────────────────
+//
+// > [!CAUTION]
+// > **El panel tenía su propia lista de rubros y el motor la suya, y nada las obligaba a
+// > coincidir.** Se separaron, como se separa todo lo que está escrito dos veces en este
+// > proyecto.
+//
+// `dashboard.js` ofrecía `['Plomero', 'Gasista', 'Electricista', 'Ascensores', 'Cerrajero',
+// 'Pintor', 'Limpieza', 'Seguridad', 'Otro']` — **sin CCTV, sin portería y sin control de
+// acceso**, que son tres rubros que el motor distingue desde hace rato y a propósito.
+//
+// Lo que eso rompía es justo el caso de Daniel: *"soy electricista primero y urgencias, CCTV
+// urgencias y primero también"*. Para un trabajo de cámaras tenía que elegir "Otro" o
+// "Electricista", y con el rubro cargado así se pierde la precisión que el rubro existe para
+// dar: separar un reclamo nuevo del abierto, y elegir a quién llamar por `edificio + rubro`.
+//
+// Ahora la lista vive acá, al lado de las familias, y el panel la importa. `pruebas-rubros.js`
+// exige que **toda familia tenga su entrada en la lista**: agregar una familia nueva al motor y
+// olvidarse del panel deja la prueba en rojo.
+const FAMILIAS = [
+    ['electr', 'luz', 'tablero', 'iluminacion'],
+    ['plom', 'agua', 'cloaca', 'cania', 'caño'],
+    ['gas', 'calder', 'termotanque'],
+    ['cerraj', 'llav'],
+    // Las de corriente débil van SEPARADAS de electricidad y separadas entre sí. Son trabajos
+    // distintos aunque los haga el mismo electricista: cambiar un portero no es poner una
+    // cámara ni configurar tarjetas de acceso.
+    ['porter', 'citofon', 'frente de calle'],
+    ['cctv', 'camara', 'cámara', 'videovigilancia', 'dvr', 'nvr'],
+    ['control de acceso', 'tarjeta', 'huella', 'molinete', 'cerradura magn', 'pestillo magn'],
+    ['alban', 'albañ', 'mamposter', 'pared'],
+    ['ascensor', 'montacarga'],
+    ['refriger', 'aire', 'split'],
+];
+
+/**
+ * Lo que el administrador puede elegir al cargar un proveedor. Se guardan **varios, separados por
+ * comas**: una persona hace más de un oficio, y cada uno se asigna a un edificio con su propia
+ * prioridad.
+ *
+ * Los cuatro últimos no tienen familia y está bien: son oficios que nadie nombra de dos formas
+ * distintas, así que no hace falta desambiguarlos. Las familias existen para las que sí.
+ *
+ * Los nombres se mantienen **como ya estaban escritos** en los datos de producción (`Plomero`,
+ * `Electricista`…): cambiarlos rompería las fichas cargadas, y `atiendeRubro` compara por
+ * contenido, así que `CCTV` encuentra su familia igual.
+ */
+const RUBROS_CATALOGO = [
+    'Electricista',
+    'Plomero',
+    'Gasista',
+    'Cerrajero',
+    'Portería',
+    'CCTV',
+    'Control de acceso',
+    'Albañilería',
+    'Ascensores',
+    'Refrigeración',
+    'Pintor',
+    'Limpieza',
+    'Seguridad',
+    'Otro',
+];
+
 /**
  * Si dos formas de nombrar un oficio son el mismo oficio.
  *
@@ -17,22 +81,7 @@ function coincideRubro(a, b) {
     if (!x || !y) return false;
     if (x.includes(y) || y.includes(x)) return true;
 
-    const familias = [
-        ['electr', 'luz', 'tablero', 'iluminacion'],
-        ['plom', 'agua', 'cloaca', 'cania', 'caño'],
-        ['gas', 'calder', 'termotanque'],
-        ['cerraj', 'llav'],
-        // Las de corriente débil van SEPARADAS de electricidad y separadas entre sí. Son trabajos
-        // distintos aunque los haga el mismo electricista: cambiar un portero no es poner una
-        // cámara ni configurar tarjetas de acceso.
-        ['porter', 'citofon', 'frente de calle'],
-        ['cctv', 'camara', 'cámara', 'videovigilancia', 'dvr', 'nvr'],
-        ['control de acceso', 'tarjeta', 'huella', 'molinete', 'cerradura magn', 'pestillo magn'],
-        ['alban', 'albañ', 'mamposter', 'pared'],
-        ['ascensor', 'montacarga'],
-        ['refriger', 'aire', 'split'],
-    ];
-    return familias.some(f => f.some(t => x.includes(t)) && f.some(t => y.includes(t)));
+    return FAMILIAS.some(f => f.some(t => x.includes(t)) && f.some(t => y.includes(t)));
 }
 
 // Un electricista de edificios no hace solo electricidad: hace portería, control de acceso y
@@ -155,4 +204,4 @@ function rubroDelCaso(texto, especialidad = '') {
     return ficha;
 }
 
-module.exports = { coincideRubro, atiendeRubro, rubroDelTexto, rubroDelCaso };
+module.exports = { coincideRubro, atiendeRubro, rubroDelTexto, rubroDelCaso, FAMILIAS, RUBROS_CATALOGO };
