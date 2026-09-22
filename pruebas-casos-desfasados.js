@@ -30,7 +30,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { decidirCaso, compararCasos } = require('./casos-desfasados');
+const { decidirCaso, compararCasos, loQueSePuedeAplicar } = require('./casos-desfasados');
 
 let ok = 0, fallos = 0;
 function vale(titulo, condicion, detalle) {
@@ -91,11 +91,46 @@ console.log('\n4) Lo que dice lo mismo no se toca');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-console.log('\n5) Dos estados distintos y ninguno cerrado: se informa, no se elige');
+console.log('\n5) Dos estados distintos y ninguno cerrado: solo si se pide');
 // ─────────────────────────────────────────────────────────────────────────────
 {
-    const d = decidirCaso({ enSheets: sh('nuevo'), enPg: pg('en_proceso') });
-    vale('no urge, pero no se adivina cuál gana', d.accion === 'revisar', `Dio: ${d.accion}`);
+    const d = decidirCaso({ enSheets: sh('en_proceso'), enPg: pg('nuevo') });
+    vale('queda aparte, como "sincronizar_estado"', d.accion === 'sincronizar_estado', `Dio: ${d.accion}`);
+
+    vale('sin la bandera NO se toca',
+        loQueSePuedeAplicar([{ caso: 'CASO-1', ...d }], {}).length === 0,
+        'El daño de hoy es cero: ninguno está cerrado. No se toca por defecto.');
+
+    vale('con `--tambien-estados` sí',
+        loQueSePuedeAplicar([{ caso: 'CASO-1', ...d }], { tambienEstados: true }).length === 1);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n5b) Pero NINGUNA bandera reabre un caso');
+// ─────────────────────────────────────────────────────────────────────────────
+{
+    // Esto es lo único que no se puede aflojar nunca. Se prueba con datos, no leyendo el código:
+    // un candado que mira texto se esquiva sin querer con cualquier refactor.
+    const reabrir = { caso: 'CASO-1001', ...decidirCaso({ enSheets: sh('nuevo'), enPg: pg('resuelto') }) };
+    vale('la acción es "revisar"', reabrir.accion === 'revisar');
+
+    for (const banderas of [{}, { tambienEstados: true }, { tambienEstados: false }]) {
+        const r = loQueSePuedeAplicar([reabrir], banderas);
+        vale(`con ${JSON.stringify(banderas)} no entra en lo que se aplica`, r.length === 0,
+            'Reabrir le mete a la Administración un reclamo ya resuelto y reinicia el seguimiento.');
+    }
+
+    // Y mezclado con otros, que es como llega de verdad.
+    const mezcla = [
+        reabrir,
+        { caso: 'CASO-1002', ...decidirCaso({ enSheets: sh('resuelto'), enPg: pg('nuevo') }) },
+        { caso: 'CASO-1003', ...decidirCaso({ enSheets: sh('en_proceso'), enPg: pg('nuevo') }) },
+        { caso: 'CASO-1004', ...decidirCaso({ enSheets: sh('nuevo'), enPg: null }) },
+    ];
+    const conTodo = loQueSePuedeAplicar(mezcla, { tambienEstados: true }).map(d => d.caso);
+    vale('en una mezcla, con todas las banderas, solo entran los dos seguros',
+        JSON.stringify(conTodo) === JSON.stringify(['CASO-1002', 'CASO-1003']),
+        `Entraron: ${conTodo.join(', ')}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,9 +188,10 @@ console.log('\n8) La herramienta nunca reabre un caso');
     vale('hay un solo UPDATE en toda la herramienta', updates.length === 1,
         `Hay ${updates.length}: ${updates.join(', ')}`);
 
-    vale('y recorre `aCerrar`, no las diferencias completas',
-        /for\s*\(const d of aCerrar\)/.test(tool),
-        'Aplicarlo sobre todas las diferencias reabriría casos ya resueltos.');
+    vale('y recorre lo que devolvió `loQueSePuedeAplicar`, no las diferencias completas',
+        /for\s*\(const d of aAplicar\)/.test(tool) && /loQueSePuedeAplicar\(/.test(tool),
+        'Filtrar por acción adentro de la herramienta sería un segundo criterio, y el día que ' +
+        'alguien cambie uno el otro queda viejo. Eso es lo que pasó con buscarPerfilEdificio.');
 
     vale('el estado se copia de la planilla, no es una palabra fija',
         /d\.enSheets\.estado/.test(tool),

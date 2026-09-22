@@ -81,13 +81,40 @@ function decidirCaso({ enSheets, enPg }) {
         };
     }
 
-    // Dos estados distintos pero ninguno cerrado (`nuevo` vs `en_proceso`, por ejemplo). No hace
-    // daño y no hay forma de saber cuál es el bueno sin mirar el caso.
+    // Dos estados distintos pero ninguno cerrado (`nuevo` vs `en_proceso`, por ejemplo).
+    //
+    // Esto NO se arregla por defecto: ninguno está cerrado, así que el barrido los trata igual y
+    // el panel los muestra igual — el daño de hoy es cero. Pero tampoco se puede dejar
+    // reportándose para siempre, porque una herramienta que siempre muestra lo mismo es una que se
+    // deja de mirar; es el mismo problema del contador que mentía.
+    //
+    // Con `--tambien-estados` se copia la planilla a PostgreSQL. La advertencia va acá escrita
+    // porque importa: esa dirección es cierta para una caída de PostgreSQL --que es cuando se
+    // perdieron estas escrituras-- y **no es una ley general**. Si el panel escribiera un estado
+    // viejo encima, esta regla lo copiaría igual.
     return {
-        accion: 'revisar',
+        accion: 'sincronizar_estado',
         motivo: `la planilla dice "${sh || '(vacío)'}" y PostgreSQL "${pg || '(vacío)'}". ` +
                 `Ninguno está cerrado, así que no urge, pero alguien escribió en una sola base.`,
     };
+}
+
+/**
+ * Qué se va a escribir de verdad, según las banderas.
+ *
+ * > [!CAUTION]
+ * > **Acá está el único lugar donde se decide qué se toca, y por eso está aparte y se prueba con
+ * > datos reales en vez de mirando el código.**
+ *
+ * `cerrar_en_pg` entra siempre. `sincronizar_estado` entra solo si se lo pide explícitamente. Y
+ * `revisar` --que es el caso donde PostgreSQL da el caso por cerrado y la planilla no-- **no entra
+ * nunca, con ninguna bandera**: reabrir un caso resuelto le mete a la Administración un reclamo
+ * que ya está hecho y reinicia el seguimiento contra un técnico que ya pasó.
+ */
+function loQueSePuedeAplicar(diferencias, { tambienEstados = false } = {}) {
+    return diferencias.filter(d =>
+        d.accion === 'cerrar_en_pg' || (tambienEstados && d.accion === 'sincronizar_estado')
+    );
 }
 
 /** Cruza las dos listas y devuelve una decisión por caso, ordenadas por código. */
@@ -115,4 +142,4 @@ function compararCasos(filasSheets, filasPg) {
         .filter(r => r.accion);
 }
 
-module.exports = { decidirCaso, compararCasos, CERRADOS };
+module.exports = { decidirCaso, compararCasos, loQueSePuedeAplicar, CERRADOS };
