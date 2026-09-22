@@ -1,0 +1,46 @@
+# LAS 56 PRUEBAS, EN CADA PUSH, SIN QUE NADIE SE ACUERDE DE CORRERLAS
+#
+# `node verificar-antes-de-subir.js` era una convención: funcionaba mientras quien empujaba se
+# acordara. Con dos agentes trabajando sobre la misma rama, "acordarse" deja de ser un plan.
+#
+# Corre sin credenciales a propósito: ninguna de las pruebas necesita el `.env`, ni Google Sheets,
+# ni PostgreSQL. Son pruebas de lógica y candados sobre el código escrito. Por eso esto puede vivir
+# en GitHub sin que haya un solo secreto configurado — y por eso, si alguien escribe una prueba que
+# necesita la base prendida, este archivo se pone rojo y hay que separarla, no darle credenciales.
+#
+# Lo que esto NO es: no despliega nada. El VPS se sigue actualizando a mano con `git pull` y
+# `pm2 restart marcos-ai`, que es la regla de oro del repo. Esto solo dice si el código está sano.
+
+name: Verificar antes de subir
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # `npm ci` y no `npm install`: instala exactamente lo que dice package-lock.json. Si alguien
+      # usó una librería sin declararla en el mismo commit --lo que el contrato del repo prohíbe--
+      # acá se cae, que es justo donde tiene que caerse.
+      #
+      # SIN `--omit=dev`, a propósito: el verificador usa `acorn` y `acorn-walk` para leer el
+      # JavaScript que va al navegador y para encontrar variables usadas fuera de su alcance, y esas
+      # dos son devDependencies. Con `--omit=dev` el CI daba rojo con el código perfecto — la peor
+      # clase de falla, porque enseña a ignorar el semáforo.
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Verificar
+        run: node verificar-antes-de-subir.js

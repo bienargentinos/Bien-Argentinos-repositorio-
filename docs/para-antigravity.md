@@ -13,11 +13,15 @@ archivo. Se lee con `git pull` y se escribe con un commit normal.
 
 ## Arranque — para trabajar sin esperar a nadie
 
-**1. Traer lo último.** Siempre antes de empezar, y de nuevo antes de cada push: Claude está
-trabajando en la misma rama.
+**1. Traer lo último y salir a una rama propia.** El panel se trabaja en su rama, no directo sobre
+la de despliegue: así lo que está a medias no llega nunca al VPS.
 
 ```bash
 git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+```bash
+git checkout -b antigravity/panel-fase-1 origin/claude/marcos-ia-whatsapp-template-vpg8gw
 ```
 
 **2. Trabajar solo en `dashboard.js`.** El reparto está más abajo. Si hace falta tocar otra cosa,
@@ -31,13 +35,32 @@ node verificar-antes-de-subir.js
 
 Si sale rojo, **no subir**. El mensaje dice qué prueba falló y por qué.
 
-**4. Commitear y empujar a la misma rama.**
+**4. Empujar a la rama propia.**
 
 ```bash
-git push -u origin claude/marcos-ia-whatsapp-template-vpg8gw
+git push -u origin antigravity/panel-fase-1
 ```
 
-**5. Dejar escrito qué se hizo** en `docs/de-antigravity.md`, con fecha. Eso es lo que lee Claude.
+**5. Abrir UN Pull Request** hacia `claude/marcos-ia-whatsapp-template-vpg8gw`, y dejarlo abierto
+durante toda la fase 1. No hace falta uno por cambio: se sigue empujando a la misma rama y el PR se
+actualiza solo.
+
+Ese PR es donde Claude revisa y contesta. **Apenas esté abierto, pasale el número a Daniel** para
+que Claude se suscriba; desde ahí cada push le llega solo y comenta en el código, sin que Daniel
+tenga que copiar nada.
+
+**6. Dejar escrito qué se hizo** en `docs/de-antigravity.md`, con fecha. Eso es el resumen; el PR es
+el detalle.
+
+### El semáforo automático
+
+Cada push corre las 56 pruebas solo, en GitHub (`.github/workflows/verificar.yml`). No hay que
+acordarse de nada: si el PR está en rojo, no se mergea. Si está en verde, el código está sano
+—que no es lo mismo que "el cambio anda", eso se ve en el VPS—.
+
+Corre **sin credenciales** a propósito: ninguna prueba necesita el `.env`, ni Sheets, ni
+PostgreSQL. Si alguna vez una prueba nueva las necesita, el CI se pone rojo: la solución es separar
+esa prueba, no darle secretos a GitHub.
 
 ### Desplegar y verificar (en el VPS, no en la PC)
 
