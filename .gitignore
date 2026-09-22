@@ -1,5 +1,4 @@
 node_modules/
-.env
 temp/
 *.log
 gen-lang-client-*.json
@@ -7,3 +6,40 @@ vps_info.md
 backups/
 env.json
 *.env.json
+
+# ── CREDENCIALES ────────────────────────────────────────────────────────────
+#
+# > [!CAUTION]
+# > **Estaba solo `.env`, y en el VPS conviven `.env.save` y `.enov11`.**
+#
+# Los dos aparecían como archivos sin rastrear, o sea a un `git add -A` de distancia de GitHub —
+# y este repo se hace PÚBLICO cada vez que se usa el `curl` de CLAUDE.md. Así se filtró la
+# contraseña de root una vez; borrarla del archivo no la saca del historial de git.
+#
+# El patrón va amplio a propósito: cualquier variante futura (`.env.viejo`, `.env.bak`) queda
+# cubierta sin que nadie tenga que acordarse de agregarla acá.
+.env
+.env*
+.enov*
+
+# El ejemplo SÍ va al repo: no tiene ningún valor real, solo los nombres de las variables.
+!.env.ejemplo
+
+# ── DATOS DE PERSONAS REALES ────────────────────────────────────────────────
+#
+# Fotos de reclamos, notas de voz de vecinos, facturas de proveedores con su CBU. Nada de esto
+# puede terminar en un repositorio, y menos en uno que se hace público de a ratos.
+almacenamiento/
+*.sqlite
+*.sqlite3
+
+# ── RESTOS DE TRABAJO EN EL SERVIDOR ────────────────────────────────────────
+#
+# Copias manuales de archivos del motor (`index.js.bak-20260806-0010`, `index.js.roto`) y scripts
+# sueltos de prueba. No son el código: son lo que quedó de un apuro. Commitearlos por accidente
+# haría que alguien más tarde no sepa cuál es el archivo bueno.
+*.bak
+*.bak-*
+*.roto
+*.local
+FETCH_HEAD
