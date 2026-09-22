@@ -310,11 +310,39 @@ async function revisarSeguimientos(deps) {
         const vencidos = await obtenerSeguimientosVencidos();
         if (!vencidos.length) return;
 
-        console.log(`⏱️ ${vencidos.length} caso(s) con seguimiento vencido.`);
-        for (const caso of vencidos) {
+        // > [!CAUTION]
+        // > **Este contador se imprimía ANTES de descartar los casos que ya están escalados, así
+        // > que decía que había trabajo cuando no había ninguno.**
+        //
+        // Costó un diagnóstico entero. En el log, cada cinco minutos durante horas:
+        //
+        //     ⏱️ 3 caso(s) con seguimiento vencido.
+        //
+        // y nada más: ni un mensaje enviado, ni un caso avanzando. Parecía un estancamiento --tres
+        // casos que el barrido levanta y no puede procesar-- y se buscó la causa en el agendado,
+        // en las dos bases, en el techo de pedidos de Google. No era ninguna: los tres estaban en
+        // **paso 9**, ya en manos del administrador, y el `continue` de más abajo los descartaba
+        // correctamente. El sistema estaba al día. La línea mentía.
+        //
+        // Un contador que cuenta lo que está por descartar es peor que no tener contador: manda a
+        // buscar un problema que no existe, y mientras tanto tapa los que sí. Ahora se cuenta lo
+        // que de verdad se va a atender, y lo descartado se dice aparte.
+        const escalados = vencidos.filter(c => c.paso >= 9);
+        const porAtender = vencidos.filter(c => c.paso < 9);
+
+        // Sin nada que atender, el barrido se calla —igual que cuando no hay ningún vencido, tres
+        // líneas más arriba—. La regla queda: **habla solo cuando hace algo.** Un caso escalado
+        // conserva su fecha vencida para siempre, así que anunciarlo en cada vuelta son 288
+        // líneas por día diciendo que no pasa nada, y el ruido constante es lo que hace que un
+        // log se deje de leer.
+        if (!porAtender.length) return;
+
+        console.log(`⏱️ ${porAtender.length} caso(s) con seguimiento vencido para atender` +
+                    (escalados.length ? ` (${escalados.length} más ya escalado(s), se omiten).` : '.'));
+
+        for (const caso of porAtender) {
             // Un caso que falla no puede frenar a los demás.
             try {
-                if (caso.paso >= 9) continue; // ya está en manos del administrador
 
                 // Se relee el caso justo antes de actuar. La lista de vencidos puede venir de una
                 // copia desactualizada, y un control que llega tarde a un caso ya resuelto no es

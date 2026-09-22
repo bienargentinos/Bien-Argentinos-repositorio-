@@ -150,10 +150,75 @@ console.log('\n4) El estado viaja desde las DOS bases, no solo desde Sheets');
     }
 }
 
-console.log(`\n${'─'.repeat(70)}`);
-console.log(`   ${ok} bien, ${fallos} mal`);
-if (fallos) {
-    console.log('\n   ⚠️  Un caso trabado en silencio se repite cada 5 minutos para siempre.\n');
-    process.exit(1);
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n5) El barrido no anuncia trabajo que no va a hacer');
+// ─────────────────────────────────────────────────────────────────────────────
+{
+    // > [!CAUTION]
+    // > **El contador se imprimía ANTES de descartar los casos ya escalados.**
+    //
+    // En producción decía `⏱️ 3 caso(s) con seguimiento vencido.` cada cinco minutos durante
+    // horas, sin mandar nada. Los tres estaban en paso 9 --ya en manos del administrador-- y el
+    // barrido los descartaba bien. El sistema estaba al día; la línea mentía, y mandó a buscar un
+    // estancamiento que no existía.
+    //
+    // Esto no se puede verificar leyendo el código: hay que correr el barrido y escuchar.
+    const { revisarSeguimientos } = require('./seguimiento');
+
+    async function barrerEscuchando(casos) {
+        const dicho = [];
+        // Se capturan los tres: `procesarUnCaso` carga `datos-pg` y `marcos-ops` de verdad, y sin
+        // `.env` esos avisan por `warn`/`error`. Es ruido del entorno de prueba, no del barrido —
+        // dejarlo suelto haría que el CI pareciera roto estando en verde.
+        const original = { log: console.log, warn: console.warn, error: console.error };
+        console.log = (...a) => { dicho.push(a.join(' ')); };
+        console.warn = () => {};
+        console.error = () => {};
+        try {
+            await revisarSeguimientos({
+                obtenerSeguimientosVencidos: async () => casos,
+                programarSeguimiento: async () => true,
+                buscarTecnicoAsignado: async () => ({ nombre: 'Dario', telefono: '541169241157' }),
+                buscarTecnicoSuplente: async () => null,
+                enviarWhatsApp: async () => true,
+                notificarEscalacionAlAdmin: async () => {},
+                phoneNumberId: 'PHONE', accessToken: 'TOKEN',
+            });
+        } finally {
+            console.log = original.log; console.warn = original.warn; console.error = original.error;
+        }
+        return dicho;
+    }
+
+    const caso = (paso) => ({
+        id_evento: `CASO-100${paso}`, edificio: 'san patricio casa', vecino: 'Daniel',
+        telefono: '5491150542005', problema: 'Puerta', urgencia: 'alta',
+        tecnico: 'Dario', paso, nota: '',
+    });
+
+    (async () => {
+        const soloEscalados = await barrerEscuchando([caso(9), caso(9), caso(9)]);
+        const anuncia = soloEscalados.filter(l => /caso\(s\) con seguimiento vencido/.test(l));
+        vale('con todos escalados, no dice que hay vencidos para atender', anuncia.length === 0,
+            `Dijo: ${anuncia.join(' | ')} — eso manda a buscar un estancamiento que no existe.`);
+
+        const mezcla = await barrerEscuchando([caso(1), caso(9), caso(9)]);
+        const linea = mezcla.find(l => /con seguimiento vencido/.test(l)) || '';
+        vale('con uno atendible, cuenta UNO y no tres', /\b1 caso\(s\)/.test(linea),
+            `Dijo: "${linea}" — el contador tiene que contar lo que se va a atender.`);
+        vale('…y aclara cuántos omitió', /2 m[áa]s ya escalado/.test(linea),
+            `Dijo: "${linea}"`);
+
+        console.log(`\n${'─'.repeat(70)}`);
+        console.log(`   ${ok} bien, ${fallos} mal`);
+        if (fallos) {
+            console.log('\n   ⚠️  Un caso trabado en silencio se repite cada 5 minutos para siempre.\n');
+            process.exit(1);
+        }
+        console.log('\n   ⏱️ Si no se puede agendar, se sabe por qué. Y si no hay nada que hacer, no se inventa.\n');
+    })();
 }
-console.log('\n   ⏱️ Si no se puede agendar, se sabe por qué.\n');
+
+// El resumen lo imprime el bloque 5, que es asíncrono. Acá no va nada: impreso desde afuera
+// saldría ANTES de que el barrido corra, y diría que está todo bien sin haber mirado — que es
+// justo la clase de informe falso que esta prueba existe para prohibir.
