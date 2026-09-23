@@ -314,9 +314,13 @@ async function _initPgSchema() {
                 apellido VARCHAR(150),
                 telefono VARCHAR(50),
                 activo BOOLEAN DEFAULT TRUE,
+                idioma VARCHAR(8) DEFAULT 'es',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            -- El idioma en que el vecino ve el portal. Con DEFAULT 'es' para que las filas que
+            -- ya existen no queden en NULL: un idioma vacio dejaria la pantalla sin textos.
+            ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS idioma VARCHAR(8) DEFAULT 'es';
 
             CREATE TABLE IF NOT EXISTS usuario_unidades (
                 id SERIAL PRIMARY KEY,
@@ -1095,7 +1099,7 @@ async function obtenerUsuarioPorEmail(email) {
 
 async function obtenerUsuarioPorId(id) {
     if (!id) return null;
-    const res = await pool.query('SELECT id, email, nombre, apellido, telefono, activo, created_at FROM usuarios WHERE id = $1', [id]);
+    const res = await pool.query('SELECT id, email, nombre, apellido, telefono, idioma, activo, created_at FROM usuarios WHERE id = $1', [id]);
     return res.rows[0] || null;
 }
 
@@ -1107,17 +1111,19 @@ async function obtenerUsuarioPorId(id) {
 //
 // `COALESCE(NULLIF(...))` deja el valor viejo cuando llega vacío: un formulario que manda el campo
 // en blanco no tiene por qué borrar el teléfono que ya estaba.
-async function actualizarPerfilUsuario(usuarioId, { nombre, apellido, telefono } = {}) {
+async function actualizarPerfilUsuario(usuarioId, { nombre, apellido, telefono, idioma } = {}) {
     if (!usuarioId) throw new Error('Falta el usuario');
     const res = await pool.query(
         `UPDATE usuarios
             SET nombre   = COALESCE(NULLIF($2, ''), nombre),
                 apellido = COALESCE(NULLIF($3, ''), apellido),
                 telefono = COALESCE(NULLIF($4, ''), telefono),
+                idioma   = COALESCE(NULLIF($5, ''), idioma),
                 updated_at = NOW()
           WHERE id = $1
-      RETURNING id, email, nombre, apellido, telefono`,
-        [usuarioId, String(nombre || '').trim(), String(apellido || '').trim(), String(telefono || '').trim()]
+      RETURNING id, email, nombre, apellido, telefono, idioma`,
+        [usuarioId, String(nombre || '').trim(), String(apellido || '').trim(),
+         String(telefono || '').trim(), String(idioma || '').trim()]
     );
     if (!res.rows[0]) throw new Error('No existe ese usuario');
     return res.rows[0];

@@ -30,6 +30,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { sesionDemoVecino } = require('./sesion-demo');
+const { IDIOMAS, textos, normalizarIdioma, idiomaDelNavegador } = require('./idiomas');
 
 // Almacenamiento seguro de comprobantes de pago subidos por vecinos
 const storageComprobantes = multer.diskStorage({
@@ -310,14 +311,24 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
 }
 
 /* Subtítulos de sección, etiquetas uppercase y destacados: AMARILLO ORO BRILLANTE */
-.dark-theme [style*="text-transform:uppercase"],
-.dark-theme [style*="text-transform: uppercase"],
+/* Acá vivía una regla que pintaba de dorado CUALQUIER texto en mayúsculas del portal:
+
+       .dark-theme [style*="text-transform:uppercase"] { color: #FBBF24 !important; }
+
+   Los rótulos de los campos (NOMBRE, TELÉFONO, EMAIL) son todos mayúsculas, así que en modo
+   oscuro la pantalla entera se llenaba de amarillo. No estaba señalando nada: el dorado no
+   significaba "mirá esto", significaba "esto está en mayúsculas".
+
+   El color se reserva para lo que tiene sentido -- salió bien, mirá esto, falló. Un rótulo de
+   campo usa var(--texto-medio), que ya se adapta solo a los dos temas.
+
+   (Ojo: nada de acentos graves en este comentario. Todo el CSS viaja adentro de un template
+   literal de JavaScript, asi que uno solo cierra la cadena y rompe el archivo entero. Ya paso
+   igual en db-pg.js y esta contado en CLAUDE.md.) */
 .dark-theme .sec-tag,
 .dark-theme .servicios-titulo,
 .dark-theme .tag-amarillo {
-  color: #FBBF24 !important; /* Amarillo oro bien visible */
-  font-weight: 800 !important;
-}
+  color: var(--dorado) !important;
 
 /* Estados verdes normales adaptados a Verde Lima luminoso */
 .dark-theme [style*="color:var(--ok)"],
@@ -801,8 +812,7 @@ input:checked + .slider-timbre:before {
   font-weight: 900 !important;
 }
 .dark-theme .ocupante-contacto {
-  color: #FBBF24 !important; /* Amarillo en vez de gris */
-  font-weight: 700 !important;
+  color: var(--texto-suave) !important;   /* era amarillo: un teléfono no es una alerta */
 }
 .dark-theme .ocupante-timbre-status.timbre-on {
   color: #4ADE80 !important;
@@ -972,22 +982,23 @@ function esElMismoVecino(guardado, v) {
 // para lo que significa algo -- esto salio bien, mira esto, esto fallo. Un rol es una etiqueta,
 // no una alarma, y eran cuatro colores mas compitiendo en la misma pantalla.
 const ROLES_VECINO = {
-  propietario: { txt: 'Propietario', icono: 'crown-simple' },
-  inquilino:   { txt: 'Inquilino',   icono: 'key' },
-  turista:     { txt: 'Huésped',     icono: 'suitcase-simple' },
-  asistente:   { txt: 'Gestor',      icono: 'buildings' },
-  registrado:  { txt: 'Sin unidad',  icono: 'user-circle-dashed' },
+  propietario: { icono: 'crown-simple' },
+  inquilino:   { icono: 'key' },
+  turista:     { icono: 'suitcase-simple' },
+  asistente:   { icono: 'buildings' },
+  registrado:  { icono: 'user-circle-dashed' },
 };
 
 // El badge armado, para no repetir el mismo bloque de estilo en cada pantalla.
 // `sobreOscuro` es para la cabecera azul, donde la superficie neutra no se ve.
-function etiquetaRolHtml(rol, { sobreOscuro = false } = {}) {
+function etiquetaRolHtml(rol, t, { sobreOscuro = false } = {}) {
   const r = etiquetaRol(rol);
+  const nombre = t(`rol.${ROLES_VECINO[rol] ? rol : 'propietario'}`);
   const fondo = sobreOscuro ? 'rgba(255,255,255,.16)' : 'var(--superficie-3)';
   const color = sobreOscuro ? 'var(--sobre-acento)' : 'var(--texto-medio)';
   return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:800;`
     + `background:${fondo};color:${color};padding:2px 8px;border-radius:999px;white-space:nowrap">`
-    + `<i class="ph ph-${r.icono}" style="font-size:12px"></i>${esc(r.txt)}</span>`;
+    + `<i class="ph ph-${r.icono}" style="font-size:12px"></i>${esc(nombre)}</span>`;
 }
 
 function etiquetaRol(rol) {
@@ -1000,6 +1011,7 @@ function iniciales(v) {
 
 function shellVecino(title, activeTab, content, vecinoData) {
   const v = vecinoData || getVecinoSession({});
+  const t = textos(v.idioma);
 
   return `<!DOCTYPE html>
 <html lang="es-AR">
@@ -1072,6 +1084,25 @@ function shellVecino(title, activeTab, content, vecinoData) {
       }
     }
   };
+  window.abrirIdiomas = function(ev) {
+    ev.stopPropagation();
+    var m = document.getElementById('menu-idiomas');
+    if (m) m.style.display = (m.style.display === 'block') ? 'none' : 'block';
+  };
+  document.addEventListener('click', function() {
+    var m = document.getElementById('menu-idiomas');
+    if (m) m.style.display = 'none';
+  });
+  window.elegirIdioma = async function(codigo) {
+    try {
+      var res = await fetch('/vecino/api/idioma', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idioma: codigo })
+      });
+      var data = await res.json();
+      if (data.ok) location.reload();
+    } catch (e) { console.warn('idioma:', e); }
+  };
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
       navigator.serviceWorker.register('/sw.js').catch(function(e){ console.warn('SW:', e); });
@@ -1091,8 +1122,8 @@ function shellVecino(title, activeTab, content, vecinoData) {
         </a>
         <div>
           <div style="display:flex;align-items:center;gap:6px">
-            <a href="/vecino/perfil" style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em;color:#fff;text-decoration:none">Hola, ${primerNombre(v)}</a>
-            ${etiquetaRolHtml(v.rol, { sobreOscuro: true })}
+            <a href="/vecino/perfil" style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em;color:#fff;text-decoration:none">${esc(t('topbar.hola', { nombre: primerNombre(v) }))}</a>
+            ${etiquetaRolHtml(v.rol, t, { sobreOscuro: true })}
           </div>
           ${v.unidades && v.unidades.length > 1 ? `
           <button type="button" onclick="abrirModalCambiarUnidad()" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--dorado);margin-top:3px;background:rgba(0,0,0,.3);border:1px solid rgba(251,191,36,0.5);border-radius:6px;padding:2px 8px;cursor:pointer">
@@ -1107,13 +1138,25 @@ function shellVecino(title, activeTab, content, vecinoData) {
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <a href="/vecino/perfil" title="Mi Perfil" style="width:36px;height:36px;border-radius:50%;background:${activeTab === 'perfil' ? 'rgba(255,255,255,.35)' : 'rgba(255,255,255,.15)'};display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none">
+        <div style="position:relative">
+          <button type="button" onclick="abrirIdiomas(event)" title="${esc(t('topbar.idioma'))}" style="width:36px;height:36px;border-radius:50%;border:none;background:rgba(255,255,255,.15);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff">
+            <i class="ph ph-translate" style="font-size:19px"></i>
+          </button>
+          <div id="menu-idiomas" style="display:none;position:absolute;right:0;top:42px;background:var(--superficie);border:1px solid var(--borde);border-radius:14px;box-shadow:var(--sombra-alta);overflow:hidden;z-index:60;min-width:168px">
+            ${IDIOMAS.map(i => `
+            <button type="button" onclick="elegirIdioma('${i.codigo}')" style="display:flex;align-items:center;gap:9px;width:100%;padding:11px 14px;border:none;background:${i.codigo === t.idioma ? 'var(--acento-tenue)' : 'transparent'};color:var(--texto);font-size:13.5px;font-weight:${i.codigo === t.idioma ? '800' : '600'};cursor:pointer;text-align:left;font-family:inherit">
+              <span style="font-size:15px">${i.bandera}</span><span>${i.nombre}</span>
+              ${i.codigo === t.idioma ? '<i class="ph ph-check" style="margin-left:auto;font-size:14px;color:var(--acento)"></i>' : ''}
+            </button>`).join('')}
+          </div>
+        </div>
+        <a href="/vecino/perfil" title="${esc(t('topbar.perfil'))}" style="width:36px;height:36px;border-radius:50%;background:${activeTab === 'perfil' ? 'rgba(255,255,255,.35)' : 'rgba(255,255,255,.15)'};display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none">
           <i class="ph ph-user-circle" style="font-size:19px"></i>
         </a>
         <button onclick="toggleTheme()" style="width:36px;height:36px;border-radius:50%;border:none;background:rgba(255,255,255,.15);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff">
           <i class="ph ph-moon" style="font-size:18px"></i>
         </button>
-        <a href="/vecino/logout" title="Cerrar sesión" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none">
+        <a href="/vecino/logout" title="${esc(t('topbar.salir'))}" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none">
           <i class="ph ph-sign-out" style="font-size:18px"></i>
         </a>
       </div>
@@ -1129,11 +1172,11 @@ function shellVecino(title, activeTab, content, vecinoData) {
   <nav class="v-bottom-nav">
     <a href="/vecino" class="${activeTab === 'inicio' ? 'active' : ''}">
       <span class="nav-icon"><i class="ph ph-house${activeTab === 'inicio' ? '-fill' : ''}"></i></span>
-      <span>Inicio</span>
+      <span>${esc(t('nav.inicio'))}</span>
     </a>
     <a href="/vecino/chat" class="${activeTab === 'chat' ? 'active' : ''}">
       <span class="nav-icon"><i class="ph ph-chat-circle-dots${activeTab === 'chat' ? '-fill' : ''}"></i></span>
-      <span>Marcos IA</span>
+      <span>${esc(t('nav.chat'))}</span>
     </a>
     
     <!-- Botón Central QR Portería -->
@@ -1141,21 +1184,21 @@ function shellVecino(title, activeTab, content, vecinoData) {
       <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--marca),var(--acento));color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(15,50,106,.35);border:3px solid #fff">
         <i class="ph ph-qr-code" style="font-size:26px"></i>
       </div>
-      <span style="font-size:10.5px;font-weight:800;color:var(--marca);margin-top:2px">Portería</span>
+      <span style="font-size:10.5px;font-weight:800;color:var(--marca);margin-top:2px">${esc(t('nav.porteria'))}</span>
     </a>
 
     <a href="/vecino/amenities" class="${activeTab === 'amenities' ? 'active' : ''}">
       <span class="nav-icon"><i class="ph ph-calendar-check${activeTab === 'amenities' ? '-fill' : ''}"></i></span>
-      <span>Amenities</span>
+      <span>${esc(t('nav.amenities'))}</span>
     </a>
     ${v.puede_ver_expensas !== false ? `
     <a href="/vecino/expensas" class="${activeTab === 'expensas' ? 'active' : ''}">
       <span class="nav-icon"><i class="ph ph-receipt${activeTab === 'expensas' ? '-fill' : ''}"></i></span>
-      <span>Expensas</span>
+      <span>${esc(t('nav.expensas'))}</span>
     </a>` : `
     <a href="/vecino/novedades" class="${activeTab === 'novedades' ? 'active' : ''}">
       <span class="nav-icon"><i class="ph ph-bell-simple${activeTab === 'novedades' ? '-fill' : ''}"></i></span>
-      <span>Avisos</span>
+      <span>${esc(t('nav.avisos'))}</span>
     </a>`}
   </nav>
 
@@ -1987,7 +2030,7 @@ ${CSS_FORMULARIOS}
         </div>
 
         <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Contraseña</label>
-        <input id="inp-reg-pass" type="password" class="inp" placeholder="Mínimo 6 caracteres" required>
+        <input id="inp-reg-pass" type="password" class="inp" placeholder="${esc(t('perfil.passNuevaPlaceholder'))}" required>
 
         <!-- Depto y Rol eliminados para registro limpio -->
 
@@ -2390,6 +2433,7 @@ router.post('/api/login-email', async (req, res) => {
         nombre: u.nombre || 'Vecino',
         apellido: u.apellido || '',
         email: u.email,
+        idioma: normalizarIdioma(u.idioma),
         telefono: u.telefono || '',
         edificio: uActiva.edificio,
         departamento: uActiva.departamento,
@@ -2430,6 +2474,7 @@ router.post('/api/registro-email', async (req, res) => {
         apellido: u.apellido,
         email: u.email,
         telefono: u.telefono,
+        idioma: idiomaDelNavegador(req.headers['accept-language']),
         edificio: '',
         departamento: '',
         rol: 'registrado',
@@ -2483,6 +2528,7 @@ router.post('/api/cambiar-unidad', async (req, res) => {
 // propia unidad sin que nadie se entere.
 router.get('/perfil', (req, res) => {
   const v = getVecinoSession(req);
+  const t = textos(v.idioma);
   const unidades = v.unidades || [];
   const rol = etiquetaRol(v.rol);
 
@@ -2510,14 +2556,14 @@ router.get('/perfil', (req, res) => {
         <div style="min-width:0">
           <div style="font-size:13.5px;font-weight:900;color:var(--texto)">${esc(u.edificio)} · ${esc(u.departamento)}</div>
           <div style="display:inline-flex;align-items:center;gap:6px;margin-top:4px">
-            ${etiquetaRolHtml(u.rol)}
-            ${u.puede_ver_expensas === false ? '<span style="font-size:10.5px;color:var(--texto-suave)">· sin expensas</span>' : ''}
+            ${etiquetaRolHtml(u.rol, t)}
+            ${u.puede_ver_expensas === false ? `<span style="font-size:10.5px;color:var(--texto-suave)">· ${esc(t('perfil.sinExpensas'))}</span>` : ''}
           </div>
           ${fechas}
         </div>
         ${activa
-          ? '<span style="font-size:11px;font-weight:900;color:var(--acento);flex-shrink:0">● Viendo</span>'
-          : `<button type="button" onclick="usarUnidad('${escJs(u.edificio)}', '${escJs(u.departamento)}')" style="flex-shrink:0;border:none;background:var(--marca);color:#fff;font-size:11.5px;font-weight:800;padding:7px 12px;border-radius:10px;cursor:pointer">Usar esta</button>`}
+          ? `<span style="font-size:11px;font-weight:900;color:var(--acento);flex-shrink:0">● ${esc(t('perfil.viendo'))}</span>`
+          : `<button type="button" onclick="usarUnidad('${escJs(u.edificio)}', '${escJs(u.departamento)}')" style="flex-shrink:0;border:none;background:var(--marca);color:#fff;font-size:11.5px;font-weight:800;padding:7px 12px;border-radius:10px;cursor:pointer">${esc(t('perfil.usarEsta'))}</button>`}
       </div>`;
   };
 
@@ -2530,20 +2576,20 @@ router.get('/perfil', (req, res) => {
 
   const bloqueEstadia = (v.rol === 'turista' && (v.pase_demo || estadiaHasta)) ? `
     <div class="card" style="padding:16px;background:#fff;border-radius:18px;margin-bottom:14px">
-      <div style="font-size:13.5px;font-weight:900;color:var(--texto);margin-bottom:10px">🧳 Tu estadía</div>
+      <div style="font-size:13.5px;font-weight:900;color:var(--texto);margin-bottom:10px"><i class="ph ph-suitcase-simple" style="font-size:15px"></i> ${esc(t('perfil.estadia'))}</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:${v.pase_demo ? '12px' : '0'}">
         <div style="flex:1;min-width:120px;background:var(--superficie-2);border:1px solid var(--borde);border-radius:12px;padding:10px 12px">
-          <div style="font-size:10.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">Desde</div>
+          <div style="font-size:10.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('perfil.desde'))}</div>
           <div style="font-size:14px;font-weight:900;color:var(--texto)">${esc(String(estadiaDesde || '—').slice(0, 10))}</div>
         </div>
         <div style="flex:1;min-width:120px;background:var(--superficie-2);border:1px solid var(--borde);border-radius:12px;padding:10px 12px">
-          <div style="font-size:10.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">Hasta</div>
+          <div style="font-size:10.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('perfil.hasta'))}</div>
           <div style="font-size:14px;font-weight:900;color:var(--texto)">${esc(String(estadiaHasta || '—').slice(0, 10))}</div>
         </div>
       </div>
       ${v.pase_demo ? `
       <div style="background:var(--aviso-fondo);border:1px solid var(--aviso-borde);border-radius:12px;padding:12px 14px">
-        <div style="font-size:11px;font-weight:800;color:var(--aviso);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Pase QR temporal</div>
+        <div style="font-size:11px;font-weight:800;color:var(--aviso);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">${esc(t('perfil.pase'))}</div>
         <div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;font-weight:900;color:var(--texto);letter-spacing:.05em">${esc(v.pase_demo.codigo)}</div>
         <div style="font-size:11.5px;color:var(--aviso);margin-top:4px">Vence el ${esc(String(v.pase_demo.vence || '').slice(0, 10))} · mostralo en el tótem de la entrada</div>
       </div>` : ''}
@@ -2551,8 +2597,8 @@ router.get('/perfil', (req, res) => {
 
   const content = `
     <div style="margin-bottom:16px">
-      <h1 style="font-size:20px;font-weight:900;color:var(--texto);letter-spacing:-.02em">Mi Perfil</h1>
-      <p style="font-size:12.5px;color:var(--texto-suave)">Tus datos, tus unidades y tu acceso</p>
+      <h1 style="font-size:20px;font-weight:900;color:var(--texto);letter-spacing:-.02em">${esc(t('perfil.titulo'))}</h1>
+      <p style="font-size:12.5px;color:var(--texto-suave)">${esc(t('perfil.bajada'))}</p>
     </div>
 
     <!-- IDENTIDAD -->
@@ -2561,30 +2607,28 @@ router.get('/perfil', (req, res) => {
       <div style="min-width:0">
         <div style="font-size:16.5px;font-weight:900;color:var(--texto);letter-spacing:-.01em">${esc(nombreCompleto(v))}</div>
         <div style="font-size:12px;color:var(--texto-suave);word-break:break-all">${esc(v.email || 'Sin email registrado')}</div>
-        <div style="margin-top:5px">${etiquetaRolHtml(v.rol)}</div>
+        <div style="margin-top:5px">${etiquetaRolHtml(v.rol, t)}</div>
       </div>
     </div>
 
     ${esDemo ? `
     <div style="padding:11px 13px;border-radius:12px;background:var(--aviso-fondo);border:1px solid var(--aviso-borde);font-size:12px;color:var(--aviso);margin-bottom:14px;line-height:1.45">
-      🚧 Estás en la <strong>sesión de prueba</strong>. Los cambios de datos y de contraseña no se
-      guardan hasta que entres con tu cuenta.
-    </div>` : ''}
+      ${esc(t('perfil.demo'))}</div>` : ''}
 
     <!-- MIS DATOS -->
     <div class="card" style="padding:16px;background:#fff;border-radius:18px;margin-bottom:14px">
-      <div style="font-size:13.5px;font-weight:900;color:var(--texto);margin-bottom:12px">Mis datos</div>
+      <div style="font-size:13.5px;font-weight:900;color:var(--texto);margin-bottom:12px">${esc(t('perfil.datos'))}</div>
       <form onsubmit="guardarPerfil(event)">
-        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Nombre</label>
+        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">${esc(t('perfil.nombre'))}</label>
         <input type="text" id="perfil-nombre" class="inp" value="${esc(v.nombre || '')}" placeholder="Tu nombre" required>
 
-        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Apellido</label>
+        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">${esc(t('perfil.apellido'))}</label>
         <input type="text" id="perfil-apellido" class="inp" value="${esc(v.apellido || '')}" placeholder="Tu apellido">
 
-        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Teléfono de contacto</label>
+        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">${esc(t('perfil.telefono'))}</label>
         <input type="tel" id="perfil-telefono" class="inp" value="${esc(v.telefono || '')}" placeholder="Ej: +54 9 11 5054 2005">
 
-        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Email registrado</label>
+        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">${esc(t('perfil.email'))}</label>
         <input type="email" class="inp" value="${esc(v.email || '')}" disabled style="background:var(--superficie-3);color:var(--texto-suave);margin-bottom:6px">
         <div style="font-size:11.5px;color:var(--texto-suave);line-height:1.45;margin-bottom:12px">
           El email es con el que el titular te vincula a la unidad. Para cambiarlo, escribinos por
@@ -2592,8 +2636,25 @@ router.get('/perfil', (req, res) => {
         </div>
 
         <div id="perfil-msg" style="display:none;margin-bottom:10px;padding:9px 11px;border-radius:10px;font-size:12.5px"></div>
-        <button type="submit" class="btn-primary" style="height:44px;font-size:14px">Guardar cambios</button>
+        <button type="submit" class="btn-primary" style="height:44px;font-size:14px">${esc(t('perfil.guardar'))}</button>
       </form>
+    </div>
+
+    <!-- IDIOMA -->
+    <!-- Además del globo de la cabecera. Es el mismo endpoint: acá se viene a buscarlo,
+         arriba está para el que no entiende nada de lo que dice la pantalla y necesita
+         salir de ahí sin leer. -->
+    <div class="card" style="padding:16px;background:var(--superficie);border-radius:18px;margin-bottom:14px">
+      <div style="font-size:13.5px;font-weight:900;color:var(--texto);margin-bottom:4px">${esc(t('perfil.idioma'))}</div>
+      <div style="font-size:11.5px;color:var(--texto-suave);margin-bottom:12px">${esc(t('perfil.idiomaNota'))}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+        ${IDIOMAS.map(i => `
+        <button type="button" onclick="elegirIdioma('${i.codigo}')" style="display:flex;align-items:center;gap:8px;padding:11px 12px;border-radius:12px;border:1.5px solid ${i.codigo === t.idioma ? 'var(--acento)' : 'var(--borde)'};background:${i.codigo === t.idioma ? 'var(--acento-tenue)' : 'var(--superficie-2)'};color:var(--texto);font-size:13px;font-weight:${i.codigo === t.idioma ? '800' : '600'};cursor:pointer;font-family:inherit;text-align:left">
+          <span style="font-size:16px">${i.bandera}</span>
+          <span>${i.nombre}</span>
+          ${i.codigo === t.idioma ? '<i class="ph ph-check-circle" style="margin-left:auto;font-size:15px;color:var(--acento)"></i>' : ''}
+        </button>`).join('')}
+      </div>
     </div>
 
     ${bloqueEstadia}
@@ -2601,34 +2662,34 @@ router.get('/perfil', (req, res) => {
     <!-- MIS UNIDADES -->
     <div class="card" style="padding:16px;background:#fff;border-radius:18px;margin-bottom:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-        <div style="font-size:13.5px;font-weight:900;color:var(--texto)">Mis unidades</div>
+        <div style="font-size:13.5px;font-weight:900;color:var(--texto)">${esc(t('perfil.unidades'))}</div>
         <span style="font-size:11.5px;color:var(--texto-suave)">${unidades.length}</span>
       </div>
-      <div style="font-size:11.5px;color:var(--texto-suave);margin-bottom:12px">Elegí cuál estás mirando. Expensas, reclamos y amenities siguen a la unidad activa.</div>
+      <div style="font-size:11.5px;color:var(--texto-suave);margin-bottom:12px">${esc(t('perfil.unidadesNota'))}</div>
       <div style="display:flex;flex-direction:column;gap:10px">${bloqueUnidades}</div>
     </div>
 
     <!-- ACCESO -->
     <div class="card" style="padding:16px;background:#fff;border-radius:18px;margin-bottom:14px">
-      <div style="font-size:13.5px;font-weight:900;color:var(--texto);margin-bottom:4px">Acceso y seguridad</div>
-      <div style="font-size:11.5px;color:var(--texto-suave);margin-bottom:12px">También podés entrar con un código que te llega por WhatsApp, sin contraseña.</div>
+      <div style="font-size:13.5px;font-weight:900;color:var(--texto);margin-bottom:4px">${esc(t('perfil.acceso'))}</div>
+      <div style="font-size:11.5px;color:var(--texto-suave);margin-bottom:12px">${esc(t('perfil.accesoNota'))}</div>
       <form onsubmit="cambiarPassword(event)">
-        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Contraseña actual</label>
-        <input type="password" id="pass-actual" class="inp" placeholder="Dejala vacía si nunca pusiste una" autocomplete="current-password">
+        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">${esc(t('perfil.passActual'))}</label>
+        <input type="password" id="pass-actual" class="inp" placeholder="${esc(t('perfil.passActualPlaceholder'))}" autocomplete="current-password">
 
-        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Contraseña nueva</label>
-        <input type="password" id="pass-nueva" class="inp" placeholder="Mínimo 6 caracteres" autocomplete="new-password" required>
+        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">${esc(t('perfil.passNueva'))}</label>
+        <input type="password" id="pass-nueva" class="inp" placeholder="${esc(t('perfil.passNuevaPlaceholder'))}" autocomplete="new-password" required>
 
-        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Repetir la nueva</label>
-        <input type="password" id="pass-repetir" class="inp" placeholder="Igual que la anterior" autocomplete="new-password" required>
+        <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">${esc(t('perfil.passRepetir'))}</label>
+        <input type="password" id="pass-repetir" class="inp" placeholder="${esc(t('perfil.passRepetirPlaceholder'))}" autocomplete="new-password" required>
 
         <div id="pass-msg" style="display:none;margin-bottom:10px;padding:9px 11px;border-radius:10px;font-size:12.5px"></div>
-        <button type="submit" class="btn-secondary" style="height:44px">🔒 Cambiar contraseña</button>
+        <button type="submit" class="btn-secondary" style="height:44px"><i class="ph ph-lock-key" style="font-size:16px"></i> ${esc(t('perfil.cambiarPass'))}</button>
       </form>
     </div>
 
     <a href="/vecino/logout" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:13px;border-radius:14px;border:1.5px solid var(--error-borde);background:var(--error-fondo);color:var(--error);font-size:13.5px;font-weight:800;text-decoration:none;margin-bottom:10px">
-      <i class="ph ph-sign-out" style="font-size:18px"></i> Cerrar sesión
+      <i class="ph ph-sign-out" style="font-size:18px"></i> ${esc(t('perfil.salir'))}
     </a>
 
     <script>
@@ -2750,6 +2811,34 @@ router.post('/api/perfil', async (req, res) => {
     res.json({ ok: true, demo: true });
   } catch (err) {
     console.error('Error en /vecino/api/perfil:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// El idioma del portal. Lo cambia el propio vecino y nadie más.
+//
+// El rol (propietario / inquilino / huésped / gestor) se lo asigna otro, porque es una relación
+// con un departamento. El idioma no: es de la persona. Cada uno se registra con su cuenta, elige
+// en qué idioma lee, y eso lo acompaña a todas las unidades donde lo asignen.
+//
+// Se guarda en la sesión siempre, y en la base cuando hay una cuenta detrás. Así el que todavía
+// no se registró igual puede leer el portal mientras se registra.
+router.post('/api/idioma', async (req, res) => {
+  try {
+    const { idioma } = req.body || {};
+    const codigo = normalizarIdioma(idioma);
+
+    if (req.session && req.session.vecino) {
+      req.session.vecino.idioma = codigo;
+      const v = req.session.vecino;
+      if (v.usuario_id && !v.demo) {
+        const { actualizarPerfilUsuario } = require('./db-pg');
+        await actualizarPerfilUsuario(v.usuario_id, { idioma: codigo });
+      }
+    }
+    res.json({ ok: true, idioma: codigo });
+  } catch (err) {
+    console.error('Error en /vecino/api/idioma:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

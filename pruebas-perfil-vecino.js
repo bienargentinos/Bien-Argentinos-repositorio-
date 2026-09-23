@@ -145,12 +145,33 @@ const PANTALLA_VACIA = 'Todavía no tenés ningún departamento asignado';
         afirmar('el email NO se edita desde acá', perfil.cuerpo.includes('type="email"') && perfil.cuerpo.includes('disabled'));
     }
 
-    console.log('\n── MI PERFIL DEL HUÉSPED ──');
+    console.log('\n── MI PERFIL DEL HUÉSPED, EN SU IDIOMA ──');
     {
+        // El huésped de demostración llega de Brasil, así que el portal le sale en portugués.
+        // Se prueba por HTTP y no sobre el diccionario: que `idiomas.js` traduzca no sirve de nada
+        // si la pantalla no lo llama. Ese es justo el error que no se ve leyendo el código.
         const login = await pedir('POST', '/vecino/auth', { cuerpo: 'rol=turista' });
         const perfil = await pedir('GET', '/vecino/perfil', { cookie: login.cookie });
-        afirmar('le muestra las fechas de la estadía', perfil.cuerpo.includes('Tu estadía'));
-        afirmar('y el pase QR temporal', perfil.cuerpo.includes('DEMO-HUESPED-4C'));
+        afirmar('la pantalla sale en portugués', perfil.cuerpo.includes('Sua estadia'));
+        afirmar('y NO en castellano', !perfil.cuerpo.includes('Tu estadía'));
+        afirmar('el título también', perfil.cuerpo.includes('Meu Perfil'));
+        afirmar('y el pase QR temporal sigue ahí', perfil.cuerpo.includes('DEMO-HUESPED-4C'));
+
+        // Cambiar de idioma es del propio vecino: el rol se lo asignan, el idioma lo elige él.
+        const cambio = await pedir('POST', '/vecino/api/idioma', {
+            cuerpo: JSON.stringify({ idioma: 'en' }), tipo: 'application/json', cookie: login.cookie,
+        });
+        verificar('puede cambiar su idioma', JSON.parse(cambio.cuerpo).idioma, 'en');
+        const enIngles = await pedir('GET', '/vecino/perfil', { cookie: login.cookie });
+        afirmar('y la pantalla lo sigue', enIngles.cuerpo.includes('Your stay'));
+
+        // Un idioma que no hablamos no puede dejar la pantalla en blanco.
+        await pedir('POST', '/vecino/api/idioma', {
+            cuerpo: JSON.stringify({ idioma: 'klingon' }), tipo: 'application/json', cookie: login.cookie,
+        });
+        const raro = await pedir('GET', '/vecino/perfil', { cookie: login.cookie });
+        verificar('un idioma desconocido no rompe la pantalla', raro.codigo, 200);
+        afirmar('cae al castellano', raro.cuerpo.includes('Tu estadía'));
     }
 
     console.log('\n── GUARDAR LOS DATOS ──');
