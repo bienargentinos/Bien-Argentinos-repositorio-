@@ -1,0 +1,319 @@
+// Los textos del portal del vecino, en todos los idiomas.
+//
+//   const { textos } = require('./idiomas');
+//   const t = textos(v.idioma);
+//   t('perfil.titulo')   // "Mi Perfil" / "My Profile" / "Meu Perfil" / "Mon Profil"
+//
+// POR QUÉ EXISTE. Un huésped que llega de Brasil o de Estados Unidos abre el portal para abrirle
+// la puerta a alguien o para reservar la parrilla. Si no entiende lo que dice la pantalla, no es
+// que "le cuesta": no puede usarlo, y el propietario termina haciéndole todo por teléfono — que es
+// exactamente el trabajo que este sistema viene a sacarse de encima.
+//
+// CÓMO AGREGAR UN IDIOMA. Se copia el bloque `es` entero, se traduce, y se agrega a `IDIOMAS`.
+// Nada más: no hay que tocar ninguna pantalla. `pruebas-idiomas.js` exige que el idioma nuevo
+// tenga TODAS las claves, así que una traducción a medias no llega a producción.
+//
+// > [!CAUTION]
+// > **Una clave que falta NO puede renderizar vacío.** Un cartel en blanco en el medio de una
+// > pantalla es el peor error posible acá: nadie sabe qué decía, y el que lo sufre es justamente
+// > el que no puede leer el resto para deducirlo. Por eso `t()` cae al castellano cuando falta,
+// > y la prueba rompe antes de que eso llegue a pasar.
+
+const IDIOMAS = [
+    { codigo: 'es', nombre: 'Español',    bandera: '🇦🇷' },
+    { codigo: 'en', nombre: 'English',    bandera: '🇺🇸' },
+    { codigo: 'pt', nombre: 'Português',  bandera: '🇧🇷' },
+    { codigo: 'fr', nombre: 'Français',   bandera: '🇫🇷' },
+];
+
+const IDIOMA_POR_DEFECTO = 'es';
+
+const TEXTOS = {
+    es: {
+        'nav.inicio': 'Inicio',
+        'nav.chat': 'Marcos IA',
+        'nav.porteria': 'Portería',
+        'nav.amenities': 'Amenities',
+        'nav.expensas': 'Expensas',
+        'nav.avisos': 'Avisos',
+
+        'topbar.hola': 'Hola, {nombre}',
+        'topbar.perfil': 'Mi Perfil',
+        'topbar.tema': 'Cambiar tema',
+        'topbar.salir': 'Cerrar sesión',
+        'topbar.idioma': 'Idioma',
+
+        'rol.propietario': 'Propietario',
+        'rol.inquilino': 'Inquilino',
+        'rol.turista': 'Huésped',
+        'rol.asistente': 'Gestor',
+        'rol.registrado': 'Sin unidad',
+
+        'perfil.titulo': 'Mi Perfil',
+        'perfil.bajada': 'Tus datos, tus unidades y tu acceso',
+        'perfil.datos': 'Mis datos',
+        'perfil.nombre': 'Nombre',
+        'perfil.apellido': 'Apellido',
+        'perfil.telefono': 'Teléfono de contacto',
+        'perfil.email': 'Email registrado',
+        'perfil.emailNota': 'El email es con el que el titular te vincula a la unidad. Para cambiarlo, escribinos por Marcos IA.',
+        'perfil.guardar': 'Guardar cambios',
+        'perfil.guardado': 'Datos guardados.',
+        'perfil.sinNombre': 'El nombre no puede quedar vacío',
+        'perfil.idioma': 'Idioma de la aplicación',
+        'perfil.idiomaNota': 'Cambia lo que ves en pantalla. Podés cambiarlo cuando quieras.',
+        'perfil.unidades': 'Mis unidades',
+        'perfil.unidadesNota': 'Elegí cuál estás mirando. Expensas, reclamos y amenities siguen a la unidad activa.',
+        'perfil.viendo': 'Viendo',
+        'perfil.usarEsta': 'Usar esta',
+        'perfil.sinExpensas': 'sin expensas',
+        'perfil.sinUnidades': 'Todavía no tenés ninguna unidad vinculada. Pedile al titular del departamento (o a la administración) que te habilite con tu email {email} desde la pestaña Integrantes.',
+        'perfil.estadia': 'Tu estadía',
+        'perfil.desde': 'Desde',
+        'perfil.hasta': 'Hasta',
+        'perfil.pase': 'Pase QR temporal',
+        'perfil.paseVence': 'Vence el {fecha} · mostralo en el tótem de la entrada',
+        'perfil.acceso': 'Acceso y seguridad',
+        'perfil.accesoNota': 'También podés entrar con un código que te llega por WhatsApp, sin contraseña.',
+        'perfil.passActual': 'Contraseña actual',
+        'perfil.passActualPlaceholder': 'Dejala vacía si nunca pusiste una',
+        'perfil.passNueva': 'Contraseña nueva',
+        'perfil.passNuevaPlaceholder': 'Mínimo 6 caracteres',
+        'perfil.passRepetir': 'Repetir la nueva',
+        'perfil.passRepetirPlaceholder': 'Igual que la anterior',
+        'perfil.cambiarPass': 'Cambiar contraseña',
+        'perfil.passCambiada': 'Contraseña actualizada.',
+        'perfil.passDistintas': 'Las dos contraseñas nuevas no son iguales.',
+        'perfil.salir': 'Cerrar sesión',
+        'perfil.demo': 'Estás en la sesión de prueba. Los cambios de datos y de contraseña no se guardan hasta que entres con tu cuenta.',
+        'perfil.sinCuenta': 'Entrá con tu cuenta para cambiar la contraseña',
+
+        'error.generico': 'No se pudo completar la acción.',
+    },
+
+    en: {
+        'nav.inicio': 'Home',
+        'nav.chat': 'Marcos AI',
+        'nav.porteria': 'Entrance',
+        'nav.amenities': 'Amenities',
+        'nav.expensas': 'Fees',
+        'nav.avisos': 'Notices',
+
+        'topbar.hola': 'Hi, {nombre}',
+        'topbar.perfil': 'My Profile',
+        'topbar.tema': 'Switch theme',
+        'topbar.salir': 'Sign out',
+        'topbar.idioma': 'Language',
+
+        'rol.propietario': 'Owner',
+        'rol.inquilino': 'Tenant',
+        'rol.turista': 'Guest',
+        'rol.asistente': 'Manager',
+        'rol.registrado': 'No unit',
+
+        'perfil.titulo': 'My Profile',
+        'perfil.bajada': 'Your details, your units and your access',
+        'perfil.datos': 'My details',
+        'perfil.nombre': 'First name',
+        'perfil.apellido': 'Last name',
+        'perfil.telefono': 'Contact phone',
+        'perfil.email': 'Registered email',
+        'perfil.emailNota': 'Your email is what the owner uses to link you to the unit. To change it, message us through Marcos AI.',
+        'perfil.guardar': 'Save changes',
+        'perfil.guardado': 'Details saved.',
+        'perfil.sinNombre': 'Name cannot be empty',
+        'perfil.idioma': 'App language',
+        'perfil.idiomaNota': 'Changes what you see on screen. You can change it any time.',
+        'perfil.unidades': 'My units',
+        'perfil.unidadesNota': 'Pick the one you are viewing. Fees, requests and amenities follow the active unit.',
+        'perfil.viendo': 'Viewing',
+        'perfil.usarEsta': 'Use this one',
+        'perfil.sinExpensas': 'no fees',
+        'perfil.sinUnidades': 'You have no unit linked yet. Ask the apartment owner (or the building manager) to add you with your email {email} from the Members tab.',
+        'perfil.estadia': 'Your stay',
+        'perfil.desde': 'From',
+        'perfil.hasta': 'To',
+        'perfil.pase': 'Temporary QR pass',
+        'perfil.paseVence': 'Expires on {fecha} · show it at the entrance kiosk',
+        'perfil.acceso': 'Access and security',
+        'perfil.accesoNota': 'You can also sign in with a code sent to you on WhatsApp, without a password.',
+        'perfil.passActual': 'Current password',
+        'perfil.passActualPlaceholder': 'Leave empty if you never set one',
+        'perfil.passNueva': 'New password',
+        'perfil.passNuevaPlaceholder': 'At least 6 characters',
+        'perfil.passRepetir': 'Repeat the new one',
+        'perfil.passRepetirPlaceholder': 'Same as above',
+        'perfil.cambiarPass': 'Change password',
+        'perfil.passCambiada': 'Password updated.',
+        'perfil.passDistintas': 'The two new passwords do not match.',
+        'perfil.salir': 'Sign out',
+        'perfil.demo': 'You are in the demo session. Changes to your details and password are not saved until you sign in with your account.',
+        'perfil.sinCuenta': 'Sign in with your account to change the password',
+
+        'error.generico': 'The action could not be completed.',
+    },
+
+    pt: {
+        'nav.inicio': 'Início',
+        'nav.chat': 'Marcos IA',
+        'nav.porteria': 'Portaria',
+        'nav.amenities': 'Áreas comuns',
+        'nav.expensas': 'Condomínio',
+        'nav.avisos': 'Avisos',
+
+        'topbar.hola': 'Olá, {nombre}',
+        'topbar.perfil': 'Meu Perfil',
+        'topbar.tema': 'Mudar tema',
+        'topbar.salir': 'Sair',
+        'topbar.idioma': 'Idioma',
+
+        'rol.propietario': 'Proprietário',
+        'rol.inquilino': 'Inquilino',
+        'rol.turista': 'Hóspede',
+        'rol.asistente': 'Gestor',
+        'rol.registrado': 'Sem unidade',
+
+        'perfil.titulo': 'Meu Perfil',
+        'perfil.bajada': 'Seus dados, suas unidades e seu acesso',
+        'perfil.datos': 'Meus dados',
+        'perfil.nombre': 'Nome',
+        'perfil.apellido': 'Sobrenome',
+        'perfil.telefono': 'Telefone de contato',
+        'perfil.email': 'E-mail cadastrado',
+        'perfil.emailNota': 'O e-mail é o que o proprietário usa para vincular você à unidade. Para trocá-lo, fale conosco pelo Marcos IA.',
+        'perfil.guardar': 'Salvar alterações',
+        'perfil.guardado': 'Dados salvos.',
+        'perfil.sinNombre': 'O nome não pode ficar vazio',
+        'perfil.idioma': 'Idioma do aplicativo',
+        'perfil.idiomaNota': 'Muda o que você vê na tela. Pode trocar quando quiser.',
+        'perfil.unidades': 'Minhas unidades',
+        'perfil.unidadesNota': 'Escolha qual está vendo. Condomínio, chamados e áreas comuns seguem a unidade ativa.',
+        'perfil.viendo': 'Vendo',
+        'perfil.usarEsta': 'Usar esta',
+        'perfil.sinExpensas': 'sem condomínio',
+        'perfil.sinUnidades': 'Você ainda não tem nenhuma unidade vinculada. Peça ao proprietário do apartamento (ou à administração) que libere seu acesso com o e-mail {email} na aba Integrantes.',
+        'perfil.estadia': 'Sua estadia',
+        'perfil.desde': 'De',
+        'perfil.hasta': 'Até',
+        'perfil.pase': 'Passe QR temporário',
+        'perfil.paseVence': 'Vence em {fecha} · mostre no totem da entrada',
+        'perfil.acceso': 'Acesso e segurança',
+        'perfil.accesoNota': 'Você também pode entrar com um código enviado por WhatsApp, sem senha.',
+        'perfil.passActual': 'Senha atual',
+        'perfil.passActualPlaceholder': 'Deixe vazio se nunca definiu uma',
+        'perfil.passNueva': 'Nova senha',
+        'perfil.passNuevaPlaceholder': 'Mínimo 6 caracteres',
+        'perfil.passRepetir': 'Repetir a nova',
+        'perfil.passRepetirPlaceholder': 'Igual à anterior',
+        'perfil.cambiarPass': 'Trocar senha',
+        'perfil.passCambiada': 'Senha atualizada.',
+        'perfil.passDistintas': 'As duas senhas novas não coincidem.',
+        'perfil.salir': 'Sair',
+        'perfil.demo': 'Você está na sessão de teste. As alterações de dados e senha não são salvas até entrar com sua conta.',
+        'perfil.sinCuenta': 'Entre com sua conta para trocar a senha',
+
+        'error.generico': 'Não foi possível concluir a ação.',
+    },
+
+    fr: {
+        'nav.inicio': 'Accueil',
+        'nav.chat': 'Marcos IA',
+        'nav.porteria': 'Entrée',
+        'nav.amenities': 'Espaces communs',
+        'nav.expensas': 'Charges',
+        'nav.avisos': 'Avis',
+
+        'topbar.hola': 'Bonjour, {nombre}',
+        'topbar.perfil': 'Mon Profil',
+        'topbar.tema': 'Changer de thème',
+        'topbar.salir': 'Se déconnecter',
+        'topbar.idioma': 'Langue',
+
+        'rol.propietario': 'Propriétaire',
+        'rol.inquilino': 'Locataire',
+        'rol.turista': 'Invité',
+        'rol.asistente': 'Gestionnaire',
+        'rol.registrado': 'Sans logement',
+
+        'perfil.titulo': 'Mon Profil',
+        'perfil.bajada': 'Vos informations, vos logements et votre accès',
+        'perfil.datos': 'Mes informations',
+        'perfil.nombre': 'Prénom',
+        'perfil.apellido': 'Nom',
+        'perfil.telefono': 'Téléphone de contact',
+        'perfil.email': 'E-mail enregistré',
+        'perfil.emailNota': "L'e-mail est ce que le propriétaire utilise pour vous rattacher au logement. Pour le changer, écrivez-nous via Marcos IA.",
+        'perfil.guardar': 'Enregistrer',
+        'perfil.guardado': 'Informations enregistrées.',
+        'perfil.sinNombre': 'Le prénom ne peut pas être vide',
+        'perfil.idioma': "Langue de l'application",
+        'perfil.idiomaNota': 'Change ce que vous voyez à l’écran. Vous pouvez la changer quand vous voulez.',
+        'perfil.unidades': 'Mes logements',
+        'perfil.unidadesNota': 'Choisissez celui que vous consultez. Charges, demandes et espaces communs suivent le logement actif.',
+        'perfil.viendo': 'En cours',
+        'perfil.usarEsta': 'Utiliser celui-ci',
+        'perfil.sinExpensas': 'sans charges',
+        'perfil.sinUnidades': "Vous n'avez encore aucun logement rattaché. Demandez au propriétaire (ou à la gestion) de vous ajouter avec votre e-mail {email} depuis l'onglet Occupants.",
+        'perfil.estadia': 'Votre séjour',
+        'perfil.desde': 'Du',
+        'perfil.hasta': 'Au',
+        'perfil.pase': 'Pass QR temporaire',
+        'perfil.paseVence': "Expire le {fecha} · présentez-le à la borne d'entrée",
+        'perfil.acceso': 'Accès et sécurité',
+        'perfil.accesoNota': 'Vous pouvez aussi vous connecter avec un code reçu par WhatsApp, sans mot de passe.',
+        'perfil.passActual': 'Mot de passe actuel',
+        'perfil.passActualPlaceholder': "Laissez vide si vous n'en avez jamais défini",
+        'perfil.passNueva': 'Nouveau mot de passe',
+        'perfil.passNuevaPlaceholder': 'Au moins 6 caractères',
+        'perfil.passRepetir': 'Répéter le nouveau',
+        'perfil.passRepetirPlaceholder': 'Identique au précédent',
+        'perfil.cambiarPass': 'Changer le mot de passe',
+        'perfil.passCambiada': 'Mot de passe mis à jour.',
+        'perfil.passDistintas': 'Les deux nouveaux mots de passe ne correspondent pas.',
+        'perfil.salir': 'Se déconnecter',
+        'perfil.demo': "Vous êtes dans la session de démonstration. Les modifications ne sont pas enregistrées tant que vous ne vous connectez pas avec votre compte.",
+        'perfil.sinCuenta': 'Connectez-vous avec votre compte pour changer le mot de passe',
+
+        'error.generico': "L'action n'a pas pu être effectuée.",
+    },
+};
+
+// Normaliza lo que venga: 'PT-BR', 'en-US', 'pt_BR' y 'pt' son todos el mismo idioma.
+// Uno que no tenemos cae al castellano en vez de romper.
+function normalizarIdioma(valor) {
+    const base = String(valor || '').trim().toLowerCase().replace('_', '-').split('-')[0];
+    return TEXTOS[base] ? base : IDIOMA_POR_DEFECTO;
+}
+
+// El idioma del navegador, para el que todavía no eligió ninguno. Se lee de `Accept-Language`,
+// que llega ordenado por preferencia: se toma el primero que sepamos hablar.
+function idiomaDelNavegador(cabecera) {
+    for (const trozo of String(cabecera || '').split(',')) {
+        const base = trozo.split(';')[0].trim().toLowerCase().split('-')[0];
+        if (TEXTOS[base]) return base;
+    }
+    return IDIOMA_POR_DEFECTO;
+}
+
+// `{nombre}` y `{email}` se reemplazan por lo que se le pase. El orden de las palabras cambia
+// entre idiomas, así que el hueco va adentro del texto traducido y no se concatena afuera.
+function interpolar(texto, params) {
+    if (!params) return texto;
+    return texto.replace(/\{(\w+)\}/g, (m, k) => (params[k] !== undefined ? String(params[k]) : m));
+}
+
+function textos(idioma) {
+    const codigo = normalizarIdioma(idioma);
+    const diccionario = TEXTOS[codigo];
+    const t = (clave, params) => {
+        // Si falta en el idioma elegido se cae al castellano. Nunca vacío: un cartel en blanco
+        // es ilegible para todos, y el que lo sufre es el que menos puede deducir qué decía.
+        const texto = diccionario[clave] !== undefined ? diccionario[clave] : TEXTOS[IDIOMA_POR_DEFECTO][clave];
+        if (texto === undefined) return clave;
+        return interpolar(texto, params);
+    };
+    t.idioma = codigo;
+    return t;
+}
+
+module.exports = { IDIOMAS, IDIOMA_POR_DEFECTO, TEXTOS, textos, normalizarIdioma, idiomaDelNavegador };

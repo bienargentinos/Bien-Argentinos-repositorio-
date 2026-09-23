@@ -44,6 +44,7 @@ function sesionDemoVecino(rol = 'propietario', telefono = '', hoy = new Date()) 
             edificio: 'San Patricio 159',
             departamento: '4° C',
             rol: 'turista',
+            idioma: 'pt',   // el huésped de prueba llega de Brasil: así se ve el portal traducido
             // El huésped NO ve expensas: no es el que las paga.
             puede_ver_expensas: false,
             timbre_activo: true,
@@ -74,6 +75,7 @@ function sesionDemoVecino(rol = 'propietario', telefono = '', hoy = new Date()) 
         edificio: 'San Patricio 159',
         departamento: '1° A',
         rol: 'propietario',
+        idioma: 'es',
         puede_ver_expensas: true,
         timbre_activo: true,
         timbre_silencio_desde: '23:00',
