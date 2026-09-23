@@ -82,10 +82,27 @@ es lo que pasaría con un archivo compartido y dos agentes escribiendo el mismo 
 > **Nadie se entera solo.** No hay aviso: se lee en el próximo `git pull`. Es un pizarrón, no un
 > chat. Quien escribe algo urgente se lo dice a Daniel además de dejarlo acá.
 
-**Reparto vigente**: Antigravity toma `dashboard.js` (el panel); Claude toma el motor (`index.js`,
-`datos*.js`, `sheets.js`, agentes, portería, portal del vecino). Si uno necesita un cambio del lado
-del otro, **lo pide en su archivo en vez de hacerlo** — dos agentes editando el mismo archivo el
-mismo día es cómo se pierde trabajo.
+**Reparto vigente** (23/09) — son **tres** conversaciones, no dos:
+
+| Quién | Qué archivos |
+|---|---|
+| **Antigravity** | `dashboard.js` — el panel |
+| **Chat del portal** (una sesión de Claude aparte) | `portal-vecino.js`, `porteria.js`, `qr-firmado.js`, `clave-app.js`, `sesion-demo.js`. Su informe de arranque: `docs/portal-vecino-y-porteria.md` |
+| **Chat de Marcos IA** (esta) | el motor: `index.js`, `datos*.js`, `sheets.js`, `agentes/`, `rubros.js`, seguimiento, facturas, y las herramientas de diagnóstico |
+
+Si uno necesita un cambio del lado del otro, **lo pide en vez de hacerlo** — dos agentes editando
+el mismo archivo el mismo día es cómo se pierde trabajo.
+
+> [!CAUTION]
+> **Que las dos sean "Claude" no las hace una sola.** El 22 y el 23/09 dos sesiones de Claude
+> editaron `portal-vecino.js` el mismo día sin saber una de la otra. Zafamos porque el rebase
+> salió limpio, no porque estuviera bien: son conversaciones separadas, con contexto separado, y
+> chocan igual que si fueran agentes distintos.
+>
+> La regla práctica es más simple que un reparto perfecto: **la sesión con la que Daniel está
+> hablando es la que toca ese archivo; la otra espera.** Y quien trabaje, que pullee antes de
+> editar y empuje apenas termina — cuanto menos tiempo queda algo sin empujar, menos hay para
+> perder.
 
 ## Stack técnico
 
