@@ -329,6 +329,7 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
 .dark-theme .servicios-titulo,
 .dark-theme .tag-amarillo {
   color: var(--dorado) !important;
+}
 
 /* Estados verdes normales adaptados a Verde Lima luminoso */
 .dark-theme [style*="color:var(--ok)"],
@@ -3052,6 +3053,7 @@ router.post('/auth', async (req, res) => {
 // -------------------------------------------------------------------
 router.get('/', (req, res) => {
   const v = getVecinoSession(req);
+  const t = textos(v.idioma);
 
   // 1. Tarjeta superior de Expensas (Solo fijos/titulares) o Bienvenida (Turistas)
   
@@ -3061,12 +3063,12 @@ router.get('/', (req, res) => {
         <div style="width:64px;height:64px;background:var(--superficie-3);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:var(--texto-suave)">
           <i class="ph ph-house-line" style="font-size:32px"></i>
         </div>
-        <h2 style="font-size:18px;font-weight:900;color:var(--texto);margin:0 0 8px;letter-spacing:-.02em">Cuenta Creada</h2>
+        <h2 style="font-size:18px;font-weight:900;color:var(--texto);margin:0 0 8px;letter-spacing:-.02em">${esc(t('inicio.cuentaCreada'))}</h2>
         <p style="font-size:13.5px;color:var(--texto-medio);line-height:1.5;margin:0 0 20px">
           Todavía no tenés ningún departamento asignado.
         </p>
         <div style="background:var(--superficie-2);border:1px solid var(--borde);border-radius:12px;padding:16px;text-align:left;margin-bottom:20px">
-          <div style="font-size:12.5px;font-weight:800;color:var(--texto-medio);margin-bottom:6px">¿Cómo continúo?</div>
+          <div style="font-size:12.5px;font-weight:800;color:var(--texto-medio);margin-bottom:6px">${esc(t('inicio.comoSigo'))}</div>
           <div style="font-size:12px;color:var(--texto-suave);line-height:1.5">
             Por favor enviá un mensaje con el email con el que te registraste (<strong>${esc(v.email)}</strong>) a la persona que te invitó (propietario, anfitrión o administración) para que te habilite el acceso a la unidad.
           </div>
@@ -3083,9 +3085,9 @@ router.get('/', (req, res) => {
     <div class="card" style="padding:18px;background:#ffffff;margin-bottom:14px;box-shadow:0 4px 18px rgba(15,23,42,.06);border-radius:20px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid var(--superficie-3);padding-bottom:10px">
         <div style="display:flex;gap:16px;font-size:13px;font-weight:800">
-          <span style="color:var(--marca);border-bottom:2px solid #0F326A;padding-bottom:8px">Expensas (Ord. y Extraord.)</span>
-          <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/amenities'">Reservas</span>
-          <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/reclamos'">Reclamos</span>
+          <span style="color:var(--marca);border-bottom:2px solid #0F326A;padding-bottom:8px">${esc(t('inicio.expensasTab'))}</span>
+          <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/amenities'">${esc(t('inicio.reservasTab'))}</span>
+          <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/reclamos'">${esc(t('inicio.reclamosTab'))}</span>
         </div>
         <span style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--ok-fondo);color:var(--ok);border:1px solid var(--ok-borde)">
           ✓ ${esc(v.estadoExpensa || 'Al día')}
@@ -3093,22 +3095,22 @@ router.get('/', (req, res) => {
       </div>
 
       <div style="margin-bottom:16px">
-        <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">Total a Pagar (Mes Vigente)</div>
+        <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('inicio.totalAPagar'))}</div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
           <div style="font-size:32px;font-weight:900;color:var(--texto);letter-spacing:-.03em">${esc(v.saldoExpensa || '$0')}</div>
         </div>
-        <div style="font-size:12px;color:var(--texto-suave);margin-top:2px">Vencimiento: 10 del mes · Ordinarias y Extraordinarias</div>
+        <div style="font-size:12px;color:var(--texto-suave);margin-top:2px">${esc(t('inicio.vencimiento'))}</div>
       </div>
 
       <!-- Acciones de la Expensa -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:var(--marca);color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(15,50,106,.25);text-decoration:none">
           <i class="ph ph-credit-card" style="font-size:18px"></i>
-          <span>Pagar Expensa</span>
+          <span>${esc(t('inicio.pagarExpensa'))}</span>
         </a>
         <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:var(--superficie-3);color:var(--marca);font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--borde);text-decoration:none">
           <i class="ph ph-receipt" style="font-size:18px"></i>
-          <span>Ver Recibo PDF</span>
+          <span>${esc(t('inicio.verRecibo'))}</span>
         </a>
       </div>
     </div>
@@ -3119,7 +3121,7 @@ router.get('/', (req, res) => {
         <span style="font-size:11.5px;font-weight:900;padding:3px 10px;border-radius:999px;background:rgba(251,191,36,0.2);color:var(--dorado);border:1px solid rgba(251,191,36,0.4)">
           🧳 Estadía Temporal
         </span>
-        <span style="font-size:12px;color:var(--texto-tenue)">Pase Huésped Activo</span>
+        <span style="font-size:12px;color:var(--texto-tenue)">${esc(t('inicio.paseHuesped'))}</span>
       </div>
       <div style="font-size:22px;font-weight:900;margin-bottom:4px;letter-spacing:-.02em">¡Bienvenido a ${esc(v.edificio)}!</div>
       <div style="font-size:13px;color:var(--texto-tenue);line-height:1.4;margin-bottom:16px">
@@ -3128,7 +3130,7 @@ router.get('/', (req, res) => {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <a href="/vecino/amenities" style="height:44px;border-radius:12px;background:#FBBF24;color:var(--texto);font-size:13.5px;font-weight:900;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none">
           <i class="ph ph-swimming-pool" style="font-size:18px"></i>
-          <span>Amenities</span>
+          <span>${esc(t('inicio.amenities'))}</span>
         </a>
         <a href="/vecino/chat" style="height:44px;border-radius:12px;background:rgba(255,255,255,0.15);color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid rgba(255,255,255,0.25);text-decoration:none">
           <i class="ph ph-chat-circle-dots" style="font-size:18px"></i>
@@ -3147,7 +3149,7 @@ router.get('/', (req, res) => {
             <i class="ph ${v.timbre_activo !== false ? 'ph-bell-ringing' : 'ph-bell-slash'}"></i>
           </div>
           <div>
-            <div style="font-size:14px;font-weight:900;color:var(--texto)">Mi Timbre Digital</div>
+            <div style="font-size:14px;font-weight:900;color:var(--texto)">${esc(t('inicio.timbre'))}</div>
             <div id="timbre-estado-lbl" style="font-size:12px;color:${v.timbre_activo !== false ? '#15803D' : '#DC2626'};font-weight:700">
               ${v.timbre_activo !== false ? '● Activo · Suena en tu celu' : '○ Silenciado'}
             </div>
@@ -3164,7 +3166,7 @@ router.get('/', (req, res) => {
       <div style="border-top:1px solid var(--superficie-3);padding-top:12px;margin-top:8px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
           <div style="display:flex;align-items:center;gap:6px">
-            <span class="timbre-horario-label" style="font-size:13px">🌙 Modo "No Molestar"</span>
+            <span class="timbre-horario-label" style="font-size:13px"><i class="ph ph-moon" style="font-size:14px;vertical-align:-2px"></i> ${esc(t('inicio.noMolestar'))}</span>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span id="nm-estado-lbl" style="font-size:11.5px;font-weight:700;color:${v.timbre_no_molestar_activo ? '#D97706' : '#64748B'}">
@@ -3178,7 +3180,7 @@ router.get('/', (req, res) => {
         </div>
 
         <div id="box-horario-no-molestar" class="timbre-horario-row" style="display:${v.timbre_no_molestar_activo ? 'flex' : 'none'};margin-top:6px">
-          <span class="timbre-horario-label">Horario de silencio:</span>
+          <span class="timbre-horario-label">${esc(t('inicio.horarioSilencio'))}</span>
           <div style="display:flex;align-items:center;gap:6px">
             <span class="timbre-de-label">De</span>
             <input type="time" id="timbre-silencio-desde" class="inp-time-timbre" value="${esc(v.timbre_silencio_desde || '23:00')}" onchange="guardarConfigTimbre()">
@@ -3189,7 +3191,7 @@ router.get('/', (req, res) => {
       </div>
 
       <div id="timbre-guardado-msg" style="display:none;font-size:11.5px;color:var(--ok);font-weight:800;margin-top:8px;text-align:right">
-        ✓ Preferencia de timbre guardada
+        ${esc(t('inicio.timbreGuardado'))}
       </div>
     </div>
   `;
@@ -3211,28 +3213,28 @@ router.get('/', (req, res) => {
 
     <!-- Servicios Rápidos en Fila (Estilo Mercado Pago Icons) -->
     <div style="margin-bottom:14px">
-      <div style="font-size:13.5px;font-weight:800;color:var(--texto);margin-bottom:10px">Accesos Directos</div>
+      <div style="font-size:13.5px;font-weight:800;color:var(--texto);margin-bottom:10px">${esc(t('inicio.accesosDirectos'))}</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(68px,1fr));gap:8px">
         
         <a href="/vecino/pases" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
           <div style="width:42px;height:42px;border-radius:14px;background:var(--acento-tenue);color:#0284C7;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-ticket"></i>
           </div>
-          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">Pases QR</span>
+          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">${esc(t('inicio.pasesQr'))}</span>
         </a>
 
         <a href="/porteria/${encodeURIComponent(v.edificio)}" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
           <div style="width:42px;height:42px;border-radius:14px;background:var(--aviso-fondo);color:#D97706;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-qr-code"></i>
           </div>
-          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">Portería QR</span>
+          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">${esc(t('inicio.porteriaQr'))}</span>
         </a>
 
         <a href="/vecino/amenities" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
           <div style="width:42px;height:42px;border-radius:14px;background:var(--ok-fondo);color:var(--ok);display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-swimming-pool"></i>
           </div>
-          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">Amenities</span>
+          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">${esc(t('inicio.amenities'))}</span>
         </a>
 
         ${(v.rol === 'propietario' || v.rol === 'asistente') ? `
@@ -3240,14 +3242,14 @@ router.get('/', (req, res) => {
           <div style="width:42px;height:42px;border-radius:14px;background:var(--info-fondo);color:#4F46E5;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-users-three"></i>
           </div>
-          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">Integrantes</span>
+          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">${esc(t('inicio.integrantes'))}</span>
         </a>` : ''}
 
         <a href="/vecino/reclamos" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
           <div style="width:42px;height:42px;border-radius:14px;background:var(--acento-tenue);color:var(--acento);display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-wrench"></i>
           </div>
-          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">Reclamos</span>
+          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">${esc(t('inicio.reclamosTab'))}</span>
         </a>
 
         <a href="/vecino/novedades" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
@@ -3267,11 +3269,11 @@ router.get('/', (req, res) => {
           📲
         </div>
         <div>
-          <div style="font-size:13.5px;font-weight:900;line-height:1.2">Instalar App en tu Celular</div>
-          <div style="font-size:11px;color:rgba(255,255,255,.85)">Acceso rápido directo en tu pantalla</div>
+          <div style="font-size:13.5px;font-weight:900;line-height:1.2">${esc(t('inicio.instalarTitulo'))}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.85)">${esc(t('inicio.instalarBajada'))}</div>
         </div>
       </div>
-      <button style="padding:6px 14px;border:none;border-radius:8px;background:#ffffff;color:var(--marca);font-weight:900;font-size:12px;cursor:pointer;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.15)">Instalar</button>
+      <button style="padding:6px 14px;border:none;border-radius:8px;background:#ffffff;color:var(--marca);font-weight:900;font-size:12px;cursor:pointer;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.15)">${esc(t('inicio.instalar'))}</button>
     </div>
 
     <!-- Banner Inteligente Marcos IA (Estilo Créditos Mercado Pago) -->
@@ -3281,11 +3283,11 @@ router.get('/', (req, res) => {
           <i class="ph ph-headset"></i>
         </div>
         <div>
-          <div style="font-size:14.5px;font-weight:900;color:var(--texto)">Asistente Consorcio 24/7</div>
-          <div style="font-size:12px;color:var(--texto-suave);line-height:1.3">Reportá una urgencia, consultá expensas o el reglamento.</div>
+          <div style="font-size:14.5px;font-weight:900;color:var(--texto)">${esc(t('inicio.asistenteTitulo'))}</div>
+          <div style="font-size:12px;color:var(--texto-suave);line-height:1.3">${esc(t('inicio.asistenteBajada'))}</div>
         </div>
       </div>
-      <button style="padding:7px 14px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12.5px;font-weight:800;cursor:pointer;flex-shrink:0">Chatear</button>
+      <button style="padding:7px 14px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12.5px;font-weight:800;cursor:pointer;flex-shrink:0">${esc(t('inicio.chatear'))}</button>
     </div>
 
     <!-- Estado de Servicios del Edificio -->
@@ -3296,33 +3298,33 @@ router.get('/', (req, res) => {
       </div>
       <div style="display:flex;flex-direction:column;gap:10px">
         <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px;padding-bottom:8px;border-bottom:1px solid var(--superficie-3)">
-          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)">🛗 Ascensor Principal</span>
-          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">En servicio normal</span>
+          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)"><i class="ph ph-elevator" style="font-size:15px;vertical-align:-2px"></i> ${esc(t('inicio.ascensor'))}</span>
+          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">${esc(t('inicio.ascensorEstado'))}</span>
         </div>
         <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px;padding-bottom:8px;border-bottom:1px solid var(--superficie-3)">
-          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)">💧 Bombas de Agua</span>
-          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">Presión estándar</span>
+          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)"><i class="ph ph-drop" style="font-size:15px;vertical-align:-2px"></i> ${esc(t('inicio.bombas'))}</span>
+          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">${esc(t('inicio.bombasEstado'))}</span>
         </div>
         <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
-          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)">🚗 Portón Cochera</span>
-          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">Apertura automática</span>
+          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)"><i class="ph ph-garage" style="font-size:15px;vertical-align:-2px"></i> ${esc(t('inicio.porton'))}</span>
+          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">${esc(t('inicio.portonEstado'))}</span>
         </div>
       </div>
     </div>
 
     <!-- Novedades del Consorcio -->
     <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:13.5px;font-weight:900;color:var(--texto)">Novedades del Consorcio</span>
-      <a href="/vecino/novedades" style="font-size:12.5px;font-weight:800;color:#38BDF8">Ver todas</a>
+      <span style="font-size:13.5px;font-weight:900;color:var(--texto)">${esc(t('inicio.novedades'))}</span>
+      <a href="/vecino/novedades" style="font-size:12.5px;font-weight:800;color:#38BDF8">${esc(t('inicio.verTodas'))}</a>
     </div>
 
     <div class="card" style="padding:15px;background:#fff;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--aviso-fondo);color:var(--aviso)">Mantenimiento</span>
+        <span style="font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--aviso-fondo);color:var(--aviso)">${esc(t('inicio.mantenimiento'))}</span>
         <span style="font-size:11.5px;color:var(--dorado);font-weight:700">Hoy · 09:30 hs</span>
       </div>
-      <div style="font-size:14px;font-weight:800;color:var(--texto);margin-bottom:4px">Limpieza programada de tanques</div>
-      <div style="font-size:12.5px;color:var(--texto-suave);line-height:1.4">Se realizará el jueves de 08:00 a 14:00 hs. Habrá baja presión momentánea.</div>
+      <div style="font-size:14px;font-weight:800;color:var(--texto);margin-bottom:4px">${esc(t('inicio.avisoTanques'))}</div>
+      <div style="font-size:12.5px;color:var(--texto-suave);line-height:1.4">${esc(t('inicio.avisoTanquesTexto'))}</div>
     </div>
 
     <!-- Scripts de Interacción Home -->
@@ -5489,6 +5491,7 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
 // -------------------------------------------------------------------
 router.get('/novedades', (req, res) => {
   const v = getVecinoSession(req);
+  const t = textos(v.idioma);
 
   const content = `
     <div style="margin-bottom:16px">
@@ -5499,7 +5502,7 @@ router.get('/novedades', (req, res) => {
     <div style="display:flex;flex-direction:column;gap:12px">
       <div class="card" style="padding:16px 18px;border-left:4px solid #F59E0B">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--aviso-fondo);color:var(--aviso)">Mantenimiento</span>
+          <span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--aviso-fondo);color:var(--aviso)">${esc(t('inicio.mantenimiento'))}</span>
           <span style="font-size:11.5px;color:var(--texto-tenue)">Hoy · 09:30 hs</span>
         </div>
         <div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:4px">Limpieza de tanques de agua</div>

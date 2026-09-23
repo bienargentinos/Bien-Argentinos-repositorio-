@@ -303,6 +303,27 @@ const PANTALLA_VACIA = 'Todavía no tenés ningún departamento asignado';
         afirmar('y con el vecino sin apellido tampoco', !esElMismo('', { nombre: 'Daniel' }));
     }
 
+    console.log('\n── EL CSS NO PUEDE QUEDAR CON UNA LLAVE ABIERTA ──');
+    {
+        // POR QUÉ. Al sacar una regla del modo oscuro me comí su `}` de cierre. `node --check` no
+        // lo ve --el CSS viaja como TEXTO adentro de un template literal, para JavaScript es una
+        // cadena válida-- y el servidor arranca perfecto.
+        //
+        // Pero el navegador, al encontrar la llave sin cerrar, DESCARTA TODO EL CSS QUE SIGUE. En
+        // Amenities los campos quedaron con fondo blanco y texto blanco: ilegibles, en una pantalla
+        // que por lo demás se veía bien. Nada en el servidor se entera nunca.
+        const SRC = fs.readFileSync(path.join(__dirname, 'portal-vecino.js'), 'utf8');
+        const bloques = [...SRC.matchAll(/const (CSS_\w+) = `([\s\S]*?)\n`;/g)];
+        afirmar('se encontraron los bloques de CSS', bloques.length >= 2);
+        for (const [, nombre, cuerpo] of bloques) {
+            // Los `${...}` del template no son CSS: se descuentan antes de contar.
+            const css = cuerpo.replace(/\$\{[^}]*\}/g, '');
+            const abren = (css.match(/\{/g) || []).length;
+            const cierran = (css.match(/\}/g) || []).length;
+            verificar(`${nombre}: llaves balanceadas`, { abren, cierran }, { abren, cierran: abren });
+        }
+    }
+
     console.log('\n── TODAS LAS PANTALLAS RESPONDEN ──');
     {
         // POR QUÉ ESTÁ ESTO. Al traducir Mi Perfil, un reemplazo global se llevó puesto un texto
