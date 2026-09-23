@@ -219,6 +219,26 @@ async function _initPgSchema() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- Una expensa puede ser del EDIFICIO o de una UNIDAD, y las dos hacen falta.
+            --
+            -- El administrador emite la liquidacion general --igual para todos, donde se ve en que
+            -- se gasto la plata-- y aparte el cupon de cada unidad con su monto. Con solo una de
+            -- las dos formas, el vecino pierde justo la que necesita para entender por que subio.
+            --
+            -- Por eso departamento es OPCIONAL: vacio significa "del edificio, la ven todos", y
+            -- con valor significa "de esa unidad y de nadie mas". Quien lea esta tabla para
+            -- mostrarsela a un vecino tiene que filtrar por las DOS cosas: mostrar la de otra
+            -- unidad es mostrarle a alguien la deuda de su vecino.
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS departamento VARCHAR(50);
+            -- El total leido del documento. NULL a proposito cuando no se pudo leer con
+            -- confianza: un cero significa "no debe nada", que es una afirmacion distinta.
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS monto NUMERIC;
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS vencimiento VARCHAR(50);
+            -- Quien puso ese monto: "ocr" si lo leyo el sistema, "manual" si lo escribio o lo
+            -- corrigio el administrador. El vecino merece saber de donde sale un numero que va a
+            -- pagar, y ante una diferencia es lo primero que hay que mirar.
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS monto_origen VARCHAR(20);
+
             CREATE TABLE IF NOT EXISTS edificio_amenities (
                 id SERIAL PRIMARY KEY,
                 edificio VARCHAR(150),

@@ -52,4 +52,21 @@ module.exports = {
 
     // Lo que Marcos aprendió de las conversaciones sobre el edificio: quién tiene la llave de qué.
     'accesos': ['edificio', 'instalacion', 'quien_tiene', 'telefono', 'notas', 'fecha'],
+
+    // EXPENSAS la escribe el panel, no `sheets.js`. Está igual en esta lista y a propósito:
+    // `appendRow` **descarta en silencio** toda clave que no sea una columna existente, así que el
+    // día que el panel empiece a mandar `departamento` y `monto` sobre una pestaña que no los
+    // tiene, el dato se pierde sin un solo error --exactamente como se perdieron `tecnico`,
+    // `tel_tecnico` y `rubro_tecnico` en los cuatro primeros casos reales--.
+    //
+    // Teniéndola acá, `node crear-columnas.js --aplicar` deja el terreno listo ANTES de que el
+    // cambio del panel llegue, en vez de después de perder la primera tanda de expensas.
+    //
+    // `departamento` vacío = la liquidación general del edificio, la ven todos. Con valor = de esa
+    // unidad y de nadie más. `monto_origen` dice si el total lo leyó el sistema o lo escribió el
+    // administrador: ante una diferencia con el PDF, es lo primero que hay que mirar.
+    'expensas': [
+        'fecha', 'edificio', 'periodo', 'formato', 'nombre', 'url', 'estado',
+        'departamento', 'monto', 'vencimiento', 'monto_origen',
+    ],
 };

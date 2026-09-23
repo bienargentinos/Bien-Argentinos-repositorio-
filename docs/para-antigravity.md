@@ -288,3 +288,76 @@ necesitás editar los datos de un vecino, llamá a esas y no escribas el `UPDATE
   porque un chequeo sobre el texto del archivo habría dicho que el `rol` estaba —y estaba: lo que
   faltaba era quién lo leyera.
 - `node verificar-antes-de-subir.js`: ✅ 60 pruebas en verde.
+
+---
+
+## Pedido nuevo (23/09) — expensas POR UNIDAD, con el total a la vista
+
+Daniel: *"si el AC sube las expensas de cada departamento, ¿se puede extraer el total y colocarlo
+en el portal del vecino?"*. Sí. **El lado de los datos ya está hecho y subido**; falta el
+formulario, que es tuyo.
+
+### Cómo está hoy
+
+`/api/expensa` (dashboard.js ~15186) guarda una expensa **por edificio**:
+
+```js
+const edificio = permitidos[0] || '';
+await appendRow(TAB_EXPENSAS, { fecha, edificio, periodo, formato, nombre, url, estado });
+```
+
+y el portal la lee con `WHERE LOWER(edificio) = LOWER($1)`. O sea: **todos los vecinos del
+edificio ven el mismo documento**. No había dónde poner la unidad ni el monto.
+
+Lo bueno: ese endpoint **ya escribe en las dos bases**, que suele ser la mitad del trabajo.
+
+### Lo que ya está (no lo rehagas)
+
+- **Columnas nuevas en las dos bases**: `departamento`, `monto`, `vencimiento`, `monto_origen`.
+  En PostgreSQL las crea `db-pg.js` al arrancar; en Sheets están en `columnas-necesarias.js`.
+- **`expensa-documento.js`** — `leerExpensa({ filePath, mimeType, unidadEsperada })` lee el
+  documento y devuelve `{ unidad, periodo, vencimiento, monto, mostrar_monto, motivo }`.
+
+### Lo que falta, del panel
+
+1. **Que el formulario pida la unidad**, opcional. Vacío = liquidación general del edificio (la
+   ven todos); con valor = de esa unidad y de nadie más. **Las dos hacen falta**: la general es la
+   que el vecino mira cuando quiere saber por qué subió.
+
+2. **Llamar a `leerExpensa` al subir** y **mostrarle el total al AC para que lo confirme o lo
+   corrija antes de guardar**. Eso es lo que convierte el OCR de riesgo en ahorro de tipeo.
+
+   ```js
+   const { leerExpensa } = require('./expensa-documento');
+   const lectura = await leerExpensa({
+       filePath: req.file.path, mimeType: req.file.mimetype, unidadEsperada: departamento
+   });
+   // lectura.mostrar_monto === false  →  no muestres ningún número, mostrá lectura.motivo
+   ```
+
+3. **Guardar `monto` y `monto_origen`** (`'ocr'` si quedó el leído, `'manual'` si el AC lo escribió
+   o lo corrigió) en las dos bases, igual que hoy hacés con el resto.
+
+### Tres cosas que rompen y no se ven
+
+- **`appendRow` DESCARTA EN SILENCIO toda clave que no sea una columna existente.** Si mandás
+  `departamento` y la pestaña no la tiene, el dato se pierde sin un error — así se perdieron
+  `tecnico`, `tel_tecnico` y `rubro_tecnico` en los cuatro primeros casos reales. Pasá por
+  `asegurarColumnas`, o corré una vez `node crear-columnas.js --aplicar` en el VPS antes.
+
+- **Si el total no se puede afirmar, no se muestra ningún número.** `leerExpensa` ya lo decide
+  (`mostrar_monto`); no lo recalcules ni muestres el crudo. Un vecino va a transferir ese número:
+  de menos queda en deuda sin saberlo, de más hay que devolverle. Queda el PDF, que es la verdad.
+
+- **`leerExpensa` avisa si la unidad del documento no coincide con la que estás cargando**
+  (`choca_la_unidad`). Eso casi siempre es un archivo subido a la unidad equivocada. Mostráselo al
+  AC antes de guardar: mostrarle a un vecino la expensa de otro es peor que no mostrarle ninguna.
+
+### Verificación
+
+```bash
+node pruebas-expensa-documento.js     # 59 verificaciones, no necesita credenciales
+node verificar-antes-de-subir.js      # 61 pruebas
+```
+
+El filtrado por unidad del lado del portal lo hace el chat del portal, que ya está con su parte.
