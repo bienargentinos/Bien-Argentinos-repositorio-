@@ -5054,8 +5054,23 @@ router.get('/expensas', async (req, res) => {
       }
 
       // Obtener comprobantes subidos
-      const qFac = `SELECT * FROM facturas WHERE (tipo = 'comprobante_pago' OR tipo = 'Recibo') AND LOWER(edificio) = LOWER($1) ORDER BY id DESC LIMIT 10`;
-      const resFac = await pool.query(qFac, [v.edificio]);
+      // SOLO los comprobantes de ESTA unidad.
+      //
+      // La consulta filtraba nada mas que por edificio, y la variable se llama `misComprobantes`:
+      // cualquier vecino de San Patricio 159 veia los ultimos diez pagos del edificio entero, con
+      // el nombre de quien pago, el monto, el departamento --va escrito adentro de las notas-- y
+      // el ENLACE al comprobante bancario de cada uno.
+      //
+      // Una fila sin departamento no se muestra. Son las de antes de que existiera la columna: no
+      // se sabe de quien son, y esconder de mas es el error barato. Mostrarle a alguien la
+      // transferencia de su vecino no se puede deshacer.
+      const qFac = `SELECT * FROM facturas
+                     WHERE (tipo = 'comprobante_pago' OR tipo = 'Recibo')
+                       AND LOWER(edificio) = LOWER($1)
+                       AND departamento IS NOT NULL
+                       AND LOWER(TRIM(departamento)) = LOWER(TRIM($2))
+                     ORDER BY id DESC LIMIT 10`;
+      const resFac = await pool.query(qFac, [v.edificio, v.departamento || '']);
       if (resFac && resFac.rows && resFac.rows.length > 0) {
         misComprobantes = resFac.rows.map(r => ({
           id: r.id,
@@ -5440,10 +5455,14 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
     try {
       const { pool } = require('./db-pg');
       if (pool) {
-        const q = `INSERT INTO facturas (edificio, tipo, proveedor, monto, fecha, url, estado, notas, created_at)
-                   VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $7, NOW())`;
+        // El departamento y el usuario van en columnas propias, no solo adentro del texto de
+        // las notas: son con lo que despues se decide a QUIEN se le muestra este comprobante.
+        const q = `INSERT INTO facturas (edificio, departamento, usuario_id, tipo, proveedor, monto, fecha, url, estado, notas, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, CURRENT_DATE, $7, $8, $9, NOW())`;
         await pool.query(q, [
           v.edificio,
+          v.departamento || null,
+          v.usuario_id || null,
           'comprobante_pago',
           nombreCompleto(v) + ' (' + v.departamento + ')',
           monto || '0',

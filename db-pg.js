@@ -322,6 +322,22 @@ async function _initPgSchema() {
             -- ya existen no queden en NULL: un idioma vacio dejaria la pantalla sin textos.
             ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS idioma VARCHAR(8) DEFAULT 'es';
 
+            -- De quien es un comprobante de pago.
+            --
+            -- La tabla facturas guarda los gastos del consorcio (las del proveedor) Y los
+            -- comprobantes que sube un vecino desde el portal. Para los primeros el edificio
+            -- alcanza; para los segundos NO: sin el departamento, la pantalla de Expensas del
+            -- vecino le mostraba los comprobantes de TODOS sus vecinos, con el nombre, el monto
+            -- y el enlace al comprobante bancario de cada uno.
+            -- (Sin acentos graves en este comentario: todo el esquema viaja adentro de un
+            --  template literal y uno solo rompe el archivo entero. Esta contado en CLAUDE.md.)
+            --
+            -- Las filas viejas quedan en NULL a proposito: sin saber de quien son, no se le
+            -- muestran a nadie. Esconder de mas es el error barato; mostrar la transferencia del
+            -- vecino del 4 C no se puede deshacer.
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS departamento VARCHAR(50);
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS usuario_id INT;
+
             CREATE TABLE IF NOT EXISTS usuario_unidades (
                 id SERIAL PRIMARY KEY,
                 usuario_id INT REFERENCES usuarios(id) ON DELETE CASCADE,
