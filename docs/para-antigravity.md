@@ -353,9 +353,24 @@ que debe cada unidad. Con el monto saliendo del propio documento, deja de ser in
 - En la sección Expensas, que la subida acepte **departamento** además de edificio y período.
 - Que se pueda subir **de a varios** (un administrador con 40 unidades no sube 40 archivos de a uno).
 
-**La estructura la agrego yo** a `expensas`: `departamento`, `monto`, `monto_origen`
-(`ia` / `manual`), `vencimiento`. Avisame cuando vayas a encarar la pantalla y la dejo lista antes,
-para que no escribas contra columnas que todavía no existen.
+**Las columnas ya están** (las agregué el 23/09, no hay que esperar nada):
+
+| Columna | Qué va |
+|---|---|
+| `departamento` | la unidad. **En NULL sigue siendo el documento del edificio entero**, como antes |
+| `monto` | `NUMERIC(14,2)` |
+| `monto_origen` | `'ia'` o `'manual'` — hay un CHECK, no acepta otra cosa |
+| `vencimiento` | `DATE` |
+
+> [!CAUTION]
+> **`monto_origen` no es decorativo.** Un monto leído mal es peor que ninguno, y acá no hay dígito
+> verificador como en el CBU. Cuando el lector de documentos no esté seguro, **que el administrador
+> lo confirme antes de guardar** y quede como `'manual'`. Publicarle a un vecino un importe que no
+> es el suyo es de los errores que no se pueden deshacer.
+
+El portal ya lee esto con `expensaDeUnidad(edificio, departamento)`: busca primero la del
+departamento y, si no hay, cae al documento del edificio **diciéndolo en la pantalla** — no la
+presenta como si fuera la cuenta de esa unidad.
 
 **La extracción del monto es del chat del motor**, no tuya ni mía: `marcos-docs.js` ya sabe leer un
 monto de una factura en PDF o foto. Se lo pedí en `docs/para-el-motor.md`.

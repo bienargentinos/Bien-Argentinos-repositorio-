@@ -381,6 +381,33 @@ async function _initPgSchema() {
             );
             CREATE INDEX IF NOT EXISTS idx_avisos_edificio ON avisos(LOWER(edificio), estado);
 
+            -- LA EXPENSA DE CADA DEPARTAMENTO
+            --
+            -- La tabla nacio guardando UN documento por edificio: el PDF que sube el administrador
+            -- cada mes. Con eso el portal no podia decirle a un vecino cuanto le toca a EL, asi que
+            -- la tarjeta del Inicio mostraba 120.000 escritos a mano en el codigo.
+            --
+            -- Pedido de Daniel (23/09): que el administrador suba el documento de cada unidad, que
+            -- la IA le extraiga el total, y que el vecino vea ese numero con un boton de descarga.
+            -- Asi el monto deja de ser inventado: sale del papel que subio el administrador.
+            --
+            -- La columna monto_origen dice de donde salio el numero: 'ia' cuando lo leyo el
+            -- lector de documentos, 'manual' cuando lo escribio o lo corrigio una persona. Un monto
+            -- leido mal es peor que ninguno --y aca no hay digito verificador como en el CBU-- asi
+            -- que quien lo muestre tiene que poder distinguirlos.
+            --
+            -- Una fila SIN departamento sigue siendo el documento del edificio entero, como antes.
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS departamento VARCHAR(50);
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS monto NUMERIC(14,2);
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS monto_origen VARCHAR(20);
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS vencimiento DATE;
+            ALTER TABLE expensas DROP CONSTRAINT IF EXISTS expensas_monto_origen_chk;
+            ALTER TABLE expensas ADD CONSTRAINT expensas_monto_origen_chk CHECK (
+                monto_origen IS NULL OR monto_origen IN ('ia', 'manual')
+            );
+            CREATE INDEX IF NOT EXISTS idx_expensas_unidad
+                ON expensas(LOWER(edificio), LOWER(COALESCE(departamento, '')));
+
             CREATE TABLE IF NOT EXISTS usuario_unidades (
                 id SERIAL PRIMARY KEY,
                 usuario_id INT REFERENCES usuarios(id) ON DELETE CASCADE,
@@ -1215,6 +1242,41 @@ async function cambiarPasswordUsuario(usuarioId, passwordActual, passwordNueva) 
     return { ok: true, eraPrimera: !u.password_hash };
 }
 
+// La expensa mas reciente de una unidad.
+//
+// Busca primero la del departamento; si no hay, cae a la del edificio --el PDF general, que es lo
+// que habia antes-- y lo dice en `esDelEdificio` para que la pantalla no la presente como si fuera
+// la cuenta de esa unidad.
+//
+// Devuelve null cuando no hay ninguna. Eso NO es "no debe nada": es "todavia no se cargo", y la
+// pantalla tiene que decir eso y no un $0, que seria afirmar algo que no sabemos.
+async function expensaDeUnidad(edificio, departamento) {
+    if (!edificio || !String(edificio).trim()) return null;
+
+    const q = `SELECT *, (departamento IS NULL) AS es_del_edificio
+                 FROM expensas
+                WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))
+                  AND COALESCE(LOWER(estado), '') <> 'eliminada'
+                  AND (LOWER(TRIM(COALESCE(departamento, ''))) = LOWER(TRIM($2)) OR departamento IS NULL)
+                ORDER BY (departamento IS NULL) ASC, id DESC
+                LIMIT 1`;
+    const res = await pool.query(q, [edificio, String(departamento || '').trim()]);
+    const fila = res.rows[0];
+    if (!fila) return null;
+
+    return {
+        id: fila.id,
+        periodo: fila.periodo || '',
+        monto: fila.monto === null || fila.monto === undefined ? null : Number(fila.monto),
+        montoOrigen: fila.monto_origen || null,
+        vencimiento: fila.vencimiento || null,
+        url: fila.url || '',
+        formato: fila.formato || '',
+        nombre: fila.nombre || '',
+        esDelEdificio: !!fila.es_del_edificio,
+    };
+}
+
 // LOS ROLES QUE PUEDEN PUBLICAR UN AVISO.
 //
 // Es la misma lista que el CHECK de la tabla. Esta escrita dos veces a proposito y no por descuido:
@@ -1757,6 +1819,7 @@ module.exports = {
     cambiarPasswordUsuario,
     obtenerUnidadesDeUsuario,
     ROLES_QUE_AVISAN,
+    expensaDeUnidad,
     publicarAviso,
     avisosVigentesDeEdificio,
     levantarAviso,

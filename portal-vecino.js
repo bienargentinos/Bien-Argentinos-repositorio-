@@ -2443,8 +2443,6 @@ router.post('/api/login-email', async (req, res) => {
         timbre_activo: uActiva.timbre_activo !== false,
         timbre_silencio_desde: uActiva.timbre_silencio_desde || '23:00',
         timbre_silencio_hasta: uActiva.timbre_silencio_hasta || '07:30',
-        saldoExpensa: '$120.000,00',
-        estadoExpensa: 'Al día',
         unidades: unidades.length > 0 ? unidades : [uActiva]
       };
     }
@@ -3009,8 +3007,6 @@ router.post('/api/verificar-pin', async (req, res) => {
       timbre_activo: true,
       timbre_silencio_desde: '23:00',
       timbre_silencio_hasta: '07:30',
-      saldoExpensa: '$120.000,00',
-      estadoExpensa: 'Al día',
       unidades: unidades
     };
   }
@@ -3047,6 +3043,19 @@ router.post('/auth', async (req, res) => {
   }
   res.redirect('/vecino');
 });
+
+// Un importe como lo escribe cualquiera en Argentina: $120.000,00
+//
+// A mano y no con `toLocaleString`, por el mismo ICU reducido del VPS que obligó a escribir
+// `fecha.js`: ahí `toLocaleString('es-AR')` devuelve el formato de Estados Unidos y el vecino lee
+// "$120,000.00", que en un importe cambia lo que entiende.
+function montoEnPesos(n) {
+  const num = Number(n);
+  if (!isFinite(num)) return '';
+  const [entera, dec] = Math.abs(num).toFixed(2).split('.');
+  const conPuntos = entera.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${num < 0 ? '-' : ''}$${conPuntos},${dec}`;
+}
 
 // LO QUE EL EDIFICIO TIENE PARA DECIR HOY
 //
@@ -3165,6 +3174,22 @@ router.get('/', async (req, res) => {
   //      tenemos: el que sabe si el ascensor anda es el técnico, no nosotros.
   //
   // Si no hay ninguna de las dos, no se dice nada. Nunca "todo funciona normal".
+  // La expensa de ESTA unidad, del documento que subió el administrador.
+  //
+  // Antes el número era `v.saldoExpensa`, escrito a mano: `$120.000,00` fijo, igual para todos los
+  // vecinos de todos los edificios. Ahora sale de la tabla `expensas` -- del monto que la IA le
+  // extrajo al documento, o del que corrigió una persona.
+  //
+  // Cuando no hay ninguna cargada NO se muestra $0: eso diría "no debés nada", que es una
+  // afirmación. Se dice que todavía no está cargada, que es lo que realmente pasa.
+  let expensa = null;
+  try {
+    const { expensaDeUnidad } = require('./db-pg');
+    expensa = await expensaDeUnidad(v.edificio, v.departamento);
+  } catch (err) {
+    console.warn('Expensa de la unidad:', err.message);
+  }
+
   const avisos = await avisosDelEdificio(v.edificio);
   const avisosHtml = avisos.length === 0 ? '' : bloqueAvisosHtml(avisos, v, t);
 
@@ -3202,17 +3227,20 @@ router.get('/', async (req, res) => {
           <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/amenities'">${esc(t('inicio.reservasTab'))}</span>
           <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/reclamos'">${esc(t('inicio.reclamosTab'))}</span>
         </div>
-        <span style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--ok-fondo);color:var(--ok);border:1px solid var(--ok-borde)">
-          ✓ ${esc(v.estadoExpensa || 'Al día')}
-        </span>
+        ${expensa && expensa.periodo ? `<span style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--superficie-3);color:var(--texto-medio);border:1px solid var(--borde)">${esc(expensa.periodo)}</span>` : ''}
       </div>
 
       <div style="margin-bottom:16px">
+        ${expensa && expensa.monto !== null ? `
         <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('inicio.totalAPagar'))}</div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
-          <div style="font-size:32px;font-weight:900;color:var(--texto);letter-spacing:-.03em">${esc(v.saldoExpensa || '$0')}</div>
+          <div style="font-size:32px;font-weight:900;color:var(--texto);letter-spacing:-.03em">${esc(montoEnPesos(expensa.monto))}</div>
         </div>
-        <div style="font-size:12px;color:var(--texto-suave);margin-top:2px">${esc(t('inicio.vencimiento'))}</div>
+        ${expensa.vencimiento ? `<div style="font-size:12px;color:var(--texto-suave);margin-top:2px">${esc(t('expensa.vence', { fecha: new Date(expensa.vencimiento).toLocaleDateString('es-AR') }))}</div>` : ''}
+        ${expensa.esDelEdificio ? `<div style="font-size:11.5px;color:var(--texto-tenue);margin-top:4px">${esc(t('expensa.delEdificio'))}</div>` : ''}
+        ` : `
+        <div style="font-size:13.5px;color:var(--texto-medio);line-height:1.45">${esc(t('expensa.sinCargar'))}</div>
+        `}
       </div>
 
       <!-- Acciones de la Expensa -->
@@ -3221,9 +3249,9 @@ router.get('/', async (req, res) => {
           <i class="ph ph-credit-card" style="font-size:18px"></i>
           <span>${esc(t('inicio.pagarExpensa'))}</span>
         </a>
-        <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:var(--superficie-3);color:var(--marca);font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--borde);text-decoration:none">
-          <i class="ph ph-receipt" style="font-size:18px"></i>
-          <span>${esc(t('inicio.verRecibo'))}</span>
+        <a href="${expensa && expensa.url ? esc(expensa.url) : '/vecino/expensas'}"${expensa && expensa.url ? ' target="_blank" rel="noopener"' : ''} style="height:44px;border-radius:12px;background:var(--superficie-3);color:var(--marca);font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--borde);text-decoration:none">
+          <i class="ph ph-${expensa && expensa.url ? 'download-simple' : 'receipt'}" style="font-size:18px"></i>
+          <span>${esc(expensa && expensa.url ? t('expensa.descargar') : t('inicio.verRecibo'))}</span>
         </a>
       </div>
     </div>
@@ -5125,18 +5153,12 @@ router.post('/api/chat', async (req, res) => {
 // -------------------------------------------------------------------
 // 4. MIS EXPENSAS (HISTORIAL, DATOS BANCARIOS & COMPROBANTES)
 // -------------------------------------------------------------------
-const _comprobantesEnMemoria = [
-  {
-    id: 991,
-    edificio: 'San Patricio 159',
-    vecino: 'Daniel Morales (1° A)',
-    monto: '$120.000',
-    fecha: '01/08/2026',
-    url: '',
-    estado: 'aprobado',
-    notas: 'Comprobante de transferencia bancaria'
-  }
-];
+// Los comprobantes que se subieron mientras PostgreSQL no estaba disponible.
+//
+// Arrancaba con uno de mentira adentro --"Daniel Morales (1° A), $120.000, aprobado"-- que se le
+// mostraba a cualquier vecino de cualquier edificio como si fuera un pago real. Ahora arranca
+// vacío: la pantalla ya sabe qué decir cuando no hay ninguno.
+const _comprobantesEnMemoria = [];
 
 router.get('/expensas', async (req, res) => {
   const v = getVecinoSession(req);
@@ -5337,7 +5359,7 @@ router.get('/expensas', async (req, res) => {
 
         <div style="margin-bottom:14px">
           <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Importe Transferido</label>
-          <input type="text" id="inp-comprobante-monto" placeholder="Ej: $120.000 (Expensa Agosto)" class="inp" style="background:#fff;margin-bottom:0">
+          <input type="text" id="inp-comprobante-monto" placeholder="Ej: 85.400 (expensa de agosto)" class="inp" style="background:#fff;margin-bottom:0">
         </div>
 
         <button id="btn-comprobante" type="submit" style="width:100%;height:46px;border:none;border-radius:12px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-weight:800;font-size:14.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 3px 10px rgba(22,163,74,.25)">
@@ -5549,7 +5571,9 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
       id: Date.now(),
       edificio: v.edificio,
       vecino: nombreCompleto(v) + ' (' + v.departamento + ')',
-      monto: monto ? ('$' + monto.replace(/^\$/, '')) : '$120.000',
+      // Si no lo escribió, NO se inventa: acá había un '$120.000' fijo, así que un comprobante
+      // sin monto llegaba al administrador con un importe que nadie dijo nunca.
+      monto: monto ? ('$' + monto.replace(/^\$/, '')) : null,
       fecha: new Date().toLocaleDateString('es-AR'),
       url: archivoUrl,
       estado: 'pendiente_aprobacion',
@@ -5592,7 +5616,7 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
         const msgAlerta = `💳 *NUEVO COMPROBANTE DE EXPENSAS INFORMADO*\n\n` +
           `🏢 *Edificio:* ${v.edificio}\n` +
           `👤 *Vecino:* ${nombreCompleto(v)} (${v.departamento})\n` +
-          `💵 *Monto:* ${nuevoComprobante.monto}\n` +
+          `💵 *Monto:* ${nuevoComprobante.monto || 'no lo informó, está en el comprobante'}\n` +
           `📅 *Fecha:* ${nuevoComprobante.fecha}\n\n` +
           `👉 Ver en Panel: https://marcos.bienargentinos.com/admin/archivos`;
         await marcosOps.enviarWhatsApp(adminPhone, msgAlerta, phoneId, token).catch(() => {});

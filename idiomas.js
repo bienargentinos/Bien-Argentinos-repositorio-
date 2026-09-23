@@ -140,6 +140,11 @@ const TEXTOS = {
         'avisos.publicadoPor': 'Avisó {quien} ({rol})',
         'avisos.reclamoAbierto': 'Reclamo abierto, todavía sin resolver',
 
+        'expensa.sinCargar': 'La expensa de este mes todavía no está cargada.',
+        'expensa.vence': 'Vence el {fecha}',
+        'expensa.descargar': 'Descargar',
+        'expensa.delEdificio': 'Es la expensa general del edificio, no la de tu unidad.',
+
         'error.generico': 'No se pudo completar la acción.',
     },
 
@@ -253,6 +258,11 @@ const TEXTOS = {
         'avisos.sinFecha': 'until further notice',
         'avisos.publicadoPor': 'Posted by {quien} ({rol})',
         'avisos.reclamoAbierto': 'Open request, not resolved yet',
+
+        'expensa.sinCargar': "This month's fee hasn't been uploaded yet.",
+        'expensa.vence': 'Due {fecha}',
+        'expensa.descargar': 'Download',
+        'expensa.delEdificio': "This is the building's general fee, not your unit's.",
 
         'error.generico': 'The action could not be completed.',
     },
@@ -368,6 +378,11 @@ const TEXTOS = {
         'avisos.publicadoPor': 'Avisado por {quien} ({rol})',
         'avisos.reclamoAbierto': 'Chamado aberto, ainda sem solução',
 
+        'expensa.sinCargar': 'O condomínio deste mês ainda não foi carregado.',
+        'expensa.vence': 'Vence em {fecha}',
+        'expensa.descargar': 'Baixar',
+        'expensa.delEdificio': 'É o documento geral do prédio, não o da sua unidade.',
+
         'error.generico': 'Não foi possível concluir a ação.',
     },
 
@@ -481,6 +496,11 @@ const TEXTOS = {
         'avisos.sinFecha': 'jusqu’à nouvel ordre',
         'avisos.publicadoPor': 'Signalé par {quien} ({rol})',
         'avisos.reclamoAbierto': 'Demande ouverte, pas encore résolue',
+
+        'expensa.sinCargar': 'Les charges de ce mois ne sont pas encore déposées.',
+        'expensa.vence': 'Échéance le {fecha}',
+        'expensa.descargar': 'Télécharger',
+        'expensa.delEdificio': "C'est le document général de l'immeuble, pas celui de votre logement.",
 
         'error.generico': "L'action n'a pas pu être effectuée.",
     },
