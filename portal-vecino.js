@@ -2983,32 +2983,20 @@ router.get('/', (req, res) => {
     </div>
   `;
 
-  // 3. Tarjeta Resumen de Ocupantes (Ligera y Rápida para el Home)
-  const puedeGestionarOcupantes = (v.rol === 'propietario' || v.rol === 'asistente');
-  const tarjetaResumenOcupantes = puedeGestionarOcupantes ? `
-    <div class="card" style="padding:16px 18px;background:#ffffff;margin-bottom:14px;border-radius:20px;border:1px solid #E2E8F0;box-shadow:0 4px 14px rgba(15,23,42,.04)">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-        <div style="display:flex;align-items:center;gap:12px">
-          <div style="width:40px;height:40px;border-radius:12px;background:#EFF6FF;color:#2563EB;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
-            <i class="ph ph-users-three"></i>
-          </div>
-          <div>
-            <div style="font-size:14px;font-weight:900;color:#0F172A">Ocupantes del Depto ${esc(v.departamento)}</div>
-            <div id="resumen-ocupantes-txt" style="font-size:12px;color:#64748B;font-weight:700">Cargando integrantes...</div>
-          </div>
-        </div>
-        <a href="/vecino/integrantes" style="padding:8px 14px;border-radius:12px;background:#0F326A;color:#fff;font-size:12px;font-weight:800;text-decoration:none;display:inline-flex;align-items:center;gap:6px;flex-shrink:0;box-shadow:0 2px 6px rgba(15,50,106,.2)">
-          <span>Gestionar</span>
-          <i class="ph ph-arrow-right" style="font-size:14px"></i>
-        </a>
-      </div>
-    </div>
-  ` : '';
+  // Integrantes vive UNA sola vez en el inicio: el botón de "Accesos Directos", igual que
+  // Amenities, Pases QR y el resto.
+  //
+  // Antes había además una tarjeta ancha arriba --"Ocupantes del Depto X" con un botón
+  // "Gestionar"-- que llevaba exactamente al mismo lugar que ese botón. Dos caminos al mismo
+  // lado, uno de ellos ocupando el doble de alto que cualquier otra sección, empujaban todo lo
+  // demás abajo del pliegue en un teléfono.
+  //
+  // El conteo de integrantes que mostraba esa tarjeta se ve al entrar, que es donde se puede
+  // hacer algo con él.
 
   const content = `
     ${tarjetaSuperior}
     ${tarjetaTimbre}
-    ${tarjetaResumenOcupantes}
 
     <!-- Servicios Rápidos en Fila (Estilo Mercado Pago Icons) -->
     <div style="margin-bottom:14px">
@@ -3194,32 +3182,13 @@ router.get('/', (req, res) => {
         } catch (_) {}
       }
 
-      async function cargarResumenOcupantes() {
-        const el = document.getElementById('resumen-ocupantes-txt');
-        if (!el) return;
-        try {
-          const res = await fetch('/vecino/api/ocupantes-unidad');
-          const data = await res.json();
-          if (data.ok && data.ocupantes && data.ocupantes.length > 0) {
-            const total = data.ocupantes.length;
-            const roles = [];
-            if (data.ocupantes.some(function(o) { return o.rol === 'propietario'; })) roles.push('👑 Propietario');
-            if (data.ocupantes.some(function(o) { return o.rol === 'conviviente' || o.rol === 'familiar'; })) roles.push('👥 Familiar');
-            if (data.ocupantes.some(function(o) { return o.rol === 'inquilino'; })) roles.push('🔑 Inquilino');
-            if (data.ocupantes.some(function(o) { return o.rol === 'turista'; })) roles.push('🧳 Turista');
-            if (data.ocupantes.some(function(o) { return o.rol === 'asistente'; })) roles.push('🏢 Gestor');
-            el.innerText = total + ' integrante' + (total > 1 ? 's' : '') + ' · ' + roles.join(', ');
-          } else {
-            el.innerText = '1 integrante · Modo Titular';
-          }
-        } catch (_) {
-          el.innerText = 'Titular activo';
-        }
-      }
-
-      document.addEventListener('DOMContentLoaded', function() {
-        cargarResumenOcupantes();
-      });
+      // cargarResumenOcupantes se fue junto con la tarjeta que alimentaba: era un fetch a
+      // /vecino/api/ocupantes-unidad en CADA carga del inicio, para un dato que ahora se ve al
+      // entrar a Integrantes. El endpoint sigue vivo, lo usa esa pagina.
+      //
+      // Sin acentos graves a proposito: este comentario vive DENTRO de un template literal y un
+      // acento grave lo cierra, rompiendo el archivo entero. Es el mismo error que ya rompio
+      // db-pg.js en produccion.
     </script>
   `;
 
