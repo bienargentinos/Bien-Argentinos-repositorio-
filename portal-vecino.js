@@ -2030,7 +2030,7 @@ ${CSS_FORMULARIOS}
         </div>
 
         <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Contraseña</label>
-        <input id="inp-reg-pass" type="password" class="inp" placeholder="${esc(t('perfil.passNuevaPlaceholder'))}" required>
+        <input id="inp-reg-pass" type="password" class="inp" placeholder="Mínimo 6 caracteres" required>
 
         <!-- Depto y Rol eliminados para registro limpio -->
 
