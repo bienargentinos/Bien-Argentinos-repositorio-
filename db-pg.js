@@ -338,6 +338,49 @@ async function _initPgSchema() {
             ALTER TABLE facturas ADD COLUMN IF NOT EXISTS departamento VARCHAR(50);
             ALTER TABLE facturas ADD COLUMN IF NOT EXISTS usuario_id INT;
 
+            -- AVISOS DEL EDIFICIO
+            --
+            -- Lo que el consorcio le comunica a sus vecinos: un corte de agua, una fumigacion, el
+            -- ascensor suspendido hasta el jueves. Entra por dos caminos --el panel y un WhatsApp
+            -- a Marcos-- y aterriza siempre aca.
+            --
+            -- QUIEN PUEDE PUBLICAR ES UNA REGLA DE LA BASE, NO DE UNA PANTALLA.
+            -- Un aviso lo publica quien esta atras del edificio: el administrador, el encargado,
+            -- el consejo o un proveedor. NO un propietario, un inquilino ni un huesped -- esos son
+            -- vecinos, y un vecino anunciandole al edificio que el ascensor esta suspendido es
+            -- exactamente lo que no puede pasar.
+            --
+            -- El CHECK esta aca y no en un if de JavaScript a proposito: hay dos caminos de
+            -- entrada hoy y va a haber mas. Un control por camino se olvida en el tercero; este
+            -- no se puede esquivar desde ningun lado.
+            CREATE TABLE IF NOT EXISTS avisos (
+                id SERIAL PRIMARY KEY,
+                edificio VARCHAR(150) NOT NULL,
+                titulo VARCHAR(200),
+                texto TEXT,
+                tipo VARCHAR(50),
+                rubro VARCHAR(50),
+                urgente BOOLEAN DEFAULT FALSE,
+                desde TIMESTAMP DEFAULT NOW(),
+                hasta TIMESTAMP,
+                estado VARCHAR(30) DEFAULT 'vigente',
+                publicado_por VARCHAR(150),
+                publicado_rol VARCHAR(50) NOT NULL,
+                publicado_tel VARCHAR(50),
+                origen VARCHAR(30),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+            ALTER TABLE avisos DROP CONSTRAINT IF EXISTS avisos_rol_chk;
+            ALTER TABLE avisos ADD CONSTRAINT avisos_rol_chk CHECK (
+                publicado_rol IN ('administrador', 'encargado', 'consejo', 'proveedor', 'seguridad')
+            );
+            ALTER TABLE avisos DROP CONSTRAINT IF EXISTS avisos_estado_chk;
+            ALTER TABLE avisos ADD CONSTRAINT avisos_estado_chk CHECK (
+                estado IN ('vigente', 'levantado')
+            );
+            CREATE INDEX IF NOT EXISTS idx_avisos_edificio ON avisos(LOWER(edificio), estado);
+
             CREATE TABLE IF NOT EXISTS usuario_unidades (
                 id SERIAL PRIMARY KEY,
                 usuario_id INT REFERENCES usuarios(id) ON DELETE CASCADE,
@@ -1172,6 +1215,71 @@ async function cambiarPasswordUsuario(usuarioId, passwordActual, passwordNueva) 
     return { ok: true, eraPrimera: !u.password_hash };
 }
 
+// LOS ROLES QUE PUEDEN PUBLICAR UN AVISO.
+//
+// Es la misma lista que el CHECK de la tabla. Esta escrita dos veces a proposito y no por descuido:
+// el CHECK es el candado --no se puede esquivar desde ningun camino-- y esta constante es para que
+// el panel arme su desplegable sin inventarse roles. `pruebas-avisos.js` verifica que las dos digan
+// lo mismo, asi que no pueden separarse en silencio.
+const ROLES_QUE_AVISAN = ['administrador', 'encargado', 'consejo', 'proveedor', 'seguridad'];
+
+// Publica un aviso para un edificio.
+//
+// `rol` es de QUIEN lo publica, y es lo unico que decide si se acepta. Un propietario, un inquilino
+// o un huesped no estan en la lista: son vecinos. Un vecino anunciandole al edificio que el ascensor
+// esta suspendido es justo lo que esto impide.
+async function publicarAviso({ edificio, titulo, texto, tipo, rubro, urgente = false,
+                               desde = null, hasta = null, publicadoPor, rol, telefono = null,
+                               origen = 'panel' } = {}) {
+    if (!edificio || !String(edificio).trim()) throw new Error('Falta el edificio');
+    if (!String(texto || titulo || '').trim()) throw new Error('El aviso no puede estar vacio');
+
+    const rolNorm = String(rol || '').trim().toLowerCase();
+    if (!ROLES_QUE_AVISAN.includes(rolNorm)) {
+        // Se dice fuerte y con los roles validos: que un aviso no salga y nadie sepa por que es
+        // peor que el rechazo.
+        throw new Error(`Un "${rol}" no puede publicar avisos del edificio. Solo: ${ROLES_QUE_AVISAN.join(', ')}`);
+    }
+
+    const res = await pool.query(
+        `INSERT INTO avisos (edificio, titulo, texto, tipo, rubro, urgente, desde, hasta,
+                             estado, publicado_por, publicado_rol, publicado_tel, origen)
+         VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8, 'vigente', $9, $10, $11, $12)
+         RETURNING *`,
+        [String(edificio).trim(), titulo || null, texto || titulo, tipo || 'otro', rubro || null,
+         !!urgente, desde, hasta, publicadoPor || null, rolNorm, telefono, origen]
+    );
+    return res.rows[0];
+}
+
+// Los avisos que un vecino de ese edificio tiene que ver AHORA.
+//
+// Vigente y dentro de su ventana. Un aviso con `hasta` vencido no se muestra aunque nadie lo haya
+// dado de baja: el que avisa que el agua se corta hasta las 14 no vuelve a las 14 a apagarlo, y un
+// corte de agua de ayer en la pantalla de hoy es tan falso como inventarlo.
+async function avisosVigentesDeEdificio(edificio) {
+    if (!edificio || !String(edificio).trim()) return [];
+    const res = await pool.query(
+        `SELECT * FROM avisos
+          WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))
+            AND estado = 'vigente'
+            AND (desde IS NULL OR desde <= NOW())
+            AND (hasta IS NULL OR hasta >= NOW())
+          ORDER BY urgente DESC, desde DESC`,
+        [edificio]
+    );
+    return res.rows || [];
+}
+
+// Dar de baja un aviso: el ascensor volvio a andar, el corte termino.
+async function levantarAviso(id) {
+    if (!id) throw new Error('Falta el aviso');
+    const res = await pool.query(
+        `UPDATE avisos SET estado = 'levantado', updated_at = NOW() WHERE id = $1 RETURNING *`, [id]);
+    if (!res.rows[0]) throw new Error('No existe ese aviso');
+    return res.rows[0];
+}
+
 async function obtenerUnidadesDeUsuario(usuarioId) {
     if (!usuarioId) return [];
     // 1. Unidades directas asignadas al usuario
@@ -1648,6 +1756,10 @@ module.exports = {
     actualizarPerfilUsuario,
     cambiarPasswordUsuario,
     obtenerUnidadesDeUsuario,
+    ROLES_QUE_AVISAN,
+    publicarAviso,
+    avisosVigentesDeEdificio,
+    levantarAviso,
     asignarUsuarioAUnidad,
     reubicarHuesped,
     actualizarConfigTimbre,

@@ -134,6 +134,12 @@ const TEXTOS = {
         'inicio.comoSigoTexto': 'Enviá un mensaje con el email con el que te registraste ({email}) a la persona que te invitó (propietario, anfitrión o administración) para que te habilite el acceso a la unidad.',
         'inicio.asistencia24': 'Asistencia 24hs',
 
+        'avisos.titulo': 'Avisos de {edificio}',
+        'avisos.hasta': 'hasta el {fecha}',
+        'avisos.sinFecha': 'hasta nuevo aviso',
+        'avisos.publicadoPor': 'Avisó {quien} ({rol})',
+        'avisos.reclamoAbierto': 'Reclamo abierto, todavía sin resolver',
+
         'error.generico': 'No se pudo completar la acción.',
     },
 
@@ -241,6 +247,12 @@ const TEXTOS = {
         'inicio.comoSigo': 'What now?',
         'inicio.comoSigoTexto': 'Send the email you signed up with ({email}) to whoever invited you — the owner, host or building manager — so they can give you access to the unit.',
         'inicio.asistencia24': '24/7 support',
+
+        'avisos.titulo': 'Notices for {edificio}',
+        'avisos.hasta': 'until {fecha}',
+        'avisos.sinFecha': 'until further notice',
+        'avisos.publicadoPor': 'Posted by {quien} ({rol})',
+        'avisos.reclamoAbierto': 'Open request, not resolved yet',
 
         'error.generico': 'The action could not be completed.',
     },
@@ -350,6 +362,12 @@ const TEXTOS = {
         'inicio.comoSigoTexto': 'Envie o e-mail com que você se cadastrou ({email}) para quem convidou você (proprietário, anfitrião ou administração) para liberar o acesso à unidade.',
         'inicio.asistencia24': 'Suporte 24h',
 
+        'avisos.titulo': 'Avisos de {edificio}',
+        'avisos.hasta': 'até {fecha}',
+        'avisos.sinFecha': 'até novo aviso',
+        'avisos.publicadoPor': 'Avisado por {quien} ({rol})',
+        'avisos.reclamoAbierto': 'Chamado aberto, ainda sem solução',
+
         'error.generico': 'Não foi possível concluir a ação.',
     },
 
@@ -457,6 +475,12 @@ const TEXTOS = {
         'inicio.comoSigo': 'Et maintenant ?',
         'inicio.comoSigoTexto': "Envoyez l'e-mail avec lequel vous vous êtes inscrit ({email}) à la personne qui vous a invité (propriétaire, hôte ou gestion) pour qu'elle vous donne accès au logement.",
         'inicio.asistencia24': 'Assistance 24h/24',
+
+        'avisos.titulo': 'Avis de {edificio}',
+        'avisos.hasta': "jusqu'au {fecha}",
+        'avisos.sinFecha': 'jusqu’à nouvel ordre',
+        'avisos.publicadoPor': 'Signalé par {quien} ({rol})',
+        'avisos.reclamoAbierto': 'Demande ouverte, pas encore résolue',
 
         'error.generico': "L'action n'a pas pu être effectuée.",
     },

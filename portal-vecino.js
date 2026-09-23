@@ -3048,12 +3048,125 @@ router.post('/auth', async (req, res) => {
   res.redirect('/vecino');
 });
 
+// LO QUE EL EDIFICIO TIENE PARA DECIR HOY
+//
+// Junta las dos fuentes y las devuelve ordenadas por autoridad: primero lo que alguien del
+// edificio anunció, después lo que está reportado y sin resolver.
+//
+// Nunca inventa un "todo funciona". Si las dos vienen vacías devuelve una lista vacía y la pantalla
+// no muestra la sección — que es lo correcto: no saber no es lo mismo que estar bien.
+//
+// Un fallo de base NO tira la pantalla abajo: se loguea y se devuelve vacío. El vecino entra al
+// portal para abrir la puerta o reservar la parrilla; perder eso por un aviso que no se pudo leer
+// sería el peor cambio posible.
+async function avisosDelEdificio(edificio) {
+  if (!edificio) return [];
+  const salida = [];
+
+  try {
+    const { avisosVigentesDeEdificio } = require('./db-pg');
+    for (const a of await avisosVigentesDeEdificio(edificio)) {
+      salida.push({
+        clase: 'aviso',
+        titulo: a.titulo || a.texto,
+        texto: a.titulo ? a.texto : '',
+        tipo: a.tipo || 'otro',
+        urgente: !!a.urgente,
+        hasta: a.hasta,
+        porQuien: a.publicado_por,
+        rol: a.publicado_rol,
+      });
+    }
+  } catch (err) {
+    console.warn('Avisos del edificio:', err.message);
+  }
+
+  try {
+    const { pool } = require('./db-pg');
+    // Un caso abierto es uno que nadie dio por resuelto ni cerrado. Se miran los últimos 30 días:
+    // un reclamo de hace tres meses que quedó sin cerrar es basura de datos, no una novedad.
+    const q = `SELECT codigo_caso, problema, rubro_tecnico, fecha, estado
+                 FROM reportes
+                WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))
+                  AND COALESCE(LOWER(estado), '') NOT IN ('resuelto', 'cerrado')
+                  AND COALESCE(LOWER(tipo), '') <> 'reserva'
+                  AND created_at > NOW() - INTERVAL '30 days'
+                ORDER BY created_at DESC LIMIT 5`;
+    const r = await pool.query(q, [edificio]);
+    for (const c of (r.rows || [])) {
+      salida.push({
+        clase: 'reclamo',
+        titulo: c.rubro_tecnico || 'Reclamo del edificio',
+        texto: c.problema || '',
+        caso: c.codigo_caso,
+        fecha: c.fecha,
+      });
+    }
+  } catch (err) {
+    console.warn('Reclamos abiertos del edificio:', err.message);
+  }
+
+  return salida;
+}
+
+// El bloque, ya con los datos resueltos.
+//
+// Un aviso y un reclamo se ven distinto a propósito: el primero es el consorcio hablando, el
+// segundo es algo reportado que todavía nadie resolvió. Mezclarlos le daría al reclamo una
+// autoridad que no tiene.
+function bloqueAvisosHtml(avisos, v, t) {
+  const fila = (a) => {
+    if (a.clase === 'aviso') {
+      const hasta = a.hasta
+        ? `<span style="font-size:11.5px;color:var(--aviso);font-weight:700">· ${esc(t('avisos.hasta', { fecha: new Date(a.hasta).toLocaleDateString('es-AR') }))}</span>`
+        : `<span style="font-size:11.5px;color:var(--aviso);font-weight:700">· ${esc(t('avisos.sinFecha'))}</span>`;
+      return `
+      <div style="padding:12px 14px;border-radius:14px;background:var(--aviso-fondo);border:1px solid var(--aviso-borde)">
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:3px;flex-wrap:wrap">
+          <i class="ph ph-warning-circle" style="font-size:15px;color:var(--aviso)"></i>
+          <span style="font-size:13.5px;font-weight:900;color:var(--aviso)">${esc(a.titulo || '')}</span>
+          ${hasta}
+        </div>
+        ${a.texto ? `<div style="font-size:12.5px;color:var(--texto-medio);line-height:1.45">${esc(a.texto)}</div>` : ''}
+        ${a.porQuien ? `<div style="font-size:11px;color:var(--texto-tenue);margin-top:5px">${esc(t('avisos.publicadoPor', { quien: a.porQuien, rol: a.rol || '' }))}</div>` : ''}
+      </div>`;
+    }
+    // Un reclamo: se dice que está abierto y desde cuándo. Nada más.
+    return `
+      <div style="padding:12px 14px;border-radius:14px;background:var(--superficie-2);border:1px solid var(--borde)">
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:3px">
+          <i class="ph ph-wrench" style="font-size:15px;color:var(--texto-suave)"></i>
+          <span style="font-size:13.5px;font-weight:800;color:var(--texto)">${esc(a.titulo)}</span>
+        </div>
+        <div style="font-size:12px;color:var(--texto-suave)">${esc(t('avisos.reclamoAbierto'))}${a.fecha ? ' · ' + esc(String(a.fecha).slice(0, 10)) : ''}</div>
+      </div>`;
+  };
+
+  return `
+    <div class="card" style="padding:16px;background:var(--superficie);margin-bottom:14px;border-radius:18px">
+      <div style="font-size:12.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em;margin-bottom:11px">${esc(t('avisos.titulo', { edificio: v.edificio }))}</div>
+      <div style="display:flex;flex-direction:column;gap:9px">${avisos.map(fila).join('')}</div>
+    </div>`;
+}
+
 // -------------------------------------------------------------------
 // 2. INICIO / DASHBOARD DEL VECINO
 // -------------------------------------------------------------------
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const v = getVecinoSession(req);
   const t = textos(v.idioma);
+
+  // Lo que el edificio tiene para decirle HOY a este vecino. Dos fuentes, distinta autoridad:
+  //
+  //   1. Un AVISO publicado por alguien del edificio (administrador, encargado, consejo,
+  //      proveedor). Es un hecho del consorcio: "el ascensor está suspendido hasta el jueves".
+  //   2. Un RECLAMO abierto de `reportes`. Eso NO es "está fuera de servicio" -- es "alguien
+  //      reportó algo y todavía está abierto". Decir más que eso sería un diagnóstico que no
+  //      tenemos: el que sabe si el ascensor anda es el técnico, no nosotros.
+  //
+  // Si no hay ninguna de las dos, no se dice nada. Nunca "todo funciona normal".
+  const avisos = await avisosDelEdificio(v.edificio);
+  const avisosHtml = avisos.length === 0 ? '' : bloqueAvisosHtml(avisos, v, t);
 
   // 1. Tarjeta superior de Expensas (Solo fijos/titulares) o Bienvenida (Turistas)
   
@@ -3290,28 +3403,20 @@ router.get('/', (req, res) => {
       <button style="padding:7px 14px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12.5px;font-weight:800;cursor:pointer;flex-shrink:0">${esc(t('inicio.chatear'))}</button>
     </div>
 
-    <!-- Estado de Servicios del Edificio -->
-    <div class="card card-servicios" style="padding:16px;background:#fff;margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <span class="servicios-titulo" style="font-size:13px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:.04em">Servicios · ${esc(v.edificio)}</span>
-        <span class="servicio-badge-operativo" style="font-size:11px;font-weight:800;color:var(--ok);background:var(--ok-fondo);padding:3px 9px;border-radius:999px">Operativo</span>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px;padding-bottom:8px;border-bottom:1px solid var(--superficie-3)">
-          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)"><i class="ph ph-elevator" style="font-size:15px;vertical-align:-2px"></i> ${esc(t('inicio.ascensor'))}</span>
-          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">${esc(t('inicio.ascensorEstado'))}</span>
-        </div>
-        <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px;padding-bottom:8px;border-bottom:1px solid var(--superficie-3)">
-          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)"><i class="ph ph-drop" style="font-size:15px;vertical-align:-2px"></i> ${esc(t('inicio.bombas'))}</span>
-          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">${esc(t('inicio.bombasEstado'))}</span>
-        </div>
-        <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
-          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)"><i class="ph ph-garage" style="font-size:15px;vertical-align:-2px"></i> ${esc(t('inicio.porton'))}</span>
-          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">${esc(t('inicio.portonEstado'))}</span>
-        </div>
-      </div>
-    </div>
+    <!-- AVISOS DEL EDIFICIO -->
+    <!--
+      Antes acá había tres filas fijas --Ascensor, Bombas, Portón-- que decían "En servicio normal"
+      SIEMPRE, en todos los edificios. Esa es una afirmación que no se puede respaldar nunca: que
+      no haya un reclamo abierto no prueba que el ascensor ande.
 
+      El vecino que sube después de leer "en servicio normal" y encuentra el ascensor parado no
+      vuelve a mirar esta sección. Y una sección que nadie mira es peor que no tenerla.
+
+      Ahora el bloque SOLO aparece cuando hay algo que decir, y dice únicamente lo que se sabe: un
+      aviso publicado por alguien del edificio, o un reclamo abierto. Sin novedades no se renderiza
+      nada -- el silencio es honesto, "todo normal" es una promesa.
+    -->
+    ${avisosHtml}
     <!-- Novedades del Consorcio -->
     <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:13.5px;font-weight:900;color:var(--texto)">${esc(t('inicio.novedades'))}</span>

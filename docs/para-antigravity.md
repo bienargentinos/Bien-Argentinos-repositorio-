@@ -288,3 +288,88 @@ necesitás editar los datos de un vecino, llamá a esas y no escribas el `UPDATE
   porque un chequeo sobre el texto del archivo habría dicho que el `rol` estaba —y estaba: lo que
   faltaba era quién lo leyera.
 - `node verificar-antes-de-subir.js`: ✅ 60 pruebas en verde.
+
+---
+
+## 23/09 — Pedido: avisos del edificio y expensas por departamento
+
+Dos pantallas nuevas del panel. Las dos tienen su tabla ya creada de mi lado, así que del tuyo es
+la pantalla y el endpoint — **no hay que inventar ninguna estructura**.
+
+### 1. Publicar un aviso del edificio
+
+La tabla `avisos` ya existe en `db-pg.js`, y `publicarAviso()` está exportada. **Llamala, no
+escribas el INSERT a mano** — es lo que pasó con `buscarPerfilEdificio`, que quedó escrita dos
+veces y arreglar una copia no cambió nada en producción.
+
+```js
+const { publicarAviso, ROLES_QUE_AVISAN } = require('./db-pg');
+
+await publicarAviso({
+  edificio,            // obligatorio
+  titulo,              // "Corte de agua programado"
+  texto,               // el detalle
+  tipo,                // corte | fumigacion | mantenimiento | obra | seguridad | otro
+  rubro,               // opcional: 'Ascensores', 'Plomero'… sale de RUBROS_CATALOGO de rubros.js
+  urgente,             // true = va arriba de todo y dispara el pop-up
+  desde, hasta,        // `hasta` en null = "hasta nuevo aviso"
+  publicadoPor: nombre,
+  rol,                 // ← LO IMPORTANTE, ver abajo
+  telefono,
+  origen: 'panel',
+});
+```
+
+> [!CAUTION]
+> **`rol` decide si el aviso se acepta, y la lista NO se escribe a mano.**
+>
+> Un aviso lo publica quien está detrás del edificio: `administrador`, `encargado`, `consejo`,
+> `proveedor`, `seguridad`. **NO** un propietario, un inquilino ni un huésped — esos son vecinos, y
+> un vecino anunciándole al edificio que el ascensor está suspendido es exactamente lo que esto
+> impide. Decisión de Daniel del 23/09.
+>
+> La regla vive en un **CHECK de la tabla**, no en un `if`: hay dos caminos de entrada hoy (el panel
+> y un WhatsApp a Marcos) y va a haber más. Un control por camino se olvida en el tercero.
+>
+> Para el desplegable usá `ROLES_QUE_AVISAN`, que es la misma lista. `pruebas-avisos.js` verifica
+> que la constante y el CHECK digan lo mismo, así que no pueden separarse en silencio.
+
+Para dar de baja (el ascensor volvió a andar): `levantarAviso(id)`.
+
+**Un aviso con `hasta` vencido deja de mostrarse solo.** El que avisa "el agua se corta hasta las
+14" no vuelve a las 14 a apagarlo.
+
+### 2. Expensas por departamento, con el monto leído del documento
+
+Pedido de Daniel: que el administrador suba el documento **de cada departamento**, que la IA le
+saque el total, y que el vecino vea ese número en la tarjeta con un botón de descarga.
+
+Eso resuelve un problema de fondo: hoy la tarjeta del portal dice `$120.000,00` **escrito a mano en
+el código**. La tabla `expensas` no tiene ni monto ni departamento — es el PDF del edificio, no lo
+que debe cada unidad. Con el monto saliendo del propio documento, deja de ser inventado.
+
+**Lo que necesito de tu lado:**
+
+- En la sección Expensas, que la subida acepte **departamento** además de edificio y período.
+- Que se pueda subir **de a varios** (un administrador con 40 unidades no sube 40 archivos de a uno).
+
+**La estructura la agrego yo** a `expensas`: `departamento`, `monto`, `monto_origen`
+(`ia` / `manual`), `vencimiento`. Avisame cuando vayas a encarar la pantalla y la dejo lista antes,
+para que no escribas contra columnas que todavía no existen.
+
+**La extracción del monto es del chat del motor**, no tuya ni mía: `marcos-docs.js` ya sabe leer un
+monto de una factura en PDF o foto. Se lo pedí en `docs/para-el-motor.md`.
+
+### Lo que ya hice de mi lado
+
+- Tabla `avisos` + `publicarAviso` / `avisosVigentesDeEdificio` / `levantarAviso`.
+- El portal muestra los avisos vigentes y los reclamos abiertos en Inicio.
+- **Saqué las tres filas fijas de "Servicios"** que decían *"En servicio normal"* siempre, en todos
+  los edificios. Que no haya un reclamo abierto no prueba que el ascensor ande, y el vecino que sube
+  y lo encuentra parado después de leer eso no vuelve a mirar esa sección. Ahora la sección **solo
+  aparece si hay algo que decir**; sin novedades no se muestra nada.
+- `facturas` ganó `departamento` y `usuario_id`, porque **un vecino veía los comprobantes de pago de
+  todos sus vecinos** — con nombre, monto y el enlace al comprobante bancario. Si el panel lista
+  comprobantes, ojo con el mismo filtro.
+
+`node verificar-antes-de-subir.js`: 63 pruebas en verde.
