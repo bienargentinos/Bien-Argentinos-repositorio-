@@ -303,6 +303,28 @@ const PANTALLA_VACIA = 'Todavía no tenés ningún departamento asignado';
         afirmar('y con el vecino sin apellido tampoco', !esElMismo('', { nombre: 'Daniel' }));
     }
 
+    console.log('\n── TODAS LAS PANTALLAS RESPONDEN ──');
+    {
+        // POR QUÉ ESTÁ ESTO. Al traducir Mi Perfil, un reemplazo global se llevó puesto un texto
+        // de la pantalla de LOGIN, que es HTML suelto y no tiene `t` en su alcance. Quedó un
+        // `${esc(t('perfil.passNuevaPlaceholder'))}` ahí adentro y `/vecino/login` empezó a tirar
+        // `ReferenceError: t is not defined` — o sea la puerta de entrada del portal caída.
+        //
+        // `node --check` no lo ve: la sintaxis es válida. Sale recién al ejecutar esa línea, que
+        // es dentro de un template literal que solo se arma cuando alguien abre la página.
+        //
+        // Por eso se piden TODAS las pantallas, no solo las que se tocaron: una variable fuera de
+        // alcance en cualquiera de ellas la tira abajo, y acá adentro un error suelto no es solo
+        // de esa pantalla (el portal corre en el mismo proceso que Marcos).
+        const pantallas = ['/vecino/login', '/vecino/', '/vecino/perfil', '/vecino/novedades',
+                           '/vecino/integrantes', '/vecino/pases', '/vecino/chat'];
+        const login = await pedir('POST', '/vecino/auth', { cuerpo: 'rol=propietario' });
+        for (const ruta of pantallas) {
+            const r = await pedir('GET', ruta, { cookie: login.cookie });
+            verificar(`${ruta} responde`, r.codigo, 200);
+        }
+    }
+
     console.log('\n── LO QUE ESCRIBE EN LA BASE ──');
     {
         // Sin credenciales no se puede ejecutar, pero sí revisar que el código diga lo que tiene
