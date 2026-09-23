@@ -3067,11 +3067,11 @@ router.get('/', (req, res) => {
     <div class="card card-touch" style="padding:16px;background:#ffffff;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;border-left:4px solid #1E5FB4" onclick="location.href='/vecino/chat'">
       <div style="display:flex;align-items:center;gap:12px">
         <div style="width:42px;height:42px;border-radius:12px;background:#0F326A;color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
-          🤖
+          <i class="ph ph-headset"></i>
         </div>
         <div>
           <div style="font-size:14.5px;font-weight:900;color:#0F172A">Asistente Consorcio 24/7</div>
-          <div style="font-size:12px;color:#64748B;line-height:1.3">Reportá urgencias, pedí cerrajero o consultá reglamentos.</div>
+          <div style="font-size:12px;color:#64748B;line-height:1.3">Reportá una urgencia, consultá expensas o el reglamento.</div>
         </div>
       </div>
       <button style="padding:7px 14px;border:none;border-radius:10px;background:#0F326A;color:#fff;font-size:12.5px;font-weight:800;cursor:pointer;flex-shrink:0">Chatear</button>
@@ -4666,7 +4666,7 @@ router.get('/chat', (req, res) => {
     <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between">
       <div style="display:flex;align-items:center;gap:10px">
         <div style="position:relative">
-          <div style="width:40px;height:40px;border-radius:12px;background:#EBF3FC;display:flex;align-items:center;justify-content:center;font-size:20px">🤖</div>
+          <div style="width:40px;height:40px;border-radius:12px;background:#EBF3FC;color:#1E5FB4;display:flex;align-items:center;justify-content:center;font-size:20px"><i class="ph ph-headset"></i></div>
           <div style="position:absolute;bottom:-2px;right:-2px;width:11px;height:11px;border-radius:50%;background:#16A34A;border:2px solid #fff"></div>
         </div>
         <div>
@@ -5523,7 +5523,7 @@ router.get('/reclamos', async (req, res) => {
               <div class="chip-rubro active" onclick="seleccionarRubro('Plomería / Agua', this)">💧 Plomería</div>
               <div class="chip-rubro" onclick="seleccionarRubro('Electricidad / Luces', this)">⚡ Electricidad</div>
               <div class="chip-rubro" onclick="seleccionarRubro('Ascensores', this)">🛗 Ascensor</div>
-              <div class="chip-rubro" onclick="seleccionarRubro('Cerrajería / Portón', this)">🔑 Cerrajería</div>
+              <div class="chip-rubro" onclick="seleccionarRubro('Portón / Control de acceso', this)">🚪 Portón / Acceso</div>
               <div class="chip-rubro" onclick="seleccionarRubro('Gas / Calefacción', this)">🔥 Gas</div>
               <div class="chip-rubro" onclick="seleccionarRubro('Limpieza / Residuos', this)">🧹 Limpieza</div>
             </div>

@@ -34,7 +34,15 @@ const FAMILIAS = [
     // cámara ni configurar tarjetas de acceso.
     ['porter', 'citofon', 'frente de calle'],
     ['cctv', 'camara', 'cámara', 'videovigilancia', 'dvr', 'nvr'],
-    ['control de acceso', 'tarjeta', 'huella', 'molinete', 'cerradura magn', 'pestillo magn'],
+    // `portón` va acá y no en cerrajería: el portón de entrada es del consorcio y lo abre un
+    // motor con control remoto o teclado, no una llave. La cerradura de la puerta de un
+    // departamento sí es cerrajería, y es del propietario — esa distinción es la que confundía en
+    // el portal del vecino, donde el chip decía "Cerrajería" para un problema del edificio.
+    //
+    // Estaba en ninguna familia: `rubroDelTexto('no abre el portón de entrada')` devolvía nada, y
+    // un caso sin rubro no se puede separar de otro ni sirve para elegir a quién llamar.
+    ['control de acceso', 'tarjeta', 'huella', 'molinete', 'cerradura magn', 'pestillo magn',
+     'porton', 'portón'],
     ['alban', 'albañ', 'mamposter', 'pared'],
     ['ascensor', 'montacarga'],
     ['refriger', 'aire', 'split'],
@@ -151,7 +159,15 @@ function rubroDelTexto(texto) {
         // contienen la palabra que dispara electricidad. Si electricidad va primero se las lleva
         // todas puestas y no queda ninguna diferencia que mirar.
         ['cctv',              /cctv|c[aá]mara|videovigilancia|video vigilancia|\bdvr\b|\bnvr\b|grabador de video/],
-        ['control de acceso', /control de acceso|tarjeta magn|tarjeta de acceso|llavero de proximidad|\btag\b|huella|biom[eé]tric|molinete|cerradura magn[eé]tica|cerradura electromagn|pestillo magn[eé]tico|electroim[aá]n/],
+        // El `port[oó]n` lleva una exclusión y no es capricho: más abajo `herrería` tiene
+        // "portón de hierro", y como esta línea va antes se lo llevaría puesto. Un portón que no
+        // abre es casi siempre el motor, el control remoto o el teclado --control de acceso--;
+        // uno "de hierro" que hay que soldar es del herrero.
+        //
+        // Antes `portón` no estaba en NINGUNA pista: "no abre el portón de entrada" devolvía
+        // rubro vacío, y un caso sin rubro no se puede separar de otro ni sirve para elegir a
+        // quién llamar por `edificio + rubro`.
+        ['control de acceso', /control de acceso|tarjeta magn|tarjeta de acceso|llavero de proximidad|\btag\b|huella|biom[eé]tric|molinete|cerradura magn[eé]tica|cerradura electromagn|pestillo magn[eé]tico|electroim[aá]n|port[oó]n(?!\s+de\s+hierro)/],
         ['portería',          /portero el[eé]ctrico|porter[oó]n el[eé]ctrico|citofon|frente de calle|tel[eé]fono del portero|no anda el portero/],
 
         ['electricidad',  /electric|el[eé]ctric|luminaria|l[aá]mpara|lampara|tablero|disyuntor|t[eé]rmica|cortocircuito|\bluz\b|\bluces\b|iluminaci[oó]n|enchufe|instalaci[oó]n el[eé]ctrica/],

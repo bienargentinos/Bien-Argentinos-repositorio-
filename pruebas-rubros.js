@@ -89,6 +89,57 @@ console.log('\n3) El caso de Daniel, que es el que originó esto');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+console.log('\n3b) El portón del edificio no es la cerradura de un departamento');
+// ─────────────────────────────────────────────────────────────────────────────
+{
+    // Daniel, sobre el chip del portal del vecino que decía "Cerrajería":
+    //
+    //   "saca el texto de cerrajero, confunde: la cerrajería en general es más del propietario
+    //    que del consorcio"
+    //
+    // Y tenía razón por partida doble. El portón de entrada lo abre un motor con control remoto
+    // o teclado --control de acceso, del consorcio--; la cerradura de la puerta de un
+    // departamento es cerrajería y la paga el propietario. Ofrecerle "Cerrajería" a un vecino
+    // para un problema del edificio manda el reclamo al rubro equivocado.
+    //
+    // Y abajo había algo peor: `portón` no estaba en NINGUNA pista.
+    const { rubroDelTexto } = require('./rubros');
+
+    vale('"no abre el portón de entrada" ya no queda sin rubro',
+        rubroDelTexto('no abre el portón de entrada') === 'control de acceso',
+        `Dio: "${rubroDelTexto('no abre el portón de entrada')}". Un caso sin rubro no se puede ` +
+        'separar de otro ni sirve para elegir a quién llamar.');
+
+    vale('…y sin tilde también', rubroDelTexto('el porton no cierra') === 'control de acceso');
+
+    // La exclusión: `herrería` va DESPUÉS en la lista, así que sin cuidado se la lleva puesta.
+    vale('pero el portón DE HIERRO sigue siendo del herrero',
+        rubroDelTexto('el portón de hierro está oxidado') === 'herrería',
+        'Control de acceso va antes en la lista: sin la exclusión se queda con todos los portones.');
+
+    // Y lo que el chip dejó de decir: la cerrajería de verdad no se movió.
+    vale('la cerradura de un depto sigue siendo cerrajería',
+        rubroDelTexto('se trabó la cerradura de mi depto') === 'cerrajería');
+    vale('y las llaves también', rubroDelTexto('perdí las llaves') === 'cerrajería');
+
+    // El portón no es el portero: son dos trabajos distintos aunque los haga el mismo.
+    vale('el portero eléctrico sigue siendo portería',
+        rubroDelTexto('no anda el portero eléctrico') === 'portería');
+    vale('un portón NO es portería', !coincideRubro('portón', 'portería'));
+    vale('un portón NO es cerrajería', !coincideRubro('portón', 'cerrajería'));
+    vale('un portón SÍ es control de acceso', coincideRubro('portón', 'control de acceso'));
+
+    // Lo que manda el portal del vecino cuando el vecino toca ese chip.
+    vale('el chip del portal cae en control de acceso',
+        rubroDelTexto('Portón / Control de acceso') === 'control de acceso');
+
+    const portal = fs.readFileSync(path.join(__dirname, 'portal-vecino.js'), 'utf8');
+    vale('y el portal ya no le ofrece "Cerrajería" al vecino',
+        !/seleccionarRubro\(\s*['"]Cerrajer/i.test(portal),
+        'Es un rubro del propietario, no del consorcio.');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('\n4) El panel usa ESTA lista, no una propia');
 // ─────────────────────────────────────────────────────────────────────────────
 {
