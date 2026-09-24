@@ -31,30 +31,27 @@ const norm = (t) => String(t || '')
     .replace(/[ÁÉÍÓÚÜÑáéíóúüñ]/g, c => 'AEIOUUNaeiouun'['ÁÉÍÓÚÜÑáéíóúüñ'.indexOf(c)])
     .toLowerCase().trim().replace(/\s+/g, ' ');
 
-// Dónde se escribe el nombre de un edificio, fuera de `EDIFICIOS`.
-// pestaña/tabla → columnas que lo guardan.
-const USOS = {
-    proveedor_asignaciones: ['edificio'],
-    consejo:                ['edificio'],
-    reportes:               ['edificio'],
-    eventos:                ['edificio'],
-    facturas:               ['edificio'],
-    vecinos:                ['edificio'],
-    solicitudes:            ['edificio'],
-    sugerencias:            ['edificio'],
-    expensas:               ['edificio'],
-    reservas_amenities:     ['edificio'],
-    usuario_unidades:       ['edificio'],
-    edificio_amenities:     ['edificio'],
-    accesos:                ['edificio'],
-};
-// La lista separada por comas de la ficha del cliente.
-const LISTAS = { clientes: ['edificios'] };
-
-function columnasDe(mapa, tabla) {
-    const k = Object.keys(mapa).find(x => norm(x) === norm(tabla));
-    return k ? mapa[k] : null;
-}
+// ── DÓNDE SE ESCRIBE EL NOMBRE DE UN EDIFICIO ───────────────────────────────────────────────
+//
+// > [!CAUTION]
+// > **Acá había una lista de tablas escrita a mano, y le faltaban tres.**
+//
+// Este informe dijo que "Torre Norte Edifica" estaba en **2 filas** de `reservas_amenities`.
+// `buscar-texto.js` encontró **5 lugares**: esas dos, más dos en `eventos_acceso` y una en
+// `pases_qr` --que es un PASE DE ACCESO, o sea la puerta de un edificio--. Ninguna de esas dos
+// tablas estaba anotada, porque nacieron después de la lista.
+//
+// Es el mismo defecto que ya costó caro tres veces en este proyecto: un verificador que solo
+// revisa lo que alguien se acordó de anotar informa "todo en orden" sobre lo que no mira. Y es
+// peor que no tenerlo, porque da por cerrado lo que sigue abierto.
+//
+// Así que no se anota nada: **una columna que se llama `edificio` guarda el nombre de un
+// edificio**, la haya escrito quien la haya escrito y exista desde cuando exista. Una tabla nueva
+// queda cubierta el día que se crea, sin que nadie tenga que acordarse.
+//
+// `edificios` en plural es la lista separada por comas de la ficha del cliente.
+const esColumnaDeEdificio = (col) => norm(col) === 'edificio';
+const esListaDeEdificios  = (col) => norm(col) === 'edificios';
 
 (async () => {
     let pool = null;
@@ -124,18 +121,23 @@ function columnasDe(mapa, tabla) {
     try {
         const doc = await require('./sheets').getSheet();
         for (const titulo of Object.keys(doc.sheetsByTitle || {})) {
-            const cols = columnasDe(USOS, titulo);
-            const listas = columnasDe(LISTAS, titulo);
-            if (!cols && !listas) continue;
+            // La pestaña de los edificios es la que manda: sus propios nombres no son usos.
+            if (norm(titulo) === 'edificios') continue;
 
             const hoja = doc.sheetsByTitle[titulo];
             await hoja.loadHeaderRow().catch(() => {});
+            const cabeceras = hoja.headerValues || [];
+
+            const cols = cabeceras.filter(esColumnaDeEdificio);
+            const listas = cabeceras.filter(esListaDeEdificios);
+            if (!cols.length && !listas.length) continue;
+
             let filas = [];
             try { filas = await hoja.getRows(); } catch { continue; }
 
             for (const f of filas) {
-                for (const c of (cols || [])) anotar(f.get(c), `📄 ${titulo}.${c}`);
-                for (const c of (listas || [])) {
+                for (const c of cols) anotar(f.get(c), `📄 ${titulo}.${c}`);
+                for (const c of listas) {
                     for (const parte of String(f.get(c) || '').split(',')) anotar(parte, `📄 ${titulo}.${c}`);
                 }
             }
@@ -152,8 +154,11 @@ function columnasDe(mapa, tabla) {
             WHERE table_schema = 'public' AND data_type IN ('text','character varying','character')
         `);
         for (const { table_name: tabla, column_name: col } of columnas) {
-            const esUso = (columnasDe(USOS, tabla) || []).includes(norm(col));
-            const esLista = (columnasDe(LISTAS, tabla) || []).includes(norm(col));
+            // La tabla de los edificios es la que manda: sus propios nombres no son usos.
+            if (norm(tabla) === 'edificios') continue;
+
+            const esUso = esColumnaDeEdificio(col);
+            const esLista = esListaDeEdificios(col);
             if (!esUso && !esLista) continue;
 
             let res;
