@@ -257,3 +257,37 @@ referencia de lo que cobra"*. Tiene razón: el cupón de cada unidad **suele tra
 gastos adentro**, que es como lo emiten la mayoría de los sistemas de expensas. Para esos
 administradores la general es redundante; para los que la emiten aparte, sirve. Opcional cubre
 los dos casos y no le inventa trabajo a nadie.
+
+---
+
+## Pedido: la sesión del portal se borra en cada `pm2 restart`
+
+> [!CAUTION]
+> **`portal-vecino.js:16` monta `session()` sin `store`**, así que usa el `MemoryStore` de
+> `express-session` y las sesiones viven en la RAM del proceso. Cada despliegue deslogea a todos
+> los vecinos.
+
+```js
+router.use(session({ secret: require('./credenciales').secretoDeSesion(), resave: false, saveUninitialized: true }));
+```
+
+Hoy pasó en el panel y costó media hora de diagnóstico, porque el síntoma no se parece a la causa:
+el navegador sigue mandando la cookie, la página se ve normal, y el error aparece recién al apretar
+un botón. En el panel salía como `JSON.parse: unexpected character at line 1 column 1` --el HTML de
+un `302` al login leído como JSON-- y mandaba a buscar el problema al código recién escrito.
+
+Dos cosas, separadas a propósito:
+
+1. **Que el fallo diga la verdad.** Una ruta `/api/...` la llama siempre el JavaScript de la
+   página: sin sesión tiene que contestar `401` con JSON, nunca un `res.redirect`. En el panel lo
+   dejé arreglado en `requireAuth` y con candado en `pruebas-clave-app.js`; el portal necesita lo
+   mismo en sus rutas de API.
+2. **Que la sesión sobreviva al reinicio.** Un `store` en PostgreSQL (`connect-pg-simple`, la base
+   ya está) lo resuelve. Suma una dependencia npm, que según la regla de oro del repo va **en el
+   mismo commit** que el código que la usa. Ojo con el dueño de la tabla: si la creás desde `psql`
+   como `postgres`, Marcos --que entra como `marcos`-- no la puede escribir y desde el código
+   parece un bug (`node revisar-permisos-pg.js` lo dice).
+
+`saveUninitialized: true` además crea una sesión por cada visita anónima, así que el `MemoryStore`
+va creciendo con gente que nunca se logueó. Con un store de verdad eso pasa a ser filas en la base;
+conviene bajarlo a `false` en el mismo movimiento.

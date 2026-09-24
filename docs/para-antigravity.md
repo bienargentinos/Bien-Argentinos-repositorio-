@@ -559,3 +559,106 @@ const edificio = permitidos[0] || '';
 
 Y lo que falta para que esto se vea de punta a punta: **el portal todavía no puede abrir la
 expensa del vecino.** Está pedido en `docs/portal-vecino-y-porteria.md`, es del chat del portal.
+
+---
+
+## Por qué publicar la tanda decía `JSON.parse: unexpected character`
+
+Daniel cargó la tanda, la tabla leyó bien los cuatro totales, apretó **Publicar** y le saltó:
+
+```
+Error: JSON.parse: unexpected character at line 1 column 1 of the JSON data
+```
+
+Ese mensaje no tiene nada que ver con las expensas. Perseguí el endpoint, PostgreSQL y las
+columnas de `expensas` --las 13 estaban-- antes de mirar el registro de nginx, que lo dijo en una
+línea:
+
+```
+"POST /admin/api/expensa-tanda-publicar HTTP/2.0" 302 34
+```
+
+**Un 302 de 34 bytes es el HTML del `Found. Redirecting to /admin/login`.** O sea: la sesión se
+había caído y `requireAuth` contestó con una redirección. El `await r.json()` del otro lado no
+puede leer eso, y lo informa hablando de la línea 1 columna 1 de un JSON que nunca existió.
+
+### Ya lo arreglé en `requireAuth` (son 4 líneas, dashboard.js ~1016)
+
+Perdón por entrar de nuevo en tu archivo. Lo hice porque mientras siga así, **cualquier** sesión
+vencida en **cualquier** endpoint del panel se le aparece al administrador como `JSON.parse`, y a
+quien lo diagnostique lo manda a mirar el código que acaba de escribir. Es el mismo patrón que el
+contador `⏱️ 3 caso(s)` que contaba antes de filtrar: una falla que miente sobre sí misma cuesta
+más que la falla.
+
+Lo que había:
+
+```js
+if (req.headers.accept && req.headers.accept.includes('application/json')) {
+  return res.status(401).json({ error: 'No autenticado' });
+}
+return res.redirect('/admin/login');
+```
+
+**El `Accept` no sirve como señal**: un `fetch` con cuerpo JSON manda `Accept: */*` salvo que se lo
+pidas explícitamente, así que esa rama casi nunca corría. Tus `fetch` del panel mandan solo
+`Content-Type`, como corresponde. Lo confiable es la ruta:
+
+```js
+const esLlamadaDeCodigo = req.path.startsWith('/api/') ||
+  (req.headers.accept && req.headers.accept.includes('application/json'));
+
+if (esLlamadaDeCodigo) {
+  return res.status(401).json({
+    error: 'Se venció la sesión del panel. Volvé a entrar y probá de nuevo.',
+    sesion_vencida: true,
+  });
+}
+return res.redirect('/admin/login');
+```
+
+Tu `publicarExpensa` ya hace `if (!r.ok || j.error) throw new Error(j.error ...)`, así que el toast
+ahora dice la frase de arriba sin que toques nada del lado del navegador. Candado en
+`pruebas-clave-app.js`: una ruta de API tiene que contestar JSON, y el control va **antes** del
+redirect.
+
+### Lo que NO arreglé, y es tuyo: la sesión se borra en cada `pm2 restart`
+
+> [!CAUTION]
+> **`session()` está sin `store`, así que usa el `MemoryStore` de `express-session`: las sesiones
+> viven en la RAM del proceso.** Un `pm2 restart` las borra todas.
+
+```js
+router.use(session({
+  name: 'marcos.sid',
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 * 12 },
+}));
+```
+
+La cookie dura **12 horas** y el servidor se olvida en cada despliegue. Esa asimetría es el
+problema: el navegador sigue mandando una cookie que cree válida, el panel se ve normal, y el error
+aparece recién al apretar un botón. Daniel reinició varias veces con la pestaña abierta mientras
+probábamos — por eso salió ahí.
+
+No lo toqué porque es la autenticación del panel, es tu archivo, y **suma una dependencia npm**
+(que según la regla de oro tiene que ir en el mismo commit que el código que la usa). La forma
+directa, con la base que ya está:
+
+```js
+const pgSession = require('connect-pg-simple')(session);
+// store: new pgSession({ pool, tableName: 'sesiones_panel', createTableIfMissing: true }),
+```
+
+Dos cosas del proyecto que aplican si lo encarás:
+
+- **`createTableIfMissing` crea la tabla como el rol que se conecta.** Marcos entra como `marcos`,
+  así que queda bien; si la creás desde `psql` como `postgres`, el `INSERT` va a fallar con
+  `permission denied` y desde el código parece un bug. Está anotado en CLAUDE.md, y se verifica con
+  `node revisar-permisos-pg.js`.
+- **El portal del vecino monta su propia sesión** (`portal-vecino.js:16`, con `saveUninitialized:
+  true`) y tiene el mismo problema. Es del chat del portal; lo dejo pedido ahí.
+
+Mientras no esté, el arreglo del `requireAuth` alcanza para que el mensaje diga la verdad: se
+vuelve a entrar al panel y la tanda se sube de nuevo.
