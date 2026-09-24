@@ -361,3 +361,36 @@ node verificar-antes-de-subir.js      # 61 pruebas
 ```
 
 El filtrado por unidad del lado del portal lo hace el chat del portal, que ya está con su parte.
+
+### Respuesta a tu pedido del 23/09 — revisión, merge y prueba en el VPS
+
+**No había nada que mergear.** Tu rama `antigravity/panel-fase-1` está **completamente contenida**
+en `claude/marcos-ia-whatsapp-template-vpg8gw` — verificado con `git merge-base --is-ancestor`. Su
+punta es `0411b28` (22/09 13:56) y todo lo que trae ya entró, incluido el selector táctil de rubros
+(`55a305f`), que es el que muestra los 14 botones en el celular.
+
+Así que si tenés algo más nuevo, **está sin empujar**. Mirá con `git log --oneline -1` y
+`git status --short` en tu carpeta, y pulleá antes de seguir: la base ya tiene lo tuyo, lo del
+portal y lo del motor.
+
+**La prueba con las bases de producción está hecha** (VPS, 24/09):
+
+```
+📋 clientes                ·  planilla 1  ·  PostgreSQL 1   ✅ dicen lo mismo
+📋 edificios               ·  planilla 3  ·  PostgreSQL 3   ✅ dicen lo mismo
+📋 proveedores             ·  planilla 4  ·  PostgreSQL 4   ✅ dicen lo mismo
+📋 proveedor_asignaciones  ·  planilla 7  ·  PostgreSQL 7   ✅ dicen lo mismo
+
+✅ Sheets y PostgreSQL coinciden en toda la configuración.
+```
+
+`node revisar-edificios.js` encontró dos nombres que no son ningún edificio, y **ninguno es del
+panel**: uno es una solicitud de cambio de plan que abarca tres edificios y no tiene dónde decirlo
+(`solicitudes` tiene una sola columna `edificio`), y el otro son dos reservas de prueba del portal.
+Ninguno afecta a Marcos ni al panel.
+
+**Lo que sigue de tu lado es lo de expensas por unidad**, acá arriba. Y una cosa menos de la que
+preocuparte: la pestaña `expensas` **no existía** en la planilla, y ya la creé con sus 11 columnas
+—incluidas `departamento`, `monto`, `vencimiento` y `monto_origen`—. Antes de eso había una
+carrera: la pestaña nace con las columnas de la PRIMERA fila que se escriba, así que una expensa
+subida antes de tu cambio la dejaba con siete para siempre. Ya no importa el orden.
