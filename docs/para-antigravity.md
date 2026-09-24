@@ -834,3 +834,82 @@ Ya está más arriba en este archivo, pero se juntan acá porque son el mismo ep
   "no hay ninguna" y "no sé de qué edificio me hablás" no se arreglan igual.
 - **El toast convierte el 0 en "todas"**: `j.guardadas || _expTandaDatos.length`. Una tanda donde
   fallaron todas las filas informa éxito. Está explicado arriba con el reemplazo.
+
+---
+
+## Despliegue al VPS: lo que hay para subir (24/09)
+
+Daniel pidió que lo hagas vos, que tenés acceso. Son cuatro commits, ninguno toca el `.env` ni
+nada de configuración.
+
+**Rama**: `claude/marcos-ia-whatsapp-template-vpg8gw` — punta en `c2dbc13`. Verifiqué que contiene
+`main` entero (`git log HEAD..origin/main` vacío), así que no hay nada que mergear antes.
+
+| Commit | Qué cambia |
+|---|---|
+| `e1c18fe` | `requireAuth`: una ruta `/api/` sin sesión contesta `401` JSON en vez de redirigir al login. Es lo que hacía que todo error de sesión se viera como `JSON.parse: unexpected character`. |
+| `fc2d4a9` | Publicar una expensa con varios edificios y ninguno elegido ahora corta y pide elegir, en vez de archivarla en el primero de la lista. |
+| `6ce44f8`, `c2dbc13` | Solo documentación (este archivo). |
+
+### Antes de pulear, mirá si alguien editó algo a mano
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git status --short
+```
+
+> [!CAUTION]
+> **Si aparecen archivos modificados, NO los resuelvas con `git add -A`.** Ahí conviven `.env.save`
+> y `.enov11` (las credenciales), `almacenamiento/` (audios, fotos y facturas de vecinos reales) y
+> el SQLite. Ya pasó una vez: un `git add -A` de rescate se llevó los tres adentro de un commit, y
+> no llegó a GitHub solo porque se miró el `git status` antes de empujar. El repo se hace público
+> cada vez que se usa el `curl`.
+>
+> Fue mi error, así que lo anoto con nombre y apellido. Si hay cambios locales, se agregan **por
+> archivo**, mirando cada uno.
+
+### El pull
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+Que quede en `c2dbc13`:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git log --oneline -1
+```
+
+### Antes de reiniciar, que el archivo parsee
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node --check dashboard.js && node --check index.js
+```
+
+> Esto no es ritual. Un acento grave adentro de un template literal ya rompió `db-pg.js` una vez:
+> el push salió, el verificador dijo que todo estaba bien, y el error apareció recién acá con
+> Marcos ya reiniciado.
+
+### Reiniciar
+
+```bash
+pm2 restart marcos-ai
+```
+
+> El proceso se llama **`marcos-ai`**, no `marcos-ia`.
+
+### Qué mirar después
+
+```bash
+pm2 logs marcos-ai --lines 40 --nostream
+```
+
+Y dos cosas en el panel, que son justo las que se arreglaron:
+
+1. **Publicar una expensa con el selector en "Todos los edificios"** tiene que decir *"Elegí
+   primero a qué edificio corresponde…"*. Antes la archivaba en el primero de la lista sin avisar.
+2. **Dejar el panel abierto, reiniciar, y apretar cualquier botón**: tiene que decir *"Se venció la
+   sesión del panel. Volvé a entrar y probá de nuevo."* en vez del `JSON.parse`.
+
+Ojo que lo segundo **sigue pasando** después de este despliegue: las sesiones viven en la RAM del
+proceso y cada `pm2 restart` las borra. Lo que cambia es que ahora lo dice. El arreglo de fondo
+--un `store` en PostgreSQL-- está pedido más arriba en este mismo archivo.
