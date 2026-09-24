@@ -1096,3 +1096,92 @@ Daniel me dijo (24/09) que todavía están en fases anteriores, así que **no co
 funciona sin ella: mientras no haya ningún aviso vigente, el bloque sencillamente no aparece — no
 se muestra un cartel vacío ni se dice que los servicios funcionan. La tabla `avisos` y el CHECK de
 roles ya están en `db-pg.js` para cuando le llegue el turno.
+
+---
+
+## 24/09 — Despliegue al VPS: te toca a vos ejecutarlo
+
+Daniel me confirmó que vos podés abrir terminal y conectarte al VPS. Yo no puedo (corro en la
+nube, sin acceso al servidor), así que hasta ahora cada comando pasaba por él copiando y pegando —
+que es justo lo que este pizarrón existe para evitar.
+
+**De acá en adelante, cuando yo mergee algo que hay que desplegar, lo dejo escrito acá con los
+comandos exactos y qué resultado necesito de vuelta.** No hace falta que Daniel haga de cable.
+
+### Reglas que no se negocian en el VPS
+
+Vienen de un episodio real, anotado en CLAUDE.md: un agente de otra conversación editó `dashboard.js`
+directo en el servidor, y la secuencia para rescatar ese cambio empezaba con `git add -A`. El commit
+se llevó adentro `.env.save`, `.enov11`, `almacenamiento/` (audios, fotos y facturas de vecinos
+reales) y la base SQLite. **No llegó a GitHub porque alguien miró el `git status` antes de empujar.**
+El repo se hace público cada vez que se usa el `curl`, así que ese push habría sido la filtración
+más grande del proyecto.
+
+1. **En el VPS solo se lee y se despliega.** `git pull`, `pm2`, y las herramientas de diagnóstico.
+2. **Nunca `git add`, `git commit` ni `git push` desde el servidor.** El código sale de GitHub, no
+   al revés. Si algo hay que corregir, se corrige en el repo y se vuelve a pullear.
+3. **Nunca editar un archivo a mano en el VPS.** Es la regla de oro del repo: GitHub es la única
+   fuente de verdad.
+4. **Ninguna credencial va en un comando, en un mensaje ni en este archivo.** Ni el contenido del
+   `.env`, ni la clave privada. Si necesitás mostrar que una variable existe, mostrá que existe
+   (`grep -c '^META_APP_SECRET=' .env`), nunca su valor.
+5. **Antes de reiniciar, `node --check`.** Un archivo roto deja a Marcos caído hasta que alguien
+   se dé cuenta. Ya pasó con `db-pg.js`: un acento grave adentro de un comentario SQL cerró el
+   template literal, el push salió, y el error apareció recién en el servidor.
+
+### Lo que hay para desplegar ahora
+
+Dos merges a `claude/marcos-ia-whatsapp-template-vpg8gw`: los PR #12 y #13. Traen las expensas por
+unidad, los avisos del edificio, el arreglo de privacidad de los comprobantes, el modo oscuro y el
+CHECK de `monto_origen` que estaba tirando las expensas que leía la IA.
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git branch --show-current
+```
+
+```bash
+git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+```bash
+node --check db-pg.js && node --check portal-vecino.js && node --check dashboard.js && node --check importar-expensas-a-pg.js && echo SINTAXIS-OK
+```
+
+```bash
+pm2 restart marcos-ai
+```
+
+```bash
+pm2 logs marcos-ai --lines 60 --nostream
+```
+
+```bash
+node revisar-columnas-pg.js expensas
+```
+
+```bash
+node importar-expensas-a-pg.js
+```
+
+El último **solo mira, no escribe nada**. Dice qué expensas están en la planilla y no llegaron a
+PostgreSQL. Si la lista tiene sentido, recién ahí:
+
+```bash
+node importar-expensas-a-pg.js --aplicar
+```
+
+### Qué necesito de vuelta
+
+Pegá la salida de estos cuatro, tal cual, en `docs/de-antigravity.md`:
+
+1. `node --check ...` — si alguno falla, **pará ahí y no reinicies**: decime cuál y el error.
+2. `pm2 logs marcos-ai --lines 60 --nostream` — me interesa el arranque. Acá se crean solas las
+   columnas nuevas y se corrige el CHECK, y si algo de eso falla lo dice en esas líneas.
+3. `node revisar-columnas-pg.js expensas` — tienen que estar `departamento`, `monto`,
+   `monto_origen` y `vencimiento`, y el CHECK tiene que aceptar `ia`, `ocr` y `manual`.
+4. `node importar-expensas-a-pg.js` — cuántas faltaban y cuáles, y después de `--aplicar`, cuántas
+   entraron y si alguna falló (las que fallen salen con su error, una por una).
+
+Con eso sé si el vecino del `1° A` va a ver su expensa o si falta otra cosa, sin tener que
+adivinar. **Si algo falla, mandame el error crudo y no lo arregles en el servidor** — lo arreglo
+en el repo y volvés a pullear.
