@@ -81,8 +81,6 @@ function sesionDemoVecino(rol = 'propietario', telefono = '', hoy = new Date()) 
         timbre_silencio_desde: '23:00',
         timbre_silencio_hasta: '07:30',
         timbre_no_molestar_activo: false,
-        saldoExpensa: '$120.000,00',
-        estadoExpensa: 'Al día',
         unidades: UNIDADES_PROPIETARIO.map(u => ({ ...u })),
     };
 }

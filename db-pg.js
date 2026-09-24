@@ -342,6 +342,92 @@ async function _initPgSchema() {
             -- ya existen no queden en NULL: un idioma vacio dejaria la pantalla sin textos.
             ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS idioma VARCHAR(8) DEFAULT 'es';
 
+            -- De quien es un comprobante de pago.
+            --
+            -- La tabla facturas guarda los gastos del consorcio (las del proveedor) Y los
+            -- comprobantes que sube un vecino desde el portal. Para los primeros el edificio
+            -- alcanza; para los segundos NO: sin el departamento, la pantalla de Expensas del
+            -- vecino le mostraba los comprobantes de TODOS sus vecinos, con el nombre, el monto
+            -- y el enlace al comprobante bancario de cada uno.
+            -- (Sin acentos graves en este comentario: todo el esquema viaja adentro de un
+            --  template literal y uno solo rompe el archivo entero. Esta contado en CLAUDE.md.)
+            --
+            -- Las filas viejas quedan en NULL a proposito: sin saber de quien son, no se le
+            -- muestran a nadie. Esconder de mas es el error barato; mostrar la transferencia del
+            -- vecino del 4 C no se puede deshacer.
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS departamento VARCHAR(50);
+            ALTER TABLE facturas ADD COLUMN IF NOT EXISTS usuario_id INT;
+
+            -- AVISOS DEL EDIFICIO
+            --
+            -- Lo que el consorcio le comunica a sus vecinos: un corte de agua, una fumigacion, el
+            -- ascensor suspendido hasta el jueves. Entra por dos caminos --el panel y un WhatsApp
+            -- a Marcos-- y aterriza siempre aca.
+            --
+            -- QUIEN PUEDE PUBLICAR ES UNA REGLA DE LA BASE, NO DE UNA PANTALLA.
+            -- Un aviso lo publica quien esta atras del edificio: el administrador, el encargado,
+            -- el consejo o un proveedor. NO un propietario, un inquilino ni un huesped -- esos son
+            -- vecinos, y un vecino anunciandole al edificio que el ascensor esta suspendido es
+            -- exactamente lo que no puede pasar.
+            --
+            -- El CHECK esta aca y no en un if de JavaScript a proposito: hay dos caminos de
+            -- entrada hoy y va a haber mas. Un control por camino se olvida en el tercero; este
+            -- no se puede esquivar desde ningun lado.
+            CREATE TABLE IF NOT EXISTS avisos (
+                id SERIAL PRIMARY KEY,
+                edificio VARCHAR(150) NOT NULL,
+                titulo VARCHAR(200),
+                texto TEXT,
+                tipo VARCHAR(50),
+                rubro VARCHAR(50),
+                urgente BOOLEAN DEFAULT FALSE,
+                desde TIMESTAMP DEFAULT NOW(),
+                hasta TIMESTAMP,
+                estado VARCHAR(30) DEFAULT 'vigente',
+                publicado_por VARCHAR(150),
+                publicado_rol VARCHAR(50) NOT NULL,
+                publicado_tel VARCHAR(50),
+                origen VARCHAR(30),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+            ALTER TABLE avisos DROP CONSTRAINT IF EXISTS avisos_rol_chk;
+            ALTER TABLE avisos ADD CONSTRAINT avisos_rol_chk CHECK (
+                publicado_rol IN ('administrador', 'encargado', 'consejo', 'proveedor', 'seguridad')
+            );
+            ALTER TABLE avisos DROP CONSTRAINT IF EXISTS avisos_estado_chk;
+            ALTER TABLE avisos ADD CONSTRAINT avisos_estado_chk CHECK (
+                estado IN ('vigente', 'levantado')
+            );
+            CREATE INDEX IF NOT EXISTS idx_avisos_edificio ON avisos(LOWER(edificio), estado);
+
+            -- LA EXPENSA DE CADA DEPARTAMENTO
+            --
+            -- La tabla nacio guardando UN documento por edificio: el PDF que sube el administrador
+            -- cada mes. Con eso el portal no podia decirle a un vecino cuanto le toca a EL, asi que
+            -- la tarjeta del Inicio mostraba 120.000 escritos a mano en el codigo.
+            --
+            -- Pedido de Daniel (23/09): que el administrador suba el documento de cada unidad, que
+            -- la IA le extraiga el total, y que el vecino vea ese numero con un boton de descarga.
+            -- Asi el monto deja de ser inventado: sale del papel que subio el administrador.
+            --
+            -- La columna monto_origen dice de donde salio el numero: 'ia' cuando lo leyo el
+            -- lector de documentos, 'manual' cuando lo escribio o lo corrigio una persona. Un monto
+            -- leido mal es peor que ninguno --y aca no hay digito verificador como en el CBU-- asi
+            -- que quien lo muestre tiene que poder distinguirlos.
+            --
+            -- Una fila SIN departamento sigue siendo el documento del edificio entero, como antes.
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS departamento VARCHAR(50);
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS monto NUMERIC(14,2);
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS monto_origen VARCHAR(20);
+            ALTER TABLE expensas ADD COLUMN IF NOT EXISTS vencimiento DATE;
+            ALTER TABLE expensas DROP CONSTRAINT IF EXISTS expensas_monto_origen_chk;
+            ALTER TABLE expensas ADD CONSTRAINT expensas_monto_origen_chk CHECK (
+                monto_origen IS NULL OR monto_origen IN ('ia', 'manual')
+            );
+            CREATE INDEX IF NOT EXISTS idx_expensas_unidad
+                ON expensas(LOWER(edificio), LOWER(COALESCE(departamento, '')));
+
             CREATE TABLE IF NOT EXISTS usuario_unidades (
                 id SERIAL PRIMARY KEY,
                 usuario_id INT REFERENCES usuarios(id) ON DELETE CASCADE,
@@ -1176,6 +1262,126 @@ async function cambiarPasswordUsuario(usuarioId, passwordActual, passwordNueva) 
     return { ok: true, eraPrimera: !u.password_hash };
 }
 
+// La expensa mas reciente de una unidad.
+//
+// Busca primero la del departamento; si no hay, cae a la del edificio --el PDF general, que es lo
+// que habia antes-- y lo dice en `esDelEdificio` para que la pantalla no la presente como si fuera
+// la cuenta de esa unidad.
+//
+// Devuelve null cuando no hay ninguna. Eso NO es "no debe nada": es "todavia no se cargo", y la
+// pantalla tiene que decir eso y no un $0, que seria afirmar algo que no sabemos.
+async function expensaDeUnidad(edificio, departamento) {
+    if (!edificio || !String(edificio).trim()) return null;
+
+    // El departamento lo escribe a mano el administrador en el panel, y el de la sesion del vecino
+    // viene de como se lo cargo al asignarle la unidad. Son dos textos tipeados por personas
+    // distintas en momentos distintos, asi que compararlos caracter por caracter no alcanza:
+    // "1° A" y "1º A" se ven iguales y son caracteres distintos (grado vs ordinal masculino), y
+    // "1A" es el mismo departamento escrito sin nada en el medio.
+    //
+    // Es el error que este repo ya pago tres veces: el edificio que "desaparecia" de su
+    // administrador, el proveedor renombrado que Marcos seguia llamando por el nombre viejo, y el
+    // timbre que sonaba en otro edificio. Por eso NO se normaliza aca de nuevo: se llama a
+    // `claveUnidad`, que ya existe en edificio-clave.js y es la que usa la porteria.
+    const { claveUnidad, mismoEdificio } = require('./edificio-clave');
+    const buscada = claveUnidad(departamento);
+
+    // Se traen las del edificio y se elige en JavaScript. Hacer la normalizacion en SQL seria una
+    // segunda copia de la misma regla, y arreglar una sin la otra es como se pierde una tarde.
+    const res = await pool.query(
+        `SELECT * FROM expensas
+          WHERE COALESCE(LOWER(estado), '') <> 'eliminada'
+          ORDER BY id DESC
+          LIMIT 500`
+    );
+
+    const delEdificio = (res.rows || []).filter(r => mismoEdificio(r.edificio, edificio));
+    // Primero la de la unidad; si no hay, la del edificio entero (departamento vacio).
+    const fila = delEdificio.find(r => buscada && claveUnidad(r.departamento) === buscada)
+              || delEdificio.find(r => !claveUnidad(r.departamento));
+    if (!fila) return null;
+
+    const monto = fila.monto === null || fila.monto === undefined || fila.monto === ''
+        ? null : Number(fila.monto);
+
+    return {
+        id: fila.id,
+        periodo: fila.periodo || '',
+        monto: (monto !== null && isFinite(monto)) ? monto : null,
+        montoOrigen: fila.monto_origen || null,
+        vencimiento: fila.vencimiento || null,
+        url: fila.url || '',
+        formato: fila.formato || '',
+        nombre: fila.nombre || '',
+        esDelEdificio: !claveUnidad(fila.departamento),
+    };
+}
+
+// LOS ROLES QUE PUEDEN PUBLICAR UN AVISO.
+//
+// Es la misma lista que el CHECK de la tabla. Esta escrita dos veces a proposito y no por descuido:
+// el CHECK es el candado --no se puede esquivar desde ningun camino-- y esta constante es para que
+// el panel arme su desplegable sin inventarse roles. `pruebas-avisos.js` verifica que las dos digan
+// lo mismo, asi que no pueden separarse en silencio.
+const ROLES_QUE_AVISAN = ['administrador', 'encargado', 'consejo', 'proveedor', 'seguridad'];
+
+// Publica un aviso para un edificio.
+//
+// `rol` es de QUIEN lo publica, y es lo unico que decide si se acepta. Un propietario, un inquilino
+// o un huesped no estan en la lista: son vecinos. Un vecino anunciandole al edificio que el ascensor
+// esta suspendido es justo lo que esto impide.
+async function publicarAviso({ edificio, titulo, texto, tipo, rubro, urgente = false,
+                               desde = null, hasta = null, publicadoPor, rol, telefono = null,
+                               origen = 'panel' } = {}) {
+    if (!edificio || !String(edificio).trim()) throw new Error('Falta el edificio');
+    if (!String(texto || titulo || '').trim()) throw new Error('El aviso no puede estar vacio');
+
+    const rolNorm = String(rol || '').trim().toLowerCase();
+    if (!ROLES_QUE_AVISAN.includes(rolNorm)) {
+        // Se dice fuerte y con los roles validos: que un aviso no salga y nadie sepa por que es
+        // peor que el rechazo.
+        throw new Error(`Un "${rol}" no puede publicar avisos del edificio. Solo: ${ROLES_QUE_AVISAN.join(', ')}`);
+    }
+
+    const res = await pool.query(
+        `INSERT INTO avisos (edificio, titulo, texto, tipo, rubro, urgente, desde, hasta,
+                             estado, publicado_por, publicado_rol, publicado_tel, origen)
+         VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8, 'vigente', $9, $10, $11, $12)
+         RETURNING *`,
+        [String(edificio).trim(), titulo || null, texto || titulo, tipo || 'otro', rubro || null,
+         !!urgente, desde, hasta, publicadoPor || null, rolNorm, telefono, origen]
+    );
+    return res.rows[0];
+}
+
+// Los avisos que un vecino de ese edificio tiene que ver AHORA.
+//
+// Vigente y dentro de su ventana. Un aviso con `hasta` vencido no se muestra aunque nadie lo haya
+// dado de baja: el que avisa que el agua se corta hasta las 14 no vuelve a las 14 a apagarlo, y un
+// corte de agua de ayer en la pantalla de hoy es tan falso como inventarlo.
+async function avisosVigentesDeEdificio(edificio) {
+    if (!edificio || !String(edificio).trim()) return [];
+    const res = await pool.query(
+        `SELECT * FROM avisos
+          WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))
+            AND estado = 'vigente'
+            AND (desde IS NULL OR desde <= NOW())
+            AND (hasta IS NULL OR hasta >= NOW())
+          ORDER BY urgente DESC, desde DESC`,
+        [edificio]
+    );
+    return res.rows || [];
+}
+
+// Dar de baja un aviso: el ascensor volvio a andar, el corte termino.
+async function levantarAviso(id) {
+    if (!id) throw new Error('Falta el aviso');
+    const res = await pool.query(
+        `UPDATE avisos SET estado = 'levantado', updated_at = NOW() WHERE id = $1 RETURNING *`, [id]);
+    if (!res.rows[0]) throw new Error('No existe ese aviso');
+    return res.rows[0];
+}
+
 async function obtenerUnidadesDeUsuario(usuarioId) {
     if (!usuarioId) return [];
     // 1. Unidades directas asignadas al usuario
@@ -1652,6 +1858,11 @@ module.exports = {
     actualizarPerfilUsuario,
     cambiarPasswordUsuario,
     obtenerUnidadesDeUsuario,
+    ROLES_QUE_AVISAN,
+    expensaDeUnidad,
+    publicarAviso,
+    avisosVigentesDeEdificio,
+    levantarAviso,
     asignarUsuarioAUnidad,
     reubicarHuesped,
     actualizarConfigTimbre,

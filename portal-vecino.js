@@ -329,6 +329,7 @@ main{width:100%;padding:14px 14px 80px;display:flex;flex-direction:column;gap:12
 .dark-theme .servicios-titulo,
 .dark-theme .tag-amarillo {
   color: var(--dorado) !important;
+}
 
 /* Estados verdes normales adaptados a Verde Lima luminoso */
 .dark-theme [style*="color:var(--ok)"],
@@ -2442,8 +2443,6 @@ router.post('/api/login-email', async (req, res) => {
         timbre_activo: uActiva.timbre_activo !== false,
         timbre_silencio_desde: uActiva.timbre_silencio_desde || '23:00',
         timbre_silencio_hasta: uActiva.timbre_silencio_hasta || '07:30',
-        saldoExpensa: '$120.000,00',
-        estadoExpensa: 'Al día',
         unidades: unidades.length > 0 ? unidades : [uActiva]
       };
     }
@@ -3008,8 +3007,6 @@ router.post('/api/verificar-pin', async (req, res) => {
       timbre_activo: true,
       timbre_silencio_desde: '23:00',
       timbre_silencio_hasta: '07:30',
-      saldoExpensa: '$120.000,00',
-      estadoExpensa: 'Al día',
       unidades: unidades
     };
   }
@@ -3047,11 +3044,154 @@ router.post('/auth', async (req, res) => {
   res.redirect('/vecino');
 });
 
+// Un importe como lo escribe cualquiera en Argentina: $120.000,00
+//
+// A mano y no con `toLocaleString`, por el mismo ICU reducido del VPS que obligó a escribir
+// `fecha.js`: ahí `toLocaleString('es-AR')` devuelve el formato de Estados Unidos y el vecino lee
+// "$120,000.00", que en un importe cambia lo que entiende.
+function montoEnPesos(n) {
+  const num = Number(n);
+  if (!isFinite(num)) return '';
+  const [entera, dec] = Math.abs(num).toFixed(2).split('.');
+  const conPuntos = entera.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${num < 0 ? '-' : ''}$${conPuntos},${dec}`;
+}
+
+// LO QUE EL EDIFICIO TIENE PARA DECIR HOY
+//
+// Junta las dos fuentes y las devuelve ordenadas por autoridad: primero lo que alguien del
+// edificio anunció, después lo que está reportado y sin resolver.
+//
+// Nunca inventa un "todo funciona". Si las dos vienen vacías devuelve una lista vacía y la pantalla
+// no muestra la sección — que es lo correcto: no saber no es lo mismo que estar bien.
+//
+// Un fallo de base NO tira la pantalla abajo: se loguea y se devuelve vacío. El vecino entra al
+// portal para abrir la puerta o reservar la parrilla; perder eso por un aviso que no se pudo leer
+// sería el peor cambio posible.
+async function avisosDelEdificio(edificio) {
+  if (!edificio) return [];
+  const salida = [];
+
+  try {
+    const { avisosVigentesDeEdificio } = require('./db-pg');
+    for (const a of await avisosVigentesDeEdificio(edificio)) {
+      salida.push({
+        clase: 'aviso',
+        titulo: a.titulo || a.texto,
+        texto: a.titulo ? a.texto : '',
+        tipo: a.tipo || 'otro',
+        urgente: !!a.urgente,
+        hasta: a.hasta,
+        porQuien: a.publicado_por,
+        rol: a.publicado_rol,
+      });
+    }
+  } catch (err) {
+    console.warn('Avisos del edificio:', err.message);
+  }
+
+  try {
+    const { pool } = require('./db-pg');
+    // Un caso abierto es uno que nadie dio por resuelto ni cerrado. Se miran los últimos 30 días:
+    // un reclamo de hace tres meses que quedó sin cerrar es basura de datos, no una novedad.
+    const q = `SELECT codigo_caso, problema, rubro_tecnico, fecha, estado
+                 FROM reportes
+                WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))
+                  AND COALESCE(LOWER(estado), '') NOT IN ('resuelto', 'cerrado')
+                  AND COALESCE(LOWER(tipo), '') <> 'reserva'
+                  AND created_at > NOW() - INTERVAL '30 days'
+                ORDER BY created_at DESC LIMIT 5`;
+    const r = await pool.query(q, [edificio]);
+    for (const c of (r.rows || [])) {
+      salida.push({
+        clase: 'reclamo',
+        titulo: c.rubro_tecnico || 'Reclamo del edificio',
+        texto: c.problema || '',
+        caso: c.codigo_caso,
+        fecha: c.fecha,
+      });
+    }
+  } catch (err) {
+    console.warn('Reclamos abiertos del edificio:', err.message);
+  }
+
+  return salida;
+}
+
+// El bloque, ya con los datos resueltos.
+//
+// Un aviso y un reclamo se ven distinto a propósito: el primero es el consorcio hablando, el
+// segundo es algo reportado que todavía nadie resolvió. Mezclarlos le daría al reclamo una
+// autoridad que no tiene.
+function bloqueAvisosHtml(avisos, v, t) {
+  const fila = (a) => {
+    if (a.clase === 'aviso') {
+      const hasta = a.hasta
+        ? `<span style="font-size:11.5px;color:var(--aviso);font-weight:700">· ${esc(t('avisos.hasta', { fecha: new Date(a.hasta).toLocaleDateString('es-AR') }))}</span>`
+        : `<span style="font-size:11.5px;color:var(--aviso);font-weight:700">· ${esc(t('avisos.sinFecha'))}</span>`;
+      return `
+      <div style="padding:12px 14px;border-radius:14px;background:var(--aviso-fondo);border:1px solid var(--aviso-borde)">
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:3px;flex-wrap:wrap">
+          <i class="ph ph-warning-circle" style="font-size:15px;color:var(--aviso)"></i>
+          <span style="font-size:13.5px;font-weight:900;color:var(--aviso)">${esc(a.titulo || '')}</span>
+          ${hasta}
+        </div>
+        ${a.texto ? `<div style="font-size:12.5px;color:var(--texto-medio);line-height:1.45">${esc(a.texto)}</div>` : ''}
+        ${a.porQuien ? `<div style="font-size:11px;color:var(--texto-tenue);margin-top:5px">${esc(t('avisos.publicadoPor', { quien: a.porQuien, rol: a.rol || '' }))}</div>` : ''}
+      </div>`;
+    }
+    // Un reclamo: se dice que está abierto y desde cuándo. Nada más.
+    return `
+      <div style="padding:12px 14px;border-radius:14px;background:var(--superficie-2);border:1px solid var(--borde)">
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:3px">
+          <i class="ph ph-wrench" style="font-size:15px;color:var(--texto-suave)"></i>
+          <span style="font-size:13.5px;font-weight:800;color:var(--texto)">${esc(a.titulo)}</span>
+        </div>
+        <div style="font-size:12px;color:var(--texto-suave)">${esc(t('avisos.reclamoAbierto'))}${a.fecha ? ' · ' + esc(String(a.fecha).slice(0, 10)) : ''}</div>
+      </div>`;
+  };
+
+  return `
+    <div class="card" style="padding:16px;background:var(--superficie);margin-bottom:14px;border-radius:18px">
+      <div style="font-size:12.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em;margin-bottom:11px">${esc(t('avisos.titulo', { edificio: v.edificio }))}</div>
+      <div style="display:flex;flex-direction:column;gap:9px">${avisos.map(fila).join('')}</div>
+    </div>`;
+}
+
 // -------------------------------------------------------------------
 // 2. INICIO / DASHBOARD DEL VECINO
 // -------------------------------------------------------------------
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const v = getVecinoSession(req);
+  const t = textos(v.idioma);
+
+  // Lo que el edificio tiene para decirle HOY a este vecino. Dos fuentes, distinta autoridad:
+  //
+  //   1. Un AVISO publicado por alguien del edificio (administrador, encargado, consejo,
+  //      proveedor). Es un hecho del consorcio: "el ascensor está suspendido hasta el jueves".
+  //   2. Un RECLAMO abierto de `reportes`. Eso NO es "está fuera de servicio" -- es "alguien
+  //      reportó algo y todavía está abierto". Decir más que eso sería un diagnóstico que no
+  //      tenemos: el que sabe si el ascensor anda es el técnico, no nosotros.
+  //
+  // Si no hay ninguna de las dos, no se dice nada. Nunca "todo funciona normal".
+  // La expensa de ESTA unidad, del documento que subió el administrador.
+  //
+  // Antes el número era `v.saldoExpensa`, escrito a mano: `$120.000,00` fijo, igual para todos los
+  // vecinos de todos los edificios. Ahora sale de la tabla `expensas` -- del monto que la IA le
+  // extrajo al documento, o del que corrigió una persona.
+  //
+  // Cuando no hay ninguna cargada NO se muestra $0: eso diría "no debés nada", que es una
+  // afirmación. Se dice que todavía no está cargada, que es lo que realmente pasa.
+  let expensa = null;
+  try {
+    const { expensaDeUnidad } = require('./db-pg');
+    expensa = await expensaDeUnidad(v.edificio, v.departamento);
+  } catch (err) {
+    console.warn('Expensa de la unidad:', err.message);
+  }
+
+  const avisos = await avisosDelEdificio(v.edificio);
+  const avisosHtml = avisos.length === 0 ? '' : bloqueAvisosHtml(avisos, v, t);
 
   // 1. Tarjeta superior de Expensas (Solo fijos/titulares) o Bienvenida (Turistas)
   
@@ -3061,12 +3201,12 @@ router.get('/', (req, res) => {
         <div style="width:64px;height:64px;background:var(--superficie-3);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:var(--texto-suave)">
           <i class="ph ph-house-line" style="font-size:32px"></i>
         </div>
-        <h2 style="font-size:18px;font-weight:900;color:var(--texto);margin:0 0 8px;letter-spacing:-.02em">Cuenta Creada</h2>
+        <h2 style="font-size:18px;font-weight:900;color:var(--texto);margin:0 0 8px;letter-spacing:-.02em">${esc(t('inicio.cuentaCreada'))}</h2>
         <p style="font-size:13.5px;color:var(--texto-medio);line-height:1.5;margin:0 0 20px">
           Todavía no tenés ningún departamento asignado.
         </p>
         <div style="background:var(--superficie-2);border:1px solid var(--borde);border-radius:12px;padding:16px;text-align:left;margin-bottom:20px">
-          <div style="font-size:12.5px;font-weight:800;color:var(--texto-medio);margin-bottom:6px">¿Cómo continúo?</div>
+          <div style="font-size:12.5px;font-weight:800;color:var(--texto-medio);margin-bottom:6px">${esc(t('inicio.comoSigo'))}</div>
           <div style="font-size:12px;color:var(--texto-suave);line-height:1.5">
             Por favor enviá un mensaje con el email con el que te registraste (<strong>${esc(v.email)}</strong>) a la persona que te invitó (propietario, anfitrión o administración) para que te habilite el acceso a la unidad.
           </div>
@@ -3083,32 +3223,35 @@ router.get('/', (req, res) => {
     <div class="card" style="padding:18px;background:#ffffff;margin-bottom:14px;box-shadow:0 4px 18px rgba(15,23,42,.06);border-radius:20px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid var(--superficie-3);padding-bottom:10px">
         <div style="display:flex;gap:16px;font-size:13px;font-weight:800">
-          <span style="color:var(--marca);border-bottom:2px solid #0F326A;padding-bottom:8px">Expensas (Ord. y Extraord.)</span>
-          <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/amenities'">Reservas</span>
-          <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/reclamos'">Reclamos</span>
+          <span style="color:var(--marca);border-bottom:2px solid #0F326A;padding-bottom:8px">${esc(t('inicio.expensasTab'))}</span>
+          <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/amenities'">${esc(t('inicio.reservasTab'))}</span>
+          <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/reclamos'">${esc(t('inicio.reclamosTab'))}</span>
         </div>
-        <span style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--ok-fondo);color:var(--ok);border:1px solid var(--ok-borde)">
-          ✓ ${esc(v.estadoExpensa || 'Al día')}
-        </span>
+        ${expensa && expensa.periodo ? `<span style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--superficie-3);color:var(--texto-medio);border:1px solid var(--borde)">${esc(expensa.periodo)}</span>` : ''}
       </div>
 
       <div style="margin-bottom:16px">
-        <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">Total a Pagar (Mes Vigente)</div>
+        ${expensa && expensa.monto !== null ? `
+        <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('inicio.totalAPagar'))}</div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
-          <div style="font-size:32px;font-weight:900;color:var(--texto);letter-spacing:-.03em">${esc(v.saldoExpensa || '$0')}</div>
+          <div style="font-size:32px;font-weight:900;color:var(--texto);letter-spacing:-.03em">${esc(montoEnPesos(expensa.monto))}</div>
         </div>
-        <div style="font-size:12px;color:var(--texto-suave);margin-top:2px">Vencimiento: 10 del mes · Ordinarias y Extraordinarias</div>
+        ${expensa.vencimiento ? `<div style="font-size:12px;color:var(--texto-suave);margin-top:2px">${esc(t('expensa.vence', { fecha: new Date(expensa.vencimiento).toLocaleDateString('es-AR') }))}</div>` : ''}
+        ${expensa.esDelEdificio ? `<div style="font-size:11.5px;color:var(--texto-tenue);margin-top:4px">${esc(t('expensa.delEdificio'))}</div>` : ''}
+        ` : `
+        <div style="font-size:13.5px;color:var(--texto-medio);line-height:1.45">${esc(t('expensa.sinCargar'))}</div>
+        `}
       </div>
 
       <!-- Acciones de la Expensa -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:var(--marca);color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(15,50,106,.25);text-decoration:none">
           <i class="ph ph-credit-card" style="font-size:18px"></i>
-          <span>Pagar Expensa</span>
+          <span>${esc(t('inicio.pagarExpensa'))}</span>
         </a>
-        <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:var(--superficie-3);color:var(--marca);font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--borde);text-decoration:none">
-          <i class="ph ph-receipt" style="font-size:18px"></i>
-          <span>Ver Recibo PDF</span>
+        <a href="${expensa && expensa.url ? esc(expensa.url) : '/vecino/expensas'}"${expensa && expensa.url ? ' target="_blank" rel="noopener"' : ''} style="height:44px;border-radius:12px;background:var(--superficie-3);color:var(--marca);font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--borde);text-decoration:none">
+          <i class="ph ph-${expensa && expensa.url ? 'download-simple' : 'receipt'}" style="font-size:18px"></i>
+          <span>${esc(expensa && expensa.url ? t('expensa.descargar') : t('inicio.verRecibo'))}</span>
         </a>
       </div>
     </div>
@@ -3119,7 +3262,7 @@ router.get('/', (req, res) => {
         <span style="font-size:11.5px;font-weight:900;padding:3px 10px;border-radius:999px;background:rgba(251,191,36,0.2);color:var(--dorado);border:1px solid rgba(251,191,36,0.4)">
           🧳 Estadía Temporal
         </span>
-        <span style="font-size:12px;color:var(--texto-tenue)">Pase Huésped Activo</span>
+        <span style="font-size:12px;color:var(--texto-tenue)">${esc(t('inicio.paseHuesped'))}</span>
       </div>
       <div style="font-size:22px;font-weight:900;margin-bottom:4px;letter-spacing:-.02em">¡Bienvenido a ${esc(v.edificio)}!</div>
       <div style="font-size:13px;color:var(--texto-tenue);line-height:1.4;margin-bottom:16px">
@@ -3128,7 +3271,7 @@ router.get('/', (req, res) => {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <a href="/vecino/amenities" style="height:44px;border-radius:12px;background:#FBBF24;color:var(--texto);font-size:13.5px;font-weight:900;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none">
           <i class="ph ph-swimming-pool" style="font-size:18px"></i>
-          <span>Amenities</span>
+          <span>${esc(t('inicio.amenities'))}</span>
         </a>
         <a href="/vecino/chat" style="height:44px;border-radius:12px;background:rgba(255,255,255,0.15);color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid rgba(255,255,255,0.25);text-decoration:none">
           <i class="ph ph-chat-circle-dots" style="font-size:18px"></i>
@@ -3147,7 +3290,7 @@ router.get('/', (req, res) => {
             <i class="ph ${v.timbre_activo !== false ? 'ph-bell-ringing' : 'ph-bell-slash'}"></i>
           </div>
           <div>
-            <div style="font-size:14px;font-weight:900;color:var(--texto)">Mi Timbre Digital</div>
+            <div style="font-size:14px;font-weight:900;color:var(--texto)">${esc(t('inicio.timbre'))}</div>
             <div id="timbre-estado-lbl" style="font-size:12px;color:${v.timbre_activo !== false ? '#15803D' : '#DC2626'};font-weight:700">
               ${v.timbre_activo !== false ? '● Activo · Suena en tu celu' : '○ Silenciado'}
             </div>
@@ -3164,7 +3307,7 @@ router.get('/', (req, res) => {
       <div style="border-top:1px solid var(--superficie-3);padding-top:12px;margin-top:8px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
           <div style="display:flex;align-items:center;gap:6px">
-            <span class="timbre-horario-label" style="font-size:13px">🌙 Modo "No Molestar"</span>
+            <span class="timbre-horario-label" style="font-size:13px"><i class="ph ph-moon" style="font-size:14px;vertical-align:-2px"></i> ${esc(t('inicio.noMolestar'))}</span>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span id="nm-estado-lbl" style="font-size:11.5px;font-weight:700;color:${v.timbre_no_molestar_activo ? '#D97706' : '#64748B'}">
@@ -3178,7 +3321,7 @@ router.get('/', (req, res) => {
         </div>
 
         <div id="box-horario-no-molestar" class="timbre-horario-row" style="display:${v.timbre_no_molestar_activo ? 'flex' : 'none'};margin-top:6px">
-          <span class="timbre-horario-label">Horario de silencio:</span>
+          <span class="timbre-horario-label">${esc(t('inicio.horarioSilencio'))}</span>
           <div style="display:flex;align-items:center;gap:6px">
             <span class="timbre-de-label">De</span>
             <input type="time" id="timbre-silencio-desde" class="inp-time-timbre" value="${esc(v.timbre_silencio_desde || '23:00')}" onchange="guardarConfigTimbre()">
@@ -3189,7 +3332,7 @@ router.get('/', (req, res) => {
       </div>
 
       <div id="timbre-guardado-msg" style="display:none;font-size:11.5px;color:var(--ok);font-weight:800;margin-top:8px;text-align:right">
-        ✓ Preferencia de timbre guardada
+        ${esc(t('inicio.timbreGuardado'))}
       </div>
     </div>
   `;
@@ -3211,28 +3354,28 @@ router.get('/', (req, res) => {
 
     <!-- Servicios Rápidos en Fila (Estilo Mercado Pago Icons) -->
     <div style="margin-bottom:14px">
-      <div style="font-size:13.5px;font-weight:800;color:var(--texto);margin-bottom:10px">Accesos Directos</div>
+      <div style="font-size:13.5px;font-weight:800;color:var(--texto);margin-bottom:10px">${esc(t('inicio.accesosDirectos'))}</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(68px,1fr));gap:8px">
         
         <a href="/vecino/pases" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
           <div style="width:42px;height:42px;border-radius:14px;background:var(--acento-tenue);color:#0284C7;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-ticket"></i>
           </div>
-          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">Pases QR</span>
+          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">${esc(t('inicio.pasesQr'))}</span>
         </a>
 
         <a href="/porteria/${encodeURIComponent(v.edificio)}" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
           <div style="width:42px;height:42px;border-radius:14px;background:var(--aviso-fondo);color:#D97706;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-qr-code"></i>
           </div>
-          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">Portería QR</span>
+          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">${esc(t('inicio.porteriaQr'))}</span>
         </a>
 
         <a href="/vecino/amenities" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
           <div style="width:42px;height:42px;border-radius:14px;background:var(--ok-fondo);color:var(--ok);display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-swimming-pool"></i>
           </div>
-          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">Amenities</span>
+          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">${esc(t('inicio.amenities'))}</span>
         </a>
 
         ${(v.rol === 'propietario' || v.rol === 'asistente') ? `
@@ -3240,14 +3383,14 @@ router.get('/', (req, res) => {
           <div style="width:42px;height:42px;border-radius:14px;background:var(--info-fondo);color:#4F46E5;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-users-three"></i>
           </div>
-          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">Integrantes</span>
+          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">${esc(t('inicio.integrantes'))}</span>
         </a>` : ''}
 
         <a href="/vecino/reclamos" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
           <div style="width:42px;height:42px;border-radius:14px;background:var(--acento-tenue);color:var(--acento);display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-wrench"></i>
           </div>
-          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">Reclamos</span>
+          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">${esc(t('inicio.reclamosTab'))}</span>
         </a>
 
         <a href="/vecino/novedades" class="card card-touch" style="padding:12px 6px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border-radius:16px">
@@ -3267,11 +3410,11 @@ router.get('/', (req, res) => {
           📲
         </div>
         <div>
-          <div style="font-size:13.5px;font-weight:900;line-height:1.2">Instalar App en tu Celular</div>
-          <div style="font-size:11px;color:rgba(255,255,255,.85)">Acceso rápido directo en tu pantalla</div>
+          <div style="font-size:13.5px;font-weight:900;line-height:1.2">${esc(t('inicio.instalarTitulo'))}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.85)">${esc(t('inicio.instalarBajada'))}</div>
         </div>
       </div>
-      <button style="padding:6px 14px;border:none;border-radius:8px;background:#ffffff;color:var(--marca);font-weight:900;font-size:12px;cursor:pointer;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.15)">Instalar</button>
+      <button style="padding:6px 14px;border:none;border-radius:8px;background:#ffffff;color:var(--marca);font-weight:900;font-size:12px;cursor:pointer;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.15)">${esc(t('inicio.instalar'))}</button>
     </div>
 
     <!-- Banner Inteligente Marcos IA (Estilo Créditos Mercado Pago) -->
@@ -3281,48 +3424,40 @@ router.get('/', (req, res) => {
           <i class="ph ph-headset"></i>
         </div>
         <div>
-          <div style="font-size:14.5px;font-weight:900;color:var(--texto)">Asistente Consorcio 24/7</div>
-          <div style="font-size:12px;color:var(--texto-suave);line-height:1.3">Reportá una urgencia, consultá expensas o el reglamento.</div>
+          <div style="font-size:14.5px;font-weight:900;color:var(--texto)">${esc(t('inicio.asistenteTitulo'))}</div>
+          <div style="font-size:12px;color:var(--texto-suave);line-height:1.3">${esc(t('inicio.asistenteBajada'))}</div>
         </div>
       </div>
-      <button style="padding:7px 14px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12.5px;font-weight:800;cursor:pointer;flex-shrink:0">Chatear</button>
+      <button style="padding:7px 14px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12.5px;font-weight:800;cursor:pointer;flex-shrink:0">${esc(t('inicio.chatear'))}</button>
     </div>
 
-    <!-- Estado de Servicios del Edificio -->
-    <div class="card card-servicios" style="padding:16px;background:#fff;margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <span class="servicios-titulo" style="font-size:13px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:.04em">Servicios · ${esc(v.edificio)}</span>
-        <span class="servicio-badge-operativo" style="font-size:11px;font-weight:800;color:var(--ok);background:var(--ok-fondo);padding:3px 9px;border-radius:999px">Operativo</span>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px;padding-bottom:8px;border-bottom:1px solid var(--superficie-3)">
-          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)">🛗 Ascensor Principal</span>
-          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">En servicio normal</span>
-        </div>
-        <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px;padding-bottom:8px;border-bottom:1px solid var(--superficie-3)">
-          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)">💧 Bombas de Agua</span>
-          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">Presión estándar</span>
-        </div>
-        <div class="servicio-item" style="display:flex;justify-content:space-between;align-items:center;font-size:13.5px">
-          <span class="servicio-nombre" style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--texto)">🚗 Portón Cochera</span>
-          <span class="servicio-estado" style="font-size:12px;font-weight:700;color:var(--ok)">Apertura automática</span>
-        </div>
-      </div>
-    </div>
+    <!-- AVISOS DEL EDIFICIO -->
+    <!--
+      Antes acá había tres filas fijas --Ascensor, Bombas, Portón-- que decían "En servicio normal"
+      SIEMPRE, en todos los edificios. Esa es una afirmación que no se puede respaldar nunca: que
+      no haya un reclamo abierto no prueba que el ascensor ande.
 
+      El vecino que sube después de leer "en servicio normal" y encuentra el ascensor parado no
+      vuelve a mirar esta sección. Y una sección que nadie mira es peor que no tenerla.
+
+      Ahora el bloque SOLO aparece cuando hay algo que decir, y dice únicamente lo que se sabe: un
+      aviso publicado por alguien del edificio, o un reclamo abierto. Sin novedades no se renderiza
+      nada -- el silencio es honesto, "todo normal" es una promesa.
+    -->
+    ${avisosHtml}
     <!-- Novedades del Consorcio -->
     <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:13.5px;font-weight:900;color:var(--texto)">Novedades del Consorcio</span>
-      <a href="/vecino/novedades" style="font-size:12.5px;font-weight:800;color:#38BDF8">Ver todas</a>
+      <span style="font-size:13.5px;font-weight:900;color:var(--texto)">${esc(t('inicio.novedades'))}</span>
+      <a href="/vecino/novedades" style="font-size:12.5px;font-weight:800;color:#38BDF8">${esc(t('inicio.verTodas'))}</a>
     </div>
 
     <div class="card" style="padding:15px;background:#fff;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--aviso-fondo);color:var(--aviso)">Mantenimiento</span>
+        <span style="font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--aviso-fondo);color:var(--aviso)">${esc(t('inicio.mantenimiento'))}</span>
         <span style="font-size:11.5px;color:var(--dorado);font-weight:700">Hoy · 09:30 hs</span>
       </div>
-      <div style="font-size:14px;font-weight:800;color:var(--texto);margin-bottom:4px">Limpieza programada de tanques</div>
-      <div style="font-size:12.5px;color:var(--texto-suave);line-height:1.4">Se realizará el jueves de 08:00 a 14:00 hs. Habrá baja presión momentánea.</div>
+      <div style="font-size:14px;font-weight:800;color:var(--texto);margin-bottom:4px">${esc(t('inicio.avisoTanques'))}</div>
+      <div style="font-size:12.5px;color:var(--texto-suave);line-height:1.4">${esc(t('inicio.avisoTanquesTexto'))}</div>
     </div>
 
     <!-- Scripts de Interacción Home -->
@@ -5018,18 +5153,12 @@ router.post('/api/chat', async (req, res) => {
 // -------------------------------------------------------------------
 // 4. MIS EXPENSAS (HISTORIAL, DATOS BANCARIOS & COMPROBANTES)
 // -------------------------------------------------------------------
-const _comprobantesEnMemoria = [
-  {
-    id: 991,
-    edificio: 'San Patricio 159',
-    vecino: 'Daniel Morales (1° A)',
-    monto: '$120.000',
-    fecha: '01/08/2026',
-    url: '',
-    estado: 'aprobado',
-    notas: 'Comprobante de transferencia bancaria'
-  }
-];
+// Los comprobantes que se subieron mientras PostgreSQL no estaba disponible.
+//
+// Arrancaba con uno de mentira adentro --"Daniel Morales (1° A), $120.000, aprobado"-- que se le
+// mostraba a cualquier vecino de cualquier edificio como si fuera un pago real. Ahora arranca
+// vacío: la pantalla ya sabe qué decir cuando no hay ninguno.
+const _comprobantesEnMemoria = [];
 
 router.get('/expensas', async (req, res) => {
   const v = getVecinoSession(req);
@@ -5052,8 +5181,23 @@ router.get('/expensas', async (req, res) => {
       }
 
       // Obtener comprobantes subidos
-      const qFac = `SELECT * FROM facturas WHERE (tipo = 'comprobante_pago' OR tipo = 'Recibo') AND LOWER(edificio) = LOWER($1) ORDER BY id DESC LIMIT 10`;
-      const resFac = await pool.query(qFac, [v.edificio]);
+      // SOLO los comprobantes de ESTA unidad.
+      //
+      // La consulta filtraba nada mas que por edificio, y la variable se llama `misComprobantes`:
+      // cualquier vecino de San Patricio 159 veia los ultimos diez pagos del edificio entero, con
+      // el nombre de quien pago, el monto, el departamento --va escrito adentro de las notas-- y
+      // el ENLACE al comprobante bancario de cada uno.
+      //
+      // Una fila sin departamento no se muestra. Son las de antes de que existiera la columna: no
+      // se sabe de quien son, y esconder de mas es el error barato. Mostrarle a alguien la
+      // transferencia de su vecino no se puede deshacer.
+      const qFac = `SELECT * FROM facturas
+                     WHERE (tipo = 'comprobante_pago' OR tipo = 'Recibo')
+                       AND LOWER(edificio) = LOWER($1)
+                       AND departamento IS NOT NULL
+                       AND LOWER(TRIM(departamento)) = LOWER(TRIM($2))
+                     ORDER BY id DESC LIMIT 10`;
+      const resFac = await pool.query(qFac, [v.edificio, v.departamento || '']);
       if (resFac && resFac.rows && resFac.rows.length > 0) {
         misComprobantes = resFac.rows.map(r => ({
           id: r.id,
@@ -5215,7 +5359,7 @@ router.get('/expensas', async (req, res) => {
 
         <div style="margin-bottom:14px">
           <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Importe Transferido</label>
-          <input type="text" id="inp-comprobante-monto" placeholder="Ej: $120.000 (Expensa Agosto)" class="inp" style="background:#fff;margin-bottom:0">
+          <input type="text" id="inp-comprobante-monto" placeholder="Ej: 85.400 (expensa de agosto)" class="inp" style="background:#fff;margin-bottom:0">
         </div>
 
         <button id="btn-comprobante" type="submit" style="width:100%;height:46px;border:none;border-radius:12px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-weight:800;font-size:14.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 3px 10px rgba(22,163,74,.25)">
@@ -5427,7 +5571,9 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
       id: Date.now(),
       edificio: v.edificio,
       vecino: nombreCompleto(v) + ' (' + v.departamento + ')',
-      monto: monto ? ('$' + monto.replace(/^\$/, '')) : '$120.000',
+      // Si no lo escribió, NO se inventa: acá había un '$120.000' fijo, así que un comprobante
+      // sin monto llegaba al administrador con un importe que nadie dijo nunca.
+      monto: monto ? ('$' + monto.replace(/^\$/, '')) : null,
       fecha: new Date().toLocaleDateString('es-AR'),
       url: archivoUrl,
       estado: 'pendiente_aprobacion',
@@ -5438,10 +5584,14 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
     try {
       const { pool } = require('./db-pg');
       if (pool) {
-        const q = `INSERT INTO facturas (edificio, tipo, proveedor, monto, fecha, url, estado, notas, created_at)
-                   VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $7, NOW())`;
+        // El departamento y el usuario van en columnas propias, no solo adentro del texto de
+        // las notas: son con lo que despues se decide a QUIEN se le muestra este comprobante.
+        const q = `INSERT INTO facturas (edificio, departamento, usuario_id, tipo, proveedor, monto, fecha, url, estado, notas, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, CURRENT_DATE, $7, $8, $9, NOW())`;
         await pool.query(q, [
           v.edificio,
+          v.departamento || null,
+          v.usuario_id || null,
           'comprobante_pago',
           nombreCompleto(v) + ' (' + v.departamento + ')',
           monto || '0',
@@ -5466,7 +5616,7 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
         const msgAlerta = `💳 *NUEVO COMPROBANTE DE EXPENSAS INFORMADO*\n\n` +
           `🏢 *Edificio:* ${v.edificio}\n` +
           `👤 *Vecino:* ${nombreCompleto(v)} (${v.departamento})\n` +
-          `💵 *Monto:* ${nuevoComprobante.monto}\n` +
+          `💵 *Monto:* ${nuevoComprobante.monto || 'no lo informó, está en el comprobante'}\n` +
           `📅 *Fecha:* ${nuevoComprobante.fecha}\n\n` +
           `👉 Ver en Panel: https://marcos.bienargentinos.com/admin/archivos`;
         await marcosOps.enviarWhatsApp(adminPhone, msgAlerta, phoneId, token).catch(() => {});
@@ -5489,6 +5639,7 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
 // -------------------------------------------------------------------
 router.get('/novedades', (req, res) => {
   const v = getVecinoSession(req);
+  const t = textos(v.idioma);
 
   const content = `
     <div style="margin-bottom:16px">
@@ -5499,7 +5650,7 @@ router.get('/novedades', (req, res) => {
     <div style="display:flex;flex-direction:column;gap:12px">
       <div class="card" style="padding:16px 18px;border-left:4px solid #F59E0B">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--aviso-fondo);color:var(--aviso)">Mantenimiento</span>
+          <span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--aviso-fondo);color:var(--aviso)">${esc(t('inicio.mantenimiento'))}</span>
           <span style="font-size:11.5px;color:var(--texto-tenue)">Hoy · 09:30 hs</span>
         </div>
         <div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:4px">Limpieza de tanques de agua</div>
