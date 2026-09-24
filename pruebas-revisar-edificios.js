@@ -111,6 +111,36 @@ console.log('\n3) La regla, probada como la usa el programa');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+console.log('\n3b) Un número pelado no es el nombre de ningún edificio');
+// ─────────────────────────────────────────────────────────────────────────────
+{
+    // La regla amplia --"una columna llamada `edificios` guarda nombres"-- encontró tres tablas
+    // que la lista a mano se perdía, y de paso se llevó puesta a `suscripciones_planes.edificios`,
+    // que guarda CUÁNTOS edificios entran en cada plan: 1, 5, 10, 20. El informe salió con cuatro
+    // huérfanos inventados sobre seis.
+    //
+    // Cuatro líneas falsas es peor que la lista incompleta que vino a reemplazar: quien lo lee
+    // aprende a ignorarlo. Y la exclusión tiene que ser por el VALOR, no por el nombre de la
+    // tabla, o es la lista escrita a mano volviendo por la puerta de atrás.
+    vale('el informe descarta los valores que son solo dígitos',
+        /\^\\d\+\$/.test(codigo),
+        'Sin esto, los conteos de `suscripciones_planes` se reportan como edificios inexistentes.');
+
+    vale('y NO lo hace nombrando la tabla',
+        !/suscripciones_planes/.test(codigo),
+        'Anotar la tabla sería volver a la lista a mano: la próxima que guarde un conteo queda afuera.');
+
+    const esNumeroPelado = (v) => /^\d+$/.test(String(v || '').trim());
+    for (const v of ['1', '5', '10', '20', '270']) {
+        vale(`"${v}" se descarta`, esNumeroPelado(v));
+    }
+    // Y lo que sí es un nombre, aunque tenga números, se sigue mirando.
+    for (const v of ['San patricio 270', 'Torre Norte Edifica', 'San Patricio 159', '9 de Julio 1234']) {
+        vale(`"${v}" sigue contando como nombre`, !esNumeroPelado(v));
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('\n4) Sigue siendo una herramienta que SOLO LEE');
 // ─────────────────────────────────────────────────────────────────────────────
 {

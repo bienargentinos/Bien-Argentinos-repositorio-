@@ -111,6 +111,24 @@ const esListaDeEdificios  = (col) => norm(col) === 'edificios';
     const anotar = (valor, lugar) => {
         const v = String(valor || '').trim();
         if (!v) return;
+
+        // > [!CAUTION]
+        // > **Un número pelado no es el nombre de ningún edificio.**
+        //
+        // La regla nueva --"una columna que se llama `edificios` guarda una lista de nombres"--
+        // es la correcta y encontró tres tablas que la lista a mano se perdía. Pero se llevó
+        // puesta a `suscripciones_planes.edificios`, que guarda **cuántos** edificios entran en
+        // cada plan: 1, 5, 10, 20. El informe salió con cuatro huérfanos inventados.
+        //
+        // Cuatro líneas falsas en un informe de seis es peor que la lista incompleta que vino a
+        // reemplazar: quien lo lee aprende a ignorarlo, y el día que aparezca uno de verdad ya no
+        // lo mira. Es el mismo problema que el verificador con la `ñ`.
+        //
+        // La exclusión va por el VALOR y no por el nombre de la tabla, a propósito: anotar
+        // `suscripciones_planes` acá sería volver a la lista escrita a mano por la puerta de
+        // atrás, y la próxima tabla que guarde un conteo quedaría afuera igual.
+        if (/^\d+$/.test(v)) return;
+
         if (existentes.has(norm(v))) return;
         if (!huerfanos.has(norm(v))) huerfanos.set(norm(v), { texto: v, lugares: [] });
         huerfanos.get(norm(v)).lugares.push(lugar);
