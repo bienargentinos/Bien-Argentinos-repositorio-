@@ -8716,7 +8716,9 @@ async function publicarExpensa(btn){
   finally{btn.disabled=false;btn.textContent=old;}
 }
 function copiarExpensa(texto){
-  navigator.clipboard.writeText(texto).then(function(){toast('Enlace copiado','ok');},function(){toast('No se pudo copiar','err');});
+  var u=texto;
+  if(u&&typeof u==='string'&&u.charAt(0)==='/'){u=window.location.origin+u;}
+  navigator.clipboard.writeText(u).then(function(){toast('Enlace copiado al portapapeles','ok');},function(){toast('No se pudo copiar','err');});
 }
 async function quitarExpensa(btn,row){
   btn.disabled=true;
@@ -13415,6 +13417,59 @@ router.get('/expensas', async (req, res) => {
 
     const { rows } = await readTab(TAB_EXPENSAS);
     const todasLasExpensas = rows.map(mapExpensa).filter((x) => x.estado !== 'eliminada');
+
+    // Si el cliente administra varios edificios y todavía no eligió ninguno (estado "Todos los edificios"),
+    // se le presenta un grid de tarjetas para que elija a qué edificio le va a gestionar o subir expensas.
+    if (!activo && d.propios.length > 1) {
+      const hoy = new Date();
+      const mesActual = hoy.toLocaleString('es-AR', { month: 'long' });
+      const anioActual = hoy.getFullYear();
+      const periodoMesActual = `${mesActual.charAt(0).toUpperCase()}${mesActual.slice(1)} ${anioActual}`;
+
+      const cards = d.propios.map((e) => {
+        const expEdificio = todasLasExpensas.filter((x) => compararEdificios(x.edificio, e.nombre));
+        const expMes = expEdificio.filter((x) => (x.periodo || '').toLowerCase().includes(mesActual.toLowerCase()));
+
+        let statusBadge = '';
+        if (expMes.length > 0) {
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ ${esc(expMes[0].periodo || periodoMesActual)} · ${expMes.length} publicadas</span>`;
+        } else if (expEdificio.length > 0) {
+          const ult = expEdificio[0];
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#FEF3C7;color:#92400E">⏳ ${esc(ult.periodo || '')} · sin publicar este mes</span>`;
+        } else {
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#F1F5F9;color:#64748B">Sin expensas publicadas</span>`;
+        }
+
+        return `
+          <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/expensas')}"
+            style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px;text-decoration:none;transition:transform .15s ease,box-shadow .15s ease" class="hv-card">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">
+              <span style="width:44px;height:44px;border-radius:12px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏢</span>
+              ${statusBadge}
+            </div>
+            <div style="font-size:16.5px;font-weight:800;color:#16233B;letter-spacing:-.01em;margin-bottom:4px">${esc(e.nombre)}</div>
+            <div style="font-size:13px;color:#8595AD;margin-bottom:14px">${esc(e.direccion || e.nombre)}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#1E5FB4">
+              <span>Gestionar expensas</span>
+              <span>→</span>
+            </div>
+          </a>`;
+      }).join('');
+
+      const contenido = `
+        <div style="animation:mFade .3s ease both;max-width:880px">
+          <div style="margin-bottom:24px">
+            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px">Expensas</h1>
+            <p style="color:#64748B;font-size:15px;margin:0">Elegí a qué edificio querés subirle o consultarle las expensas.</p>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-bottom:26px">
+            ${cards}
+          </div>
+        </div>`;
+
+      return res.send(shell(req, d, 'expensas', contenido));
+    }
+
     const expensas = todasLasExpensas
       .filter((x) => {
         if (activo) return compararEdificios(x.edificio, activo);
@@ -13487,7 +13542,14 @@ router.get('/expensas', async (req, res) => {
 
     const contenido = `
       <div style="animation:mFade .3s ease both;max-width:820px">
-        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Expensas</h1>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+          <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">Expensas</h1>
+          ${d.propios.length > 1 ? `
+            <a href="/admin/set-filtro?edificio=&volver=${encodeURIComponent('/admin/expensas')}"
+              style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#1E5FB4;font-size:13px;font-weight:700;text-decoration:none" class="hv-soft">
+              🏢 Cambiar de edificio
+            </a>` : ''}
+        </div>
         <p style="color:#64748B;font-size:15px;margin:0 0 20px">Subí las expensas del mes de <strong>${esc(edTarget || 'tu edificio')}</strong>. <strong style="color:#334259">Marcos queda habilitado para compartirlas</strong> con los vecinos que las pidan por WhatsApp, o para enviarlas cuando vos se lo indiques.</p>
         ${filtroEdificiosHtml}
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:26px">

@@ -27,6 +27,27 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-24 — Grid de tarjetas por edificio en Expensas y enlaces absolutos en Copiar
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Grid de selección de edificio en Expensas**:
+    - Se implementó el pedido de Daniel y Claude (`docs/para-antigravity.md`): al entrar a `/admin/expensas` con un cliente con múltiples edificios y ninguno seleccionado (`!activo && d.propios.length > 1`), se muestra un grid de tarjetas con cada edificio.
+    - Cada tarjeta informa el estado del mes actual: `✓ Mes Año · N publicadas`, `⏳ Mes Año · sin publicar este mes` o `Sin expensas publicadas`.
+    - Al hacer clic en un edificio, activa el filtro vía `/admin/set-filtro?edificio=...&volver=/admin/expensas` y entra a la pantalla de gestión de ese edificio.
+    - En la pantalla de gestión del edificio activo, se agregó el botón `🏢 Cambiar de edificio` en el encabezado para regresar al grid con un clic.
+    - Cuentas con un solo edificio ingresan directamente sin pantalla intermedia.
+  - **Enlace absoluto en `copiarExpensa`**:
+    - El botón `🔗 Copiar` ahora antepone `window.location.origin` cuando la URL es relativa (`/admin/api/...`), copiando una URL web completa y válida (`https://.../admin/api/...`) lista para pegar en el navegador o enviar por WhatsApp.
+  - **Sincronización con Claude**:
+    - Se incorporó y verificó `edificioParaEscribir(req)` de Claude (commit `fc2d4a9`), que corta con 400 si se intenta publicar sin edificio determinado.
+
+- **Verificación:**
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK.
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ Sin usos fuera de alcance.
+  - `node pruebas-expensa-privada.js`: ✅ 45 bien, 0 mal.
+  - `node verificar-antes-de-subir.js`: ✅ 65 de 65 pruebas en verde.
+
 ### 2026-09-24 — Corrección listado de expensas en clientes multi-edificio y selector de filtro
 
 - **Qué cambié y en qué archivo:**
