@@ -75,7 +75,8 @@ const storageExpensas = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const ext = path.extname(file.originalname).toLowerCase() || '.pdf';
-    const name = 'expensa_' + Date.now() + ext;
+    const rand = Math.random().toString(36).substring(2, 8);
+    const name = 'expensa_' + Date.now() + '_' + rand + ext;
     cb(null, name);
   }
 });
@@ -7826,6 +7827,316 @@ function pickExpFile(){
   var i=document.getElementById('exp-file-input');
   if(i)i.click();
 }
+
+// --- expensas en tanda (lote múltiple) ---
+var _expTandaDatos = null;
+var _expTandaConocidas = true;
+
+function expFilesElegidos(inp) {
+  var files = inp.files;
+  if (!files || !files.length) return;
+  if (files.length === 1) {
+    var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'block';
+    var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'none';
+    _expTandaDatos = null;
+    expFileElegido(inp);
+    return;
+  }
+  activarModoTanda(files);
+}
+
+async function activarModoTanda(files) {
+  var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'none';
+  var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'block';
+  var t = document.getElementById('exp-file-nombre'); if (t) t.textContent = files.length + ' archivos seleccionados para tanda';
+  var s = document.getElementById('exp-file-sub'); if (s) { s.textContent = 'Analizando lote con Marcos...'; s.style.color = '#1E5FB4'; }
+  var st = document.getElementById('exp-tanda-status');
+  var tw = document.getElementById('exp-tanda-tabla-wrap');
+  var ac = document.getElementById('exp-tanda-acciones');
+  if (tw) tw.innerHTML = '';
+  if (ac) ac.style.display = 'none';
+
+  if (st) {
+    st.innerHTML = '<div style="display:flex;align-items:center;gap:12px;padding:14px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;color:#1E40AF">' +
+      '<span style="font-size:22px;animation:spin 1s linear infinite">⏳</span>' +
+      '<div><div style="font-weight:700">Analizando tanda de ' + files.length + ' liquidaciones con Marcos IA...</div>' +
+      '<div style="font-size:12px;opacity:0.85">Extrayendo unidades, períodos, montos y vencimientos de cada archivo.</div></div>' +
+      '</div>';
+  }
+
+  var fd = new FormData();
+  for (var i = 0; i < files.length; i++) {
+    fd.append('archivos', files[i]);
+  }
+
+  try {
+    var r = await fetch('/admin/api/expensa-tanda-analizar', { method: 'POST', body: fd });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al analizar la tanda');
+    _expTandaDatos = j.filas || [];
+    _expTandaConocidas = j.conocidasVerificadas !== false;
+    renderTablaTanda(j.resumen, _expTandaDatos, _expTandaConocidas);
+  } catch (err) {
+    if (st) {
+      st.innerHTML = '<div style="padding:12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;color:#991B1B">' +
+        '<strong>Error al analizar la tanda:</strong> ' + escExp(err.message) +
+        '<div style="margin-top:6px;font-size:12px">Podés cancelar e intentar nuevamente con menos archivos o verificar el formato.</div>' +
+        '</div>';
+    }
+    if (s) { s.textContent = 'Ocurrió un error al analizar'; s.style.color = '#DC2626'; }
+  }
+}
+
+function calcularResumenTanda(filas) {
+  var ok = 0, general = 0, sin_vecino = 0, repetida = 0;
+  for (var i = 0; i < (filas || []).length; i++) {
+    var e = filas[i].estado;
+    if (e === 'ok') ok++;
+    else if (e === 'general') general++;
+    else if (e === 'sin_vecino') sin_vecino++;
+    else if (e === 'repetida') repetida++;
+  }
+  return {
+    total: (filas || []).length,
+    ok: ok,
+    general: general,
+    sin_vecino: sin_vecino,
+    repetida: repetida,
+    hayQueMirar: (sin_vecino + repetida) > 0
+  };
+}
+
+function renderTablaTanda(resumen, filas, conocidasVerificadas) {
+  var st = document.getElementById('exp-tanda-status');
+  var tw = document.getElementById('exp-tanda-tabla-wrap');
+  var ac = document.getElementById('exp-tanda-acciones');
+  var s = document.getElementById('exp-file-sub');
+
+  if (!filas || !filas.length) {
+    if (st) st.innerHTML = '<div style="padding:12px;color:#64748B">No quedan archivos en la tanda.</div>';
+    if (tw) tw.innerHTML = '';
+    if (ac) ac.style.display = 'none';
+    if (s) { s.textContent = 'Tanda vacía'; s.style.color = '#8595AD'; }
+    return;
+  }
+
+  if (s) { s.textContent = 'Revisá la tabla y confirmá la publicación abajo'; s.style.color = '#1B7A43'; }
+
+  var res = resumen || calcularResumenTanda(filas);
+
+  var htmlStatus = '';
+  if (conocidasVerificadas === false) {
+    htmlStatus += '<div style="margin-bottom:12px;padding:10px 14px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:9px;font-size:12.5px;color:#92400E">' +
+      '⚠️ <strong>No se pudo verificar la base de vecinos:</strong> Se muestran los archivos analizados. Podés corroborar las unidades a mano antes de publicar.' +
+      '</div>';
+  }
+
+  htmlStatus += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
+    '<span style="display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;background:#F1F5F9;border:1px solid #CBD5E1;font-weight:700;font-size:12.5px;color:#334155">' + res.total + ' archivos</span>' +
+    '<span style="display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;background:#ECFDF5;border:1px solid #A7F3D0;font-weight:700;font-size:12.5px;color:#065F46">🟢 ' + res.ok + ' coinciden con vecinos</span>' +
+    (res.general > 0 ? '<span style="display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;background:#EFF6FF;border:1px solid #BFDBFE;font-weight:700;font-size:12.5px;color:#1E40AF">🔵 ' + res.general + ' liquidación general</span>' : '') +
+    (res.sin_vecino > 0 ? '<span style="display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;background:#FFFBEB;border:1px solid #FDE68A;font-weight:700;font-size:12.5px;color:#92400E">🟡 ' + res.sin_vecino + ' sin vecino aún</span>' : '') +
+    (res.repetida > 0 ? '<span style="display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;background:#FEF2F2;border:1px solid #FECACA;font-weight:700;font-size:12.5px;color:#991B1B">🔴 ' + res.repetida + ' repetidas</span>' : '') +
+    '</div>';
+
+  if (res.repetida > 0) {
+    htmlStatus += '<div style="margin-bottom:12px;padding:9px 12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;font-size:12px;color:#991B1B;line-height:1.4">' +
+      '⚠️ <strong>Unidades repetidas:</strong> Hay unidades duplicadas en la tanda. Si es el mismo archivo seleccionado dos veces, descartalo con el botón ✕ de la fila para no duplicar liquidaciones al vecino.' +
+      '</div>';
+  } else if (res.sin_vecino > 0) {
+    htmlStatus += '<div style="margin-bottom:12px;padding:9px 12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;font-size:12px;color:#92400E;line-height:1.4">' +
+      'ℹ️ <strong>Unidades sin vecino registrado:</strong> Se publican normalmente y quedarán disponibles para cuando la persona se sume al portal o a Marcos. Si alguna unidad tiene un error tipográfico, podés corregirla en su casilla.' +
+      '</div>';
+  }
+
+  if (st) st.innerHTML = htmlStatus;
+
+  var htmlT = '<table style="width:100%;border-collapse:collapse;font-size:13px;text-align:left;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #E2E8F0">' +
+    '<thead><tr style="background:#F8FAFC;border-bottom:1px solid #E2E8F0;font-size:11px;text-transform:uppercase;color:#64748B;letter-spacing:0.5px">' +
+    '<th style="padding:10px 12px">Estado</th>' +
+    '<th style="padding:10px 12px">Archivo</th>' +
+    '<th style="padding:10px 12px">Unidad / Depto</th>' +
+    '<th style="padding:10px 12px">Período</th>' +
+    '<th style="padding:10px 12px">Total ($)</th>' +
+    '<th style="padding:10px 12px">Vencimiento</th>' +
+    '<th style="padding:10px 12px;text-align:center">Quitar</th>' +
+    '</tr></thead><tbody>';
+
+  for (var i = 0; i < filas.length; i++) {
+    var f = filas[i];
+    var badge = '';
+    if (f.estado === 'ok') {
+      badge = '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;font-size:11.5px;font-weight:700" title="' + escExp(f.mensaje) + '">🟢 Coincide</span>';
+    } else if (f.estado === 'general') {
+      badge = '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:#EFF6FF;border:1px solid #BFDBFE;color:#1E40AF;font-size:11.5px;font-weight:700" title="' + escExp(f.mensaje) + '">🔵 General</span>';
+    } else if (f.estado === 'sin_vecino') {
+      badge = '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;font-size:11.5px;font-weight:700" title="' + escExp(f.mensaje) + '">🟡 Sin vecino</span>';
+    } else if (f.estado === 'repetida') {
+      badge = '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:#FEF2F2;border:1px solid #FECACA;color:#991B1B;font-size:11.5px;font-weight:700" title="' + escExp(f.mensaje) + '">🔴 Repetida</span>';
+    } else {
+      badge = '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:#F1F5F9;border:1px solid #CBD5E1;color:#64748B;font-size:11.5px;font-weight:700">⚪ Listo</span>';
+    }
+
+    var montoStr = (f.monto !== null && f.monto !== undefined) ? String(f.monto) : '';
+
+    htmlT += '<tr style="border-bottom:1px solid #EDF2F7">' +
+      '<td style="padding:8px 12px;white-space:nowrap">' + badge + '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<div style="font-weight:600;color:#1E293B;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escExp(f.archivo) + '">' + escExp(f.archivo) + '</div>' +
+        (f.url ? '<a href="' + escExp(f.url) + '" target="_blank" style="font-size:11px;color:#1E5FB4;text-decoration:none">Ver archivo ↗</a>' : '') +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(f.unidad || '') + '" placeholder="General" style="height:32px;font-size:12.5px;font-weight:700;width:90px;padding:4px 8px" oninput="tandaModificarUnidad(' + i + ',this.value)" onblur="tandaRevalidarFila(' + i + ')">' +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(f.periodo || '') + '" placeholder="Período" style="height:32px;font-size:12.5px;width:120px;padding:4px 8px" oninput="tandaModificarPeriodo(' + i + ',this.value)">' +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(montoStr) + '" placeholder="0.00" style="height:32px;font-size:12.5px;width:100px;padding:4px 8px" oninput="tandaModificarMonto(' + i + ',this.value)">' +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(f.vencimiento || '') + '" placeholder="DD/MM/AAAA" style="height:32px;font-size:12.5px;width:105px;padding:4px 8px" oninput="tandaModificarVencimiento(' + i + ',this.value)">' +
+      '</td>' +
+      '<td style="padding:8px 12px;text-align:center">' +
+        '<button type="button" onclick="quitarFilaTanda(' + i + ')" title="Descartar este archivo" style="border:1px solid #FECDD3;background:#FFF1F2;color:#E11D48;border-radius:6px;width:28px;height:28px;cursor:pointer;font-weight:700;margin:0 auto;display:flex;align-items:center;justify-content:center" class="hv-soft">✕</button>' +
+      '</td>' +
+      '</tr>';
+  }
+
+  htmlT += '</tbody></table>';
+
+  if (tw) tw.innerHTML = htmlT;
+  if (ac) {
+    ac.style.display = 'flex';
+    var btnPub = document.getElementById('btn-publicar-tanda');
+    if (btnPub) btnPub.textContent = '🚀 Confirmar y Publicar Tanda (' + filas.length + ' expensas)';
+  }
+}
+
+function tandaModificar(idx, campo, valor) {
+  if (!_expTandaDatos || !_expTandaDatos[idx]) return;
+  _expTandaDatos[idx][campo] = valor;
+  if (campo === 'monto') {
+    _expTandaDatos[idx].monto_origen = String(valor || '').trim() ? 'manual' : '';
+  }
+}
+
+function tandaModificarUnidad(idx, valor) {
+  tandaModificar(idx, 'unidad', valor);
+}
+
+function tandaModificarPeriodo(idx, valor) {
+  tandaModificar(idx, 'periodo', valor);
+}
+
+function tandaModificarMonto(idx, valor) {
+  tandaModificar(idx, 'monto', valor);
+}
+
+function tandaModificarVencimiento(idx, valor) {
+  tandaModificar(idx, 'vencimiento', valor);
+}
+
+function tandaRevalidarFila(idx) {
+  if (!_expTandaDatos || !_expTandaDatos[idx]) return;
+  var u = String(_expTandaDatos[idx].unidad || '').trim();
+  if (!u) {
+    _expTandaDatos[idx].estado = 'general';
+    _expTandaDatos[idx].mensaje = 'Liquidación general del edificio: la van a ver todos los vecinos.';
+  } else {
+    var normU = u.toLowerCase().replace(/[^a-z0-9]/g, '');
+    var esRep = false;
+    for (var i = 0; i < _expTandaDatos.length; i++) {
+      if (i === idx) continue;
+      var otherU = String(_expTandaDatos[i].unidad || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (otherU && otherU === normU) {
+        esRep = true;
+        break;
+      }
+    }
+    if (esRep) {
+      _expTandaDatos[idx].estado = 'repetida';
+      _expTandaDatos[idx].mensaje = 'Ya hay otro archivo para la unidad ' + u + ' en esta tanda.';
+    } else {
+      if (_expTandaDatos[idx].unidadDelVecino && _expTandaDatos[idx].unidadDelVecino.toLowerCase().replace(/[^a-z0-9]/g, '') === normU) {
+        _expTandaDatos[idx].estado = 'ok';
+        _expTandaDatos[idx].mensaje = 'Coincide con la unidad ' + _expTandaDatos[idx].unidadDelVecino + '.';
+      } else {
+        _expTandaDatos[idx].estado = 'sin_vecino';
+        _expTandaDatos[idx].mensaje = 'Unidad ' + u + ': no tiene vecino registrado aún.';
+      }
+    }
+  }
+  renderTablaTanda(null, _expTandaDatos, _expTandaConocidas);
+}
+
+function quitarFilaTanda(idx) {
+  if (!_expTandaDatos || !_expTandaDatos[idx]) return;
+  _expTandaDatos.splice(idx, 1);
+  renderTablaTanda(null, _expTandaDatos, _expTandaConocidas);
+}
+
+async function cancelarTanda() {
+  var archivos = (_expTandaDatos || []).map(function(f) { return f.tempName; }).filter(Boolean);
+  if (archivos.length) {
+    try {
+      await fetch('/admin/api/expensa-tanda-cancelar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archivos: archivos })
+      });
+    } catch (_) {}
+  }
+  _expTandaDatos = null;
+  var inp = document.getElementById('exp-file-input'); if (inp) inp.value = '';
+  var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'block';
+  var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'none';
+  var t = document.getElementById('exp-file-nombre'); if (t) t.textContent = 'Elegí uno o varios archivos';
+  var s = document.getElementById('exp-file-sub'); if (s) { s.textContent = 'Tocá para seleccionar 1 archivo o un lote completo (hasta 60) de expensas'; s.style.color = '#8595AD'; }
+}
+
+async function publicarTanda(btn) {
+  if (!_expTandaDatos || !_expTandaDatos.length) {
+    toast('No hay expensas para publicar en la tanda', 'err');
+    return;
+  }
+  var rep = _expTandaDatos.filter(function(f) { return f.estado === 'repetida'; });
+  if (rep.length > 0) {
+    if (!confirm('Hay ' + rep.length + ' archivo(s) con unidad repetida. Si continuás, el vecino verá varias liquidaciones para el mismo período. ¿Deseás publicar la tanda igual?')) {
+      return;
+    }
+  }
+
+  btn.disabled = true;
+  var oldText = btn.textContent;
+  btn.textContent = 'Publicando tanda...';
+
+  var mes = (document.getElementById('exp-mes') || {}).value || '';
+  var anio = (document.getElementById('exp-anio') || {}).value || '';
+
+  try {
+    var r = await fetch('/admin/api/expensa-tanda-publicar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mes: mes.trim(),
+        anio: anio.trim(),
+        formato: _expFormato,
+        filas: _expTandaDatos
+      })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al publicar la tanda');
+    toast('Tanda de ' + (j.guardadas || _expTandaDatos.length) + ' expensas publicada con éxito', 'ok');
+    _expTandaDatos = null;
+    setTimeout(function() { location.reload(); }, 1000);
+  } catch (err) {
+    toast('Error: ' + err.message, 'err');
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+}
+
 async function expFileElegido(inp){
   var file=inp.files&&inp.files[0]?inp.files[0]:null;
   var n=file?file.name:'';
@@ -7833,6 +8144,9 @@ async function expFileElegido(inp){
   var s=document.getElementById('exp-file-sub');
   var statusBox=document.getElementById('exp-ocr-status');
   if(!file)return;
+  var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'block';
+  var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'none';
+  _expTandaDatos = null;
   if(t&&n){t.textContent=n;t.style.color='#16233B';}
   if(s&&n){s.textContent='Leyendo total y unidad con Marcos...';s.style.color='#1E5FB4';}
   if(statusBox){
@@ -12704,44 +13018,52 @@ router.get('/expensas', async (req, res) => {
               <input id="exp-anio" class="inp" style="height:44px" value="${new Date().getFullYear()}">
             </div>
           </div>
-          <div style="margin-bottom:16px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase">Unidad / Departamento <span style="font-weight:400;text-transform:none">(opcional)</span></div>
-              <span style="font-size:11.5px;color:#64748B">Vacío = liquidación general del consorcio</span>
-            </div>
-            <input id="exp-depto" class="inp" style="height:44px" placeholder="Ej: 1° A, 4B, PB 2 (dejar vacío si es la liquidación general)">
-            <div style="font-size:11.5px;color:#8595AD;margin-top:4px">Si ponés una unidad, solo la verá el vecino de ese departamento en su portal y por WhatsApp.</div>
-          </div>
-          <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Formato</div>
-          <div style="display:flex;gap:9px;margin-bottom:16px;flex-wrap:wrap">
-            <button data-exp-btn onclick="elegirFormatoExp(this,'pdf')" style="height:40px;padding:0 16px;border:1px solid #17408B;border-radius:10px;background:#17408B;color:#fff;font-weight:700;font-size:13.5px;cursor:pointer">📄 PDF</button>
-            <button data-exp-btn onclick="elegirFormatoExp(this,'imagen')" style="height:40px;padding:0 16px;border:1px solid #DDE3EE;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13.5px;cursor:pointer">🖼️ Imagen</button>
-            <button data-exp-btn onclick="elegirFormatoExp(this,'link')" style="height:40px;padding:0 16px;border:1px solid #DDE3EE;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13.5px;cursor:pointer">🔗 Link web</button>
-          </div>
-          <div id="exp-link-wrap" style="display:none">
-            <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Dirección web</div>
-            <input id="exp-url" placeholder="https://..." class="inp" style="margin-bottom:16px">
-          </div>
           <div id="exp-file-wrap" onclick="pickExpFile()" style="display:flex;align-items:center;gap:13px;border:1.5px dashed #C9D5E8;border-radius:12px;padding:16px;background:#F7F9FC;cursor:pointer;margin-bottom:16px" class="hv-bluedash">
             <span style="width:44px;height:44px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📎</span>
             <div style="flex:1">
-              <div id="exp-file-nombre" style="font-size:14.5px;font-weight:700;color:#334259">Elegí el archivo</div>
-              <div id="exp-file-sub" style="font-size:12.5px;color:#8595AD">Tocá para seleccionar el PDF o la imagen de las expensas</div>
+              <div id="exp-file-nombre" style="font-size:14.5px;font-weight:700;color:#334259">Elegí uno o varios archivos</div>
+              <div id="exp-file-sub" style="font-size:12.5px;color:#8595AD">Tocá para seleccionar 1 archivo o un lote completo (hasta 60) de expensas</div>
             </div>
-            <input id="exp-file-input" type="file" accept=".pdf,image/*" style="display:none" onchange="expFileElegido(this)">
+            <input id="exp-file-input" type="file" accept=".pdf,image/*" multiple style="display:none" onchange="expFilesElegidos(this)">
           </div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
-            <div style="flex:1;min-width:140px">
-              <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Total a pagar ($) <span style="font-weight:400;text-transform:none">(opcional)</span></div>
-              <input id="exp-monto" class="inp" style="height:44px" placeholder="Ej: 85420.50 (se extrae al subir o podés escribirlo)" oninput="expMontoCambiado()">
+
+          <!-- Modo Individual -->
+          <div id="exp-single-wrap">
+            <div style="margin-bottom:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase">Unidad / Departamento <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+                <span style="font-size:11.5px;color:#64748B">Vacío = liquidación general del consorcio</span>
+              </div>
+              <input id="exp-depto" class="inp" style="height:44px" placeholder="Ej: 1° A, 4B, PB 2 (dejar vacío si es la liquidación general)">
+              <div style="font-size:11.5px;color:#8595AD;margin-top:4px">Si ponés una unidad, solo la verá el vecino de ese departamento en su portal y por WhatsApp.</div>
             </div>
-            <div style="flex:1;min-width:140px">
-              <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Vencimiento <span style="font-weight:400;text-transform:none">(opcional)</span></div>
-              <input id="exp-vencimiento" class="inp" style="height:44px" placeholder="DD/MM/AAAA">
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+              <div style="flex:1;min-width:140px">
+                <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Total a pagar ($) <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+                <input id="exp-monto" class="inp" style="height:44px" placeholder="Ej: 85420.50 (se extrae al subir o podés escribirlo)" oninput="expMontoCambiado()">
+              </div>
+              <div style="flex:1;min-width:140px">
+                <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Vencimiento <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+                <input id="exp-vencimiento" class="inp" style="height:44px" placeholder="DD/MM/AAAA">
+              </div>
+            </div>
+            <div id="exp-ocr-status" style="display:none;margin-bottom:16px;font-size:12.5px;line-height:1.4"></div>
+            <button id="btn-exp-single" onclick="publicarExpensa(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">Publicar para Marcos</button>
+          </div>
+
+          <!-- Modo Tanda / Lote Múltiple -->
+          <div id="exp-tanda-card" style="display:none;background:#FAFCFF;border:1.5px solid #C9D5E8;border-radius:14px;padding:18px 20px;margin-bottom:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <div style="font-size:15.5px;font-weight:800;color:#16233B">📦 Revisión de tanda de expensas</div>
+              <button type="button" onclick="cancelarTanda()" style="border:none;background:none;color:#64748B;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">✕ Cancelar tanda</button>
+            </div>
+            <div id="exp-tanda-status" style="margin-bottom:16px"></div>
+            <div id="exp-tanda-tabla-wrap" style="overflow-x:auto;margin-bottom:16px"></div>
+            <div id="exp-tanda-acciones" style="display:none;justify-content:flex-end;gap:10px">
+              <button type="button" onclick="cancelarTanda()" style="height:44px;padding:0 18px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+              <button id="btn-publicar-tanda" type="button" onclick="publicarTanda(this)" style="height:44px;padding:0 24px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">🚀 Confirmar y Publicar Tanda</button>
             </div>
           </div>
-          <div id="exp-ocr-status" style="display:none;margin-bottom:16px;font-size:12.5px;line-height:1.4"></div>
-          <button onclick="publicarExpensa(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">Publicar para Marcos</button>
         </div>
         <div style="font-size:15px;font-weight:800;margin-bottom:12px">Expensas publicadas</div>
         ${listHtml}
@@ -15400,6 +15722,177 @@ router.post('/api/expensa-analizar', uploadExpensasMulter.single('archivo'), asy
     } catch (_) {}
     res.status(500).json({ error: e.message || String(e) });
   }
+});
+
+// Analizar una tanda múltiple de liquidaciones de expensas (hasta 60 archivos).
+router.post('/api/expensa-tanda-analizar', uploadExpensasMulter.array('archivos', 60), async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: 'No se recibieron archivos' });
+
+  const permitidos = edificiosPermitidos(req) || [];
+  const edificio = permitidos[0] || (req.body && req.body.edificio) || '';
+
+  const { leerExpensa } = require('./expensa-documento');
+  const lecturas = [];
+
+  for (const f of files) {
+    try {
+      const lectura = await leerExpensa({
+        filePath: f.path,
+        mimeType: f.mimetype,
+        unidadEsperada: '',
+      });
+      lecturas.push({
+        archivo: f.originalname || f.filename,
+        tempName: f.filename,
+        url: '/archivos/expensas/' + f.filename,
+        unidad: (lectura && lectura.ok && lectura.unidad) ? lectura.unidad : '',
+        periodo: (lectura && lectura.ok && lectura.periodo) ? lectura.periodo : '',
+        vencimiento: (lectura && lectura.ok && lectura.vencimiento) ? lectura.vencimiento : '',
+        monto: (lectura && lectura.ok && lectura.mostrar_monto && lectura.monto !== null) ? lectura.monto : null,
+        monto_origen: (lectura && lectura.ok && lectura.mostrar_monto && lectura.monto !== null) ? 'ocr' : '',
+        mostrar_monto: lectura && lectura.ok ? lectura.mostrar_monto : false,
+        motivo: (lectura && lectura.motivo) || '',
+        es_expensa: lectura && lectura.ok ? (lectura.es_expensa !== false) : false,
+      });
+    } catch (errLec) {
+      console.warn(`Error leyendo archivo ${f.originalname}:`, errLec.message);
+      lecturas.push({
+        archivo: f.originalname || f.filename,
+        tempName: f.filename,
+        url: '/archivos/expensas/' + f.filename,
+        unidad: '',
+        periodo: '',
+        vencimiento: '',
+        monto: null,
+        monto_origen: '',
+        mostrar_monto: false,
+        motivo: 'No se pudo leer el archivo',
+        es_expensa: false,
+      });
+    }
+  }
+
+  const { unidadesConVecino, revisarTanda, resumenTanda } = require('./unidades-edificio');
+  const conocidas = await unidadesConVecino(edificio);
+  const filasRevisadas = revisarTanda(lecturas, conocidas || []);
+  const resumen = resumenTanda(filasRevisadas);
+
+  res.json({
+    ok: true,
+    edificio,
+    conocidasVerificadas: conocidas !== null,
+    resumen,
+    filas: filasRevisadas.map((fr, idx) => ({
+      ...lecturas[idx],
+      estado: fr.estado,
+      mensaje: fr.mensaje,
+      unidadDelVecino: fr.unidadDelVecino || '',
+    })),
+  });
+});
+
+// Confirmar y publicar una tanda de expensas en Google Sheets y PostgreSQL.
+router.post('/api/expensa-tanda-publicar', async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+
+  const { mes, anio, formato, filas } = req.body || {};
+  if (!filas || !Array.isArray(filas) || !filas.length) {
+    return res.status(400).json({ error: 'No hay filas para publicar' });
+  }
+
+  const permitidos = edificiosPermitidos(req) || [];
+  const edificio = permitidos[0] || (req.body && req.body.edificio) || '';
+  if (!edificio) return res.status(400).json({ error: 'No se especificó edificio' });
+
+  const fecha = new Date().toLocaleString('es-AR');
+  const perDefault = (mes && anio) ? `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}` : '';
+  const { montoANumero } = require('./expensa-documento');
+
+  let guardadas = 0;
+  for (const item of filas) {
+    const tempName = path.basename(item.tempName || item.url || '');
+    if (!tempName) continue;
+
+    const rutaFisica = path.join(__dirname, 'almacenamiento', 'expensas', tempName);
+    if (!fs.existsSync(rutaFisica)) {
+      console.warn(`Archivo físico no encontrado para tanda: ${rutaFisica}`);
+    }
+
+    const url = '/archivos/expensas/' + tempName;
+    const deptoFinal = String(item.unidad || item.departamento || '').trim();
+    const vencimientoFinal = String(item.vencimiento || '').trim();
+    const periodoFinal = String(item.periodo || perDefault).trim();
+    const formFinal = item.formato || formato || (tempName.endsWith('.pdf') ? 'pdf' : 'imagen');
+    const nombreFinal = item.archivo || item.nombre || tempName;
+
+    const montoFinal = montoANumero(item.monto);
+    const montoOrigenFinal = item.monto_origen === 'ocr' ? 'ocr' : (montoFinal !== null ? 'manual' : '');
+
+    try {
+      await appendRow(TAB_EXPENSAS, {
+        fecha,
+        edificio,
+        periodo: periodoFinal,
+        formato: formFinal,
+        nombre: nombreFinal,
+        url,
+        estado: 'publicada',
+        departamento: deptoFinal,
+        monto: montoFinal !== null ? montoFinal : '',
+        vencimiento: vencimientoFinal,
+        monto_origen: montoOrigenFinal,
+      });
+
+      // Sincronizar en PostgreSQL expensas
+      const { pool } = require('./db-pg');
+      if (pool && edificio) {
+        await pool.query(
+          `INSERT INTO expensas (fecha, edificio, periodo, formato, nombre, url, estado, departamento, monto, vencimiento, monto_origen)
+           VALUES ($1, $2, $3, $4, $5, $6, 'publicada', $7, $8, $9, $10)`,
+          [
+            fecha,
+            edificio,
+            periodoFinal,
+            formFinal,
+            nombreFinal,
+            url,
+            deptoFinal || null,
+            montoFinal !== null ? montoFinal : null,
+            vencimientoFinal || null,
+            montoOrigenFinal || null
+          ]
+        );
+      }
+      guardadas++;
+    } catch (errItem) {
+      console.error(`Error guardando expensa en tanda (${nombreFinal}):`, errItem.message);
+    }
+  }
+
+  res.json({ ok: true, guardadas });
+});
+
+// Cancelar una tanda de expensas descartando los archivos temporales no confirmados.
+router.post('/api/expensa-tanda-cancelar', async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+
+  const archivos = (req.body && req.body.archivos) || [];
+  for (const a of archivos) {
+    const safeName = path.basename(String(a || ''));
+    if (safeName && safeName.startsWith('expensa_')) {
+      const ruta = path.join(__dirname, 'almacenamiento', 'expensas', safeName);
+      try {
+        if (fs.existsSync(ruta)) fs.unlinkSync(ruta);
+      } catch (_) {}
+    }
+  }
+  res.json({ ok: true });
 });
 
 // Publicar expensa (cliente). Soporta archivo físico (PDF/imagen) vía Multer

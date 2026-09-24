@@ -211,3 +211,34 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 - **Verificación local:**
   - `node verificar-antes-de-subir.js`: ✅ Todo en orden (las 39 pruebas y funciones imprescindibles en verde).
+
+### 2026-09-24 — Subida múltiple de expensas (tanda hasta 60 archivos) con tabla de revisión y semáforo antes de publicar
+
+- **Qué cambié y en qué archivo:**
+  - Archivo: exclusivamente `dashboard.js`.
+  - **Nombrado único de almacenamiento (`storageExpensas`)**:
+    - Se incorporó un sufijo aleatorio seguro `'expensa_' + Date.now() + '_' + rand + ext` para que subir 40 o 60 archivos en paralelo no colisione por timestamp idéntico.
+  - **Ruta de acceso a archivos protegidos (`GET /api/expensa-archivo/:nombre`)**:
+    - Se implementó la verificación de permisos mediante `puedeVerExpensa` de `expensa-privada.js`, buscando en PostgreSQL (`expensas`) y con fallback en Google Sheets (`TAB_EXPENSAS`), asegurando que solo el dueño o los administradores con acceso al edificio puedan previsualizar el archivo.
+  - **Endpoints de tanda**:
+    - `POST /api/expensa-tanda-analizar`: recibe hasta 60 archivos vía `uploadExpensasMulter.array('archivos', 60)`, invoca `leerExpensa` por cada documento, obtiene las unidades registradas mediante `unidadesConVecino(edificio)` y clasifica el lote con `revisarTanda` y `resumenTanda` de `unidades-edificio.js`.
+    - `POST /api/expensa-tanda-publicar`: procesa las filas confirmadas y realiza dual-write en Google Sheets (`TAB_EXPENSAS`) y PostgreSQL (`expensas`) con las 11 columnas (`fecha`, `edificio`, `periodo`, `formato`, `nombre`, `url`, `estado = 'publicada'`, `departamento`, `monto`, `vencimiento`, `monto_origen`).
+    - `POST /api/expensa-tanda-cancelar`: limpia del disco los archivos temporales no confirmados si el administrador cancela la tanda.
+  - **Interfaz de usuario en `GET /expensas` y `CLIENT_JS`**:
+    - Selector `<input type="file" multiple>` que detecta automáticamente si se eligió un archivo (flujo individual en `#exp-single-wrap`) o lote múltiple (despliega `#exp-tanda-card`).
+    - Tarjeta de revisión interactiva antes de publicar con barra de resumen y contadores:
+      - 🟢 `ok`: coincide con un vecino activo.
+      - 🔵 `general`: liquidación general del edificio (sin unidad).
+      - 🟡 `sin_vecino`: unidad válida que aún no tiene vecino registrado en el portal. Se publica normalmente y no se pinta de rojo ni se trata como error.
+      - 🔴 `repetida`: misma unidad repetida en la tanda (alerta para descarte).
+      - Aviso claro si la base de datos no pudo responder (`conocidasVerificadas === false`).
+    - Tabla editable: inputs en línea para ajustar unidad, período, monto y vencimiento, enlace de vista previa y botón de descarte rápido ✕ por fila.
+    - Handlers en cliente respetando las reglas de `CLIENT_JS`: sin interpolaciones `${...}`, con Acorn AST 100% limpio.
+    - Confirmación preventiva en caso de intentar publicar con unidades repetidas.
+
+- **Verificación:**
+  - `node --check dashboard.js`: ✅ compilación limpia.
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK — 296336 caracteres servidos validados con Acorn.
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ dashboard.js sin usos fuera de alcance.
+  - `node verificar-antes-de-subir.js`: ✅ 65 pruebas en verde (100% de la suite pasando sin credenciales).
+
