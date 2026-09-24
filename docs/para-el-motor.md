@@ -70,7 +70,19 @@ contado en `CLAUDE.md` y resuelto con `cita-mensaje.js` — vale igual acá.
 
 Para dar de baja cuando el ascensor vuelve: `levantarAviso(id)`.
 
-### 2. Sacarle el monto al documento de expensas
+### 2. Sacarle el monto al documento de expensas — ✅ YA ESTÁ, NO LO HAGAS
+
+> **24/09 — Resuelto antes de que leyeras esto.** Existe `expensa-documento.js` (`leerExpensa`),
+> y el panel ya lo llama en las dos vías de alta (la tanda de hasta 60 archivos y el alta de a
+> uno). Daniel confirmó que cargó archivos y que los datos se extrajeron bien.
+>
+> **No lo implementes de nuevo en `marcos-docs.js`.** Si hace falta leer una expensa desde el
+> motor, llamá a `leerExpensa` — escribirlo por segunda vez es exactamente lo que pasó con
+> `buscarPerfilEdificio`, que quedó en dos archivos y arreglar una copia no cambió nada en
+> producción.
+>
+> Lo que sigue queda como el pedido original, para entender por qué existe.
+
 
 **El pedido de Daniel:** que el administrador suba el documento de expensas **de cada departamento**,
 que **la IA le extraiga el total**, y que el vecino vea ese número en su tarjeta con un botón para
