@@ -577,6 +577,10 @@ function mapExpensa(r) {
     nombre: pick(r, ['nombre', 'archivo']),
     url: pick(r, ['url', 'link']),
     estado: pick(r, ['estado'], 'publicada'),
+    departamento: pick(r, ['departamento', 'depto', 'unidad']) || '',
+    monto: pick(r, ['monto', 'total']) || '',
+    vencimiento: pick(r, ['vencimiento', 'fecha_vencimiento', 'vto']) || '',
+    monto_origen: pick(r, ['monto_origen', 'origen_monto']) || '',
   };
 }
 
@@ -7798,6 +7802,13 @@ function toggleWspNotif(chk){
 
 // --- expensas (cliente) ---
 var _expFormato='pdf';
+var _expMontoOrigen='';
+var _expMontoEditado=false;
+
+function escExp(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function elegirFormatoExp(btn,f){
   _expFormato=f;
   document.querySelectorAll('[data-exp-btn]').forEach(function(b){
@@ -7815,16 +7826,105 @@ function pickExpFile(){
   var i=document.getElementById('exp-file-input');
   if(i)i.click();
 }
-function expFileElegido(inp){
-  var n=inp.files&&inp.files[0]?inp.files[0].name:'';
+async function expFileElegido(inp){
+  var file=inp.files&&inp.files[0]?inp.files[0]:null;
+  var n=file?file.name:'';
   var t=document.getElementById('exp-file-nombre');
   var s=document.getElementById('exp-file-sub');
+  var statusBox=document.getElementById('exp-ocr-status');
+  if(!file)return;
   if(t&&n){t.textContent=n;t.style.color='#16233B';}
-  if(s&&n){s.textContent='Archivo listo · tocá Publicar';s.style.color='#1B7A43';}
+  if(s&&n){s.textContent='Leyendo total y unidad con Marcos...';s.style.color='#1E5FB4';}
+  if(statusBox){
+    statusBox.style.display='block';
+    statusBox.style.background='#EFF6FF';
+    statusBox.style.border='1px solid #BFDBFE';
+    statusBox.style.borderRadius='8px';
+    statusBox.style.padding='10px 12px';
+    statusBox.style.color='#1E40AF';
+    statusBox.innerHTML='<span style="display:inline-block;animation:spin 1s linear infinite">⏳</span> <strong>Leyendo documento...</strong> Marcos está extrayendo el total, la unidad y el período.';
+  }
+  try{
+    var fd=new FormData();
+    fd.append('archivo',file);
+    var deptoAct=(document.getElementById('exp-depto')||{}).value||'';
+    if(deptoAct.trim())fd.append('departamento',deptoAct.trim());
+    var r=await fetch('/admin/api/expensa-analizar',{method:'POST',body:fd});
+    var j=await r.json();
+    if(j.ok&&j.lectura){
+      var lec=j.lectura;
+      var inpDepto=document.getElementById('exp-depto');
+      if(inpDepto&&!inpDepto.value.trim()&&lec.unidad){
+        inpDepto.value=lec.unidad;
+      }
+      if(lec.periodo){
+        var partes=lec.periodo.split(' ');
+        if(partes.length>=2){
+          var inpMes=document.getElementById('exp-mes');
+          var inpAnio=document.getElementById('exp-anio');
+          if(inpMes&&partes[0])inpMes.value=partes[0].toLowerCase();
+          if(inpAnio&&partes[1])inpAnio.value=partes[1];
+        }
+      }
+      var inpVto=document.getElementById('exp-vencimiento');
+      if(inpVto&&!inpVto.value.trim()&&lec.vencimiento){
+        inpVto.value=lec.vencimiento;
+      }
+      var inpMonto=document.getElementById('exp-monto');
+      if(inpMonto&&!_expMontoEditado){
+        if(lec.mostrar_monto&&lec.monto!==null&&lec.monto!==undefined){
+          inpMonto.value=lec.monto;
+          _expMontoOrigen='ocr';
+        }else{
+          inpMonto.value='';
+          _expMontoOrigen='';
+        }
+      }
+      if(statusBox){
+        if(lec.choca_la_unidad){
+          statusBox.style.background='#FEF2F2';
+          statusBox.style.border='1px solid #FECACA';
+          statusBox.style.color='#991B1B';
+          statusBox.innerHTML='⚠️ <strong>Atención con la unidad:</strong> El documento indica unidad <strong>'+escExp(lec.unidad)+'</strong> pero se cargó como <strong>'+escExp(deptoAct)+'</strong>. Revisá si es el archivo correcto antes de publicar.';
+        }else if(lec.mostrar_monto&&lec.monto!==null){
+          statusBox.style.background='#ECFDF5';
+          statusBox.style.border='1px solid #A7F3D0';
+          statusBox.style.color='#065F46';
+          var montoFmt=Number(lec.monto).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+          statusBox.innerHTML='✓ <strong>Total detectado por OCR:</strong> $ '+montoFmt+' '+(lec.unidad?'(Unidad '+escExp(lec.unidad)+')':'(Liquidación general)')+'. Podés confirmarlo o editarlo arriba antes de publicar.';
+        }else{
+          statusBox.style.background='#FFFBEB';
+          statusBox.style.border='1px solid #FDE68A';
+          statusBox.style.color='#92400E';
+          statusBox.innerHTML='ℹ️ <strong>Total no concluyente:</strong> '+escExp(lec.motivo||'No se pudo determinar el total exacto')+'. Marcos compartirá el documento completo con el vecino. Podés tipear el monto a mano o dejarlo vacío.';
+        }
+      }
+      if(s&&n){s.textContent='Documento analizado · Revisá los datos y tocá Publicar';s.style.color='#1B7A43';}
+    }else{
+      if(statusBox){
+        statusBox.style.background='#F8FAFC';
+        statusBox.style.border='1px solid #E2E8F0';
+        statusBox.style.color='#64748B';
+        statusBox.innerHTML='ℹ️ '+(escExp((j&&j.motivo)||'No se extrajo monto automáticamente'))+'. Podés tipear el total a mano o publicar el archivo tal cual.';
+      }
+      if(s&&n){s.textContent='Archivo listo · tocá Publicar';s.style.color='#1B7A43';}
+    }
+  }catch(errAnalisis){
+    if(statusBox){statusBox.style.display='none';}
+    if(s&&n){s.textContent='Archivo listo · tocá Publicar';s.style.color='#1B7A43';}
+  }
+}
+function expMontoCambiado(){
+  _expMontoEditado=true;
+  var val=(document.getElementById('exp-monto')||{}).value||'';
+  _expMontoOrigen=val.trim()?'manual':'';
 }
 async function publicarExpensa(btn){
   var mes=(document.getElementById('exp-mes')||{}).value||'';
   var anio=(document.getElementById('exp-anio')||{}).value||'';
+  var depto=(document.getElementById('exp-depto')||{}).value||'';
+  var monto=(document.getElementById('exp-monto')||{}).value||'';
+  var vencimiento=(document.getElementById('exp-vencimiento')||{}).value||'';
   var url=(document.getElementById('exp-url')||{}).value||'';
   var fileInp=document.getElementById('exp-file-input');
   var file=fileInp&&fileInp.files&&fileInp.files[0]?fileInp.files[0]:null;
@@ -7836,6 +7936,10 @@ async function publicarExpensa(btn){
     var formData=new FormData();
     formData.append('mes',mes.trim());
     formData.append('anio',anio.trim());
+    formData.append('departamento',depto.trim());
+    formData.append('monto',monto.trim());
+    formData.append('vencimiento',vencimiento.trim());
+    formData.append('monto_origen',_expMontoOrigen||(monto.trim()?'manual':''));
     formData.append('formato',_expFormato);
     if(_expFormato==='link'){
       formData.append('url',url.trim());
@@ -12555,15 +12659,20 @@ router.get('/expensas', async (req, res) => {
         ${expensas.map((x) => {
           const t = tipoExp(x.formato);
           const copiable = x.url || x.nombre;
+          const montoNum = x.monto !== '' && x.monto !== null && !isNaN(Number(x.monto)) ? Number(x.monto) : null;
+          const montoFmt = montoNum !== null ? montoNum.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (x.monto ? esc(x.monto) : '');
           return `
           <div style="display:flex;align-items:center;gap:15px;background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 18px;flex-wrap:wrap">
             <span style="width:46px;height:46px;border-radius:12px;background:${t.bg};display:flex;align-items:center;justify-content:center;font-size:21px;flex-shrink:0">${t.icon}</span>
             <div style="flex:1;min-width:170px">
-              <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span style="font-size:15.5px;font-weight:800">${esc(x.periodo)}</span>
                 <span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:${t.bg};color:${t.fg}">${t.label}</span>
+                ${x.departamento ? `<span style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EDE9FE;color:#5B21B6">Unidad: ${esc(x.departamento)}</span>` : `<span style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#F1F5F9;color:#475569">General (edificio)</span>`}
+                ${montoFmt ? `<span style="font-size:12px;font-weight:800;padding:2px 9px;border-radius:999px;background:#ECFDF5;color:#065F46">$ ${montoFmt}${x.monto_origen === 'ocr' ? ' <span style="font-size:9.5px;font-weight:600;opacity:0.8">(OCR)</span>' : ''}</span>` : ''}
+                ${x.vencimiento ? `<span style="font-size:11.5px;color:#64748B">Vence: ${esc(x.vencimiento)}</span>` : ''}
               </div>
-              <div style="font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px">${esc(x.url || x.nombre || '')}</div>
+              <div style="font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px;margin-top:2px">${esc(x.url || x.nombre || '')}</div>
             </div>
             <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ Marcos puede compartirla</span>
             <div style="display:flex;gap:8px">
@@ -12592,6 +12701,14 @@ router.get('/expensas', async (req, res) => {
               <input id="exp-anio" class="inp" style="height:44px" value="${new Date().getFullYear()}">
             </div>
           </div>
+          <div style="margin-bottom:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase">Unidad / Departamento <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+              <span style="font-size:11.5px;color:#64748B">Vacío = liquidación general del consorcio</span>
+            </div>
+            <input id="exp-depto" class="inp" style="height:44px" placeholder="Ej: 1° A, 4B, PB 2 (dejar vacío si es la liquidación general)">
+            <div style="font-size:11.5px;color:#8595AD;margin-top:4px">Si ponés una unidad, solo la verá el vecino de ese departamento en su portal y por WhatsApp.</div>
+          </div>
           <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Formato</div>
           <div style="display:flex;gap:9px;margin-bottom:16px;flex-wrap:wrap">
             <button data-exp-btn onclick="elegirFormatoExp(this,'pdf')" style="height:40px;padding:0 16px;border:1px solid #17408B;border-radius:10px;background:#17408B;color:#fff;font-weight:700;font-size:13.5px;cursor:pointer">📄 PDF</button>
@@ -12610,6 +12727,17 @@ router.get('/expensas', async (req, res) => {
             </div>
             <input id="exp-file-input" type="file" accept=".pdf,image/*" style="display:none" onchange="expFileElegido(this)">
           </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+            <div style="flex:1;min-width:140px">
+              <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Total a pagar ($) <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+              <input id="exp-monto" class="inp" style="height:44px" placeholder="Ej: 85420.50 (se extrae al subir o podés escribirlo)" oninput="expMontoCambiado()">
+            </div>
+            <div style="flex:1;min-width:140px">
+              <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Vencimiento <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+              <input id="exp-vencimiento" class="inp" style="height:44px" placeholder="DD/MM/AAAA">
+            </div>
+          </div>
+          <div id="exp-ocr-status" style="display:none;margin-bottom:16px;font-size:12.5px;line-height:1.4"></div>
           <button onclick="publicarExpensa(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">Publicar para Marcos</button>
         </div>
         <div style="font-size:15px;font-weight:800;margin-bottom:12px">Expensas publicadas</div>
@@ -15180,14 +15308,41 @@ router.post('/api/responder-sugerencia', async (req, res) => {
   }
 });
 
+// Analizar expensa con IA para previsualizar unidad, total y vencimiento antes de publicar.
+router.post('/api/expensa-analizar', uploadExpensasMulter.single('archivo'), async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+  const fs = require('fs');
+  if (!req.file) return res.status(400).json({ error: 'Falta archivo' });
+  try {
+    const { leerExpensa } = require('./expensa-documento');
+    const departamento = (req.body && req.body.departamento) || '';
+    const lectura = await leerExpensa({
+      filePath: req.file.path,
+      mimeType: req.file.mimetype,
+      unidadEsperada: departamento,
+    });
+    // Limpiamos el archivo temporal de análisis para no dejar huérfanos en disco
+    try {
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    } catch (_) {}
+    res.json({ ok: true, lectura });
+  } catch (e) {
+    try {
+      if (req.file && req.file.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    } catch (_) {}
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
 // Publicar expensa (cliente). Soporta archivo físico (PDF/imagen) vía Multer
 // y guarda en almacenamiento permanente (/archivos/expensas/...) sincronizando
-// tanto en Google Sheets como en PostgreSQL (tabla expensas).
+// tanto en Google Sheets como en PostgreSQL (tabla expensas con 11 columnas).
 router.post('/api/expensa', uploadExpensasMulter.single('archivo'), async (req, res) => {
   if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { mes, anio, formato } = req.body || {};
+    const { mes, anio, formato, departamento, monto, vencimiento, monto_origen } = req.body || {};
     let url = (req.body && req.body.url) || '';
     let nombre = (req.body && req.body.nombre) || '';
 
@@ -15204,6 +15359,39 @@ router.post('/api/expensa', uploadExpensasMulter.single('archivo'), async (req, 
     const periodo = `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}`;
     const formFinal = formato || (req.file && req.file.mimetype && req.file.mimetype.startsWith('image/') ? 'imagen' : 'pdf');
 
+    const { leerExpensa, montoANumero } = require('./expensa-documento');
+    let deptoFinal = String(departamento || '').trim();
+    let vencimientoFinal = String(vencimiento || '').trim();
+    let montoFinal = null;
+    let montoOrigenFinal = '';
+
+    if (monto !== undefined && monto !== null && String(monto).trim() !== '') {
+      montoFinal = montoANumero(monto);
+      montoOrigenFinal = monto_origen === 'ocr' ? 'ocr' : 'manual';
+    } else if (req.file) {
+      try {
+        const lectura = await leerExpensa({
+          filePath: req.file.path,
+          mimeType: req.file.mimetype,
+          unidadEsperada: deptoFinal,
+        });
+        if (lectura && lectura.ok) {
+          if (!deptoFinal && lectura.unidad && !lectura.choca_la_unidad) {
+            deptoFinal = lectura.unidad;
+          }
+          if (!vencimientoFinal && lectura.vencimiento) {
+            vencimientoFinal = lectura.vencimiento;
+          }
+          if (lectura.mostrar_monto && lectura.monto !== null && lectura.monto !== undefined) {
+            montoFinal = lectura.monto;
+            montoOrigenFinal = 'ocr';
+          }
+        }
+      } catch (errLec) {
+        console.warn('Error leyendo expensa al publicar:', errLec.message);
+      }
+    }
+
     await appendRow(TAB_EXPENSAS, {
       fecha,
       edificio,
@@ -15212,6 +15400,10 @@ router.post('/api/expensa', uploadExpensasMulter.single('archivo'), async (req, 
       nombre,
       url,
       estado: 'publicada',
+      departamento: deptoFinal,
+      monto: montoFinal !== null && montoFinal !== undefined ? montoFinal : '',
+      vencimiento: vencimientoFinal,
+      monto_origen: montoOrigenFinal,
     });
 
     // Sincronizar en PostgreSQL expensas
@@ -15219,16 +15411,35 @@ router.post('/api/expensa', uploadExpensasMulter.single('archivo'), async (req, 
       const { pool } = require('./db-pg');
       if (pool && edificio) {
         await pool.query(
-          `INSERT INTO expensas (fecha, edificio, periodo, formato, nombre, url, estado)
-           VALUES ($1, $2, $3, $4, $5, $6, 'publicada')`,
-          [fecha, edificio, periodo, formFinal, nombre, url]
+          `INSERT INTO expensas (fecha, edificio, periodo, formato, nombre, url, estado, departamento, monto, vencimiento, monto_origen)
+           VALUES ($1, $2, $3, $4, $5, $6, 'publicada', $7, $8, $9, $10)`,
+          [
+            fecha,
+            edificio,
+            periodo,
+            formFinal,
+            nombre,
+            url,
+            deptoFinal || null,
+            montoFinal !== null ? montoFinal : null,
+            vencimientoFinal || null,
+            montoOrigenFinal || null
+          ]
         );
       }
     } catch (errPg) {
       console.warn('Error sincronizando expensa en PostgreSQL:', errPg.message);
     }
 
-    res.json({ ok: true, url, nombre });
+    res.json({
+      ok: true,
+      url,
+      nombre,
+      departamento: deptoFinal,
+      monto: montoFinal,
+      vencimiento: vencimientoFinal,
+      monto_origen: montoOrigenFinal
+    });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -15258,8 +15469,8 @@ router.post('/api/expensa-quitar', async (req, res) => {
         await pool.query(
           `UPDATE expensas SET estado = 'eliminada'
            WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
-             AND (periodo = $3 OR url = $4)`,
-          [expActual.edificio, '%' + expActual.edificio + '%', expActual.periodo || '', expActual.url || '']
+             AND (url = $3 OR (periodo = $4 AND COALESCE(departamento, '') = COALESCE($5, '')))`,
+          [expActual.edificio, '%' + expActual.edificio + '%', expActual.url || '', expActual.periodo || '', expActual.departamento || '']
         );
       }
     } catch (errPg) {

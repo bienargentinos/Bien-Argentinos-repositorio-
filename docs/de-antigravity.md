@@ -27,6 +27,35 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-24 — Expensas por unidad con extracción de total, previsualización OCR y confirmación en panel
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Mapeo de datos (`mapExpensa`)**:
+    - Se incorporaron las 4 columnas nuevas: `departamento`, `monto`, `vencimiento`, `monto_origen`.
+  - **Previsualización OCR y confirmación previa (`CLIENT_JS`)**:
+    - Al seleccionar un PDF o imagen en el formulario de expensas, se dispara un análisis en segundo plano contra `/admin/api/expensa-analizar` usando `leerExpensa`.
+    - Si el archivo indica unidad y el campo `#exp-depto` estaba vacío, se autocompleta con la unidad leída.
+    - Si la unidad del documento choca con la cargada (`choca_la_unidad`), muestra una advertencia visual destacada en rojo para prevenir publicar expensas ajenas.
+    - Si `mostrar_monto` es true, autocompleta el campo de monto total y muestra un cartel verde indicando el total detectado por OCR, permitiendo al AC confirmarlo o corregirlo antes de publicar (marcando `monto_origen = 'ocr'`).
+    - Si el usuario edita el monto manualmente, conmuta `monto_origen = 'manual'`.
+    - Si `mostrar_monto` es false, respeta la regla de no inventar ni mostrar cifras tentativas; muestra el motivo (`lectura.motivo`) y permite cargar a mano o dejar vacío.
+  - **Formulario y Listado en Panel (`GET /expensas`)**:
+    - Campo de "Unidad / Departamento (opcional)" con aclaración de que vacío es liquidación general del consorcio visible a todos, y con valor queda restringido a esa unidad.
+    - Campos opcionales de "Total a pagar ($)" y "Vencimiento", con contenedor de estado para la lectura en vivo de Marcos.
+    - En el listado de expensas publicadas se muestran las insignias de Unidad vs. General, el monto formateado en ARS (con etiqueta OCR si vino de lectura) y el vencimiento.
+  - **Backend de publicación y sincronización (`POST /api/expensa` y `POST /api/expensa-analizar`)**:
+    - `POST /api/expensa-analizar`: ejecuta `leerExpensa` sobre el archivo temporal y lo elimina de inmediato de disco para no dejar huérfanos.
+    - `POST /api/expensa`: procesa `departamento`, `monto` (usando `montoANumero`), `vencimiento` y `monto_origen`. Si el AC no ingresó monto pero adjuntó archivo, ejecuta `leerExpensa` como salvaguarda automática.
+    - Escribe las 11 columnas completas tanto en Google Sheets (`TAB_EXPENSAS`) como en PostgreSQL (`expensas`).
+    - `POST /api/expensa-quitar`: actualización sincronizada en PostgreSQL considerando `departamento` y `periodo` para eliminar con precisión sin borrar otras unidades del mismo período.
+
+- **Verificación:**
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK (279.992 caracteres servidos, sintaxis validada por AST).
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ Sin usos fuera de alcance.
+  - `node pruebas-expensa-documento.js`: ✅ 59 bien, 0 mal.
+  - `node verificar-antes-de-subir.js`: ✅ 62 pruebas y funciones imprescindibles en verde.
+
 ### 2026-09-22 — Pedido a Claude: Corrección botón demo y sección "Mi Perfil / Usuario" en portal-vecino.js
 
 - **Qué necesito de Claude (en `portal-vecino.js`):**
