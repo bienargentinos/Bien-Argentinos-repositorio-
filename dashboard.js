@@ -2794,7 +2794,381 @@ html.dark-theme, body.dark-theme {
   color: #082F49 !important;
 }
 
+/* 11. Componentes de Expensas y Subida en Tanda (Luz y Modo Oscuro) */
+.exp-tanda-card {
+  background: #FAFCFF;
+  border: 1.5px solid #C9D5E8;
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+.dark-theme .exp-tanda-card,
+.dark-theme #exp-tanda-card {
+  background: #111C38 !important;
+  border-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
 
+.dark-theme #exp-file-wrap {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+}
+.dark-theme #exp-file-nombre {
+  color: #FFFFFF !important;
+}
+.dark-theme #exp-file-sub[style*="color:#1E5FB4"],
+.dark-theme #exp-file-sub[style*="color: #1E5FB4"] {
+  color: #38BDF8 !important;
+}
+.dark-theme #exp-file-sub[style*="color:#1B7A43"],
+.dark-theme #exp-file-sub[style*="color: #1B7A43"] {
+  color: #4ADE80 !important;
+}
+.dark-theme #exp-file-sub[style*="color:#DC2626"],
+.dark-theme #exp-file-sub[style*="color: #DC2626"] {
+  color: #F87171 !important;
+}
+
+.exp-tanda-titulo {
+  font-size: 15.5px;
+  font-weight: 800;
+  color: #16233B;
+}
+.dark-theme .exp-tanda-titulo {
+  color: #FFFFFF !important;
+}
+
+.exp-tanda-btn-cancelar {
+  border: none;
+  background: transparent;
+  color: #64748B;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all .15s;
+}
+.dark-theme .exp-tanda-btn-cancelar {
+  background: transparent !important;
+  color: #94A3B8 !important;
+}
+.dark-theme .exp-tanda-btn-cancelar:hover {
+  background: #1E293B !important;
+  color: #F1F5F9 !important;
+}
+
+/* Banners de estado de tanda */
+.exp-banner-analizando {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: 10px;
+  color: #1E40AF;
+}
+.dark-theme .exp-banner-analizando {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #93C5FD !important;
+}
+
+.exp-banner-advertencia {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: #92400E;
+  line-height: 1.4;
+}
+.dark-theme .exp-banner-advertencia {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FDE68A !important;
+}
+
+.exp-banner-error {
+  padding: 12px;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 10px;
+  color: #991B1B;
+}
+.dark-theme .exp-banner-error {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+
+/* Píldoras de resumen de tanda */
+.exp-pills-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.exp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 12.5px;
+}
+.exp-pill-total {
+  background: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  color: #334155;
+}
+.dark-theme .exp-pill-total {
+  background: #1E293B !important;
+  border-color: #334155 !important;
+  color: #F1F5F9 !important;
+}
+.exp-pill-ok {
+  background: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  color: #065F46;
+}
+.dark-theme .exp-pill-ok {
+  background: #062C19 !important;
+  border-color: #059669 !important;
+  color: #4ADE80 !important;
+}
+.exp-pill-general {
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1E40AF;
+}
+.dark-theme .exp-pill-general {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #60A5FA !important;
+}
+.exp-pill-sinvecino {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+}
+.dark-theme .exp-pill-sinvecino {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FCD34D !important;
+}
+.exp-pill-repetida {
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #991B1B;
+}
+.dark-theme .exp-pill-repetida {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+
+/* Tabla de revisión de tanda */
+.exp-tanda-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+  background: #FFFFFF;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #E2E8F0;
+}
+.dark-theme .exp-tanda-tabla {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+}
+.exp-tanda-tabla thead tr {
+  background: #F8FAFC;
+  border-bottom: 1px solid #E2E8F0;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #64748B;
+  letter-spacing: 0.5px;
+}
+.dark-theme .exp-tanda-tabla thead tr {
+  background: #0E1626 !important;
+  border-bottom-color: #2A3A5E !important;
+  color: #94A3B8 !important;
+}
+.exp-tanda-tabla tbody tr {
+  border-bottom: 1px solid #EDF2F7;
+}
+.dark-theme .exp-tanda-tabla tbody tr {
+  border-bottom-color: #2A3A5E !important;
+}
+.dark-theme .exp-tanda-tabla tbody tr:hover {
+  background: #1C2B4E !important;
+}
+
+/* Semáforos / Badges en la tabla */
+.exp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.exp-badge-ok {
+  background: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  color: #065F46;
+}
+.dark-theme .exp-badge-ok {
+  background: #062C19 !important;
+  border-color: #059669 !important;
+  color: #4ADE80 !important;
+}
+.exp-badge-general {
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1E40AF;
+}
+.dark-theme .exp-badge-general {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #60A5FA !important;
+}
+.exp-badge-sinvecino {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+}
+.dark-theme .exp-badge-sinvecino {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FCD34D !important;
+}
+.exp-badge-repetida {
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #991B1B;
+}
+.dark-theme .exp-badge-repetida {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+.exp-badge-listo {
+  background: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  color: #64748B;
+}
+.dark-theme .exp-badge-listo {
+  background: #1E293B !important;
+  border-color: #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+/* Columna de archivo */
+.exp-archivo-nombre {
+  font-weight: 600;
+  color: #1E293B;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dark-theme .exp-archivo-nombre {
+  color: #FFFFFF !important;
+}
+.exp-archivo-link {
+  font-size: 11px;
+  color: #1E5FB4;
+  text-decoration: none;
+}
+.dark-theme .exp-archivo-link {
+  color: #38BDF8 !important;
+}
+.exp-archivo-link:hover {
+  text-decoration: underline;
+}
+
+/* Botón descartar fila */
+.exp-btn-quitar {
+  border: 1px solid #FECDD3;
+  background: #FFF1F2;
+  color: #E11D48;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-weight: 700;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+}
+.exp-btn-quitar:hover {
+  background: #FFE4E6;
+  border-color: #FDA4AF;
+}
+.dark-theme .exp-btn-quitar {
+  background: #450A0A !important;
+  border-color: #991B1B !important;
+  color: #FCA5A5 !important;
+}
+.dark-theme .exp-btn-quitar:hover {
+  background: #7F1D1D !important;
+  color: #FFFFFF !important;
+}
+
+/* Botón cancelar tanda en acciones */
+.exp-btn-accion-cancelar {
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid #DCE4F0;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #64748B;
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.dark-theme .exp-btn-accion-cancelar {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #CBD5E1 !important;
+}
+
+/* Estado dinámico OCR en modo individual */
+.dark-theme #exp-ocr-status[style*="background:#ECFDF5"],
+.dark-theme #exp-ocr-status[style*="background: #ECFDF5"] {
+  background: #062C19 !important;
+  border-color: #059669 !important;
+  color: #4ADE80 !important;
+}
+.dark-theme #exp-ocr-status[style*="background:#FFFBEB"],
+.dark-theme #exp-ocr-status[style*="background: #FFFBEB"] {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FDE68A !important;
+}
+.dark-theme #exp-ocr-status[style*="background:#FEF2F2"],
+.dark-theme #exp-ocr-status[style*="background: #FEF2F2"] {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+.dark-theme #exp-ocr-status[style*="background:#EFF6FF"],
+.dark-theme #exp-ocr-status[style*="background: #EFF6FF"] {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #93C5FD !important;
+}
 `;
 
 /* ===================================================================
@@ -7857,7 +8231,7 @@ async function activarModoTanda(files) {
   if (ac) ac.style.display = 'none';
 
   if (st) {
-    st.innerHTML = '<div style="display:flex;align-items:center;gap:12px;padding:14px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;color:#1E40AF">' +
+    st.innerHTML = '<div class="exp-banner-analizando">' +
       '<span style="font-size:22px;animation:spin 1s linear infinite">⏳</span>' +
       '<div><div style="font-weight:700">Analizando tanda de ' + files.length + ' liquidaciones con Marcos IA...</div>' +
       '<div style="font-size:12px;opacity:0.85">Extrayendo unidades, períodos, montos y vencimientos de cada archivo.</div></div>' +
@@ -7878,7 +8252,7 @@ async function activarModoTanda(files) {
     renderTablaTanda(j.resumen, _expTandaDatos, _expTandaConocidas);
   } catch (err) {
     if (st) {
-      st.innerHTML = '<div style="padding:12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;color:#991B1B">' +
+      st.innerHTML = '<div class="exp-banner-error">' +
         '<strong>Error al analizar la tanda:</strong> ' + escExp(err.message) +
         '<div style="margin-top:6px;font-size:12px">Podés cancelar e intentar nuevamente con menos archivos o verificar el formato.</div>' +
         '</div>';
@@ -7926,33 +8300,33 @@ function renderTablaTanda(resumen, filas, conocidasVerificadas) {
 
   var htmlStatus = '';
   if (conocidasVerificadas === false) {
-    htmlStatus += '<div style="margin-bottom:12px;padding:10px 14px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:9px;font-size:12.5px;color:#92400E">' +
+    htmlStatus += '<div class="exp-banner-advertencia">' +
       '⚠️ <strong>No se pudo verificar la base de vecinos:</strong> Se muestran los archivos analizados. Podés corroborar las unidades a mano antes de publicar.' +
       '</div>';
   }
 
-  htmlStatus += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
-    '<span style="display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;background:#F1F5F9;border:1px solid #CBD5E1;font-weight:700;font-size:12.5px;color:#334155">' + res.total + ' archivos</span>' +
-    '<span style="display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;background:#ECFDF5;border:1px solid #A7F3D0;font-weight:700;font-size:12.5px;color:#065F46">🟢 ' + res.ok + ' coinciden con vecinos</span>' +
-    (res.general > 0 ? '<span style="display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;background:#EFF6FF;border:1px solid #BFDBFE;font-weight:700;font-size:12.5px;color:#1E40AF">🔵 ' + res.general + ' liquidación general</span>' : '') +
-    (res.sin_vecino > 0 ? '<span style="display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;background:#FFFBEB;border:1px solid #FDE68A;font-weight:700;font-size:12.5px;color:#92400E">🟡 ' + res.sin_vecino + ' sin vecino aún</span>' : '') +
-    (res.repetida > 0 ? '<span style="display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;background:#FEF2F2;border:1px solid #FECACA;font-weight:700;font-size:12.5px;color:#991B1B">🔴 ' + res.repetida + ' repetidas</span>' : '') +
+  htmlStatus += '<div class="exp-pills-bar">' +
+    '<span class="exp-pill exp-pill-total">' + res.total + ' archivos</span>' +
+    '<span class="exp-pill exp-pill-ok">🟢 ' + res.ok + ' coinciden con vecinos</span>' +
+    (res.general > 0 ? '<span class="exp-pill exp-pill-general">🔵 ' + res.general + ' liquidación general</span>' : '') +
+    (res.sin_vecino > 0 ? '<span class="exp-pill exp-pill-sinvecino">🟡 ' + res.sin_vecino + ' sin vecino aún</span>' : '') +
+    (res.repetida > 0 ? '<span class="exp-pill exp-pill-repetida">🔴 ' + res.repetida + ' repetidas</span>' : '') +
     '</div>';
 
   if (res.repetida > 0) {
-    htmlStatus += '<div style="margin-bottom:12px;padding:9px 12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;font-size:12px;color:#991B1B;line-height:1.4">' +
+    htmlStatus += '<div class="exp-banner-error" style="margin-bottom:12px;font-size:12px;line-height:1.4">' +
       '⚠️ <strong>Unidades repetidas:</strong> Hay unidades duplicadas en la tanda. Si es el mismo archivo seleccionado dos veces, descartalo con el botón ✕ de la fila para no duplicar liquidaciones al vecino.' +
       '</div>';
   } else if (res.sin_vecino > 0) {
-    htmlStatus += '<div style="margin-bottom:12px;padding:9px 12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;font-size:12px;color:#92400E;line-height:1.4">' +
+    htmlStatus += '<div class="exp-banner-advertencia" style="margin-bottom:12px;font-size:12px;line-height:1.4">' +
       'ℹ️ <strong>Unidades sin vecino registrado:</strong> Se publican normalmente y quedarán disponibles para cuando la persona se sume al portal o a Marcos. Si alguna unidad tiene un error tipográfico, podés corregirla en su casilla.' +
       '</div>';
   }
 
   if (st) st.innerHTML = htmlStatus;
 
-  var htmlT = '<table style="width:100%;border-collapse:collapse;font-size:13px;text-align:left;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #E2E8F0">' +
-    '<thead><tr style="background:#F8FAFC;border-bottom:1px solid #E2E8F0;font-size:11px;text-transform:uppercase;color:#64748B;letter-spacing:0.5px">' +
+  var htmlT = '<table class="exp-tanda-tabla">' +
+    '<thead><tr>' +
     '<th style="padding:10px 12px">Estado</th>' +
     '<th style="padding:10px 12px">Archivo</th>' +
     '<th style="padding:10px 12px">Unidad / Depto</th>' +
@@ -7966,24 +8340,24 @@ function renderTablaTanda(resumen, filas, conocidasVerificadas) {
     var f = filas[i];
     var badge = '';
     if (f.estado === 'ok') {
-      badge = '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;font-size:11.5px;font-weight:700" title="' + escExp(f.mensaje) + '">🟢 Coincide</span>';
+      badge = '<span class="exp-badge exp-badge-ok" title="' + escExp(f.mensaje) + '">🟢 Coincide</span>';
     } else if (f.estado === 'general') {
-      badge = '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:#EFF6FF;border:1px solid #BFDBFE;color:#1E40AF;font-size:11.5px;font-weight:700" title="' + escExp(f.mensaje) + '">🔵 General</span>';
+      badge = '<span class="exp-badge exp-badge-general" title="' + escExp(f.mensaje) + '">🔵 General</span>';
     } else if (f.estado === 'sin_vecino') {
-      badge = '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;font-size:11.5px;font-weight:700" title="' + escExp(f.mensaje) + '">🟡 Sin vecino</span>';
+      badge = '<span class="exp-badge exp-badge-sinvecino" title="' + escExp(f.mensaje) + '">🟡 Sin vecino</span>';
     } else if (f.estado === 'repetida') {
-      badge = '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:#FEF2F2;border:1px solid #FECACA;color:#991B1B;font-size:11.5px;font-weight:700" title="' + escExp(f.mensaje) + '">🔴 Repetida</span>';
+      badge = '<span class="exp-badge exp-badge-repetida" title="' + escExp(f.mensaje) + '">🔴 Repetida</span>';
     } else {
-      badge = '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:#F1F5F9;border:1px solid #CBD5E1;color:#64748B;font-size:11.5px;font-weight:700">⚪ Listo</span>';
+      badge = '<span class="exp-badge exp-badge-listo">⚪ Listo</span>';
     }
 
     var montoStr = (f.monto !== null && f.monto !== undefined) ? String(f.monto) : '';
 
-    htmlT += '<tr style="border-bottom:1px solid #EDF2F7">' +
+    htmlT += '<tr>' +
       '<td style="padding:8px 12px;white-space:nowrap">' + badge + '</td>' +
       '<td style="padding:8px 12px">' +
-        '<div style="font-weight:600;color:#1E293B;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escExp(f.archivo) + '">' + escExp(f.archivo) + '</div>' +
-        (f.url ? '<a href="' + escExp(f.url) + '" target="_blank" style="font-size:11px;color:#1E5FB4;text-decoration:none">Ver archivo ↗</a>' : '') +
+        '<div class="exp-archivo-nombre" title="' + escExp(f.archivo) + '">' + escExp(f.archivo) + '</div>' +
+        (f.url ? '<a href="' + escExp(f.url) + '" target="_blank" class="exp-archivo-link">Ver archivo ↗</a>' : '') +
       '</td>' +
       '<td style="padding:8px 12px">' +
         '<input type="text" class="inp" value="' + escExp(f.unidad || '') + '" placeholder="General" style="height:32px;font-size:12.5px;font-weight:700;width:90px;padding:4px 8px" oninput="tandaModificarUnidad(' + i + ',this.value)" onblur="tandaRevalidarFila(' + i + ')">' +
@@ -7998,7 +8372,7 @@ function renderTablaTanda(resumen, filas, conocidasVerificadas) {
         '<input type="text" class="inp" value="' + escExp(f.vencimiento || '') + '" placeholder="DD/MM/AAAA" style="height:32px;font-size:12.5px;width:105px;padding:4px 8px" oninput="tandaModificarVencimiento(' + i + ',this.value)">' +
       '</td>' +
       '<td style="padding:8px 12px;text-align:center">' +
-        '<button type="button" onclick="quitarFilaTanda(' + i + ')" title="Descartar este archivo" style="border:1px solid #FECDD3;background:#FFF1F2;color:#E11D48;border-radius:6px;width:28px;height:28px;cursor:pointer;font-weight:700;margin:0 auto;display:flex;align-items:center;justify-content:center" class="hv-soft">✕</button>' +
+        '<button type="button" onclick="quitarFilaTanda(' + i + ')" title="Descartar este archivo" class="exp-btn-quitar">✕</button>' +
       '</td>' +
       '</tr>';
   }
@@ -13052,15 +13426,15 @@ router.get('/expensas', async (req, res) => {
           </div>
 
           <!-- Modo Tanda / Lote Múltiple -->
-          <div id="exp-tanda-card" style="display:none;background:#FAFCFF;border:1.5px solid #C9D5E8;border-radius:14px;padding:18px 20px;margin-bottom:20px">
+          <div id="exp-tanda-card" class="exp-tanda-card" style="display:none">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-              <div style="font-size:15.5px;font-weight:800;color:#16233B">📦 Revisión de tanda de expensas</div>
-              <button type="button" onclick="cancelarTanda()" style="border:none;background:none;color:#64748B;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">✕ Cancelar tanda</button>
+              <div class="exp-tanda-titulo">📦 Revisión de tanda de expensas</div>
+              <button type="button" onclick="cancelarTanda()" class="exp-tanda-btn-cancelar hv-soft">✕ Cancelar tanda</button>
             </div>
             <div id="exp-tanda-status" style="margin-bottom:16px"></div>
             <div id="exp-tanda-tabla-wrap" style="overflow-x:auto;margin-bottom:16px"></div>
             <div id="exp-tanda-acciones" style="display:none;justify-content:flex-end;gap:10px">
-              <button type="button" onclick="cancelarTanda()" style="height:44px;padding:0 18px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+              <button type="button" onclick="cancelarTanda()" class="exp-btn-accion-cancelar hv-soft">Cancelar</button>
               <button id="btn-publicar-tanda" type="button" onclick="publicarTanda(this)" style="height:44px;padding:0 24px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">🚀 Confirmar y Publicar Tanda</button>
             </div>
           </div>

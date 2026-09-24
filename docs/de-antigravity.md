@@ -238,7 +238,24 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 - **Verificación:**
   - `node --check dashboard.js`: ✅ compilación limpia.
-  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK — 296336 caracteres servidos validados con Acorn.
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK — validado con Acorn.
   - `node herramientas-scan-alcances.js dashboard.js`: ✅ dashboard.js sin usos fuera de alcance.
   - `node verificar-antes-de-subir.js`: ✅ 65 pruebas en verde (100% de la suite pasando sin credenciales).
+
+### 2026-09-24 — Adaptación de alto contraste a Modo Oscuro (.dark-theme) para tanda de expensas
+
+- **Problema corregido:**
+  - En modo oscuro (`.dark-theme`), la tarjeta `#exp-tanda-card` quedaba con fondo claro por inline styles mientras las reglas globales forzaban el texto a blanco (invisibilidad de títulos y leyendas).
+  - En la tabla de revisión, los nombres de archivos en `#1E293B` quedaban oscuros sobre fondo oscuro y los badges de semáforo tenían bajo contraste.
+- **Qué cambié:**
+  - Se añadieron reglas completas en el bloque CSS de `dashboard.js` para `.dark-theme`:
+    - `.exp-tanda-card`: fondo `#111C38 !important` y borde `#2A3A5E !important`.
+    - `.exp-tanda-titulo`: texto blanco `#FFFFFF !important` de alto contraste.
+    - Semáforos y badges adaptados a fondos oscuros de alto contraste: `.exp-badge-ok` (`#062C19` con texto verde `#4ADE80`), `.exp-badge-general` (`#172554` con texto azul `#60A5FA`), `.exp-badge-sinvecino` (`#3B2406` con texto amarillo `#FCD34D`), `.exp-badge-repetida` (`#450A0A` con texto rojo `#FCA5A5`).
+    - Nombres de archivo `.exp-archivo-nombre` en blanco `#FFFFFF !important` y enlaces `.exp-archivo-link` en celeste `#38BDF8 !important`.
+    - Píldoras de contadores `.exp-pill-*` y banners adaptados con paletas de alto contraste en modo oscuro.
+- **Verificación:**
+  - `node --check dashboard.js`: ✅ OK.
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK.
+  - `node verificar-antes-de-subir.js`: ✅ 65 pruebas en verde.
 
