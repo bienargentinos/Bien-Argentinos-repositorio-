@@ -750,3 +750,166 @@ Tres cosas para mirar, en orden:
 
 Yo no toqué nada de esto: el listado es tuyo y Daniel ya te lo pasó. Queda acá para que no haya que
 derivarlo de nuevo.
+
+---
+
+## Pedido: Expensas tiene que empezar por elegir el edificio (tarjetas, no error)
+
+Decisión de Daniel, 24/09. Nace de un bug real y de un arreglo mío que quedó a medias.
+
+### Qué pasó
+
+Daniel subió cuatro liquidaciones con el selector del header en **"Todos los edificios"** (tiene
+3). El panel dijo que se publicaron, y **Expensas publicadas** seguía vacío. Entrando a San
+Patricio 159 sí estaban.
+
+Se habían archivado ahí porque la publicación resolvía el edificio con `permitidos[0]` — **el
+primero de la lista**, que sale del orden en que quedaron cargados. Acertó de casualidad.
+
+> [!CAUTION]
+> **Una expensa lleva el número de unidad y lo que debe una persona.** Archivada en el consorcio
+> equivocado, la ven los vecinos de otro edificio. La casualidad al revés no es un dato feo en una
+> tabla.
+
+Lo tapé en el servidor: `edificioParaEscribir(req)` (dashboard.js, al lado de
+`edificiosPermitidos`) devuelve el edificio solo cuando no hay nada que adivinar, y los tres
+endpoints de expensas cortan con un `400` si no se pudo determinar. **Ese control se queda**: un
+`POST` directo no pasa por ninguna pantalla, que es exactamente lo que pasó con `/api/pases-qr`.
+
+### Pero el `400` llega en el peor momento, y eso es lo que hay que arreglar
+
+Frena **después** de subir los archivos, leerlos con la IA y revisar la tabla. A esa altura el
+trabajo ya está hecho. Elegir el edificio es lo **primero** que hay que decidir, no lo último que
+se valida.
+
+Y hay un problema de fondo más simple: **"Todos los edificios" es un estado escondido que cambia en
+silencio lo que significa publicar.** Mientras exista en esa pantalla, el error puede volver por
+otra puerta.
+
+### Lo que pide Daniel
+
+Al entrar a `/admin/expensas` sin edificio elegido, **en vez de la pantalla de carga, un grid de
+tarjetas — una por edificio del cliente**. Se elige uno y recién ahí aparece la pantalla de
+siempre. El patrón ya existe en el panel: "Clientes y edificios" funciona igual (grid → detalle),
+así que no es una pantalla nueva.
+
+```
+if (!cur && edificiosDeLaCuenta(req).length > 1) → grid de tarjetas
+```
+
+Cada tarjeta va a `/admin/set-filtro`, que ya acepta las dos cosas que hacen falta:
+
+```
+/admin/set-filtro?edificio=<nombre>&volver=%2Fadmin%2Fexpensas
+```
+
+**Con un solo edificio, sin tarjetas: se entra directo.** Si no hay nada que elegir, una pantalla
+intermedia es puro estorbo.
+
+### Y que la tarjeta conteste algo, no solo pida un click
+
+Si igual hay que mostrarlas, que respondan la pregunta que hoy no contesta nadie: **¿a cuál me
+falta cargarle las expensas de este mes?** Un administrador con tres consorcios tiene que entrar a
+los tres para averiguarlo.
+
+```
+San Patricio 159      Agosto 2026 · 12 publicadas
+San Patricio 270      Agosto 2026 · sin publicar      ← lo que está buscando
+Torre Norte           Julio 2026 · 8 publicadas
+```
+
+Sale de la misma `readTab(TAB_EXPENSAS)` que ya lee la pantalla, agrupando por edificio en lugar
+de filtrar por uno. Así la pantalla obligatoria pasa de ser un peaje a ser la más útil de la
+sección.
+
+### Lo otro que hay que arreglar de la misma pantalla
+
+Ya está más arriba en este archivo, pero se juntan acá porque son el mismo episodio:
+
+- **El listado miente cuando no hay edificio elegido.** `dashboard.js:12991` filtra con
+  `cur && compararEdificios(...)`, así que con `cur` en null descarta todo y sale *"Todavía no
+  publicaste expensas para este edificio"* — indistinguible de no tener ninguna. Por eso creímos
+  media hora que no se habían guardado. Con el grid de tarjetas este caso deja de existir en
+  Expensas, pero **el mensaje sigue estando mal** para cualquier otra pantalla que filtre igual:
+  "no hay ninguna" y "no sé de qué edificio me hablás" no se arreglan igual.
+- **El toast convierte el 0 en "todas"**: `j.guardadas || _expTandaDatos.length`. Una tanda donde
+  fallaron todas las filas informa éxito. Está explicado arriba con el reemplazo.
+
+---
+
+## Despliegue al VPS: lo que hay para subir (24/09)
+
+Daniel pidió que lo hagas vos, que tenés acceso. Son cuatro commits, ninguno toca el `.env` ni
+nada de configuración.
+
+**Rama**: `claude/marcos-ia-whatsapp-template-vpg8gw` — punta en `c2dbc13`. Verifiqué que contiene
+`main` entero (`git log HEAD..origin/main` vacío), así que no hay nada que mergear antes.
+
+| Commit | Qué cambia |
+|---|---|
+| `e1c18fe` | `requireAuth`: una ruta `/api/` sin sesión contesta `401` JSON en vez de redirigir al login. Es lo que hacía que todo error de sesión se viera como `JSON.parse: unexpected character`. |
+| `fc2d4a9` | Publicar una expensa con varios edificios y ninguno elegido ahora corta y pide elegir, en vez de archivarla en el primero de la lista. |
+| `6ce44f8`, `c2dbc13` | Solo documentación (este archivo). |
+
+### Antes de pulear, mirá si alguien editó algo a mano
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git status --short
+```
+
+> [!CAUTION]
+> **Si aparecen archivos modificados, NO los resuelvas con `git add -A`.** Ahí conviven `.env.save`
+> y `.enov11` (las credenciales), `almacenamiento/` (audios, fotos y facturas de vecinos reales) y
+> el SQLite. Ya pasó una vez: un `git add -A` de rescate se llevó los tres adentro de un commit, y
+> no llegó a GitHub solo porque se miró el `git status` antes de empujar. El repo se hace público
+> cada vez que se usa el `curl`.
+>
+> Fue mi error, así que lo anoto con nombre y apellido. Si hay cambios locales, se agregan **por
+> archivo**, mirando cada uno.
+
+### El pull
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+Que quede en `c2dbc13`:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git log --oneline -1
+```
+
+### Antes de reiniciar, que el archivo parsee
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node --check dashboard.js && node --check index.js
+```
+
+> Esto no es ritual. Un acento grave adentro de un template literal ya rompió `db-pg.js` una vez:
+> el push salió, el verificador dijo que todo estaba bien, y el error apareció recién acá con
+> Marcos ya reiniciado.
+
+### Reiniciar
+
+```bash
+pm2 restart marcos-ai
+```
+
+> El proceso se llama **`marcos-ai`**, no `marcos-ia`.
+
+### Qué mirar después
+
+```bash
+pm2 logs marcos-ai --lines 40 --nostream
+```
+
+Y dos cosas en el panel, que son justo las que se arreglaron:
+
+1. **Publicar una expensa con el selector en "Todos los edificios"** tiene que decir *"Elegí
+   primero a qué edificio corresponde…"*. Antes la archivaba en el primero de la lista sin avisar.
+2. **Dejar el panel abierto, reiniciar, y apretar cualquier botón**: tiene que decir *"Se venció la
+   sesión del panel. Volvé a entrar y probá de nuevo."* en vez del `JSON.parse`.
+
+Ojo que lo segundo **sigue pasando** después de este despliegue: las sesiones viven en la RAM del
+proceso y cada `pm2 restart` las borra. Lo que cambia es que ahora lo dice. El arreglo de fondo
+--un `store` en PostgreSQL-- está pedido más arriba en este mismo archivo.
