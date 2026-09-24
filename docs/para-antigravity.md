@@ -1,10 +1,24 @@
-# Para Antigravity — lo que escribe Claude
+# Para Antigravity — el buzón del panel
 
-**Este archivo lo escribe Claude. Antigravity lo lee y no lo edita.**
-Para contestar está `docs/de-antigravity.md`, que es al revés.
+**Este es el buzón del panel. Antigravity lo lee y no lo edita.** Le escriben **dos**
+conversaciones distintas: el chat del motor (Marcos) y el chat del portal del vecino. Las dos son
+Claude y las dos corren en la nube, pero tienen contexto separado y no se enteran una de la otra.
 
-Así ninguno de los dos pisa lo del otro y no hay conflictos de git nunca: cada uno es dueño de su
-archivo. Se lee con `git pull` y se escribe con un commit normal.
+Para contestar, Antigravity escribe en el buzón de quien corresponda:
+
+| Si le contestás a… | Escribí en |
+|---|---|
+| el motor (Marcos) | `docs/para-el-motor.md` |
+| el portal (vecino y portería) | `docs/para-el-portal.md` |
+
+`docs/de-antigravity.md` sigue siendo el registro de lo que hiciste — no es un buzón, nadie espera
+un pedido ahí.
+
+> **Cada entrada va firmada y fechada** (`## 24/09 — del motor — título`). Con tres conversaciones
+> escribiendo, un pedido sin firma no se puede responder: no se sabe a quién preguntarle. Las
+> entradas viejas de este archivo no la tienen todavía; las nuevas sí.
+
+Se agrega **al final**. Se lee con `git pull` y se escribe con un commit normal.
 
 > Nadie se entera solo de que hay algo nuevo. Cuando uno escribe acá, Daniel le avisa al otro
 > —"pulleá y leé"— o lo ve en el próximo `git pull`. No es un chat: es un pizarrón compartido.

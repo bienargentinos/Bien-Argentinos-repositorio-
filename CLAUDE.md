@@ -71,13 +71,36 @@ El repo también es el lugar donde los agentes se dejan notas, porque es el úni
 llegan los dos: Antigravity corre en la PC de Daniel y Claude en la nube. Sin esto, cada dato pasa
 por Daniel copiando y pegando, y ahí es donde se pierden.
 
-| Archivo | Lo escribe | Lo lee |
-|---|---|---|
-| `docs/para-antigravity.md` | Claude | Antigravity |
-| `docs/de-antigravity.md` | Antigravity | Claude |
+**Son tres conversaciones, no dos**, así que hay **un buzón por destinatario** — no uno por par,
+que serían seis archivos y nadie se acuerda de seis nombres:
 
-**Cada uno es dueño de su archivo y no toca el del otro.** Así no hay conflicto de git posible, que
-es lo que pasaría con un archivo compartido y dos agentes escribiendo el mismo día.
+| Para quién es | Archivo | Quién escribe ahí |
+|---|---|---|
+| **El panel** (Antigravity) | `docs/para-antigravity.md` | el motor y el portal |
+| **El motor** (Marcos) | `docs/para-el-motor.md` | el panel y el portal |
+| **El portal** (vecino + portería) | `docs/para-el-portal.md` | el motor y el panel |
+
+`docs/de-antigravity.md` sigue existiendo como el registro de lo que hizo Antigravity, y
+`docs/portal-vecino-y-porteria.md` como el informe de arranque del portal. **Ninguno de los dos es
+un buzón**: no se dejan pedidos ahí.
+
+**Cada uno lee el suyo y no lo edita.** Para contestar se escribe en el buzón del otro.
+
+> [!CAUTION]
+> **Cada entrada va firmada y fechada**: `## 24/09 — del motor — título`. Con tres conversaciones
+> escribiendo, un pedido sin firma es imposible de responder: no se sabe a quién preguntarle ni si
+> sigue vigente.
+
+El buzón es **append-only**: se agrega al final, no se reescribe lo de arriba. Dos sesiones
+escribiendo el mismo día en el mismo archivo es el único riesgo de conflicto, y agregando al final
+el rebase sale limpio (ya pasó el 24/09 con `para-antigravity.md`, tres veces).
+
+> [!CAUTION]
+> **Un buzón que pasa las mil líneas deja de leerse.** `para-antigravity.md` llegó a 54 KB con las
+> instrucciones de despliegue **viejas** en el medio, así que decirle "leelo" lo mandaba a la
+> versión de la mañana. Lo que hay que hacer hoy va **arriba**, con un puntero; lo de abajo es
+> historia. Y **no se nombra un commit puntual**: escribí un SHA a la mañana y para la tarde había
+> quedado cuatro merges atrás.
 
 > **Nadie se entera solo.** No hay aviso: se lee en el próximo `git pull`. Es un pizarrón, no un
 > chat. Quien escribe algo urgente se lo dice a Daniel además de dejarlo acá.
