@@ -27,6 +27,119 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-24 — Persistencia de sesiones en PostgreSQL (`connect-pg-simple`) y escape en ruta de expensas
+
+- **Qué cambié y en qué archivo:**
+  - **`package.json` y `package-lock.json`**:
+    - Se agregó `connect-pg-simple` en el mismo commit que el código que lo usa (siguiendo la regla de oro).
+  - **`dashboard.js`**:
+    - **Store de sesiones en PostgreSQL**:
+      - Se configuró `connect-pg-simple` apuntando al `pool` de PostgreSQL en la tabla `sesiones_panel` con `createTableIfMissing: true` y limpieza automática cada 15 min.
+      - Al conectarse como el rol `marcos` configurado en `urlPostgres()`, la tabla queda creada con el dueño correcto sin riesgo de `permission denied`.
+      - Cuenta con fallback a MemoryStore en caso de que PostgreSQL no esté disponible (por ejemplo en entornos locales de prueba).
+      - Con esto, las sesiones del panel sobreviven a los reinicios de PM2 (`pm2 restart marcos-ai`).
+    - **Escape de comodines en `GET /api/expensa-archivo/:nombre`**:
+      - Se añadió `ESCAPE '='` y escape explícito de `_` y `%` en el `LIKE` para evitar que el caracter `_` del nombre `expensa_<ts>_<rand>` coincida accidentalmente con otros nombres.
+  - **Despliegue al VPS**:
+    - Ambas ramas (`antigravity/panel-fase-1` y `claude/marcos-ia-whatsapp-template-vpg8gw`) fueron sincronizadas y desplegadas en el VPS (`200.58.102.182:5436`), proceso `marcos-ai` reiniciado con PM2 y verificado online.
+
+- **Verificación:**
+  - `node verificar-antes-de-subir.js`: ✅ 65 de 65 pruebas en verde.
+  - `node pruebas-expensa-privada.js`: ✅ 45 de 45 en verde.
+
+### 2026-09-24 — Grid de tarjetas por edificio en Expensas y enlaces absolutos en Copiar
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Grid de selección de edificio en Expensas**:
+    - Se implementó el pedido de Daniel y Claude (`docs/para-antigravity.md`): al entrar a `/admin/expensas` con un cliente con múltiples edificios y ninguno seleccionado (`!activo && d.propios.length > 1`), se muestra un grid de tarjetas con cada edificio.
+    - Cada tarjeta informa el estado del mes actual: `✓ Mes Año · N publicadas`, `⏳ Mes Año · sin publicar este mes` o `Sin expensas publicadas`.
+    - Al hacer clic en un edificio, activa el filtro vía `/admin/set-filtro?edificio=...&volver=/admin/expensas` y entra a la pantalla de gestión de ese edificio.
+    - En la pantalla de gestión del edificio activo, se agregó el botón `🏢 Cambiar de edificio` en el encabezado para regresar al grid con un clic.
+    - Cuentas con un solo edificio ingresan directamente sin pantalla intermedia.
+  - **Enlace absoluto en `copiarExpensa`**:
+    - El botón `🔗 Copiar` ahora antepone `window.location.origin` cuando la URL es relativa (`/admin/api/...`), copiando una URL web completa y válida (`https://.../admin/api/...`) lista para pegar en el navegador o enviar por WhatsApp.
+  - **Sincronización con Claude**:
+    - Se incorporó y verificó `edificioParaEscribir(req)` de Claude (commit `fc2d4a9`), que corta con 400 si se intenta publicar sin edificio determinado.
+
+- **Verificación:**
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK.
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ Sin usos fuera de alcance.
+  - `node pruebas-expensa-privada.js`: ✅ 45 bien, 0 mal.
+  - `node verificar-antes-de-subir.js`: ✅ 65 de 65 pruebas en verde.
+
+### 2026-09-24 — Corrección listado de expensas en clientes multi-edificio y selector de filtro
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Causa raíz del bug reportado ("cargué las expensas pero no se ven en las listas")**:
+    - Las expensas sí se habían guardado correctamente en la pestaña `expensas` de Sheets con `edificio: 'san patricio casa'`.
+    - Al publicar sin edificio activo preseleccionado (`edificioActivo` undefined / vista general), `POST /api/expensa-tanda-publicar` usó `permitidos[0]` que correspondía al primer edificio del array del cliente en la sesión (`'san patricio casa'`).
+    - Sin embargo, en `GET /expensas`, se filtraba estrictamente por `cur = d.curBuilding`. En `cargarDatos`, `curBuilding` toma el primer edificio encontrado en la pestaña `EDIFICIOS`, cuyo orden alfabético/fila ponía primero a `'San patricio 270'`.
+    - Resultado: `compararEdificios('san patricio casa', 'San patricio 270')` daba `false`, ocultando las 4 expensas recién subidas tras el recargar de página y mostrando *"Todavía no publicaste expensas para este edificio"*.
+  - **Solución implementada en `GET /expensas`**:
+    - **Filtro multi-edificio**: Si hay un edificio activo (`activo`), filtra por ese edificio. Si no hay edificio activo (vista "Todos los edificios"), filtra por `permitidos.some(p => compararEdificios(x.edificio, p))`, permitiendo ver las expensas de todos los edificios asignados al cliente.
+    - **Pills de filtrado por edificio**: Para clientes con más de un edificio (`d.propios.length > 1`), se agregaron pills de selección rápida arriba del listado (`Todos (N)`, `🏢 [Edificio A] (N)`, etc.) que conservan la página actual con `volver=/admin/expensas`.
+    - **Badge identificador de edificio**: En cada tarjeta de expensa se agregó la pastilla `🏢 [Nombre Edificio]` cuando el cliente tiene más de un edificio, aclarando a cuál pertenece.
+    - **Aclaración del destino al publicar**: Se muestra claramente `Destino: 🏢 [Edificio]` y en el texto del formulario para que el administrador sepa a qué edificio se publicará la liquidación antes de subir.
+    - **Selector del topbar**: En `shell`, `selectorEdificioHtml` ahora preserva `req.originalUrl` en el parámetro `volver`, evitando que al cambiar de edificio desde el desplegable superior se redirija a `/admin` y perdiendo la pantalla actual. También contempla `previewEdificioActivo` en modo preview.
+    - **`set-filtro` con `normEdificio`**: Se normalizó la comparación contra `propios` para evitar que diferencias de mayúsculas/minúsculas entre `CLIENTES` y `EDIFICIOS` impidan activar el filtro.
+    - **Control en tanda**: En `publicarTanda` y `POST /api/expensa-tanda-publicar`, si `guardadas === 0` se arroja error en vez de mostrar un toast de éxito con 0 expensas.
+
+- **Verificación:**
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK.
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ Sin usos fuera de alcance.
+  - `node pruebas-expensa-privada.js`: ✅ 43 bien, 0 mal.
+  - `node verificar-antes-de-subir.js`: ✅ 65 de 65 pruebas en verde.
+
+### 2026-09-24 — Ruta protegida del panel para servir archivos de expensas (/api/expensa-archivo/:nombre)
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Ruta segura para servir expensas (`GET /api/expensa-archivo/:nombre`)**:
+    - Se implementó el endpoint protegido solicitado por Claude en `docs/para-antigravity.md`.
+    - Resuelve la expensa en PostgreSQL (con fallback a Sheets).
+    - Evalúa permisos con `puedeVerExpensa({ expensa, quien })` de `expensa-privada.js`, identificando sesión de `dueno` o `consorcio` (con sus edificios permitidos).
+    - Resuelve la ubicación del archivo con `rutaDelArchivo` y lo entrega con `res.sendFile`.
+  - **Listado de expensas en el panel (`GET /expensas`)**:
+    - Los enlaces de "Ver" y "Copiar" ahora apuntan a `/admin/api/expensa-archivo/:nombre` en lugar de la ruta pública bloqueada `/archivos/expensas/...`.
+
+- **Verificación:**
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK.
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ Sin usos fuera de alcance.
+  - `node pruebas-expensa-privada.js`: ✅ 39 bien, 0 mal.
+  - `node pruebas-expensa-documento.js`: ✅ 59 bien, 0 mal.
+  - `node verificar-antes-de-subir.js`: ✅ 64 de 64 pruebas en verde.
+
+### 2026-09-24 — Expensas por unidad con extracción de total, previsualización OCR y confirmación en panel
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Mapeo de datos (`mapExpensa`)**:
+    - Se incorporaron las 4 columnas nuevas: `departamento`, `monto`, `vencimiento`, `monto_origen`.
+  - **Previsualización OCR y confirmación previa (`CLIENT_JS`)**:
+    - Al seleccionar un PDF o imagen en el formulario de expensas, se dispara un análisis en segundo plano contra `/admin/api/expensa-analizar` usando `leerExpensa`.
+    - Si el archivo indica unidad y el campo `#exp-depto` estaba vacío, se autocompleta con la unidad leída.
+    - Si la unidad del documento choca con la cargada (`choca_la_unidad`), muestra una advertencia visual destacada en rojo para prevenir publicar expensas ajenas.
+    - Si `mostrar_monto` es true, autocompleta el campo de monto total y muestra un cartel verde indicando el total detectado por OCR, permitiendo al AC confirmarlo o corregirlo antes de publicar (marcando `monto_origen = 'ocr'`).
+    - Si el usuario edita el monto manualmente, conmuta `monto_origen = 'manual'`.
+    - Si `mostrar_monto` es false, respeta la regla de no inventar ni mostrar cifras tentativas; muestra el motivo (`lectura.motivo`) y permite cargar a mano o dejar vacío.
+  - **Formulario y Listado en Panel (`GET /expensas`)**:
+    - Campo de "Unidad / Departamento (opcional)" con aclaración de que vacío es liquidación general del consorcio visible a todos, y con valor queda restringido a esa unidad.
+    - Campos opcionales de "Total a pagar ($)" y "Vencimiento", con contenedor de estado para la lectura en vivo de Marcos.
+    - En el listado de expensas publicadas se muestran las insignias de Unidad vs. General, el monto formateado en ARS (con etiqueta OCR si vino de lectura) y el vencimiento.
+  - **Backend de publicación y sincronización (`POST /api/expensa` y `POST /api/expensa-analizar`)**:
+    - `POST /api/expensa-analizar`: ejecuta `leerExpensa` sobre el archivo temporal y lo elimina de inmediato de disco para no dejar huérfanos.
+    - `POST /api/expensa`: procesa `departamento`, `monto` (usando `montoANumero`), `vencimiento` y `monto_origen`. Si el AC no ingresó monto pero adjuntó archivo, ejecuta `leerExpensa` como salvaguarda automática.
+    - Escribe las 11 columnas completas tanto en Google Sheets (`TAB_EXPENSAS`) como en PostgreSQL (`expensas`).
+    - `POST /api/expensa-quitar`: actualización sincronizada en PostgreSQL considerando `departamento` y `periodo` para eliminar con precisión sin borrar otras unidades del mismo período.
+
+- **Verificación:**
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK (279.992 caracteres servidos, sintaxis validada por AST).
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ Sin usos fuera de alcance.
+  - `node pruebas-expensa-documento.js`: ✅ 59 bien, 0 mal.
+  - `node verificar-antes-de-subir.js`: ✅ 62 pruebas y funciones imprescindibles en verde.
+
 ### 2026-09-22 — Pedido a Claude: Corrección botón demo y sección "Mi Perfil / Usuario" en portal-vecino.js
 
 - **Qué necesito de Claude (en `portal-vecino.js`):**
@@ -163,3 +276,51 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 - **Verificación local:**
   - `node verificar-antes-de-subir.js`: ✅ Todo en orden (las 39 pruebas y funciones imprescindibles en verde).
+
+### 2026-09-24 — Subida múltiple de expensas (tanda hasta 60 archivos) con tabla de revisión y semáforo antes de publicar
+
+- **Qué cambié y en qué archivo:**
+  - Archivo: exclusivamente `dashboard.js`.
+  - **Nombrado único de almacenamiento (`storageExpensas`)**:
+    - Se incorporó un sufijo aleatorio seguro `'expensa_' + Date.now() + '_' + rand + ext` para que subir 40 o 60 archivos en paralelo no colisione por timestamp idéntico.
+  - **Ruta de acceso a archivos protegidos (`GET /api/expensa-archivo/:nombre`)**:
+    - Se implementó la verificación de permisos mediante `puedeVerExpensa` de `expensa-privada.js`, buscando en PostgreSQL (`expensas`) y con fallback en Google Sheets (`TAB_EXPENSAS`), asegurando que solo el dueño o los administradores con acceso al edificio puedan previsualizar el archivo.
+  - **Endpoints de tanda**:
+    - `POST /api/expensa-tanda-analizar`: recibe hasta 60 archivos vía `uploadExpensasMulter.array('archivos', 60)`, invoca `leerExpensa` por cada documento, obtiene las unidades registradas mediante `unidadesConVecino(edificio)` y clasifica el lote con `revisarTanda` y `resumenTanda` de `unidades-edificio.js`.
+    - `POST /api/expensa-tanda-publicar`: procesa las filas confirmadas y realiza dual-write en Google Sheets (`TAB_EXPENSAS`) y PostgreSQL (`expensas`) con las 11 columnas (`fecha`, `edificio`, `periodo`, `formato`, `nombre`, `url`, `estado = 'publicada'`, `departamento`, `monto`, `vencimiento`, `monto_origen`).
+    - `POST /api/expensa-tanda-cancelar`: limpia del disco los archivos temporales no confirmados si el administrador cancela la tanda.
+  - **Interfaz de usuario en `GET /expensas` y `CLIENT_JS`**:
+    - Selector `<input type="file" multiple>` que detecta automáticamente si se eligió un archivo (flujo individual en `#exp-single-wrap`) o lote múltiple (despliega `#exp-tanda-card`).
+    - Tarjeta de revisión interactiva antes de publicar con barra de resumen y contadores:
+      - 🟢 `ok`: coincide con un vecino activo.
+      - 🔵 `general`: liquidación general del edificio (sin unidad).
+      - 🟡 `sin_vecino`: unidad válida que aún no tiene vecino registrado en el portal. Se publica normalmente y no se pinta de rojo ni se trata como error.
+      - 🔴 `repetida`: misma unidad repetida en la tanda (alerta para descarte).
+      - Aviso claro si la base de datos no pudo responder (`conocidasVerificadas === false`).
+    - Tabla editable: inputs en línea para ajustar unidad, período, monto y vencimiento, enlace de vista previa y botón de descarte rápido ✕ por fila.
+    - Handlers en cliente respetando las reglas de `CLIENT_JS`: sin interpolaciones `${...}`, con Acorn AST 100% limpio.
+    - Confirmación preventiva en caso de intentar publicar con unidades repetidas.
+
+- **Verificación:**
+  - `node --check dashboard.js`: ✅ compilación limpia.
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK — validado con Acorn.
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ dashboard.js sin usos fuera de alcance.
+  - `node verificar-antes-de-subir.js`: ✅ 65 pruebas en verde (100% de la suite pasando sin credenciales).
+
+### 2026-09-24 — Adaptación de alto contraste a Modo Oscuro (.dark-theme) para tanda de expensas
+
+- **Problema corregido:**
+  - En modo oscuro (`.dark-theme`), la tarjeta `#exp-tanda-card` quedaba con fondo claro por inline styles mientras las reglas globales forzaban el texto a blanco (invisibilidad de títulos y leyendas).
+  - En la tabla de revisión, los nombres de archivos en `#1E293B` quedaban oscuros sobre fondo oscuro y los badges de semáforo tenían bajo contraste.
+- **Qué cambié:**
+  - Se añadieron reglas completas en el bloque CSS de `dashboard.js` para `.dark-theme`:
+    - `.exp-tanda-card`: fondo `#111C38 !important` y borde `#2A3A5E !important`.
+    - `.exp-tanda-titulo`: texto blanco `#FFFFFF !important` de alto contraste.
+    - Semáforos y badges adaptados a fondos oscuros de alto contraste: `.exp-badge-ok` (`#062C19` con texto verde `#4ADE80`), `.exp-badge-general` (`#172554` con texto azul `#60A5FA`), `.exp-badge-sinvecino` (`#3B2406` con texto amarillo `#FCD34D`), `.exp-badge-repetida` (`#450A0A` con texto rojo `#FCA5A5`).
+    - Nombres de archivo `.exp-archivo-nombre` en blanco `#FFFFFF !important` y enlaces `.exp-archivo-link` en celeste `#38BDF8 !important`.
+    - Píldoras de contadores `.exp-pill-*` y banners adaptados con paletas de alto contraste en modo oscuro.
+- **Verificación:**
+  - `node --check dashboard.js`: ✅ OK.
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK.
+  - `node verificar-antes-de-subir.js`: ✅ 65 pruebas en verde.
+

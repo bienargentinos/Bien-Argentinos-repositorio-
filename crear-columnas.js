@@ -37,7 +37,33 @@ const aplicar = process.argv.includes('--aplicar');
             .find(t => String(t).toLowerCase().trim() === nombre.toLowerCase().trim());
 
         if (!titulo) {
-            console.log(`⬜ ${nombre}: no existe todavía, se crea sola la primera vez que se escriba.\n`);
+            // > [!CAUTION]
+            // > **"Se crea sola" NO es lo mismo que "se crea bien."**
+            //
+            // El `appendRow` del panel crea la pestaña con `Object.keys(rowData)`: las columnas
+            // quedan definidas por la PRIMERA fila que se escriba, y para siempre. Si esa primera
+            // fila no trae una columna que después va a hacer falta, el dato se descarta en
+            // silencio desde ahí en adelante -- que es exactamente cómo se perdieron `tecnico`,
+            // `tel_tecnico` y `rubro_tecnico` en los cuatro primeros casos reales.
+            //
+            // Con `expensas` esto era una carrera de verdad: si alguien subía una expensa antes de
+            // que el panel aprendiera a mandar `departamento` y `monto`, la pestaña nacía con
+            // siete columnas y las nuevas no entraban nunca. Crearla acá, completa y vacía, saca
+            // el orden de los hechos de la ecuación.
+            if (!aplicar) {
+                console.log(`⬜ ${nombre}: NO EXISTE. Se crearía con sus ${necesarias.length} columnas.`);
+                console.log(`   Si no, nace con las columnas de la primera fila que se escriba, y`);
+                console.log(`   lo que falte se descarta en silencio a partir de ahí.\n`);
+                continue;
+            }
+            try {
+                await doc.addSheet({ title: nombre, headerValues: necesarias });
+                creadas++;
+                console.log(`🆕 ${nombre}: pestaña creada con ${necesarias.length} columnas.\n`);
+            } catch (err) {
+                fallaron++;
+                console.log(`🧱 ${nombre}: NO se pudo crear → ${err.message}\n`);
+            }
             continue;
         }
 

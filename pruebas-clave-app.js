@@ -160,6 +160,40 @@ prueba('requireAuth ya no deja pasar los pases sin control', () => {
         'los pases tienen que pasar por el control de clave');
 });
 
+prueba('una ruta de API sin sesión contesta JSON, no una redirección', () => {
+    // > [!CAUTION]
+    // > **Un `res.redirect` a una llamada de `fetch` produce "JSON.parse: unexpected character at
+    // > line 1 column 1".** Ese mensaje no dice que la sesión venció: manda a buscar el problema al
+    // > código que se acaba de escribir.
+    //
+    // Pasó al publicar una tanda de expensas. El registro de nginx decía `302 34` --los 34 bytes
+    // del HTML "Found. Redirecting to /admin/login"-- y el diagnóstico costó media hora revisando
+    // el endpoint, PostgreSQL y las columnas, que estaban todos bien.
+    //
+    // El `Accept: application/json` no alcanza como señal: un `fetch` con cuerpo JSON manda
+    // `Accept: */*` salvo que se lo pida explícitamente, así que la rama del 401 casi nunca corría.
+    // Se leen las líneas de CÓDIGO, sin los comentarios: el de arriba nombra `res.redirect` y
+    // `/admin/login` para explicar el problema, y una prueba que los confunda con el código mide
+    // el comentario en lugar de la función.
+    const i = dash.indexOf('function requireAuth(');
+    const hasta = dash.indexOf('\n}', i);
+    const cuerpo = dash.slice(i, hasta)
+        .split('\n')
+        .filter((l) => !/^\s*\/\//.test(l))
+        .join('\n');
+
+    assert.ok(/req\.path\.startsWith\('\/api\//.test(cuerpo),
+        'requireAuth tiene que reconocer una ruta de API por la RUTA, no por el Accept');
+
+    // Y el reconocimiento va ANTES del redirect, o no sirve de nada.
+    const posRuta = cuerpo.search(/req\.path\.startsWith\('\/api\//);
+    const posRedirect = cuerpo.search(/res\.redirect/);
+    assert.ok(posRuta < posRedirect,
+        'el control de ruta de API quedó DESPUÉS del redirect: nunca corre');
+    assert.ok(/status\(401\)[\s\S]{0,80}json\(/.test(cuerpo),
+        'falta el 401 en JSON');
+});
+
 prueba('el listado completo no se le da a la app', () => {
     // Sin `edificio`, la consulta devuelve los últimos 150 pases de TODOS los edificios con sus
     // tokens. Eso queda solo para una sesión del panel: la clave de la app es compartida y no

@@ -43,3 +43,7 @@ almacenamiento/
 *.roto
 *.local
 FETCH_HEAD
+
+# Los ejemplos de expensas se generan con `node ejemplo-expensas.js`. No van al repo: se
+# regeneran en un segundo y cambiarían en cada corrida.
+ejemplos-expensas/

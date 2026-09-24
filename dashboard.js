@@ -75,7 +75,8 @@ const storageExpensas = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const ext = path.extname(file.originalname).toLowerCase() || '.pdf';
-    const name = 'expensa_' + Date.now() + ext;
+    const rand = Math.random().toString(36).substring(2, 8);
+    const name = 'expensa_' + Date.now() + '_' + rand + ext;
     cb(null, name);
   }
 });
@@ -191,8 +192,25 @@ function mapVecino(r) {
  * SESSION
  * =================================================================== */
 
+let sessionStore = null;
+try {
+  const { pool } = require('./db-pg');
+  if (pool) {
+    const pgSession = require('connect-pg-simple')(session);
+    sessionStore = new pgSession({
+      pool,
+      tableName: 'sesiones_panel',
+      createTableIfMissing: true,
+      pruneSessionInterval: 60 * 15, // Cada 15 minutos limpia expiradas
+    });
+  }
+} catch (errStore) {
+  console.warn('⚠️ No se pudo inicializar store de sesiones en PostgreSQL, usando MemoryStore fallback:', errStore.message);
+}
+
 router.use(
   session({
+    store: sessionStore || undefined,
     name: 'marcos.sid',
     secret: SESSION_SECRET,
     resave: false,
@@ -577,6 +595,10 @@ function mapExpensa(r) {
     nombre: pick(r, ['nombre', 'archivo']),
     url: pick(r, ['url', 'link']),
     estado: pick(r, ['estado'], 'publicada'),
+    departamento: pick(r, ['departamento', 'depto', 'unidad']) || '',
+    monto: pick(r, ['monto', 'total']) || '',
+    vencimiento: pick(r, ['vencimiento', 'fecha_vencimiento', 'vto']) || '',
+    monto_origen: pick(r, ['monto_origen', 'origen_monto']) || '',
   };
 }
 
@@ -1014,8 +1036,37 @@ function requireAuth(req, res, next) {
     return claveDeEdifica(req, res, next);
   }
   if (req.session && req.session.authed) return next();
-  if (req.headers.accept && req.headers.accept.includes('application/json')) {
-    return res.status(401).json({ error: 'No autenticado' });
+
+  // > [!CAUTION]
+  // > **Una ruta de API NUNCA se redirige al login.**
+  //
+  // A `/api/...` la llama siempre el JavaScript de la página, jamás el navegador navegando. Un
+  // `res.redirect` le devuelve los 34 bytes de HTML del "Found. Redirecting to /admin/login", y
+  // el `await r.json()` del otro lado revienta con:
+  //
+  //     JSON.parse: unexpected character at line 1 column 1 of the JSON data
+  //
+  // Eso no dice nada de lo que pasó --que la sesión venció-- y manda a buscar el problema al
+  // código que se acaba de escribir. Paso de verdad al publicar una tanda de expensas: el
+  // registro de nginx mostraba `302 34` y el diagnostico costo media hora de mirar el endpoint,
+  // la base y las columnas, que estaban todos bien.
+  //
+  // El `Accept: application/json` no alcanza como señal: un `fetch` con cuerpo JSON manda
+  // `Accept: * / *` salvo que se lo pida explícitamente, así que la rama del 401 casi nunca
+  // corría. Lo que sí es confiable es la ruta: si empieza con `/api/`, la respuesta se lee con
+  // código, y tiene que ser JSON.
+  //
+  // > Y ojo con la causa de fondo: la sesión vive en memoria, así que **cada `pm2 restart` las
+  // > borra todas**. Con el panel abierto en una pestaña, un despliegue deja al administrador
+  // > con una sesión que el servidor ya no conoce. Por eso el mensaje dice qué hacer.
+  const esLlamadaDeCodigo = req.path.startsWith('/api/') ||
+    (req.headers.accept && req.headers.accept.includes('application/json'));
+
+  if (esLlamadaDeCodigo) {
+    return res.status(401).json({
+      error: 'Se venció la sesión del panel. Volvé a entrar y probá de nuevo.',
+      sesion_vencida: true,
+    });
   }
   return res.redirect('/admin/login');
 }
@@ -1043,11 +1094,52 @@ function esDueno(req) {
 // Edificios visibles para la vista actual. null = todos (dueño).
 function edificiosPermitidos(req) {
   if (esDueno(req)) return null;
-  if (enPreview(req)) return req.session.previewEdificios || [];
+  if (enPreview(req)) {
+    const propios = req.session.previewEdificios || [];
+    const activo = req.session.previewEdificioActivo;
+    if (activo && propios.some(p => normEdificio(p) === normEdificio(activo))) return [activo];
+    return propios;
+  }
   const propios = req.session.edificios || [];
   const activo = req.session.edificioActivo;
   if (activo && propios.some(p => normEdificio(p) === normEdificio(activo))) return [activo];
   return propios;
+}
+
+// A QUÉ EDIFICIO SE ESCRIBE CUANDO EL CLIENTE PUBLICA ALGO
+//
+// > [!CAUTION]
+// > **Con varios edificios y ninguno elegido en el selector, `permitidos[0]` es una moneda al
+// > aire.** No es "el edificio del cliente": es el primero de la lista, que sale del orden en que
+// > quedaron cargados.
+//
+// Daniel lo encontró subiendo expensas con el selector en **"Todos los edificios"** (tenía 3).
+// Las cuatro liquidaciones se archivaron bajo San Patricio 159 --el primero de la lista-- y en la
+// pantalla no aparecían, porque el listado sí filtra por el edificio elegido. Que hayan caído en
+// el edificio correcto fue **casualidad del orden**.
+//
+// Y el costo de la casualidad al revés es alto: una expensa es un documento con el monto que
+// tiene que pagar una persona. Archivada en el consorcio equivocado, **la ven los vecinos de otro
+// edificio**, con nombre de unidad y todo.
+//
+// `edificiosPermitidos` ya devuelve un solo edificio cuando hay uno elegido en el selector, así
+// que "uno solo" es la única situación donde no hay nada que adivinar. Es el mismo criterio que el
+// resto del proyecto: con dos o más candidatos **se pregunta**, no se elige. Preguntar molesta una
+// vez; elegir mal lo descubre un vecino.
+function edificioParaEscribir(req) {
+  const permitidos = edificiosPermitidos(req) || [];
+  if (permitidos.length === 1) return { edificio: permitidos[0], motivo: '' };
+  if (!permitidos.length) {
+    return {
+      edificio: '',
+      motivo: 'Tu cuenta todavía no tiene ningún edificio asignado. Pedile a la Administración que te asigne uno.',
+    };
+  }
+  return {
+    edificio: '',
+    motivo: 'Elegí primero a qué edificio corresponde, en el selector de arriba. Con varios edificios ' +
+            'no puedo saber cuál es, y si me equivoco lo termina viendo el vecino de otro consorcio.',
+  };
 }
 
 // Todos los edificios de la cuenta (sin estrechar por edificioActivo).
@@ -2789,7 +2881,381 @@ html.dark-theme, body.dark-theme {
   color: #082F49 !important;
 }
 
+/* 11. Componentes de Expensas y Subida en Tanda (Luz y Modo Oscuro) */
+.exp-tanda-card {
+  background: #FAFCFF;
+  border: 1.5px solid #C9D5E8;
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+.dark-theme .exp-tanda-card,
+.dark-theme #exp-tanda-card {
+  background: #111C38 !important;
+  border-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
 
+.dark-theme #exp-file-wrap {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+}
+.dark-theme #exp-file-nombre {
+  color: #FFFFFF !important;
+}
+.dark-theme #exp-file-sub[style*="color:#1E5FB4"],
+.dark-theme #exp-file-sub[style*="color: #1E5FB4"] {
+  color: #38BDF8 !important;
+}
+.dark-theme #exp-file-sub[style*="color:#1B7A43"],
+.dark-theme #exp-file-sub[style*="color: #1B7A43"] {
+  color: #4ADE80 !important;
+}
+.dark-theme #exp-file-sub[style*="color:#DC2626"],
+.dark-theme #exp-file-sub[style*="color: #DC2626"] {
+  color: #F87171 !important;
+}
+
+.exp-tanda-titulo {
+  font-size: 15.5px;
+  font-weight: 800;
+  color: #16233B;
+}
+.dark-theme .exp-tanda-titulo {
+  color: #FFFFFF !important;
+}
+
+.exp-tanda-btn-cancelar {
+  border: none;
+  background: transparent;
+  color: #64748B;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all .15s;
+}
+.dark-theme .exp-tanda-btn-cancelar {
+  background: transparent !important;
+  color: #94A3B8 !important;
+}
+.dark-theme .exp-tanda-btn-cancelar:hover {
+  background: #1E293B !important;
+  color: #F1F5F9 !important;
+}
+
+/* Banners de estado de tanda */
+.exp-banner-analizando {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: 10px;
+  color: #1E40AF;
+}
+.dark-theme .exp-banner-analizando {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #93C5FD !important;
+}
+
+.exp-banner-advertencia {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: #92400E;
+  line-height: 1.4;
+}
+.dark-theme .exp-banner-advertencia {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FDE68A !important;
+}
+
+.exp-banner-error {
+  padding: 12px;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 10px;
+  color: #991B1B;
+}
+.dark-theme .exp-banner-error {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+
+/* Píldoras de resumen de tanda */
+.exp-pills-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.exp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 12.5px;
+}
+.exp-pill-total {
+  background: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  color: #334155;
+}
+.dark-theme .exp-pill-total {
+  background: #1E293B !important;
+  border-color: #334155 !important;
+  color: #F1F5F9 !important;
+}
+.exp-pill-ok {
+  background: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  color: #065F46;
+}
+.dark-theme .exp-pill-ok {
+  background: #062C19 !important;
+  border-color: #059669 !important;
+  color: #4ADE80 !important;
+}
+.exp-pill-general {
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1E40AF;
+}
+.dark-theme .exp-pill-general {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #60A5FA !important;
+}
+.exp-pill-sinvecino {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+}
+.dark-theme .exp-pill-sinvecino {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FCD34D !important;
+}
+.exp-pill-repetida {
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #991B1B;
+}
+.dark-theme .exp-pill-repetida {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+
+/* Tabla de revisión de tanda */
+.exp-tanda-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+  background: #FFFFFF;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #E2E8F0;
+}
+.dark-theme .exp-tanda-tabla {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+}
+.exp-tanda-tabla thead tr {
+  background: #F8FAFC;
+  border-bottom: 1px solid #E2E8F0;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #64748B;
+  letter-spacing: 0.5px;
+}
+.dark-theme .exp-tanda-tabla thead tr {
+  background: #0E1626 !important;
+  border-bottom-color: #2A3A5E !important;
+  color: #94A3B8 !important;
+}
+.exp-tanda-tabla tbody tr {
+  border-bottom: 1px solid #EDF2F7;
+}
+.dark-theme .exp-tanda-tabla tbody tr {
+  border-bottom-color: #2A3A5E !important;
+}
+.dark-theme .exp-tanda-tabla tbody tr:hover {
+  background: #1C2B4E !important;
+}
+
+/* Semáforos / Badges en la tabla */
+.exp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.exp-badge-ok {
+  background: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  color: #065F46;
+}
+.dark-theme .exp-badge-ok {
+  background: #062C19 !important;
+  border-color: #059669 !important;
+  color: #4ADE80 !important;
+}
+.exp-badge-general {
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1E40AF;
+}
+.dark-theme .exp-badge-general {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #60A5FA !important;
+}
+.exp-badge-sinvecino {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+}
+.dark-theme .exp-badge-sinvecino {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FCD34D !important;
+}
+.exp-badge-repetida {
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #991B1B;
+}
+.dark-theme .exp-badge-repetida {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+.exp-badge-listo {
+  background: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  color: #64748B;
+}
+.dark-theme .exp-badge-listo {
+  background: #1E293B !important;
+  border-color: #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+/* Columna de archivo */
+.exp-archivo-nombre {
+  font-weight: 600;
+  color: #1E293B;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dark-theme .exp-archivo-nombre {
+  color: #FFFFFF !important;
+}
+.exp-archivo-link {
+  font-size: 11px;
+  color: #1E5FB4;
+  text-decoration: none;
+}
+.dark-theme .exp-archivo-link {
+  color: #38BDF8 !important;
+}
+.exp-archivo-link:hover {
+  text-decoration: underline;
+}
+
+/* Botón descartar fila */
+.exp-btn-quitar {
+  border: 1px solid #FECDD3;
+  background: #FFF1F2;
+  color: #E11D48;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-weight: 700;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+}
+.exp-btn-quitar:hover {
+  background: #FFE4E6;
+  border-color: #FDA4AF;
+}
+.dark-theme .exp-btn-quitar {
+  background: #450A0A !important;
+  border-color: #991B1B !important;
+  color: #FCA5A5 !important;
+}
+.dark-theme .exp-btn-quitar:hover {
+  background: #7F1D1D !important;
+  color: #FFFFFF !important;
+}
+
+/* Botón cancelar tanda en acciones */
+.exp-btn-accion-cancelar {
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid #DCE4F0;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #64748B;
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.dark-theme .exp-btn-accion-cancelar {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #CBD5E1 !important;
+}
+
+/* Estado dinámico OCR en modo individual */
+.dark-theme #exp-ocr-status[style*="background:#ECFDF5"],
+.dark-theme #exp-ocr-status[style*="background: #ECFDF5"] {
+  background: #062C19 !important;
+  border-color: #059669 !important;
+  color: #4ADE80 !important;
+}
+.dark-theme #exp-ocr-status[style*="background:#FFFBEB"],
+.dark-theme #exp-ocr-status[style*="background: #FFFBEB"] {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FDE68A !important;
+}
+.dark-theme #exp-ocr-status[style*="background:#FEF2F2"],
+.dark-theme #exp-ocr-status[style*="background: #FEF2F2"] {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+.dark-theme #exp-ocr-status[style*="background:#EFF6FF"],
+.dark-theme #exp-ocr-status[style*="background: #EFF6FF"] {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #93C5FD !important;
+}
 `;
 
 /* ===================================================================
@@ -7798,6 +8264,13 @@ function toggleWspNotif(chk){
 
 // --- expensas (cliente) ---
 var _expFormato='pdf';
+var _expMontoOrigen='';
+var _expMontoEditado=false;
+
+function escExp(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function elegirFormatoExp(btn,f){
   _expFormato=f;
   document.querySelectorAll('[data-exp-btn]').forEach(function(b){
@@ -7815,16 +8288,420 @@ function pickExpFile(){
   var i=document.getElementById('exp-file-input');
   if(i)i.click();
 }
-function expFileElegido(inp){
-  var n=inp.files&&inp.files[0]?inp.files[0].name:'';
+
+// --- expensas en tanda (lote múltiple) ---
+var _expTandaDatos = null;
+var _expTandaConocidas = true;
+
+function expFilesElegidos(inp) {
+  var files = inp.files;
+  if (!files || !files.length) return;
+  if (files.length === 1) {
+    var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'block';
+    var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'none';
+    _expTandaDatos = null;
+    expFileElegido(inp);
+    return;
+  }
+  activarModoTanda(files);
+}
+
+async function activarModoTanda(files) {
+  var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'none';
+  var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'block';
+  var t = document.getElementById('exp-file-nombre'); if (t) t.textContent = files.length + ' archivos seleccionados para tanda';
+  var s = document.getElementById('exp-file-sub'); if (s) { s.textContent = 'Analizando lote con Marcos...'; s.style.color = '#1E5FB4'; }
+  var st = document.getElementById('exp-tanda-status');
+  var tw = document.getElementById('exp-tanda-tabla-wrap');
+  var ac = document.getElementById('exp-tanda-acciones');
+  if (tw) tw.innerHTML = '';
+  if (ac) ac.style.display = 'none';
+
+  if (st) {
+    st.innerHTML = '<div class="exp-banner-analizando">' +
+      '<span style="font-size:22px;animation:spin 1s linear infinite">⏳</span>' +
+      '<div><div style="font-weight:700">Analizando tanda de ' + files.length + ' liquidaciones con Marcos IA...</div>' +
+      '<div style="font-size:12px;opacity:0.85">Extrayendo unidades, períodos, montos y vencimientos de cada archivo.</div></div>' +
+      '</div>';
+  }
+
+  var fd = new FormData();
+  for (var i = 0; i < files.length; i++) {
+    fd.append('archivos', files[i]);
+  }
+
+  try {
+    var r = await fetch('/admin/api/expensa-tanda-analizar', { method: 'POST', body: fd });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al analizar la tanda');
+    _expTandaDatos = j.filas || [];
+    _expTandaConocidas = j.conocidasVerificadas !== false;
+    renderTablaTanda(j.resumen, _expTandaDatos, _expTandaConocidas);
+  } catch (err) {
+    if (st) {
+      st.innerHTML = '<div class="exp-banner-error">' +
+        '<strong>Error al analizar la tanda:</strong> ' + escExp(err.message) +
+        '<div style="margin-top:6px;font-size:12px">Podés cancelar e intentar nuevamente con menos archivos o verificar el formato.</div>' +
+        '</div>';
+    }
+    if (s) { s.textContent = 'Ocurrió un error al analizar'; s.style.color = '#DC2626'; }
+  }
+}
+
+function calcularResumenTanda(filas) {
+  var ok = 0, general = 0, sin_vecino = 0, repetida = 0;
+  for (var i = 0; i < (filas || []).length; i++) {
+    var e = filas[i].estado;
+    if (e === 'ok') ok++;
+    else if (e === 'general') general++;
+    else if (e === 'sin_vecino') sin_vecino++;
+    else if (e === 'repetida') repetida++;
+  }
+  return {
+    total: (filas || []).length,
+    ok: ok,
+    general: general,
+    sin_vecino: sin_vecino,
+    repetida: repetida,
+    hayQueMirar: (sin_vecino + repetida) > 0
+  };
+}
+
+function renderTablaTanda(resumen, filas, conocidasVerificadas) {
+  var st = document.getElementById('exp-tanda-status');
+  var tw = document.getElementById('exp-tanda-tabla-wrap');
+  var ac = document.getElementById('exp-tanda-acciones');
+  var s = document.getElementById('exp-file-sub');
+
+  if (!filas || !filas.length) {
+    if (st) st.innerHTML = '<div style="padding:12px;color:#64748B">No quedan archivos en la tanda.</div>';
+    if (tw) tw.innerHTML = '';
+    if (ac) ac.style.display = 'none';
+    if (s) { s.textContent = 'Tanda vacía'; s.style.color = '#8595AD'; }
+    return;
+  }
+
+  if (s) { s.textContent = 'Revisá la tabla y confirmá la publicación abajo'; s.style.color = '#1B7A43'; }
+
+  var res = resumen || calcularResumenTanda(filas);
+
+  var htmlStatus = '';
+  if (conocidasVerificadas === false) {
+    htmlStatus += '<div class="exp-banner-advertencia">' +
+      '⚠️ <strong>No se pudo verificar la base de vecinos:</strong> Se muestran los archivos analizados. Podés corroborar las unidades a mano antes de publicar.' +
+      '</div>';
+  }
+
+  htmlStatus += '<div class="exp-pills-bar">' +
+    '<span class="exp-pill exp-pill-total">' + res.total + ' archivos</span>' +
+    '<span class="exp-pill exp-pill-ok">🟢 ' + res.ok + ' coinciden con vecinos</span>' +
+    (res.general > 0 ? '<span class="exp-pill exp-pill-general">🔵 ' + res.general + ' liquidación general</span>' : '') +
+    (res.sin_vecino > 0 ? '<span class="exp-pill exp-pill-sinvecino">🟡 ' + res.sin_vecino + ' sin vecino aún</span>' : '') +
+    (res.repetida > 0 ? '<span class="exp-pill exp-pill-repetida">🔴 ' + res.repetida + ' repetidas</span>' : '') +
+    '</div>';
+
+  if (res.repetida > 0) {
+    htmlStatus += '<div class="exp-banner-error" style="margin-bottom:12px;font-size:12px;line-height:1.4">' +
+      '⚠️ <strong>Unidades repetidas:</strong> Hay unidades duplicadas en la tanda. Si es el mismo archivo seleccionado dos veces, descartalo con el botón ✕ de la fila para no duplicar liquidaciones al vecino.' +
+      '</div>';
+  } else if (res.sin_vecino > 0) {
+    htmlStatus += '<div class="exp-banner-advertencia" style="margin-bottom:12px;font-size:12px;line-height:1.4">' +
+      'ℹ️ <strong>Unidades sin vecino registrado:</strong> Se publican normalmente y quedarán disponibles para cuando la persona se sume al portal o a Marcos. Si alguna unidad tiene un error tipográfico, podés corregirla en su casilla.' +
+      '</div>';
+  }
+
+  if (st) st.innerHTML = htmlStatus;
+
+  var htmlT = '<table class="exp-tanda-tabla">' +
+    '<thead><tr>' +
+    '<th style="padding:10px 12px">Estado</th>' +
+    '<th style="padding:10px 12px">Archivo</th>' +
+    '<th style="padding:10px 12px">Unidad / Depto</th>' +
+    '<th style="padding:10px 12px">Período</th>' +
+    '<th style="padding:10px 12px">Total ($)</th>' +
+    '<th style="padding:10px 12px">Vencimiento</th>' +
+    '<th style="padding:10px 12px;text-align:center">Quitar</th>' +
+    '</tr></thead><tbody>';
+
+  for (var i = 0; i < filas.length; i++) {
+    var f = filas[i];
+    var badge = '';
+    if (f.estado === 'ok') {
+      badge = '<span class="exp-badge exp-badge-ok" title="' + escExp(f.mensaje) + '">🟢 Coincide</span>';
+    } else if (f.estado === 'general') {
+      badge = '<span class="exp-badge exp-badge-general" title="' + escExp(f.mensaje) + '">🔵 General</span>';
+    } else if (f.estado === 'sin_vecino') {
+      badge = '<span class="exp-badge exp-badge-sinvecino" title="' + escExp(f.mensaje) + '">🟡 Sin vecino</span>';
+    } else if (f.estado === 'repetida') {
+      badge = '<span class="exp-badge exp-badge-repetida" title="' + escExp(f.mensaje) + '">🔴 Repetida</span>';
+    } else {
+      badge = '<span class="exp-badge exp-badge-listo">⚪ Listo</span>';
+    }
+
+    var montoStr = (f.monto !== null && f.monto !== undefined) ? String(f.monto) : '';
+
+    htmlT += '<tr>' +
+      '<td style="padding:8px 12px;white-space:nowrap">' + badge + '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<div class="exp-archivo-nombre" title="' + escExp(f.archivo) + '">' + escExp(f.archivo) + '</div>' +
+        (f.url ? '<a href="' + escExp(f.url) + '" target="_blank" class="exp-archivo-link">Ver archivo ↗</a>' : '') +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(f.unidad || '') + '" placeholder="General" style="height:32px;font-size:12.5px;font-weight:700;width:90px;padding:4px 8px" oninput="tandaModificarUnidad(' + i + ',this.value)" onblur="tandaRevalidarFila(' + i + ')">' +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(f.periodo || '') + '" placeholder="Período" style="height:32px;font-size:12.5px;width:120px;padding:4px 8px" oninput="tandaModificarPeriodo(' + i + ',this.value)">' +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(montoStr) + '" placeholder="0.00" style="height:32px;font-size:12.5px;width:100px;padding:4px 8px" oninput="tandaModificarMonto(' + i + ',this.value)">' +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(f.vencimiento || '') + '" placeholder="DD/MM/AAAA" style="height:32px;font-size:12.5px;width:105px;padding:4px 8px" oninput="tandaModificarVencimiento(' + i + ',this.value)">' +
+      '</td>' +
+      '<td style="padding:8px 12px;text-align:center">' +
+        '<button type="button" onclick="quitarFilaTanda(' + i + ')" title="Descartar este archivo" class="exp-btn-quitar">✕</button>' +
+      '</td>' +
+      '</tr>';
+  }
+
+  htmlT += '</tbody></table>';
+
+  if (tw) tw.innerHTML = htmlT;
+  if (ac) {
+    ac.style.display = 'flex';
+    var btnPub = document.getElementById('btn-publicar-tanda');
+    if (btnPub) btnPub.textContent = '🚀 Confirmar y Publicar Tanda (' + filas.length + ' expensas)';
+  }
+}
+
+function tandaModificar(idx, campo, valor) {
+  if (!_expTandaDatos || !_expTandaDatos[idx]) return;
+  _expTandaDatos[idx][campo] = valor;
+  if (campo === 'monto') {
+    _expTandaDatos[idx].monto_origen = String(valor || '').trim() ? 'manual' : '';
+  }
+}
+
+function tandaModificarUnidad(idx, valor) {
+  tandaModificar(idx, 'unidad', valor);
+}
+
+function tandaModificarPeriodo(idx, valor) {
+  tandaModificar(idx, 'periodo', valor);
+}
+
+function tandaModificarMonto(idx, valor) {
+  tandaModificar(idx, 'monto', valor);
+}
+
+function tandaModificarVencimiento(idx, valor) {
+  tandaModificar(idx, 'vencimiento', valor);
+}
+
+function tandaRevalidarFila(idx) {
+  if (!_expTandaDatos || !_expTandaDatos[idx]) return;
+  var u = String(_expTandaDatos[idx].unidad || '').trim();
+  if (!u) {
+    _expTandaDatos[idx].estado = 'general';
+    _expTandaDatos[idx].mensaje = 'Liquidación general del edificio: la van a ver todos los vecinos.';
+  } else {
+    var normU = u.toLowerCase().replace(/[^a-z0-9]/g, '');
+    var esRep = false;
+    for (var i = 0; i < _expTandaDatos.length; i++) {
+      if (i === idx) continue;
+      var otherU = String(_expTandaDatos[i].unidad || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (otherU && otherU === normU) {
+        esRep = true;
+        break;
+      }
+    }
+    if (esRep) {
+      _expTandaDatos[idx].estado = 'repetida';
+      _expTandaDatos[idx].mensaje = 'Ya hay otro archivo para la unidad ' + u + ' en esta tanda.';
+    } else {
+      if (_expTandaDatos[idx].unidadDelVecino && _expTandaDatos[idx].unidadDelVecino.toLowerCase().replace(/[^a-z0-9]/g, '') === normU) {
+        _expTandaDatos[idx].estado = 'ok';
+        _expTandaDatos[idx].mensaje = 'Coincide con la unidad ' + _expTandaDatos[idx].unidadDelVecino + '.';
+      } else {
+        _expTandaDatos[idx].estado = 'sin_vecino';
+        _expTandaDatos[idx].mensaje = 'Unidad ' + u + ': no tiene vecino registrado aún.';
+      }
+    }
+  }
+  renderTablaTanda(null, _expTandaDatos, _expTandaConocidas);
+}
+
+function quitarFilaTanda(idx) {
+  if (!_expTandaDatos || !_expTandaDatos[idx]) return;
+  _expTandaDatos.splice(idx, 1);
+  renderTablaTanda(null, _expTandaDatos, _expTandaConocidas);
+}
+
+async function cancelarTanda() {
+  var archivos = (_expTandaDatos || []).map(function(f) { return f.tempName; }).filter(Boolean);
+  if (archivos.length) {
+    try {
+      await fetch('/admin/api/expensa-tanda-cancelar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archivos: archivos })
+      });
+    } catch (_) {}
+  }
+  _expTandaDatos = null;
+  var inp = document.getElementById('exp-file-input'); if (inp) inp.value = '';
+  var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'block';
+  var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'none';
+  var t = document.getElementById('exp-file-nombre'); if (t) t.textContent = 'Elegí uno o varios archivos';
+  var s = document.getElementById('exp-file-sub'); if (s) { s.textContent = 'Tocá para seleccionar 1 archivo o un lote completo (hasta 60) de expensas'; s.style.color = '#8595AD'; }
+}
+
+async function publicarTanda(btn) {
+  if (!_expTandaDatos || !_expTandaDatos.length) {
+    toast('No hay expensas para publicar en la tanda', 'err');
+    return;
+  }
+  var rep = _expTandaDatos.filter(function(f) { return f.estado === 'repetida'; });
+  if (rep.length > 0) {
+    if (!confirm('Hay ' + rep.length + ' archivo(s) con unidad repetida. Si continuás, el vecino verá varias liquidaciones para el mismo período. ¿Deseás publicar la tanda igual?')) {
+      return;
+    }
+  }
+
+  btn.disabled = true;
+  var oldText = btn.textContent;
+  btn.textContent = 'Publicando tanda...';
+
+  var mes = (document.getElementById('exp-mes') || {}).value || '';
+  var anio = (document.getElementById('exp-anio') || {}).value || '';
+
+  try {
+    var r = await fetch('/admin/api/expensa-tanda-publicar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mes: mes.trim(),
+        anio: anio.trim(),
+        formato: _expFormato,
+        filas: _expTandaDatos
+      })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al publicar la tanda');
+    var n = (typeof j.guardadas === 'number') ? j.guardadas : _expTandaDatos.length;
+    if (n === 0) throw new Error('No se guardó ninguna expensa. Revisá el log del servidor.');
+    toast('Tanda de ' + n + ' expensas publicada con éxito', 'ok');
+    _expTandaDatos = null;
+    setTimeout(function() { location.reload(); }, 1000);
+  } catch (err) {
+    toast('Error: ' + err.message, 'err');
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+}
+
+async function expFileElegido(inp){
+  var file=inp.files&&inp.files[0]?inp.files[0]:null;
+  var n=file?file.name:'';
   var t=document.getElementById('exp-file-nombre');
   var s=document.getElementById('exp-file-sub');
+  var statusBox=document.getElementById('exp-ocr-status');
+  if(!file)return;
+  var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'block';
+  var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'none';
+  _expTandaDatos = null;
   if(t&&n){t.textContent=n;t.style.color='#16233B';}
-  if(s&&n){s.textContent='Archivo listo · tocá Publicar';s.style.color='#1B7A43';}
+  if(s&&n){s.textContent='Leyendo total y unidad con Marcos...';s.style.color='#1E5FB4';}
+  if(statusBox){
+    statusBox.style.display='block';
+    statusBox.style.background='#EFF6FF';
+    statusBox.style.border='1px solid #BFDBFE';
+    statusBox.style.borderRadius='8px';
+    statusBox.style.padding='10px 12px';
+    statusBox.style.color='#1E40AF';
+    statusBox.innerHTML='<span style="display:inline-block;animation:spin 1s linear infinite">⏳</span> <strong>Leyendo documento...</strong> Marcos está extrayendo el total, la unidad y el período.';
+  }
+  try{
+    var fd=new FormData();
+    fd.append('archivo',file);
+    var deptoAct=(document.getElementById('exp-depto')||{}).value||'';
+    if(deptoAct.trim())fd.append('departamento',deptoAct.trim());
+    var r=await fetch('/admin/api/expensa-analizar',{method:'POST',body:fd});
+    var j=await r.json();
+    if(j.ok&&j.lectura){
+      var lec=j.lectura;
+      var inpDepto=document.getElementById('exp-depto');
+      if(inpDepto&&!inpDepto.value.trim()&&lec.unidad){
+        inpDepto.value=lec.unidad;
+      }
+      if(lec.periodo){
+        var partes=lec.periodo.split(' ');
+        if(partes.length>=2){
+          var inpMes=document.getElementById('exp-mes');
+          var inpAnio=document.getElementById('exp-anio');
+          if(inpMes&&partes[0])inpMes.value=partes[0].toLowerCase();
+          if(inpAnio&&partes[1])inpAnio.value=partes[1];
+        }
+      }
+      var inpVto=document.getElementById('exp-vencimiento');
+      if(inpVto&&!inpVto.value.trim()&&lec.vencimiento){
+        inpVto.value=lec.vencimiento;
+      }
+      var inpMonto=document.getElementById('exp-monto');
+      if(inpMonto&&!_expMontoEditado){
+        if(lec.mostrar_monto&&lec.monto!==null&&lec.monto!==undefined){
+          inpMonto.value=lec.monto;
+          _expMontoOrigen='ocr';
+        }else{
+          inpMonto.value='';
+          _expMontoOrigen='';
+        }
+      }
+      if(statusBox){
+        if(lec.choca_la_unidad){
+          statusBox.style.background='#FEF2F2';
+          statusBox.style.border='1px solid #FECACA';
+          statusBox.style.color='#991B1B';
+          statusBox.innerHTML='⚠️ <strong>Atención con la unidad:</strong> El documento indica unidad <strong>'+escExp(lec.unidad)+'</strong> pero se cargó como <strong>'+escExp(deptoAct)+'</strong>. Revisá si es el archivo correcto antes de publicar.';
+        }else if(lec.mostrar_monto&&lec.monto!==null){
+          statusBox.style.background='#ECFDF5';
+          statusBox.style.border='1px solid #A7F3D0';
+          statusBox.style.color='#065F46';
+          var montoFmt=Number(lec.monto).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+          statusBox.innerHTML='✓ <strong>Total detectado por OCR:</strong> $ '+montoFmt+' '+(lec.unidad?'(Unidad '+escExp(lec.unidad)+')':'(Liquidación general)')+'. Podés confirmarlo o editarlo arriba antes de publicar.';
+        }else{
+          statusBox.style.background='#FFFBEB';
+          statusBox.style.border='1px solid #FDE68A';
+          statusBox.style.color='#92400E';
+          statusBox.innerHTML='ℹ️ <strong>Total no concluyente:</strong> '+escExp(lec.motivo||'No se pudo determinar el total exacto')+'. Marcos compartirá el documento completo con el vecino. Podés tipear el monto a mano o dejarlo vacío.';
+        }
+      }
+      if(s&&n){s.textContent='Documento analizado · Revisá los datos y tocá Publicar';s.style.color='#1B7A43';}
+    }else{
+      if(statusBox){
+        statusBox.style.background='#F8FAFC';
+        statusBox.style.border='1px solid #E2E8F0';
+        statusBox.style.color='#64748B';
+        statusBox.innerHTML='ℹ️ '+(escExp((j&&j.motivo)||'No se extrajo monto automáticamente'))+'. Podés tipear el total a mano o publicar el archivo tal cual.';
+      }
+      if(s&&n){s.textContent='Archivo listo · tocá Publicar';s.style.color='#1B7A43';}
+    }
+  }catch(errAnalisis){
+    if(statusBox){statusBox.style.display='none';}
+    if(s&&n){s.textContent='Archivo listo · tocá Publicar';s.style.color='#1B7A43';}
+  }
+}
+function expMontoCambiado(){
+  _expMontoEditado=true;
+  var val=(document.getElementById('exp-monto')||{}).value||'';
+  _expMontoOrigen=val.trim()?'manual':'';
 }
 async function publicarExpensa(btn){
   var mes=(document.getElementById('exp-mes')||{}).value||'';
   var anio=(document.getElementById('exp-anio')||{}).value||'';
+  var depto=(document.getElementById('exp-depto')||{}).value||'';
+  var monto=(document.getElementById('exp-monto')||{}).value||'';
+  var vencimiento=(document.getElementById('exp-vencimiento')||{}).value||'';
   var url=(document.getElementById('exp-url')||{}).value||'';
   var fileInp=document.getElementById('exp-file-input');
   var file=fileInp&&fileInp.files&&fileInp.files[0]?fileInp.files[0]:null;
@@ -7836,6 +8713,10 @@ async function publicarExpensa(btn){
     var formData=new FormData();
     formData.append('mes',mes.trim());
     formData.append('anio',anio.trim());
+    formData.append('departamento',depto.trim());
+    formData.append('monto',monto.trim());
+    formData.append('vencimiento',vencimiento.trim());
+    formData.append('monto_origen',_expMontoOrigen||(monto.trim()?'manual':''));
     formData.append('formato',_expFormato);
     if(_expFormato==='link'){
       formData.append('url',url.trim());
@@ -7852,7 +8733,9 @@ async function publicarExpensa(btn){
   finally{btn.disabled=false;btn.textContent=old;}
 }
 function copiarExpensa(texto){
-  navigator.clipboard.writeText(texto).then(function(){toast('Enlace copiado','ok');},function(){toast('No se pudo copiar','err');});
+  var u=texto;
+  if(u&&typeof u==='string'&&u.charAt(0)==='/'){u=window.location.origin+u;}
+  navigator.clipboard.writeText(u).then(function(){toast('Enlace copiado al portapapeles','ok');},function(){toast('No se pudo copiar','err');});
 }
 async function quitarExpensa(btn,row){
   btn.disabled=true;
@@ -8856,6 +9739,8 @@ function shell(req, d, activeKey, contenido) {
 
   // --- datos del selector de edificio ---
   let selectorHtml = '';
+  const volverUrl = req.originalUrl && req.originalUrl.startsWith('/admin') ? req.originalUrl : ('/admin/' + activeKey);
+  const hrefBaseFiltro = `/admin/set-filtro?volver=${encodeURIComponent(volverUrl)}`;
   if (dueno) {
     const filtro = req.session.filtroEdificioDueno || '';
     const label = filtro || 'Todos los edificios';
@@ -8870,10 +9755,11 @@ function shell(req, d, activeKey, contenido) {
         val: e.nombre, activo: filtro === e.nombre,
       })),
     ];
-    selectorHtml = selectorEdificioHtml(label, sub, 'Filtrar por edificio', filas, '/admin/set-filtro');
+    selectorHtml = selectorEdificioHtml(label, sub, 'Filtrar por edificio', filas, hrefBaseFiltro);
   } else {
     const cur = d.curBuilding;
-    const todos = !req.session.edificioActivo;
+    const activoActual = preview ? req.session.previewEdificioActivo : req.session.edificioActivo;
+    const todos = !activoActual;
     const label = todos ? 'Todos los edificios' : (cur ? cur.nombre : 'Sin edificio');
     const sub = todos ? `${d.propios.length} edificios` : (cur ? (cur.zona || cur.direccion || '') : '');
     const filas = [
@@ -8886,7 +9772,7 @@ function shell(req, d, activeKey, contenido) {
       })),
     ];
     selectorHtml = d.propios.length > 1
-      ? selectorEdificioHtml(label, sub, 'Tus edificios', filas, '/admin/set-filtro')
+      ? selectorEdificioHtml(label, sub, 'Tus edificios', filas, hrefBaseFiltro)
       : `<div style="display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border:1px solid #E1E7F1;border-radius:11px;background:#F7F9FC">
           <span style="font-size:15px">🏢</span>
           <span style="text-align:left;line-height:1.15">
@@ -9541,11 +10427,13 @@ router.get('/set-filtro', (req, res) => {
   } else if (enPreview(req)) {
     // en preview el selector cambia el edificio activo del preview
     const propios = req.session.previewEdificios || [];
-    req.session.previewEdificioActivo = propios.includes(edificio) ? edificio : undefined;
+    const match = propios.find((p) => normEdificio(p) === normEdificio(edificio));
+    req.session.previewEdificioActivo = edificio ? match : undefined;
   } else {
     const propios = req.session.edificios || [];
-    if (!edificio || propios.includes(edificio)) {
-      req.session.edificioActivo = edificio || undefined;
+    const match = propios.find((p) => normEdificio(p) === normEdificio(edificio));
+    if (!edificio || match) {
+      req.session.edificioActivo = edificio ? (match || edificio) : undefined;
     }
   }
   const volver = req.query.volver && String(req.query.volver).startsWith('/admin') ? req.query.volver : '/admin';
@@ -12538,10 +13426,72 @@ router.get('/expensas', async (req, res) => {
   if (esDueno(req)) return res.redirect('/admin');
   try {
     const d = await cargarDatos(req);
+    const permitidos = edificiosPermitidos(req) || [];
+    const activo = enPreview(req) ? req.session.previewEdificioActivo : req.session.edificioActivo;
     const cur = d.curBuilding;
+    // Edificio destino para publicaciones: si hay activo se usa ese, sino el primer permitido o cur.nombre
+    const edTarget = activo || (permitidos.length ? permitidos[0] : (cur ? cur.nombre : ''));
+
     const { rows } = await readTab(TAB_EXPENSAS);
-    const expensas = rows.map(mapExpensa)
-      .filter((x) => cur && compararEdificios(x.edificio, cur.nombre) && x.estado !== 'eliminada')
+    const todasLasExpensas = rows.map(mapExpensa).filter((x) => x.estado !== 'eliminada');
+
+    // Si el cliente administra varios edificios y todavía no eligió ninguno (estado "Todos los edificios"),
+    // se le presenta un grid de tarjetas para que elija a qué edificio le va a gestionar o subir expensas.
+    if (!activo && d.propios.length > 1) {
+      const hoy = new Date();
+      const mesActual = hoy.toLocaleString('es-AR', { month: 'long' });
+      const anioActual = hoy.getFullYear();
+      const periodoMesActual = `${mesActual.charAt(0).toUpperCase()}${mesActual.slice(1)} ${anioActual}`;
+
+      const cards = d.propios.map((e) => {
+        const expEdificio = todasLasExpensas.filter((x) => compararEdificios(x.edificio, e.nombre));
+        const expMes = expEdificio.filter((x) => (x.periodo || '').toLowerCase().includes(mesActual.toLowerCase()));
+
+        let statusBadge = '';
+        if (expMes.length > 0) {
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ ${esc(expMes[0].periodo || periodoMesActual)} · ${expMes.length} publicadas</span>`;
+        } else if (expEdificio.length > 0) {
+          const ult = expEdificio[0];
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#FEF3C7;color:#92400E">⏳ ${esc(ult.periodo || '')} · sin publicar este mes</span>`;
+        } else {
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#F1F5F9;color:#64748B">Sin expensas publicadas</span>`;
+        }
+
+        return `
+          <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/expensas')}"
+            style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px;text-decoration:none;transition:transform .15s ease,box-shadow .15s ease" class="hv-card">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">
+              <span style="width:44px;height:44px;border-radius:12px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏢</span>
+              ${statusBadge}
+            </div>
+            <div style="font-size:16.5px;font-weight:800;color:#16233B;letter-spacing:-.01em;margin-bottom:4px">${esc(e.nombre)}</div>
+            <div style="font-size:13px;color:#8595AD;margin-bottom:14px">${esc(e.direccion || e.nombre)}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#1E5FB4">
+              <span>Gestionar expensas</span>
+              <span>→</span>
+            </div>
+          </a>`;
+      }).join('');
+
+      const contenido = `
+        <div style="animation:mFade .3s ease both;max-width:880px">
+          <div style="margin-bottom:24px">
+            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px">Expensas</h1>
+            <p style="color:#64748B;font-size:15px;margin:0">Elegí a qué edificio querés subirle o consultarle las expensas.</p>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-bottom:26px">
+            ${cards}
+          </div>
+        </div>`;
+
+      return res.send(shell(req, d, 'expensas', contenido));
+    }
+
+    const expensas = todasLasExpensas
+      .filter((x) => {
+        if (activo) return compararEdificios(x.edificio, activo);
+        return permitidos.some((p) => compararEdificios(x.edificio, p));
+      })
       .sort((a, b) => b._row - a._row);
 
     const tipoExp = (f) => (f === 'link'
@@ -12554,34 +13504,76 @@ router.get('/expensas', async (req, res) => {
       <div style="display:flex;flex-direction:column;gap:12px">
         ${expensas.map((x) => {
           const t = tipoExp(x.formato);
-          const copiable = x.url || x.nombre;
+          const esLink = x.formato === 'link' || /^https?:\/\//i.test(x.url || '');
+          const archivoNombre = path.basename(x.url || x.nombre || '');
+          const verUrl = esLink ? x.url : (archivoNombre ? `/admin/api/expensa-archivo/${encodeURIComponent(archivoNombre)}` : (x.url || ''));
+          const copiable = verUrl || x.url || x.nombre;
+          const montoNum = x.monto !== '' && x.monto !== null && !isNaN(Number(x.monto)) ? Number(x.monto) : null;
+          const montoFmt = montoNum !== null ? montoNum.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (x.monto ? esc(x.monto) : '');
           return `
           <div style="display:flex;align-items:center;gap:15px;background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 18px;flex-wrap:wrap">
             <span style="width:46px;height:46px;border-radius:12px;background:${t.bg};display:flex;align-items:center;justify-content:center;font-size:21px;flex-shrink:0">${t.icon}</span>
             <div style="flex:1;min-width:170px">
-              <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span style="font-size:15.5px;font-weight:800">${esc(x.periodo)}</span>
                 <span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:${t.bg};color:${t.fg}">${t.label}</span>
+                ${d.propios.length > 1 ? `<span style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EAF1FB;color:#1E5FB4">🏢 ${esc(x.edificio)}</span>` : ''}
+                ${x.departamento ? `<span style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EDE9FE;color:#5B21B6">Unidad: ${esc(x.departamento)}</span>` : `<span style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#F1F5F9;color:#475569">General (edificio)</span>`}
+                ${montoFmt ? `<span style="font-size:12px;font-weight:800;padding:2px 9px;border-radius:999px;background:#ECFDF5;color:#065F46">$ ${montoFmt}${x.monto_origen === 'ocr' ? ' <span style="font-size:9.5px;font-weight:600;opacity:0.8">(OCR)</span>' : ''}</span>` : ''}
+                ${x.vencimiento ? `<span style="font-size:11.5px;color:#64748B">Vence: ${esc(x.vencimiento)}</span>` : ''}
               </div>
-              <div style="font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px">${esc(x.url || x.nombre || '')}</div>
+              <div style="font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px;margin-top:2px">${esc(x.nombre || archivoNombre || x.url || '')}</div>
             </div>
             <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ Marcos puede compartirla</span>
             <div style="display:flex;gap:8px">
-              ${x.url ? `<a href="${esc(x.url)}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#F8FAFD;color:#1E5FB4;font-weight:700;font-size:12.5px;text-decoration:none" class="hv-soft">👁️ Ver</a>` : ''}
+              ${verUrl ? `<a href="${esc(verUrl)}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#F8FAFD;color:#1E5FB4;font-weight:700;font-size:12.5px;text-decoration:none" class="hv-soft">👁️ Ver</a>` : ''}
               <button onclick="copiarExpensa('${escJs(copiable)}')" style="height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-soft">🔗 Copiar</button>
               <button onclick="quitarExpensa(this,${x._row})" style="height:36px;padding:0 13px;border:1px solid #EEDCDC;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-red">Quitar</button>
             </div>
           </div>`;
         }).join('')}
       </div>`
-      : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Todavía no publicaste expensas para este edificio.</div>';
+      : `<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">${esc(activo ? `Todavía no publicaste expensas para ${activo}.` : (d.propios.length > 1 ? 'Todavía no publicaste expensas para ninguno de tus edificios.' : 'Todavía no publicaste expensas para este edificio.'))}</div>`;
+
+    let filtroEdificiosHtml = '';
+    if (d.propios.length > 1) {
+      const expensasPropias = todasLasExpensas.filter((x) => permitidos.some((p) => compararEdificios(x.edificio, p)));
+      filtroEdificiosHtml = `
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+          <span style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase">Filtrar por:</span>
+          <a href="/admin/set-filtro?edificio=&volver=${encodeURIComponent('/admin/expensas')}"
+            style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;font-size:12.5px;font-weight:700;text-decoration:none;${!activo ? 'background:#1E5FB4;color:#fff' : 'background:#F1F5F9;color:#475569;border:1px solid #E2E8F0'}">
+            Todos (${expensasPropias.length})
+          </a>
+          ${d.propios.map((p) => {
+            const sel = activo && normEdificio(p.nombre) === normEdificio(activo);
+            const count = todasLasExpensas.filter((x) => compararEdificios(x.edificio, p.nombre)).length;
+            return `
+              <a href="/admin/set-filtro?edificio=${encodeURIComponent(p.nombre)}&volver=${encodeURIComponent('/admin/expensas')}"
+                style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;font-size:12.5px;font-weight:700;text-decoration:none;${sel ? 'background:#1E5FB4;color:#fff' : 'background:#F1F5F9;color:#475569;border:1px solid #E2E8F0'}">
+                🏢 ${esc(p.nombre)} <span style="opacity:0.8;font-size:11px">(${count})</span>
+              </a>`;
+          }).join('')}
+        </div>`;
+    }
 
     const contenido = `
       <div style="animation:mFade .3s ease both;max-width:820px">
-        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Expensas</h1>
-        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Subí las expensas del mes de ${esc(cur ? cur.nombre : '')}. <strong style="color:#334259">Marcos queda habilitado para compartirlas</strong> con los vecinos que las pidan por WhatsApp, o para enviarlas cuando vos se lo indiques.</p>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+          <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">Expensas</h1>
+          ${d.propios.length > 1 ? `
+            <a href="/admin/set-filtro?edificio=&volver=${encodeURIComponent('/admin/expensas')}"
+              style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#1E5FB4;font-size:13px;font-weight:700;text-decoration:none" class="hv-soft">
+              🏢 Cambiar de edificio
+            </a>` : ''}
+        </div>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Subí las expensas del mes de <strong>${esc(edTarget || 'tu edificio')}</strong>. <strong style="color:#334259">Marcos queda habilitado para compartirlas</strong> con los vecinos que las pidan por WhatsApp, o para enviarlas cuando vos se lo indiques.</p>
+        ${filtroEdificiosHtml}
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:26px">
-          <div style="font-size:15px;font-weight:800;margin-bottom:14px">Publicar nueva expensa</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+            <div style="font-size:15px;font-weight:800">Publicar nueva expensa</div>
+            ${edTarget ? `<span style="font-size:12px;font-weight:700;color:#1E5FB4;background:#EAF1FB;padding:4px 10px;border-radius:8px">Destino: 🏢 ${esc(edTarget)}</span>` : ''}
+          </div>
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
             <div style="flex:1;min-width:130px">
               <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Mes</div>
@@ -12592,25 +13584,52 @@ router.get('/expensas', async (req, res) => {
               <input id="exp-anio" class="inp" style="height:44px" value="${new Date().getFullYear()}">
             </div>
           </div>
-          <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Formato</div>
-          <div style="display:flex;gap:9px;margin-bottom:16px;flex-wrap:wrap">
-            <button data-exp-btn onclick="elegirFormatoExp(this,'pdf')" style="height:40px;padding:0 16px;border:1px solid #17408B;border-radius:10px;background:#17408B;color:#fff;font-weight:700;font-size:13.5px;cursor:pointer">📄 PDF</button>
-            <button data-exp-btn onclick="elegirFormatoExp(this,'imagen')" style="height:40px;padding:0 16px;border:1px solid #DDE3EE;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13.5px;cursor:pointer">🖼️ Imagen</button>
-            <button data-exp-btn onclick="elegirFormatoExp(this,'link')" style="height:40px;padding:0 16px;border:1px solid #DDE3EE;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13.5px;cursor:pointer">🔗 Link web</button>
-          </div>
-          <div id="exp-link-wrap" style="display:none">
-            <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Dirección web</div>
-            <input id="exp-url" placeholder="https://..." class="inp" style="margin-bottom:16px">
-          </div>
           <div id="exp-file-wrap" onclick="pickExpFile()" style="display:flex;align-items:center;gap:13px;border:1.5px dashed #C9D5E8;border-radius:12px;padding:16px;background:#F7F9FC;cursor:pointer;margin-bottom:16px" class="hv-bluedash">
             <span style="width:44px;height:44px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📎</span>
             <div style="flex:1">
-              <div id="exp-file-nombre" style="font-size:14.5px;font-weight:700;color:#334259">Elegí el archivo</div>
-              <div id="exp-file-sub" style="font-size:12.5px;color:#8595AD">Tocá para seleccionar el PDF o la imagen de las expensas</div>
+              <div id="exp-file-nombre" style="font-size:14.5px;font-weight:700;color:#334259">Elegí uno o varios archivos</div>
+              <div id="exp-file-sub" style="font-size:12.5px;color:#8595AD">Tocá para seleccionar 1 archivo o un lote completo (hasta 60) de expensas</div>
             </div>
-            <input id="exp-file-input" type="file" accept=".pdf,image/*" style="display:none" onchange="expFileElegido(this)">
+            <input id="exp-file-input" type="file" accept=".pdf,image/*" multiple style="display:none" onchange="expFilesElegidos(this)">
           </div>
-          <button onclick="publicarExpensa(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">Publicar para Marcos</button>
+
+          <!-- Modo Individual -->
+          <div id="exp-single-wrap">
+            <div style="margin-bottom:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase">Unidad / Departamento <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+                <span style="font-size:11.5px;color:#64748B">Vacío = liquidación general del consorcio</span>
+              </div>
+              <input id="exp-depto" class="inp" style="height:44px" placeholder="Ej: 1° A, 4B, PB 2 (dejar vacío si es la liquidación general)">
+              <div style="font-size:11.5px;color:#8595AD;margin-top:4px">Si ponés una unidad, solo la verá el vecino de ese departamento en su portal y por WhatsApp.</div>
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+              <div style="flex:1;min-width:140px">
+                <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Total a pagar ($) <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+                <input id="exp-monto" class="inp" style="height:44px" placeholder="Ej: 85420.50 (se extrae al subir o podés escribirlo)" oninput="expMontoCambiado()">
+              </div>
+              <div style="flex:1;min-width:140px">
+                <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Vencimiento <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+                <input id="exp-vencimiento" class="inp" style="height:44px" placeholder="DD/MM/AAAA">
+              </div>
+            </div>
+            <div id="exp-ocr-status" style="display:none;margin-bottom:16px;font-size:12.5px;line-height:1.4"></div>
+            <button id="btn-exp-single" onclick="publicarExpensa(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">Publicar para Marcos</button>
+          </div>
+
+          <!-- Modo Tanda / Lote Múltiple -->
+          <div id="exp-tanda-card" class="exp-tanda-card" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <div class="exp-tanda-titulo">📦 Revisión de tanda de expensas</div>
+              <button type="button" onclick="cancelarTanda()" class="exp-tanda-btn-cancelar hv-soft">✕ Cancelar tanda</button>
+            </div>
+            <div id="exp-tanda-status" style="margin-bottom:16px"></div>
+            <div id="exp-tanda-tabla-wrap" style="overflow-x:auto;margin-bottom:16px"></div>
+            <div id="exp-tanda-acciones" style="display:none;justify-content:flex-end;gap:10px">
+              <button type="button" onclick="cancelarTanda()" class="exp-btn-accion-cancelar hv-soft">Cancelar</button>
+              <button id="btn-publicar-tanda" type="button" onclick="publicarTanda(this)" style="height:44px;padding:0 24px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">🚀 Confirmar y Publicar Tanda</button>
+            </div>
+          </div>
         </div>
         <div style="font-size:15px;font-weight:800;margin-bottom:12px">Expensas publicadas</div>
         ${listHtml}
@@ -15180,14 +16199,294 @@ router.post('/api/responder-sugerencia', async (req, res) => {
   }
 });
 
+// Servir archivo de expensa protegido. Solo accesible por el dueño o clientes con permiso sobre el edificio.
+router.get('/api/expensa-archivo/:nombre', async (req, res) => {
+  const nombreParam = path.basename(req.params.nombre || '');
+  if (!nombreParam) return res.status(400).json({ error: 'Falta nombre' });
+
+  // Verificar sesión del panel
+  if (!req.session || (!req.session.role && !req.session.user)) {
+    return res.status(401).json({ error: 'No hay sesión activa' });
+  }
+
+  const { puedeVerExpensa, rutaDelArchivo } = require('./expensa-privada');
+  const permitidos = edificiosDeLaCuenta(req).length ? edificiosDeLaCuenta(req) : (edificiosPermitidos(req) || []);
+  const quien = esDueno(req)
+    ? { rol: 'dueno' }
+    : { rol: 'consorcio', edificios: permitidos };
+
+  let expensa = null;
+  // 1. Buscar en PostgreSQL
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `SELECT * FROM expensas 
+                 WHERE (url LIKE $1 ESCAPE '=' OR nombre = $2 OR url = $3)
+                   AND estado != 'eliminada' 
+                 ORDER BY id DESC LIMIT 1`;
+      const safeLike = '%' + nombreParam.replace(/([_%])/g, '=$1');
+      const resPg = await pool.query(q, [safeLike, nombreParam, '/archivos/expensas/' + nombreParam]);
+      if (resPg.rows && resPg.rows.length) {
+        expensa = resPg.rows[0];
+      }
+    }
+  } catch (errPg) {
+    console.warn('Error buscando expensa en PG:', errPg.message);
+  }
+
+  // 2. Fallback a Google Sheets si no se encontró en PG
+  if (!expensa) {
+    try {
+      const { rows } = await readTab(TAB_EXPENSAS);
+      expensa = rows.map(mapExpensa).find((x) => {
+        if (x.estado === 'eliminada') return false;
+        const u = path.basename(x.url || '');
+        const n = path.basename(x.nombre || '');
+        return u === nombreParam || n === nombreParam || (x.url && x.url.endsWith(nombreParam));
+      });
+    } catch (_) {}
+  }
+
+  if (!expensa) {
+    return res.status(404).json({ error: 'Expensa no encontrada' });
+  }
+
+  const { puede, motivo } = puedeVerExpensa({ expensa, quien });
+  if (!puede) {
+    return res.status(403).json({ error: motivo || 'No tenés permiso para ver esta expensa' });
+  }
+
+  const ruta = rutaDelArchivo(expensa.url || nombreParam);
+  if (!ruta || !fs.existsSync(ruta)) {
+    return res.status(404).json({ error: 'No se encontró el archivo físico en el servidor' });
+  }
+
+  res.sendFile(ruta);
+});
+
+// Analizar expensa con IA para previsualizar unidad, total y vencimiento antes de publicar.
+router.post('/api/expensa-analizar', uploadExpensasMulter.single('archivo'), async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+  const fs = require('fs');
+  if (!req.file) return res.status(400).json({ error: 'Falta archivo' });
+  try {
+    const { leerExpensa } = require('./expensa-documento');
+    const departamento = (req.body && req.body.departamento) || '';
+    const lectura = await leerExpensa({
+      filePath: req.file.path,
+      mimeType: req.file.mimetype,
+      unidadEsperada: departamento,
+    });
+    // Limpiamos el archivo temporal de análisis para no dejar huérfanos en disco
+    try {
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    } catch (_) {}
+    res.json({ ok: true, lectura });
+  } catch (e) {
+    try {
+      if (req.file && req.file.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    } catch (_) {}
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Analizar una tanda múltiple de liquidaciones de expensas (hasta 60 archivos).
+router.post('/api/expensa-tanda-analizar', uploadExpensasMulter.array('archivos', 60), async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: 'No se recibieron archivos' });
+
+  // > [!CAUTION]
+  // > **El edificio sale del PERMISO, nunca del cuerpo del pedido, y con varios no se adivina.**
+  //
+  // Acá habia un `|| (req.body && req.body.edificio)` de respaldo. Con un cliente sin edificios
+  // asignados --el estado normal de uno recien creado-- ese respaldo ganaba, y el edificio pasaba
+  // a ser lo que viniera escrito en el pedido: se podia publicar una expensa dentro del consorcio
+  // de otro administrador, con el monto que fuera, y los vecinos de ese edificio la veian. Es
+  // exactamente lo que paso con `/api/pases-qr`.
+  //
+  // Sacar ese respaldo dejo `permitidos[0] || ''`, que **tampoco alcanza**: con el selector en
+  // "Todos los edificios" eso es el primero de la lista, no el que el cliente tiene en la cabeza.
+  // Las dos reglas viven juntas en `edificioParaEscribir`.
+  const { edificio, motivo } = edificioParaEscribir(req);
+  if (!edificio) return res.status(400).json({ error: motivo });
+
+  const { leerExpensa } = require('./expensa-documento');
+  const lecturas = [];
+
+  for (const f of files) {
+    try {
+      const lectura = await leerExpensa({
+        filePath: f.path,
+        mimeType: f.mimetype,
+        unidadEsperada: '',
+      });
+      lecturas.push({
+        archivo: f.originalname || f.filename,
+        tempName: f.filename,
+        url: '/archivos/expensas/' + f.filename,
+        unidad: (lectura && lectura.ok && lectura.unidad) ? lectura.unidad : '',
+        periodo: (lectura && lectura.ok && lectura.periodo) ? lectura.periodo : '',
+        vencimiento: (lectura && lectura.ok && lectura.vencimiento) ? lectura.vencimiento : '',
+        monto: (lectura && lectura.ok && lectura.mostrar_monto && lectura.monto !== null) ? lectura.monto : null,
+        monto_origen: (lectura && lectura.ok && lectura.mostrar_monto && lectura.monto !== null) ? 'ocr' : '',
+        mostrar_monto: lectura && lectura.ok ? lectura.mostrar_monto : false,
+        motivo: (lectura && lectura.motivo) || '',
+        es_expensa: lectura && lectura.ok ? (lectura.es_expensa !== false) : false,
+      });
+    } catch (errLec) {
+      console.warn(`Error leyendo archivo ${f.originalname}:`, errLec.message);
+      lecturas.push({
+        archivo: f.originalname || f.filename,
+        tempName: f.filename,
+        url: '/archivos/expensas/' + f.filename,
+        unidad: '',
+        periodo: '',
+        vencimiento: '',
+        monto: null,
+        monto_origen: '',
+        mostrar_monto: false,
+        motivo: 'No se pudo leer el archivo',
+        es_expensa: false,
+      });
+    }
+  }
+
+  const { unidadesConVecino, revisarTanda, resumenTanda } = require('./unidades-edificio');
+  const conocidas = await unidadesConVecino(edificio);
+  const filasRevisadas = revisarTanda(lecturas, conocidas || []);
+  const resumen = resumenTanda(filasRevisadas);
+
+  res.json({
+    ok: true,
+    edificio,
+    conocidasVerificadas: conocidas !== null,
+    resumen,
+    filas: filasRevisadas.map((fr, idx) => ({
+      ...lecturas[idx],
+      estado: fr.estado,
+      mensaje: fr.mensaje,
+      unidadDelVecino: fr.unidadDelVecino || '',
+    })),
+  });
+});
+
+// Confirmar y publicar una tanda de expensas en Google Sheets y PostgreSQL.
+router.post('/api/expensa-tanda-publicar', async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+
+  const { mes, anio, formato, filas } = req.body || {};
+  if (!filas || !Array.isArray(filas) || !filas.length) {
+    return res.status(400).json({ error: 'No hay filas para publicar' });
+  }
+
+  // El edificio sale del PERMISO, nunca del cuerpo del pedido, y con varios no se adivina.
+  // Las dos reglas, y por qué, en `edificioParaEscribir`.
+  const { edificio, motivo } = edificioParaEscribir(req);
+  if (!edificio) return res.status(400).json({ error: motivo });
+
+  const fecha = new Date().toLocaleString('es-AR');
+  const perDefault = (mes && anio) ? `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}` : '';
+  const { montoANumero } = require('./expensa-documento');
+
+  let guardadas = 0;
+  for (const item of filas) {
+    const tempName = path.basename(item.tempName || item.url || '');
+    if (!tempName) continue;
+
+    const rutaFisica = path.join(__dirname, 'almacenamiento', 'expensas', tempName);
+    if (!fs.existsSync(rutaFisica)) {
+      console.warn(`Archivo físico no encontrado para tanda: ${rutaFisica}`);
+    }
+
+    const url = '/archivos/expensas/' + tempName;
+    const deptoFinal = String(item.unidad || item.departamento || '').trim();
+    const vencimientoFinal = String(item.vencimiento || '').trim();
+    const periodoFinal = String(item.periodo || perDefault).trim();
+    const formFinal = item.formato || formato || (tempName.endsWith('.pdf') ? 'pdf' : 'imagen');
+    const nombreFinal = item.archivo || item.nombre || tempName;
+
+    const montoFinal = montoANumero(item.monto);
+    const montoOrigenFinal = item.monto_origen === 'ocr' ? 'ocr' : (montoFinal !== null ? 'manual' : '');
+
+    try {
+      await appendRow(TAB_EXPENSAS, {
+        fecha,
+        edificio,
+        periodo: periodoFinal,
+        formato: formFinal,
+        nombre: nombreFinal,
+        url,
+        estado: 'publicada',
+        departamento: deptoFinal,
+        monto: montoFinal !== null ? montoFinal : '',
+        vencimiento: vencimientoFinal,
+        monto_origen: montoOrigenFinal,
+      });
+
+      // Sincronizar en PostgreSQL expensas
+      const { pool } = require('./db-pg');
+      if (pool && edificio) {
+        await pool.query(
+          `INSERT INTO expensas (fecha, edificio, periodo, formato, nombre, url, estado, departamento, monto, vencimiento, monto_origen)
+           VALUES ($1, $2, $3, $4, $5, $6, 'publicada', $7, $8, $9, $10)`,
+          [
+            fecha,
+            edificio,
+            periodoFinal,
+            formFinal,
+            nombreFinal,
+            url,
+            deptoFinal || null,
+            montoFinal !== null ? montoFinal : null,
+            vencimientoFinal || null,
+            montoOrigenFinal || null
+          ]
+        );
+      }
+      guardadas++;
+    } catch (errItem) {
+      console.error(`Error guardando expensa en tanda (${nombreFinal}):`, errItem.message);
+    }
+  }
+
+  const fallidas = filas.length - guardadas;
+  if (guardadas === 0) {
+    return res.status(500).json({ ok: false, error: 'No se pudo guardar ninguna expensa. Revisá la conexión y permisos.', guardadas: 0, fallidas });
+  }
+  res.json({ ok: true, guardadas, fallidas });
+});
+
+// Cancelar una tanda de expensas descartando los archivos temporales no confirmados.
+router.post('/api/expensa-tanda-cancelar', async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+
+  const archivos = (req.body && req.body.archivos) || [];
+  for (const a of archivos) {
+    const safeName = path.basename(String(a || ''));
+    if (safeName && safeName.startsWith('expensa_')) {
+      const ruta = path.join(__dirname, 'almacenamiento', 'expensas', safeName);
+      try {
+        if (fs.existsSync(ruta)) fs.unlinkSync(ruta);
+      } catch (_) {}
+    }
+  }
+  res.json({ ok: true });
+});
+
 // Publicar expensa (cliente). Soporta archivo físico (PDF/imagen) vía Multer
 // y guarda en almacenamiento permanente (/archivos/expensas/...) sincronizando
-// tanto en Google Sheets como en PostgreSQL (tabla expensas).
+// tanto en Google Sheets como en PostgreSQL (tabla expensas con 11 columnas).
 router.post('/api/expensa', uploadExpensasMulter.single('archivo'), async (req, res) => {
   if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { mes, anio, formato } = req.body || {};
+    const { mes, anio, formato, departamento, monto, vencimiento, monto_origen } = req.body || {};
     let url = (req.body && req.body.url) || '';
     let nombre = (req.body && req.body.nombre) || '';
 
@@ -15198,11 +16497,46 @@ router.post('/api/expensa', uploadExpensasMulter.single('archivo'), async (req, 
       nombre = req.file.originalname || req.file.filename;
     }
 
-    const permitidos = edificiosPermitidos(req) || [];
-    const edificio = permitidos[0] || '';
+    // Con varios edificios y ninguno elegido no se adivina: ver `edificioParaEscribir`.
+    const { edificio, motivo } = edificioParaEscribir(req);
+    if (!edificio) return res.status(400).json({ error: motivo });
+
     const fecha = new Date().toLocaleString('es-AR');
     const periodo = `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}`;
     const formFinal = formato || (req.file && req.file.mimetype && req.file.mimetype.startsWith('image/') ? 'imagen' : 'pdf');
+
+    const { leerExpensa, montoANumero } = require('./expensa-documento');
+    let deptoFinal = String(departamento || '').trim();
+    let vencimientoFinal = String(vencimiento || '').trim();
+    let montoFinal = null;
+    let montoOrigenFinal = '';
+
+    if (monto !== undefined && monto !== null && String(monto).trim() !== '') {
+      montoFinal = montoANumero(monto);
+      montoOrigenFinal = monto_origen === 'ocr' ? 'ocr' : 'manual';
+    } else if (req.file) {
+      try {
+        const lectura = await leerExpensa({
+          filePath: req.file.path,
+          mimeType: req.file.mimetype,
+          unidadEsperada: deptoFinal,
+        });
+        if (lectura && lectura.ok) {
+          if (!deptoFinal && lectura.unidad && !lectura.choca_la_unidad) {
+            deptoFinal = lectura.unidad;
+          }
+          if (!vencimientoFinal && lectura.vencimiento) {
+            vencimientoFinal = lectura.vencimiento;
+          }
+          if (lectura.mostrar_monto && lectura.monto !== null && lectura.monto !== undefined) {
+            montoFinal = lectura.monto;
+            montoOrigenFinal = 'ocr';
+          }
+        }
+      } catch (errLec) {
+        console.warn('Error leyendo expensa al publicar:', errLec.message);
+      }
+    }
 
     await appendRow(TAB_EXPENSAS, {
       fecha,
@@ -15212,6 +16546,10 @@ router.post('/api/expensa', uploadExpensasMulter.single('archivo'), async (req, 
       nombre,
       url,
       estado: 'publicada',
+      departamento: deptoFinal,
+      monto: montoFinal !== null && montoFinal !== undefined ? montoFinal : '',
+      vencimiento: vencimientoFinal,
+      monto_origen: montoOrigenFinal,
     });
 
     // Sincronizar en PostgreSQL expensas
@@ -15219,16 +16557,35 @@ router.post('/api/expensa', uploadExpensasMulter.single('archivo'), async (req, 
       const { pool } = require('./db-pg');
       if (pool && edificio) {
         await pool.query(
-          `INSERT INTO expensas (fecha, edificio, periodo, formato, nombre, url, estado)
-           VALUES ($1, $2, $3, $4, $5, $6, 'publicada')`,
-          [fecha, edificio, periodo, formFinal, nombre, url]
+          `INSERT INTO expensas (fecha, edificio, periodo, formato, nombre, url, estado, departamento, monto, vencimiento, monto_origen)
+           VALUES ($1, $2, $3, $4, $5, $6, 'publicada', $7, $8, $9, $10)`,
+          [
+            fecha,
+            edificio,
+            periodo,
+            formFinal,
+            nombre,
+            url,
+            deptoFinal || null,
+            montoFinal !== null ? montoFinal : null,
+            vencimientoFinal || null,
+            montoOrigenFinal || null
+          ]
         );
       }
     } catch (errPg) {
       console.warn('Error sincronizando expensa en PostgreSQL:', errPg.message);
     }
 
-    res.json({ ok: true, url, nombre });
+    res.json({
+      ok: true,
+      url,
+      nombre,
+      departamento: deptoFinal,
+      monto: montoFinal,
+      vencimiento: vencimientoFinal,
+      monto_origen: montoOrigenFinal
+    });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -15258,8 +16615,8 @@ router.post('/api/expensa-quitar', async (req, res) => {
         await pool.query(
           `UPDATE expensas SET estado = 'eliminada'
            WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
-             AND (periodo = $3 OR url = $4)`,
-          [expActual.edificio, '%' + expActual.edificio + '%', expActual.periodo || '', expActual.url || '']
+             AND (url = $3 OR (periodo = $4 AND COALESCE(departamento, '') = COALESCE($5, '')))`,
+          [expActual.edificio, '%' + expActual.edificio + '%', expActual.url || '', expActual.periodo || '', expActual.departamento || '']
         );
       }
     } catch (errPg) {

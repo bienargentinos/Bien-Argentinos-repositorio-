@@ -2132,6 +2132,51 @@ node revisar-seguimientos.js     # solo lee: para cada vencido, qué camino va a
 Pruebas: `node pruebas-seguimiento-mudo.js` (prohíbe que cualquier `return false` de esa función
 vuelva a callarse, y corre el barrido de verdad para escuchar lo que dice).
 
+### `JSON.parse: unexpected character` no es un error de JSON: es el login
+
+> [!CAUTION]
+> **Una ruta de API NUNCA se redirige al login.** A `/api/...` la llama siempre el JavaScript de la
+> página, jamás el navegador navegando. Un `res.redirect` le devuelve los 34 bytes de HTML del
+> `Found. Redirecting to /admin/login`, y el `await r.json()` del otro lado informa:
+> `JSON.parse: unexpected character at line 1 column 1 of the JSON data`.
+
+Al publicar una tanda de expensas salía ese error. Se revisó el endpoint, PostgreSQL y las 13
+columnas de `expensas` --todo bien-- hasta que el registro de nginx lo dijo en una línea:
+
+```
+"POST /admin/api/expensa-tanda-publicar HTTP/2.0" 302 34
+```
+
+`requireAuth` sí tenía una rama que contesta `401` en JSON, **pero condicionada al encabezado
+`Accept`**, y un `fetch` con cuerpo JSON manda `Accept: */*` salvo que se lo pida explícitamente.
+Así que esa rama casi nunca corría. Lo confiable es la **ruta**: si empieza con `/api/`, la
+respuesta se lee con código y tiene que ser JSON.
+
+Es el tercer caso del mismo defecto en un día, después del contador de arriba y del genérico *"no se
+pudo leer el documento"* de las expensas: **una falla que miente sobre sí misma cuesta más que la
+falla.** El mensaje ahora dice qué pasó y qué hacer (*"Se venció la sesión del panel. Volvé a entrar
+y probá de nuevo."*).
+
+#### Y la causa de fondo: la sesión se borra en cada `pm2 restart`
+
+> [!CAUTION]
+> **`session()` sin `store` usa el `MemoryStore` de `express-session`: las sesiones viven en la RAM
+> del proceso.** Está así en el panel (`dashboard.js:196`) y en el portal
+> (`portal-vecino.js:16`). Cada despliegue deslogea a todo el mundo.
+
+La cookie del panel dura **12 horas** y el servidor se olvida en cada reinicio. Esa asimetría es lo
+que hace el síntoma tan raro: el navegador sigue mandando una cookie que cree válida, la página se
+ve normal, y el error aparece recién al apretar un botón. Un `store` en PostgreSQL
+(`connect-pg-simple`, la base ya está) lo resuelve — **suma una dependencia npm, que va en el mismo
+commit que el código que la usa**, y la tabla tiene que quedar a nombre del rol `marcos`
+(`node revisar-permisos-pg.js`). Queda pedido en `docs/para-antigravity.md` y
+`docs/portal-vecino-y-porteria.md`.
+
+Candado: `pruebas-clave-app.js` exige que `requireAuth` reconozca una ruta de API **por la ruta** y
+**antes** del redirect. Lee las líneas de código sin los comentarios — el comentario que explica
+esto nombra `res.redirect` y `/admin/login`, y una prueba que los confunda con el código mide el
+comentario en lugar de la función.
+
 ## `\w` sin acentos, tercera vez — ahora en el verificador
 
 > [!CAUTION]

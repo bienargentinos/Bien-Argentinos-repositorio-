@@ -183,6 +183,29 @@ console.log('\n── QUE NO PUEDA VOLVER POR OTRA FUNCIÓN ──');
         .map(m => m[1].toLowerCase());
     const huerfanas = [...new Set(usadas)].filter(p => !conocidas.includes(p));
     verificar('toda pestaña donde se crean columnas está en columnas-necesarias.js', huerfanas, []);
+
+    // > [!CAUTION]
+    // > **Una pestaña que "se crea sola" nace con las columnas de la PRIMERA fila que se escriba,
+    // > y con esas se queda.**
+    //
+    // El `appendRow` del panel la crea con `Object.keys(rowData)`. Si esa primera fila no trae
+    // una columna que después va a hacer falta, el dato se descarta en silencio desde ahí en
+    // adelante. Con `expensas` era una carrera de verdad: subir una expensa antes de que el panel
+    // aprendiera a mandar `departamento` dejaba la pestaña con siete columnas para siempre.
+    //
+    // Por eso `crear-columnas.js --aplicar` tiene que poder CREAR la pestaña que falta, completa
+    // y vacía, y no limitarse a informar que no está.
+    const creador = fs.readFileSync(require('path').join(__dirname, 'crear-columnas.js'), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+
+    verificar('crear-columnas.js crea la pestaña que falta, no solo la informa',
+        /addSheet\(\s*\{[^}]*headerValues:\s*necesarias/.test(creador), true);
+
+    // Y que la cree con TODAS las columnas de la lista, no con un subconjunto: si naciera a
+    // medias volveríamos al mismo problema por otro camino.
+    verificar('la crea con la lista completa de esa pestaña',
+        /title:\s*nombre,\s*headerValues:\s*necesarias/.test(creador), true);
 }
 
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);

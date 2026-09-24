@@ -291,6 +291,659 @@ necesitás editar los datos de un vecino, llamá a esas y no escribas el `UPDATE
 
 ---
 
+## Pedido nuevo (23/09) — expensas POR UNIDAD, con el total a la vista
+
+Daniel: *"si el AC sube las expensas de cada departamento, ¿se puede extraer el total y colocarlo
+en el portal del vecino?"*. Sí. **El lado de los datos ya está hecho y subido**; falta el
+formulario, que es tuyo.
+
+### Cómo está hoy
+
+`/api/expensa` (dashboard.js ~15186) guarda una expensa **por edificio**:
+
+```js
+const edificio = permitidos[0] || '';
+await appendRow(TAB_EXPENSAS, { fecha, edificio, periodo, formato, nombre, url, estado });
+```
+
+y el portal la lee con `WHERE LOWER(edificio) = LOWER($1)`. O sea: **todos los vecinos del
+edificio ven el mismo documento**. No había dónde poner la unidad ni el monto.
+
+Lo bueno: ese endpoint **ya escribe en las dos bases**, que suele ser la mitad del trabajo.
+
+### Lo que ya está (no lo rehagas)
+
+- **Columnas nuevas en las dos bases**: `departamento`, `monto`, `vencimiento`, `monto_origen`.
+  En PostgreSQL las crea `db-pg.js` al arrancar; en Sheets están en `columnas-necesarias.js`.
+- **`expensa-documento.js`** — `leerExpensa({ filePath, mimeType, unidadEsperada })` lee el
+  documento y devuelve `{ unidad, periodo, vencimiento, monto, mostrar_monto, motivo }`.
+
+### Lo que falta, del panel
+
+1. **Que el formulario pida la unidad**, opcional. Vacío = liquidación general del edificio (la
+   ven todos); con valor = de esa unidad y de nadie más. **Las dos hacen falta**: la general es la
+   que el vecino mira cuando quiere saber por qué subió.
+
+2. **Llamar a `leerExpensa` al subir** y **mostrarle el total al AC para que lo confirme o lo
+   corrija antes de guardar**. Eso es lo que convierte el OCR de riesgo en ahorro de tipeo.
+
+   ```js
+   const { leerExpensa } = require('./expensa-documento');
+   const lectura = await leerExpensa({
+       filePath: req.file.path, mimeType: req.file.mimetype, unidadEsperada: departamento
+   });
+   // lectura.mostrar_monto === false  →  no muestres ningún número, mostrá lectura.motivo
+   ```
+
+3. **Guardar `monto` y `monto_origen`** (`'ocr'` si quedó el leído, `'manual'` si el AC lo escribió
+   o lo corrigió) en las dos bases, igual que hoy hacés con el resto.
+
+### Tres cosas que rompen y no se ven
+
+- **`appendRow` DESCARTA EN SILENCIO toda clave que no sea una columna existente.** Si mandás
+  `departamento` y la pestaña no la tiene, el dato se pierde sin un error — así se perdieron
+  `tecnico`, `tel_tecnico` y `rubro_tecnico` en los cuatro primeros casos reales. Pasá por
+  `asegurarColumnas`, o corré una vez `node crear-columnas.js --aplicar` en el VPS antes.
+
+- **Si el total no se puede afirmar, no se muestra ningún número.** `leerExpensa` ya lo decide
+  (`mostrar_monto`); no lo recalcules ni muestres el crudo. Un vecino va a transferir ese número:
+  de menos queda en deuda sin saberlo, de más hay que devolverle. Queda el PDF, que es la verdad.
+
+- **`leerExpensa` avisa si la unidad del documento no coincide con la que estás cargando**
+  (`choca_la_unidad`). Eso casi siempre es un archivo subido a la unidad equivocada. Mostráselo al
+  AC antes de guardar: mostrarle a un vecino la expensa de otro es peor que no mostrarle ninguna.
+
+### Verificación
+
+```bash
+node pruebas-expensa-documento.js     # 59 verificaciones, no necesita credenciales
+node verificar-antes-de-subir.js      # 61 pruebas
+```
+
+El filtrado por unidad del lado del portal lo hace el chat del portal, que ya está con su parte.
+
+### Respuesta a tu pedido del 23/09 — revisión, merge y prueba en el VPS
+
+**No había nada que mergear.** Tu rama `antigravity/panel-fase-1` está **completamente contenida**
+en `claude/marcos-ia-whatsapp-template-vpg8gw` — verificado con `git merge-base --is-ancestor`. Su
+punta es `0411b28` (22/09 13:56) y todo lo que trae ya entró, incluido el selector táctil de rubros
+(`55a305f`), que es el que muestra los 14 botones en el celular.
+
+Así que si tenés algo más nuevo, **está sin empujar**. Mirá con `git log --oneline -1` y
+`git status --short` en tu carpeta, y pulleá antes de seguir: la base ya tiene lo tuyo, lo del
+portal y lo del motor.
+
+**La prueba con las bases de producción está hecha** (VPS, 24/09):
+
+```
+📋 clientes                ·  planilla 1  ·  PostgreSQL 1   ✅ dicen lo mismo
+📋 edificios               ·  planilla 3  ·  PostgreSQL 3   ✅ dicen lo mismo
+📋 proveedores             ·  planilla 4  ·  PostgreSQL 4   ✅ dicen lo mismo
+📋 proveedor_asignaciones  ·  planilla 7  ·  PostgreSQL 7   ✅ dicen lo mismo
+
+✅ Sheets y PostgreSQL coinciden en toda la configuración.
+```
+
+`node revisar-edificios.js` encontró dos nombres que no son ningún edificio, y **ninguno es del
+panel**: uno es una solicitud de cambio de plan que abarca tres edificios y no tiene dónde decirlo
+(`solicitudes` tiene una sola columna `edificio`), y el otro son dos reservas de prueba del portal.
+Ninguno afecta a Marcos ni al panel.
+
+**Lo que sigue de tu lado es lo de expensas por unidad**, acá arriba. Y una cosa menos de la que
+preocuparte: la pestaña `expensas` **no existía** en la planilla, y ya la creé con sus 11 columnas
+—incluidas `departamento`, `monto`, `vencimiento` y `monto_origen`—. Antes de eso había una
+carrera: la pestaña nace con las columnas de la PRIMERA fila que se escriba, así que una expensa
+subida antes de tu cambio la dejaba con siete para siempre. Ya no importa el orden.
+
+### 24/09 — las expensas ya NO se sirven solas, hace falta una ruta del panel
+
+Tu parte de expensas por unidad está mergeada y quedó bien: llama a `leerExpensa` en vez de
+reimplementarlo, respeta `mostrar_monto` y `choca_la_unidad`, escribe las 11 columnas en las dos
+bases, y borra el archivo temporal del análisis — eso último no estaba pedido y está bien pensado.
+
+**Pero abrió algo que antes no importaba.** Los PDF se guardan en `almacenamiento/expensas/`, e
+`index.js` servía esa carpeta entera con `express.static`, sin sesión. Con una expensa por
+edificio daba igual --la veían todos por diseño--; con una por unidad, el documento con la deuda
+de cada vecino quedaba en una URL que cualquiera podía abrir y reenviar. Y el nombre es
+`expensa_<Date.now()>.pdf`, o sea adivinable.
+
+No es culpa del cambio: el `express.static` ya estaba. Lo que hizo tu cambio fue poner adentro
+algo que antes no estaba.
+
+**Ya lo cerré**, del lado del motor. Había **tres** caminos al mismo archivo, no uno:
+
+1. `app.use('/archivos', express.static(almacenamiento))`
+2. `app.use('/audios',  express.static(almacenamiento))` — la misma carpeta
+3. `servirOConvertirMedia`, que busca **por nombre suelto y recursivo**: `/archivos/expensa_x.pdf`
+   lo encontraba sin la carpeta en el medio
+
+Por eso la regla mira el **nombre**, no la ruta. Bloquear la carpeta habría tapado dos de tres y
+habría parecido hecho.
+
+#### Lo que necesita el panel
+
+Hoy el administrador **no puede abrir la expensa que acaba de subir**: el enlace del listado
+apunta a `/archivos/expensas/...` y eso ahora devuelve 403. Hace falta una ruta del panel que sí
+sepa quién pregunta:
+
+```js
+const { puedeVerExpensa, rutaDelArchivo } = require('./expensa-privada');
+
+router.get('/api/expensa-archivo/:nombre', async (req, res) => {
+    // Buscá la fila en la tabla `expensas` por su `url` (o por el nombre del archivo).
+    // `quien` sale de la sesión del panel, NUNCA de algo que venga en el pedido:
+    //   dueño    → { rol: 'dueno' }
+    //   cliente  → { rol: 'consorcio', edificios: edificiosPermitidos(req) }
+    const { puede, motivo } = puedeVerExpensa({ expensa, quien });
+    if (!puede) return res.status(403).json({ error: motivo });
+
+    const ruta = rutaDelArchivo(expensa.url);
+    if (!ruta || !fs.existsSync(ruta)) return res.status(404).json({ error: 'No está el archivo' });
+    res.sendFile(ruta);
+});
+```
+
+Y que el listado de expensas apunte a esa ruta en vez de a `/archivos/...`.
+
+> **Usá `puedeVerExpensa`, no escribas el criterio de nuevo.** El portal va a llamar a la misma
+> función, y el día que cambie una regla tiene que cambiar en un solo lugar. Es lo que pasó con
+> `buscarPerfilEdificio`, escrita dos veces: arreglar una copia no cambió nada en producción.
+
+Prueba: `node pruebas-expensa-privada.js` (39 verificaciones, sin credenciales).
+
+### 24/09 — subida múltiple de expensas, con revisión antes de publicar
+
+Daniel quiere que el administrador suba las expensas de todas las unidades de una vez. Hoy es
+`.single('archivo')`: un edificio de 40 unidades son 40 ciclos, todos los meses. Eso es lo que
+hace que abandone la función.
+
+**Pero la subida múltiple a secas empeora el problema**, y por un motivo que conviene tener claro:
+
+> **Nadie asigna una expensa a un vecino: la unidad escrita ES la llave.** El portal trae las de
+> su edificio cuyo `departamento` esté vacío o sea el suyo. Si el PDF dice `Depto 1` y el vecino
+> tiene cargado `1A`, no coinciden — y **no pasa nada visible**: el vecino entra, no ve su
+> expensa y cree que no la subieron; vos la ves publicada. Nadie se entera.
+
+Con una por mes se nota. Con 40 de golpe se cuelan tres y aparecen como un reclamo dos semanas
+después.
+
+#### Lo que va, entonces
+
+1. Elegir varios archivos (`.array('archivos', 60)`).
+2. Por cada uno, `leerExpensa` — ya devuelve unidad, período, total, vencimiento.
+3. **Una tabla de revisión ANTES de publicar**, con un semáforo por fila.
+4. El administrador corrige lo que haga falta ahí mismo y recién entonces publica.
+
+#### El lado de los datos ya está
+
+```js
+const { unidadesConVecino, revisarTanda, resumenTanda } = require('./unidades-edificio');
+
+const conocidas = await unidadesConVecino(edificio);   // null = no se pudo verificar
+const filas = revisarTanda(lecturas, conocidas || []);
+const resumen = resumenTanda(filas);   // { total, ok, general, sin_vecino, repetida, hayQueMirar }
+```
+
+Cada fila trae `estado` y un `mensaje` ya redactado para mostrar:
+
+| `estado` | Qué mostrar |
+|---|---|
+| `general` | sin unidad: la liquidación del edificio, la ven todos |
+| `ok` | coincide con una unidad que tiene vecino |
+| `sin_vecino` | **no es un error**: se publica igual y aparece sola cuando esa persona se registre. Pero si la unidad está mal escrita, nadie la va a ver nunca |
+| `repetida` | dos archivos de la misma unidad en la tanda — casi siempre el mismo PDF elegido dos veces |
+
+> **`sin_vecino` no se pinta de rojo ni se llama error.** Una unidad correcta sin vecino
+> registrado todavía es normal. Llamarle error es un falso positivo, y un aviso que grita por
+> cosas que están bien es uno que se aprende a ignorar en la primera tanda.
+
+> **Si `unidadesConVecino` devuelve `null`**, la base no contestó: mostrá la tabla **sin** el
+> semáforo y decí que no se pudo verificar. Tratarlo como lista vacía marcaría las 40 filas.
+
+#### Para probarlo sin molestar a nadie
+
+```bash
+node ejemplo-expensas.js
+```
+
+Escribe 4 liquidaciones de ejemplo en `ejemplos-expensas/` (HTML → imprimir a PDF). Están hechas
+para que sea **difícil**: traen saldo anterior, intereses, subtotales y el total del edificio, que
+son justo los números que se confunden con el total a pagar. Una viene con la unidad escrita
+distinto a propósito (`Depto 3`), para ver el aviso de `sin_vecino` funcionando.
+
+Pruebas: `node pruebas-unidades-edificio.js` (21 verificaciones, sin credenciales).
+
+### 24/09 — la tanda está mergeada, con una línea corregida
+
+Tu subida en tanda quedó bien: tabla de revisión con semáforo, edición en línea, descarte por
+fila, revalidación al cambiar la unidad, `puedeVerExpensa` en la ruta protegida, y el nombre de
+archivo con sufijo aleatorio para que 60 subidas concurrentes no se pisen. Nada de eso lo tuve
+que tocar.
+
+**Corregí una línea, y te la señalo porque el patrón es de los caros.** Los dos endpoints nuevos
+traían:
+
+```js
+const edificio = permitidos[0] || (req.body && req.body.edificio) || '';
+```
+
+Con un cliente **sin edificios asignados** --el estado normal de uno recién creado-- ese respaldo
+gana, y el edificio pasa a ser lo que venga escrito en el pedido. Con eso se podía publicar una
+expensa dentro del consorcio de **otro administrador**, con el monto que fuera, y los vecinos de
+ese edificio la veían como propia.
+
+Es literalmente lo que pasó con `/api/pases-qr`: el edificio venía en el cuerpo y no se validaba
+contra ningún permiso. Y el endpoint de a una, treinta líneas más abajo, ya lo hacía bien
+(`permitidos[0] || ''`) — el que se cuela siempre es el que lo hace distinto de sus vecinos.
+
+Quedó así en los tres, y `pruebas-expensa-privada.js` ahora lo prohíbe:
+
+```js
+const edificio = permitidos[0] || '';
+```
+
+> **Que falte el permiso es una cuenta a medio configurar, no una autorización.** Es el mismo
+> criterio que el timbre con `!edNorm`: la falta de un dato nunca hace de comodín.
+
+#### Dos cosas menores, para cuando vuelvas por acá
+
+- **Archivos huérfanos.** `expensa-tanda-analizar` deja los 60 archivos en disco y se limpian con
+  `expensa-tanda-cancelar`. Si el administrador cierra el navegador sin publicar ni cancelar,
+  quedan ahí. No es una fuga --están detrás del guardia-- pero se acumulan. Una limpieza de lo que
+  quedó sin publicar hace más de un día lo resuelve.
+- **El `LIKE` de la ruta protegida.** `url LIKE '%' + nombre` trata el `_` del nombre como
+  comodín, y todos los archivos se llaman `expensa_<ts>_<rand>`. La coincidencia equivocada es
+  improbable y no filtra nada --el permiso se verifica contra la MISMA fila que se sirve-- pero
+  podría mostrar otra expensa del mismo cliente. Se arregla escapando el `_` o comparando por
+  igualdad contra `'/archivos/expensas/' + nombre`, que ya está en el `OR`.
+
+Y lo que falta para que esto se vea de punta a punta: **el portal todavía no puede abrir la
+expensa del vecino.** Está pedido en `docs/portal-vecino-y-porteria.md`, es del chat del portal.
+
+---
+
+## Por qué publicar la tanda decía `JSON.parse: unexpected character`
+
+Daniel cargó la tanda, la tabla leyó bien los cuatro totales, apretó **Publicar** y le saltó:
+
+```
+Error: JSON.parse: unexpected character at line 1 column 1 of the JSON data
+```
+
+Ese mensaje no tiene nada que ver con las expensas. Perseguí el endpoint, PostgreSQL y las
+columnas de `expensas` --las 13 estaban-- antes de mirar el registro de nginx, que lo dijo en una
+línea:
+
+```
+"POST /admin/api/expensa-tanda-publicar HTTP/2.0" 302 34
+```
+
+**Un 302 de 34 bytes es el HTML del `Found. Redirecting to /admin/login`.** O sea: la sesión se
+había caído y `requireAuth` contestó con una redirección. El `await r.json()` del otro lado no
+puede leer eso, y lo informa hablando de la línea 1 columna 1 de un JSON que nunca existió.
+
+### Ya lo arreglé en `requireAuth` (son 4 líneas, dashboard.js ~1016)
+
+Perdón por entrar de nuevo en tu archivo. Lo hice porque mientras siga así, **cualquier** sesión
+vencida en **cualquier** endpoint del panel se le aparece al administrador como `JSON.parse`, y a
+quien lo diagnostique lo manda a mirar el código que acaba de escribir. Es el mismo patrón que el
+contador `⏱️ 3 caso(s)` que contaba antes de filtrar: una falla que miente sobre sí misma cuesta
+más que la falla.
+
+Lo que había:
+
+```js
+if (req.headers.accept && req.headers.accept.includes('application/json')) {
+  return res.status(401).json({ error: 'No autenticado' });
+}
+return res.redirect('/admin/login');
+```
+
+**El `Accept` no sirve como señal**: un `fetch` con cuerpo JSON manda `Accept: */*` salvo que se lo
+pidas explícitamente, así que esa rama casi nunca corría. Tus `fetch` del panel mandan solo
+`Content-Type`, como corresponde. Lo confiable es la ruta:
+
+```js
+const esLlamadaDeCodigo = req.path.startsWith('/api/') ||
+  (req.headers.accept && req.headers.accept.includes('application/json'));
+
+if (esLlamadaDeCodigo) {
+  return res.status(401).json({
+    error: 'Se venció la sesión del panel. Volvé a entrar y probá de nuevo.',
+    sesion_vencida: true,
+  });
+}
+return res.redirect('/admin/login');
+```
+
+Tu `publicarExpensa` ya hace `if (!r.ok || j.error) throw new Error(j.error ...)`, así que el toast
+ahora dice la frase de arriba sin que toques nada del lado del navegador. Candado en
+`pruebas-clave-app.js`: una ruta de API tiene que contestar JSON, y el control va **antes** del
+redirect.
+
+### Lo que NO arreglé, y es tuyo: la sesión se borra en cada `pm2 restart`
+
+> [!CAUTION]
+> **`session()` está sin `store`, así que usa el `MemoryStore` de `express-session`: las sesiones
+> viven en la RAM del proceso.** Un `pm2 restart` las borra todas.
+
+```js
+router.use(session({
+  name: 'marcos.sid',
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 * 12 },
+}));
+```
+
+La cookie dura **12 horas** y el servidor se olvida en cada despliegue. Esa asimetría es el
+problema: el navegador sigue mandando una cookie que cree válida, el panel se ve normal, y el error
+aparece recién al apretar un botón. Daniel reinició varias veces con la pestaña abierta mientras
+probábamos — por eso salió ahí.
+
+No lo toqué porque es la autenticación del panel, es tu archivo, y **suma una dependencia npm**
+(que según la regla de oro tiene que ir en el mismo commit que el código que la usa). La forma
+directa, con la base que ya está:
+
+```js
+const pgSession = require('connect-pg-simple')(session);
+// store: new pgSession({ pool, tableName: 'sesiones_panel', createTableIfMissing: true }),
+```
+
+Dos cosas del proyecto que aplican si lo encarás:
+
+- **`createTableIfMissing` crea la tabla como el rol que se conecta.** Marcos entra como `marcos`,
+  así que queda bien; si la creás desde `psql` como `postgres`, el `INSERT` va a fallar con
+  `permission denied` y desde el código parece un bug. Está anotado en CLAUDE.md, y se verifica con
+  `node revisar-permisos-pg.js`.
+- **El portal del vecino monta su propia sesión** (`portal-vecino.js:16`, con `saveUninitialized:
+  true`) y tiene el mismo problema. Es del chat del portal; lo dejo pedido ahí.
+
+Mientras no esté, el arreglo del `requireAuth` alcanza para que el mensaje diga la verdad: se
+vuelve a entrar al panel y la tanda se sube de nuevo.
+
+---
+
+## La tanda dice "publicada con éxito" aunque no se haya guardado ninguna
+
+Daniel publicó la tanda, el panel le dijo que salió bien, y **Expensas publicadas** siguió diciendo
+*"Todavía no publicaste expensas para este edificio."*
+
+Antes de buscar en el listado, hay que descartar esto, porque el mensaje de éxito no es confiable.
+
+### 1. El contador cuenta al final del `try`
+
+`dashboard.js:15928`, adentro del bucle de `expensa-tanda-publicar`:
+
+```js
+      guardadas++;
+    } catch (errItem) {
+      console.error(`Error guardando expensa en tanda (${nombreFinal}):`, errItem.message);
+    }
+```
+
+`guardadas++` corre **después** del `appendRow` a Sheets y del `INSERT` a PostgreSQL. Si cualquiera
+de los dos falla, la fila cae al `catch` y no se cuenta. Está bien que sea así.
+
+### 2. Pero el navegador convierte el 0 en "todas"
+
+`dashboard.js:8159`:
+
+```js
+toast('Tanda de ' + (j.guardadas || _expTandaDatos.length) + ' expensas publicada con éxito', 'ok');
+```
+
+> [!CAUTION]
+> **`j.guardadas || _expTandaDatos.length` con `guardadas === 0` devuelve la cantidad de filas de la
+> tabla.** O sea: la tanda donde fallaron **todas** informa *"Tanda de 4 expensas publicada con
+> éxito"*.
+
+`0` es falsy, y acá `0` es justo el número que más importa mostrar. Sirve:
+
+```js
+var n = (typeof j.guardadas === 'number') ? j.guardadas : _expTandaDatos.length;
+if (n === 0) throw new Error('No se guardó ninguna expensa. Revisá el log del servidor.');
+toast('Tanda de ' + n + ' expensas publicada con éxito', 'ok');
+```
+
+Y del lado del servidor, `res.json({ ok: true, guardadas })` contesta `ok: true` aunque no se haya
+guardado nada. Devolver además cuántas fallaron (y con qué motivo) es lo que permite decirlo en
+pantalla en lugar de dejarlo en el log:
+
+```js
+res.json({ ok: guardadas > 0, guardadas, fallidas: filas.length - guardadas });
+```
+
+Es el mismo patrón que el `⏱️ 3 caso(s)` que contaba antes de filtrar y que el `302` al login leído
+como JSON: **una falla que miente sobre sí misma cuesta más que la falla.** Acá mandó a mirar el
+listado, que puede estar perfecto.
+
+### 3. Si el log está limpio, entonces sí es el listado
+
+```bash
+pm2 logs marcos-ai --lines 400 --nostream | grep -i "expensa en tanda"
+```
+
+Con el log limpio, las filas están escritas y el problema es el filtro de `dashboard.js:12991`:
+
+```js
+.filter((x) => cur && compararEdificios(x.edificio, cur.nombre) && x.estado !== 'eliminada')
+```
+
+Tres cosas para mirar, en orden:
+
+- **`cur` falsy filtra TODO** y el mensaje resultante es exactamente *"Todavía no publicaste
+  expensas para este edificio"* — indistinguible de no tener ninguna. Vale la pena que esos dos
+  casos digan cosas distintas: "no hay expensas" y "no pude determinar tu edificio" no se arreglan
+  igual.
+- **El nombre del edificio sale de dos bases distintas.** Al publicar, `edificio` es
+  `edificiosPermitidos(req)[0]`, que según CLAUDE.md se resuelve contra **PostgreSQL**; al listar,
+  `cur.nombre` viene de `cargarDatos(req)`, que lee **Sheets**. Si las dos bases tienen el nombre
+  escrito distinto --que es el problema que ya documentamos con `revisar-sobrantes.js`--, se guarda
+  con un nombre y se busca con el otro. `node revisar-sobrantes.js edificios` lo dice.
+- **La pestaña.** `guardarFactura` ya tuvo este bug exacto: buscaba la pestaña por un nombre
+  sensible a mayúsculas, no la encontraba y **creaba una segunda**. Las facturas iban a la nueva y
+  quien miraba la vieja las daba por perdidas. Si `appendRow` y `readTab` no resuelven
+  `TAB_EXPENSAS` igual, pasa lo mismo: se escribe en una pestaña y se lee de otra. En `sheets.js`
+  eso se resolvió con `pestaña()`, que la encuentra escrita como esté.
+
+Yo no toqué nada de esto: el listado es tuyo y Daniel ya te lo pasó. Queda acá para que no haya que
+derivarlo de nuevo.
+
+---
+
+## Pedido: Expensas tiene que empezar por elegir el edificio (tarjetas, no error)
+
+Decisión de Daniel, 24/09. Nace de un bug real y de un arreglo mío que quedó a medias.
+
+### Qué pasó
+
+Daniel subió cuatro liquidaciones con el selector del header en **"Todos los edificios"** (tiene
+3). El panel dijo que se publicaron, y **Expensas publicadas** seguía vacío. Entrando a San
+Patricio 159 sí estaban.
+
+Se habían archivado ahí porque la publicación resolvía el edificio con `permitidos[0]` — **el
+primero de la lista**, que sale del orden en que quedaron cargados. Acertó de casualidad.
+
+> [!CAUTION]
+> **Una expensa lleva el número de unidad y lo que debe una persona.** Archivada en el consorcio
+> equivocado, la ven los vecinos de otro edificio. La casualidad al revés no es un dato feo en una
+> tabla.
+
+Lo tapé en el servidor: `edificioParaEscribir(req)` (dashboard.js, al lado de
+`edificiosPermitidos`) devuelve el edificio solo cuando no hay nada que adivinar, y los tres
+endpoints de expensas cortan con un `400` si no se pudo determinar. **Ese control se queda**: un
+`POST` directo no pasa por ninguna pantalla, que es exactamente lo que pasó con `/api/pases-qr`.
+
+### Pero el `400` llega en el peor momento, y eso es lo que hay que arreglar
+
+Frena **después** de subir los archivos, leerlos con la IA y revisar la tabla. A esa altura el
+trabajo ya está hecho. Elegir el edificio es lo **primero** que hay que decidir, no lo último que
+se valida.
+
+Y hay un problema de fondo más simple: **"Todos los edificios" es un estado escondido que cambia en
+silencio lo que significa publicar.** Mientras exista en esa pantalla, el error puede volver por
+otra puerta.
+
+### Lo que pide Daniel
+
+Al entrar a `/admin/expensas` sin edificio elegido, **en vez de la pantalla de carga, un grid de
+tarjetas — una por edificio del cliente**. Se elige uno y recién ahí aparece la pantalla de
+siempre. El patrón ya existe en el panel: "Clientes y edificios" funciona igual (grid → detalle),
+así que no es una pantalla nueva.
+
+```
+if (!cur && edificiosDeLaCuenta(req).length > 1) → grid de tarjetas
+```
+
+Cada tarjeta va a `/admin/set-filtro`, que ya acepta las dos cosas que hacen falta:
+
+```
+/admin/set-filtro?edificio=<nombre>&volver=%2Fadmin%2Fexpensas
+```
+
+**Con un solo edificio, sin tarjetas: se entra directo.** Si no hay nada que elegir, una pantalla
+intermedia es puro estorbo.
+
+### Y que la tarjeta conteste algo, no solo pida un click
+
+Si igual hay que mostrarlas, que respondan la pregunta que hoy no contesta nadie: **¿a cuál me
+falta cargarle las expensas de este mes?** Un administrador con tres consorcios tiene que entrar a
+los tres para averiguarlo.
+
+```
+San Patricio 159      Agosto 2026 · 12 publicadas
+San Patricio 270      Agosto 2026 · sin publicar      ← lo que está buscando
+Torre Norte           Julio 2026 · 8 publicadas
+```
+
+Sale de la misma `readTab(TAB_EXPENSAS)` que ya lee la pantalla, agrupando por edificio en lugar
+de filtrar por uno. Así la pantalla obligatoria pasa de ser un peaje a ser la más útil de la
+sección.
+
+### Lo otro que hay que arreglar de la misma pantalla
+
+Ya está más arriba en este archivo, pero se juntan acá porque son el mismo episodio:
+
+- **El listado miente cuando no hay edificio elegido.** `dashboard.js:12991` filtra con
+  `cur && compararEdificios(...)`, así que con `cur` en null descarta todo y sale *"Todavía no
+  publicaste expensas para este edificio"* — indistinguible de no tener ninguna. Por eso creímos
+  media hora que no se habían guardado. Con el grid de tarjetas este caso deja de existir en
+  Expensas, pero **el mensaje sigue estando mal** para cualquier otra pantalla que filtre igual:
+  "no hay ninguna" y "no sé de qué edificio me hablás" no se arreglan igual.
+- **El toast convierte el 0 en "todas"**: `j.guardadas || _expTandaDatos.length`. Una tanda donde
+  fallaron todas las filas informa éxito. Está explicado arriba con el reemplazo.
+
+---
+
+## Despliegue al VPS: lo que hay para subir (24/09)
+
+Daniel pidió que lo hagas vos, que tenés acceso. Son cuatro commits, ninguno toca el `.env` ni
+nada de configuración.
+
+**Rama**: `claude/marcos-ia-whatsapp-template-vpg8gw` — punta en `c2dbc13`. Verifiqué que contiene
+`main` entero (`git log HEAD..origin/main` vacío), así que no hay nada que mergear antes.
+
+| Commit | Qué cambia |
+|---|---|
+| `e1c18fe` | `requireAuth`: una ruta `/api/` sin sesión contesta `401` JSON en vez de redirigir al login. Es lo que hacía que todo error de sesión se viera como `JSON.parse: unexpected character`. |
+| `fc2d4a9` | Publicar una expensa con varios edificios y ninguno elegido ahora corta y pide elegir, en vez de archivarla en el primero de la lista. |
+| `6ce44f8`, `c2dbc13` | Solo documentación (este archivo). |
+
+### Antes de pulear, mirá si alguien editó algo a mano
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git status --short
+```
+
+> [!CAUTION]
+> **Si aparecen archivos modificados, NO los resuelvas con `git add -A`.** Ahí conviven `.env.save`
+> y `.enov11` (las credenciales), `almacenamiento/` (audios, fotos y facturas de vecinos reales) y
+> el SQLite. Ya pasó una vez: un `git add -A` de rescate se llevó los tres adentro de un commit, y
+> no llegó a GitHub solo porque se miró el `git status` antes de empujar. El repo se hace público
+> cada vez que se usa el `curl`.
+>
+> Fue mi error, así que lo anoto con nombre y apellido. Si hay cambios locales, se agregan **por
+> archivo**, mirando cada uno.
+
+### El pull
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+### Y ahora sí hace falta `npm install`
+
+Tu `connect-pg-simple` es una dependencia nueva, así que este paso dejó de ser opcional:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && npm install
+```
+
+> [!CAUTION]
+> **Sin esto el panel arranca igual, y ahí está el problema.** El `require('connect-pg-simple')`
+> está adentro de un `try`, así que un módulo que falta se atrapa, se avisa por consola y se cae al
+> `MemoryStore` de antes. El despliegue "sale bien", el panel funciona, y las sesiones se siguen
+> borrando en cada `pm2 restart` — con el arreglo puesto en el repo y sin efecto en producción.
+>
+> Que degrade en vez de reventar está **bien** (un panel caído es peor que un panel que deslogea),
+> pero obliga a verificar que la línea de abajo NO aparezca:
+
+```bash
+pm2 logs marcos-ai --lines 60 --nostream | grep "store de sesiones"
+```
+
+Si aparece `⚠️ No se pudo inicializar store de sesiones`, el `npm install` no corrió o PostgreSQL
+no estaba disponible al arrancar.
+
+Y que la tabla haya quedado a nombre de `marcos`, que es lo que te avisaba más arriba:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-permisos-pg.js
+```
+
+Que quede en `c2dbc13` o posterior:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git log --oneline -1
+```
+
+### Antes de reiniciar, que el archivo parsee
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node --check dashboard.js && node --check index.js
+```
+
+> Esto no es ritual. Un acento grave adentro de un template literal ya rompió `db-pg.js` una vez:
+> el push salió, el verificador dijo que todo estaba bien, y el error apareció recién acá con
+> Marcos ya reiniciado.
+
+### Reiniciar
+
+```bash
+pm2 restart marcos-ai
+```
+
+> El proceso se llama **`marcos-ai`**, no `marcos-ia`.
+
+### Qué mirar después
+
+```bash
+pm2 logs marcos-ai --lines 40 --nostream
+```
+
+Y dos cosas en el panel, que son justo las que se arreglaron:
+
+1. **Publicar una expensa con el selector en "Todos los edificios"** tiene que decir *"Elegí
+   primero a qué edificio corresponde…"*. Antes la archivaba en el primero de la lista sin avisar.
+2. **Dejar el panel abierto, reiniciar, y apretar cualquier botón**: tiene que decir *"Se venció la
+   sesión del panel. Volvé a entrar y probá de nuevo."* en vez del `JSON.parse`.
+
+Ojo que lo segundo **sigue pasando** después de este despliegue: las sesiones viven en la RAM del
+proceso y cada `pm2 restart` las borra. Lo que cambia es que ahora lo dice. El arreglo de fondo
+--un `store` en PostgreSQL-- está pedido más arriba en este mismo archivo.
+
 ## 23/09 — Pedido: avisos del edificio y expensas por departamento
 
 Dos pantallas nuevas del panel. Las dos tienen su tabla ya creada de mi lado, así que del tuyo es
