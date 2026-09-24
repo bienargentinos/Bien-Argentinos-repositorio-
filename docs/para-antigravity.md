@@ -450,3 +450,65 @@ Y que el listado de expensas apunte a esa ruta en vez de a `/archivos/...`.
 > `buscarPerfilEdificio`, escrita dos veces: arreglar una copia no cambió nada en producción.
 
 Prueba: `node pruebas-expensa-privada.js` (39 verificaciones, sin credenciales).
+
+### 24/09 — subida múltiple de expensas, con revisión antes de publicar
+
+Daniel quiere que el administrador suba las expensas de todas las unidades de una vez. Hoy es
+`.single('archivo')`: un edificio de 40 unidades son 40 ciclos, todos los meses. Eso es lo que
+hace que abandone la función.
+
+**Pero la subida múltiple a secas empeora el problema**, y por un motivo que conviene tener claro:
+
+> **Nadie asigna una expensa a un vecino: la unidad escrita ES la llave.** El portal trae las de
+> su edificio cuyo `departamento` esté vacío o sea el suyo. Si el PDF dice `Depto 1` y el vecino
+> tiene cargado `1A`, no coinciden — y **no pasa nada visible**: el vecino entra, no ve su
+> expensa y cree que no la subieron; vos la ves publicada. Nadie se entera.
+
+Con una por mes se nota. Con 40 de golpe se cuelan tres y aparecen como un reclamo dos semanas
+después.
+
+#### Lo que va, entonces
+
+1. Elegir varios archivos (`.array('archivos', 60)`).
+2. Por cada uno, `leerExpensa` — ya devuelve unidad, período, total, vencimiento.
+3. **Una tabla de revisión ANTES de publicar**, con un semáforo por fila.
+4. El administrador corrige lo que haga falta ahí mismo y recién entonces publica.
+
+#### El lado de los datos ya está
+
+```js
+const { unidadesConVecino, revisarTanda, resumenTanda } = require('./unidades-edificio');
+
+const conocidas = await unidadesConVecino(edificio);   // null = no se pudo verificar
+const filas = revisarTanda(lecturas, conocidas || []);
+const resumen = resumenTanda(filas);   // { total, ok, general, sin_vecino, repetida, hayQueMirar }
+```
+
+Cada fila trae `estado` y un `mensaje` ya redactado para mostrar:
+
+| `estado` | Qué mostrar |
+|---|---|
+| `general` | sin unidad: la liquidación del edificio, la ven todos |
+| `ok` | coincide con una unidad que tiene vecino |
+| `sin_vecino` | **no es un error**: se publica igual y aparece sola cuando esa persona se registre. Pero si la unidad está mal escrita, nadie la va a ver nunca |
+| `repetida` | dos archivos de la misma unidad en la tanda — casi siempre el mismo PDF elegido dos veces |
+
+> **`sin_vecino` no se pinta de rojo ni se llama error.** Una unidad correcta sin vecino
+> registrado todavía es normal. Llamarle error es un falso positivo, y un aviso que grita por
+> cosas que están bien es uno que se aprende a ignorar en la primera tanda.
+
+> **Si `unidadesConVecino` devuelve `null`**, la base no contestó: mostrá la tabla **sin** el
+> semáforo y decí que no se pudo verificar. Tratarlo como lista vacía marcaría las 40 filas.
+
+#### Para probarlo sin molestar a nadie
+
+```bash
+node ejemplo-expensas.js
+```
+
+Escribe 4 liquidaciones de ejemplo en `ejemplos-expensas/` (HTML → imprimir a PDF). Están hechas
+para que sea **difícil**: traen saldo anterior, intereses, subtotales y el total del edificio, que
+son justo los números que se confunden con el total a pagar. Una viene con la unidad escrita
+distinto a propósito (`Depto 3`), para ver el aviso de `sin_vecino` funcionando.
+
+Pruebas: `node pruebas-unidades-edificio.js` (21 verificaciones, sin credenciales).
