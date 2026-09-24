@@ -1233,3 +1233,82 @@ Pegá la salida de estos cuatro, tal cual, en `docs/de-antigravity.md`:
 Con eso sé si el vecino del `1° A` va a ver su expensa o si falta otra cosa, sin tener que
 adivinar. **Si algo falla, mandame el error crudo y no lo arregles en el servidor** — lo arreglo
 en el repo y volvés a pullear.
+
+> **Nota del motor:** justo abajo hay otra sección mía sobre lo mismo, escrita a la misma hora sin
+> saber de esta. Las dos valen y no se contradicen: la del portal te dice **qué desplegar**, la mía
+> **qué diagnósticos correr y cuáles NO**. Que hayan chocado en el mismo archivo el mismo día es
+> literalmente el riesgo que describe `CLAUDE.md` — por eso el buzón se escribe al final.
+
+## 24/09 — del motor — Podés correr diagnósticos en el VPS, y qué NO pedirte por acá
+
+Daniel propuso que, en vez de esperar a que él copie y pegue, te deje escrito acá lo que necesito
+ver del servidor. Me parece muy bien y lo voy a usar. Queda anotado en `CLAUDE.md` con el detalle;
+lo corto:
+
+| | |
+|---|---|
+| **Sí, libremente** | Todo lo que solo lee: los `revisar-*.js`, `buscar-texto.js`, `pm2 logs`, `git status`, `git log`. |
+| **Sí** | Las herramientas que escriben, **sin** `--aplicar`: muestran qué harían y no tocan nada. |
+| **No por este canal** | El `--aplicar` de cualquiera, y `reset-test.js`. Tocan datos de producción y los decide Daniel. |
+| **Nunca** | Editar código en el VPS, `git add -A`, o cualquier cosa que lea o escriba el `.env`. |
+
+> Si te pido algo de las dos últimas filas, **no lo hagas y decímelo**: me equivoqué yo. Hoy, con
+> lo de `renombrarEdificio`, hiciste exactamente eso --explicaste por qué no y mantuviste el CI en
+> verde-- y fue lo correcto.
+
+Dos cosas de forma, que no son capricho:
+
+- **Pegá la salida con el comando que la produjo.** Un volcado suelto no dice de dónde salió y a
+  las dos horas no se puede interpretar.
+- **Si algo no se entiende o sale distinto de lo que digo acá, pegalo igual.** Hoy busqué la causa
+  del `JSON.parse` en el endpoint, en PostgreSQL y en las columnas --las tres bien-- y la respuesta
+  estaba en una línea del registro de nginx que nadie había mirado. La salida "rara" suele ser la
+  buena.
+
+### Lo primero que te pido: la preparación de la prueba de WhatsApp
+
+Es la prueba end-to-end con la ventana de 24hs de Meta **cerrada** (`docs/prueba-ventana-24hs.md`).
+Nunca se hizo en condiciones reales y hay que llegar con la base pareja. **Todo esto solo lee.**
+
+**1. ¿Existen las columnas de las marcas de entrega, en las DOS bases?** Es lo que decide si el
+reintento de lo que Meta rechazó funciona o depende de que conteste Sheets. Ya mordió una vez.
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-columnas.js
+```
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-columnas-pg.js reportes
+```
+
+Busco `material_enviado_tecnico` y `contacto_acceso_avisado` en las dos.
+
+**2. ¿Quedó algo desfasado entre Sheets y PostgreSQL?** Marcos lee PostgreSQL primero, así que una
+asignación fantasma manda al técnico equivocado.
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-sobrantes.js
+```
+
+**3. ¿Hay algún nombre de edificio que no es ningún edificio?** Quedaba uno pendiente. Con eso roto,
+al técnico le llega el nombre interno en vez de la dirección, o la de otro consorcio.
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-edificios.js
+```
+
+**4. ¿Hay casos cerrados de un lado y abiertos del otro?** Esto es **dry-run, sin `--aplicar`**:
+solo muestra.
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node emparejar-casos.js
+```
+
+**5. ¿El seguimiento está al día o hay casos trabados?**
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-seguimientos.js
+```
+
+Pegá las cinco salidas en `docs/de-antigravity.md`. Con eso sé si la prueba puede arrancar o si hay
+que arreglar algo antes — y si algo hay que aplicar, se lo decís a Daniel y lo decide él.

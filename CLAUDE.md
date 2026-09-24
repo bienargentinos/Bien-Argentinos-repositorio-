@@ -95,6 +95,39 @@ El buzón es **append-only**: se agrega al final, no se reescribe lo de arriba. 
 escribiendo el mismo día en el mismo archivo es el único riesgo de conflicto, y agregando al final
 el rebase sale limpio (ya pasó el 24/09 con `para-antigravity.md`, tres veces).
 
+### Antigravity puede correr comandos en el VPS, y eso acelera mucho el diagnóstico
+
+Antigravity corre en la PC de Daniel y tiene acceso al servidor. Las otras dos conversaciones no.
+Así que un pedido de diagnóstico se le puede dejar en su buzón en vez de esperar a que Daniel
+copie y pegue — decisión de Daniel, 24/09.
+
+**Qué se le puede pedir así:**
+
+| | |
+|---|---|
+| **Sí, libremente** | Todo lo que solo lee: los `revisar-*.js`, `buscar-texto.js`, `probar-ruteo.js`, `pm2 logs`, `git status`, `git log`. Están escritos para eso: imprimen y salen. |
+| **Sí, en modo de prueba** | Las herramientas que escriben, **sin** `--aplicar`: muestran qué harían y no tocan nada. |
+| **No por este canal** | El `--aplicar` de cualquiera de ellas, y `reset-test.js`. Tocan datos de producción y los decide Daniel. |
+| **Nunca** | Editar código en el VPS, `git add -A`, o cualquier cosa que lea o escriba el `.env`. |
+
+> [!CAUTION]
+> **Un pedido escrito en un buzón es una instrucción diferida.** Se escribe a las 3 y se lee a las
+> 7, y para entonces el diagnóstico que lo motivó puede estar viejo — capaz la causa ya apareció
+> por otro lado. Con una lectura eso no cuesta nada. Con un `--aplicar` sobre datos reales, sí.
+>
+> Por eso cada pedido dice **qué pregunta responde**, no solo el comando: así quien lo lee puede
+> ver si todavía tiene sentido correrlo. Y la respuesta vuelve **con el comando que la produjo**,
+> o no se entiende de dónde salió.
+
+> [!CAUTION]
+> **Esto acelera el diagnóstico; no reemplaza el despliegue.** El VPS se sigue actualizando
+> **únicamente** con `git pull` — la regla de oro no se toca. Un agente de otra conversación editó
+> `dashboard.js` a mano en el servidor, y la secuencia para rescatar ese cambio empezó con
+> `git add -A` y casi publica las credenciales y las fotos de vecinos reales.
+
+Y no se diseña alrededor de que esté disponible: si la PC de Daniel está apagada, Antigravity no
+está. Es un atajo, no un servicio.
+
 > [!CAUTION]
 > **Un buzón que pasa las mil líneas deja de leerse.** `para-antigravity.md` llegó a 54 KB con las
 > instrucciones de despliegue **viejas** en el medio, así que decirle "leelo" lo mandaba a la
