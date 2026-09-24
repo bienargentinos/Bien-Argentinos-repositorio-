@@ -27,6 +27,25 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-24 — Ruta protegida del panel para servir archivos de expensas (/api/expensa-archivo/:nombre)
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Ruta segura para servir expensas (`GET /api/expensa-archivo/:nombre`)**:
+    - Se implementó el endpoint protegido solicitado por Claude en `docs/para-antigravity.md`.
+    - Resuelve la expensa en PostgreSQL (con fallback a Sheets).
+    - Evalúa permisos con `puedeVerExpensa({ expensa, quien })` de `expensa-privada.js`, identificando sesión de `dueno` o `consorcio` (con sus edificios permitidos).
+    - Resuelve la ubicación del archivo con `rutaDelArchivo` y lo entrega con `res.sendFile`.
+  - **Listado de expensas en el panel (`GET /expensas`)**:
+    - Los enlaces de "Ver" y "Copiar" ahora apuntan a `/admin/api/expensa-archivo/:nombre` en lugar de la ruta pública bloqueada `/archivos/expensas/...`.
+
+- **Verificación:**
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK.
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ Sin usos fuera de alcance.
+  - `node pruebas-expensa-privada.js`: ✅ 39 bien, 0 mal.
+  - `node pruebas-expensa-documento.js`: ✅ 59 bien, 0 mal.
+  - `node verificar-antes-de-subir.js`: ✅ 64 de 64 pruebas en verde.
+
 ### 2026-09-24 — Expensas por unidad con extracción de total, previsualización OCR y confirmación en panel
 
 - **Qué cambié y en qué archivo:**

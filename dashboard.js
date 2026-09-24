@@ -12658,7 +12658,10 @@ router.get('/expensas', async (req, res) => {
       <div style="display:flex;flex-direction:column;gap:12px">
         ${expensas.map((x) => {
           const t = tipoExp(x.formato);
-          const copiable = x.url || x.nombre;
+          const esLink = x.formato === 'link' || /^https?:\/\//i.test(x.url || '');
+          const archivoNombre = path.basename(x.url || x.nombre || '');
+          const verUrl = esLink ? x.url : (archivoNombre ? `/admin/api/expensa-archivo/${encodeURIComponent(archivoNombre)}` : (x.url || ''));
+          const copiable = verUrl || x.url || x.nombre;
           const montoNum = x.monto !== '' && x.monto !== null && !isNaN(Number(x.monto)) ? Number(x.monto) : null;
           const montoFmt = montoNum !== null ? montoNum.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (x.monto ? esc(x.monto) : '');
           return `
@@ -12672,11 +12675,11 @@ router.get('/expensas', async (req, res) => {
                 ${montoFmt ? `<span style="font-size:12px;font-weight:800;padding:2px 9px;border-radius:999px;background:#ECFDF5;color:#065F46">$ ${montoFmt}${x.monto_origen === 'ocr' ? ' <span style="font-size:9.5px;font-weight:600;opacity:0.8">(OCR)</span>' : ''}</span>` : ''}
                 ${x.vencimiento ? `<span style="font-size:11.5px;color:#64748B">Vence: ${esc(x.vencimiento)}</span>` : ''}
               </div>
-              <div style="font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px;margin-top:2px">${esc(x.url || x.nombre || '')}</div>
+              <div style="font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px;margin-top:2px">${esc(x.nombre || archivoNombre || x.url || '')}</div>
             </div>
             <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ Marcos puede compartirla</span>
             <div style="display:flex;gap:8px">
-              ${x.url ? `<a href="${esc(x.url)}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#F8FAFD;color:#1E5FB4;font-weight:700;font-size:12.5px;text-decoration:none" class="hv-soft">👁️ Ver</a>` : ''}
+              ${verUrl ? `<a href="${esc(verUrl)}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#F8FAFD;color:#1E5FB4;font-weight:700;font-size:12.5px;text-decoration:none" class="hv-soft">👁️ Ver</a>` : ''}
               <button onclick="copiarExpensa('${escJs(copiable)}')" style="height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-soft">🔗 Copiar</button>
               <button onclick="quitarExpensa(this,${x._row})" style="height:36px;padding:0 13px;border:1px solid #EEDCDC;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-red">Quitar</button>
             </div>
@@ -15306,6 +15309,70 @@ router.post('/api/responder-sugerencia', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
+});
+
+// Servir archivo de expensa protegido. Solo accesible por el dueño o clientes con permiso sobre el edificio.
+router.get('/api/expensa-archivo/:nombre', async (req, res) => {
+  const nombreParam = path.basename(req.params.nombre || '');
+  if (!nombreParam) return res.status(400).json({ error: 'Falta nombre' });
+
+  // Verificar sesión del panel
+  if (!req.session || (!req.session.role && !req.session.user)) {
+    return res.status(401).json({ error: 'No hay sesión activa' });
+  }
+
+  const { puedeVerExpensa, rutaDelArchivo } = require('./expensa-privada');
+  const permitidos = edificiosDeLaCuenta(req).length ? edificiosDeLaCuenta(req) : (edificiosPermitidos(req) || []);
+  const quien = esDueno(req)
+    ? { rol: 'dueno' }
+    : { rol: 'consorcio', edificios: permitidos };
+
+  let expensa = null;
+  // 1. Buscar en PostgreSQL
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `SELECT * FROM expensas 
+                 WHERE (url LIKE $1 OR nombre = $2 OR url = $3)
+                   AND estado != 'eliminada' 
+                 ORDER BY id DESC LIMIT 1`;
+      const resPg = await pool.query(q, ['%' + nombreParam, nombreParam, '/archivos/expensas/' + nombreParam]);
+      if (resPg.rows && resPg.rows.length) {
+        expensa = resPg.rows[0];
+      }
+    }
+  } catch (errPg) {
+    console.warn('Error buscando expensa en PG:', errPg.message);
+  }
+
+  // 2. Fallback a Google Sheets si no se encontró en PG
+  if (!expensa) {
+    try {
+      const { rows } = await readTab(TAB_EXPENSAS);
+      expensa = rows.map(mapExpensa).find((x) => {
+        if (x.estado === 'eliminada') return false;
+        const u = path.basename(x.url || '');
+        const n = path.basename(x.nombre || '');
+        return u === nombreParam || n === nombreParam || (x.url && x.url.endsWith(nombreParam));
+      });
+    } catch (_) {}
+  }
+
+  if (!expensa) {
+    return res.status(404).json({ error: 'Expensa no encontrada' });
+  }
+
+  const { puede, motivo } = puedeVerExpensa({ expensa, quien });
+  if (!puede) {
+    return res.status(403).json({ error: motivo || 'No tenés permiso para ver esta expensa' });
+  }
+
+  const ruta = rutaDelArchivo(expensa.url || nombreParam);
+  if (!ruta || !fs.existsSync(ruta)) {
+    return res.status(404).json({ error: 'No se encontró el archivo físico en el servidor' });
+  }
+
+  res.sendFile(ruta);
 });
 
 // Analizar expensa con IA para previsualizar unidad, total y vencimiento antes de publicar.
