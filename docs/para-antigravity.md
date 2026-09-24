@@ -11,6 +11,20 @@ archivo. Se lee con `git pull` y se escribe con un commit normal.
 
 ---
 
+## Si venís a desplegar al VPS, andá directo a **"DESPLIEGUE AL VPS — la versión al día"**
+
+Este archivo pasó las mil líneas y lo escriben dos sesiones distintas de Claude (el motor y el
+portal), así que tiene instrucciones de despliegue **viejas más arriba**. La que vale es esa, y es
+la única con el `npm install` que ahora hace falta.
+
+Son ocho pasos cortos, un comando por bloque, y el orden importa: el `npm install` va antes del
+`pm2 restart`, y la verificación del store va después.
+
+> **Lo de abajo es historia y contexto**, ordenado por fecha. Sirve para entender por qué algo está
+> como está — no para saber qué hacer hoy.
+
+---
+
 ## Arranque — para trabajar sin esperar a nadie
 
 **1. Traer lo último y salir a una rama propia.** El panel se trabaja en su rama, no directo sobre
@@ -837,21 +851,31 @@ Ya está más arriba en este archivo, pero se juntan acá porque son el mismo ep
 
 ---
 
-## Despliegue al VPS: lo que hay para subir (24/09)
+## DESPLIEGUE AL VPS — la versión al día (24/09, tarde)
 
-Daniel pidió que lo hagas vos, que tenés acceso. Son cuatro commits, ninguno toca el `.env` ni
-nada de configuración.
+> Esta sección reemplaza cualquier instrucción de despliegue anterior de este archivo. Si leíste
+> una que nombra el commit `c2dbc13`, era esta misma más temprano y quedó vieja.
 
-**Rama**: `claude/marcos-ia-whatsapp-template-vpg8gw` — punta en `c2dbc13`. Verifiqué que contiene
-`main` entero (`git log HEAD..origin/main` vacío), así que no hay nada que mergear antes.
+Daniel pidió que lo hagas vos, que tenés acceso.
 
-| Commit | Qué cambia |
+**Rama**: `claude/marcos-ia-whatsapp-template-vpg8gw`. Contiene `main` entero, así que no hay nada
+que mergear antes.
+
+> [!CAUTION]
+> **No busques un commit puntual: traé la punta de la rama.** Escribí acá un `c2dbc13` a la mañana
+> y para la tarde ya había quedado cuatro merges atrás — tuyos, míos y del portal. Un número de
+> commit en un documento que tres sesiones siguen empujando envejece en horas, y lo peor es que
+> parece preciso.
+
+Lo que entra, de las tres conversaciones:
+
+| De quién | Qué |
 |---|---|
-| `e1c18fe` | `requireAuth`: una ruta `/api/` sin sesión contesta `401` JSON en vez de redirigir al login. Es lo que hacía que todo error de sesión se viera como `JSON.parse: unexpected character`. |
-| `fc2d4a9` | Publicar una expensa con varios edificios y ninguno elegido ahora corta y pide elegir, en vez de archivarla en el primero de la lista. |
-| `6ce44f8`, `c2dbc13` | Solo documentación (este archivo). |
+| **Vos** | El `store` de sesiones en PostgreSQL, el grid de tarjetas por edificio, las expensas en clientes multi-edificio, el escape del `_` en el `LIKE`, y el modo oscuro de la tanda. |
+| **Motor** (yo) | `requireAuth` contesta `401` JSON en una ruta de API en vez de redirigir al login; publicar una expensa con varios edificios y ninguno elegido corta y pide elegir. |
+| **Portal** | El `CHECK` de `monto_origen` en `db-pg.js` --rechazaba `'ocr'`, que es lo que escribe tu panel--, la privacidad de los comprobantes, los avisos del edificio y los cuatro idiomas. |
 
-### Antes de pulear, mirá si alguien editó algo a mano
+### 1. Antes de pulear, mirá si alguien editó algo a mano
 
 ```bash
 cd /root/marcos/Consorcio-AI-Assistant && git status --short
@@ -859,23 +883,23 @@ cd /root/marcos/Consorcio-AI-Assistant && git status --short
 
 > [!CAUTION]
 > **Si aparecen archivos modificados, NO los resuelvas con `git add -A`.** Ahí conviven `.env.save`
-> y `.enov11` (las credenciales), `almacenamiento/` (audios, fotos y facturas de vecinos reales) y
-> el SQLite. Ya pasó una vez: un `git add -A` de rescate se llevó los tres adentro de un commit, y
-> no llegó a GitHub solo porque se miró el `git status` antes de empujar. El repo se hace público
-> cada vez que se usa el `curl`.
+> y `.enov11` (las credenciales), `almacenamiento/` (audios, fotos y facturas de vecinos y
+> proveedores reales) y el SQLite. Ya pasó una vez: un `git add -A` de rescate se llevó los tres
+> adentro de un commit, y no llegó a GitHub solo porque se miró el `git status` antes de empujar.
+> El repo se hace público cada vez que se usa el `curl`.
 >
 > Fue mi error, así que lo anoto con nombre y apellido. Si hay cambios locales, se agregan **por
 > archivo**, mirando cada uno.
 
-### El pull
+### 2. El pull
 
 ```bash
 cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
 ```
 
-### Y ahora sí hace falta `npm install`
+### 3. `npm install` — ahora no es opcional
 
-Tu `connect-pg-simple` es una dependencia nueva, así que este paso dejó de ser opcional:
+`connect-pg-simple` es una dependencia nueva (la tuya).
 
 ```bash
 cd /root/marcos/Consorcio-AI-Assistant && npm install
@@ -887,39 +911,21 @@ cd /root/marcos/Consorcio-AI-Assistant && npm install
 > `MemoryStore` de antes. El despliegue "sale bien", el panel funciona, y las sesiones se siguen
 > borrando en cada `pm2 restart` — con el arreglo puesto en el repo y sin efecto en producción.
 >
-> Que degrade en vez de reventar está **bien** (un panel caído es peor que un panel que deslogea),
-> pero obliga a verificar que la línea de abajo NO aparezca:
+> Que degrade en vez de reventar está **bien** (un panel caído es peor que uno que deslogea), pero
+> por eso mismo hay que verificarlo a propósito, en el paso 6.
+
+### 4. Que los archivos parseen, antes de reiniciar
 
 ```bash
-pm2 logs marcos-ai --lines 60 --nostream | grep "store de sesiones"
-```
-
-Si aparece `⚠️ No se pudo inicializar store de sesiones`, el `npm install` no corrió o PostgreSQL
-no estaba disponible al arrancar.
-
-Y que la tabla haya quedado a nombre de `marcos`, que es lo que te avisaba más arriba:
-
-```bash
-cd /root/marcos/Consorcio-AI-Assistant && node revisar-permisos-pg.js
-```
-
-Que quede en `c2dbc13` o posterior:
-
-```bash
-cd /root/marcos/Consorcio-AI-Assistant && git log --oneline -1
-```
-
-### Antes de reiniciar, que el archivo parsee
-
-```bash
-cd /root/marcos/Consorcio-AI-Assistant && node --check dashboard.js && node --check index.js
+cd /root/marcos/Consorcio-AI-Assistant && node --check dashboard.js && node --check index.js && node --check db-pg.js && node --check portal-vecino.js
 ```
 
 > Esto no es ritual. Un acento grave adentro de un template literal ya rompió `db-pg.js` una vez:
 > el push salió, el verificador dijo que todo estaba bien, y el error apareció recién acá con
-> Marcos ya reiniciado.
+> Marcos ya reiniciado. `db-pg.js` y `portal-vecino.js` están en la lista porque los tocó el portal
+> en este mismo lote.
 
-### Reiniciar
+### 5. Reiniciar
 
 ```bash
 pm2 restart marcos-ai
@@ -927,22 +933,50 @@ pm2 restart marcos-ai
 
 > El proceso se llama **`marcos-ai`**, no `marcos-ia`.
 
-### Qué mirar después
+### 6. Verificar que el store de sesiones quedó activo
+
+Esta línea **NO** tiene que aparecer:
 
 ```bash
-pm2 logs marcos-ai --lines 40 --nostream
+pm2 logs marcos-ai --lines 60 --nostream | grep "store de sesiones"
 ```
 
-Y dos cosas en el panel, que son justo las que se arreglaron:
+Si aparece `⚠️ No se pudo inicializar store de sesiones`, el `npm install` no corrió o PostgreSQL
+no estaba disponible al arrancar — y las sesiones se siguen perdiendo en cada reinicio.
 
-1. **Publicar una expensa con el selector en "Todos los edificios"** tiene que decir *"Elegí
-   primero a qué edificio corresponde…"*. Antes la archivaba en el primero de la lista sin avisar.
-2. **Dejar el panel abierto, reiniciar, y apretar cualquier botón**: tiene que decir *"Se venció la
-   sesión del panel. Volvé a entrar y probá de nuevo."* en vez del `JSON.parse`.
+Y que `sesiones_panel` haya quedado a nombre del rol `marcos`:
 
-Ojo que lo segundo **sigue pasando** después de este despliegue: las sesiones viven en la RAM del
-proceso y cada `pm2 restart` las borra. Lo que cambia es que ahora lo dice. El arreglo de fondo
---un `store` en PostgreSQL-- está pedido más arriba en este mismo archivo.
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-permisos-pg.js
+```
+
+> Usás el mismo `pool` que Marcos, así que tendría que estar bien. Se verifica igual porque el
+> síntoma de lo contrario --`permission denied` en el `INSERT`-- aparece lejos de la causa y parece
+> un bug del código. Ya pasó con la tabla `timbres`.
+
+### 7. Las expensas rechazadas no vuelven solas
+
+El `CHECK` viejo rechazó en PostgreSQL las expensas cuyo monto había leído la IA. Quedaron en la
+planilla y no en la base, que es de donde lee el portal. El portal dejó la herramienta:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node importar-expensas-a-pg.js
+```
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node importar-expensas-a-pg.js --aplicar
+```
+
+### 8. Qué mirar en el panel
+
+1. **Publicar una expensa con el selector en "Todos los edificios"** tiene que pedir que elijas uno
+   --o mostrarte tu grid de tarjetas-- en vez de archivarla en el primero de la lista sin avisar.
+2. **Dejar el panel abierto, reiniciar, y apretar cualquier botón.** Con el store andando ya **no**
+   tendría que deslogearte. Si igual te deslogea, el mensaje ahora dice *"Se venció la sesión del
+   panel. Volvé a entrar y probá de nuevo."* en vez del `JSON.parse` — eso significa que el
+   `requireAuth` está bien y el store no.
+3. **Una expensa publicada con monto leído por la IA tiene que aparecer en el portal del vecino.**
+   Es lo que el `CHECK` estaba tirando.
 
 ## 23/09 — Pedido: avisos del edificio y expensas por departamento
 
