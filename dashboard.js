@@ -1084,6 +1084,42 @@ function edificiosPermitidos(req) {
   return propios;
 }
 
+// A QUÉ EDIFICIO SE ESCRIBE CUANDO EL CLIENTE PUBLICA ALGO
+//
+// > [!CAUTION]
+// > **Con varios edificios y ninguno elegido en el selector, `permitidos[0]` es una moneda al
+// > aire.** No es "el edificio del cliente": es el primero de la lista, que sale del orden en que
+// > quedaron cargados.
+//
+// Daniel lo encontró subiendo expensas con el selector en **"Todos los edificios"** (tenía 3).
+// Las cuatro liquidaciones se archivaron bajo San Patricio 159 --el primero de la lista-- y en la
+// pantalla no aparecían, porque el listado sí filtra por el edificio elegido. Que hayan caído en
+// el edificio correcto fue **casualidad del orden**.
+//
+// Y el costo de la casualidad al revés es alto: una expensa es un documento con el monto que
+// tiene que pagar una persona. Archivada en el consorcio equivocado, **la ven los vecinos de otro
+// edificio**, con nombre de unidad y todo.
+//
+// `edificiosPermitidos` ya devuelve un solo edificio cuando hay uno elegido en el selector, así
+// que "uno solo" es la única situación donde no hay nada que adivinar. Es el mismo criterio que el
+// resto del proyecto: con dos o más candidatos **se pregunta**, no se elige. Preguntar molesta una
+// vez; elegir mal lo descubre un vecino.
+function edificioParaEscribir(req) {
+  const permitidos = edificiosPermitidos(req) || [];
+  if (permitidos.length === 1) return { edificio: permitidos[0], motivo: '' };
+  if (!permitidos.length) {
+    return {
+      edificio: '',
+      motivo: 'Tu cuenta todavía no tiene ningún edificio asignado. Pedile a la Administración que te asigne uno.',
+    };
+  }
+  return {
+    edificio: '',
+    motivo: 'Elegí primero a qué edificio corresponde, en el selector de arriba. Con varios edificios ' +
+            'no puedo saber cuál es, y si me equivoco lo termina viendo el vecino de otro consorcio.',
+  };
+}
+
 // Todos los edificios de la cuenta (sin estrechar por edificioActivo).
 function edificiosDeLaCuenta(req) {
   if (enPreview(req)) return req.session.previewEdificios || [];
@@ -15761,22 +15797,20 @@ router.post('/api/expensa-tanda-analizar', uploadExpensasMulter.array('archivos'
   const files = req.files || [];
   if (!files.length) return res.status(400).json({ error: 'No se recibieron archivos' });
 
-  const permitidos = edificiosPermitidos(req) || [];
   // > [!CAUTION]
-  // > **El edificio sale del PERMISO, nunca del cuerpo del pedido.**
+  // > **El edificio sale del PERMISO, nunca del cuerpo del pedido, y con varios no se adivina.**
   //
   // Acá habia un `|| (req.body && req.body.edificio)` de respaldo. Con un cliente sin edificios
   // asignados --el estado normal de uno recien creado-- ese respaldo ganaba, y el edificio pasaba
   // a ser lo que viniera escrito en el pedido: se podia publicar una expensa dentro del consorcio
-  // de otro administrador, con el monto que fuera, y los vecinos de ese edificio la veian.
+  // de otro administrador, con el monto que fuera, y los vecinos de ese edificio la veian. Es
+  // exactamente lo que paso con `/api/pases-qr`.
   //
-  // Es exactamente lo que paso con `/api/pases-qr`, donde el edificio venia en el cuerpo y no se
-  // validaba contra ningun permiso. Y el endpoint de a una, treinta lineas mas abajo, ya lo hacia
-  // bien: `permitidos[0] || ''`.
-  //
-  // Sin edificio permitido no se publica nada. Que falte el dato es una cuenta a medio configurar,
-  // no una autorizacion.
-  const edificio = permitidos[0] || '';
+  // Sacar ese respaldo dejo `permitidos[0] || ''`, que **tampoco alcanza**: con el selector en
+  // "Todos los edificios" eso es el primero de la lista, no el que el cliente tiene en la cabeza.
+  // Las dos reglas viven juntas en `edificioParaEscribir`.
+  const { edificio, motivo } = edificioParaEscribir(req);
+  if (!edificio) return res.status(400).json({ error: motivo });
 
   const { leerExpensa } = require('./expensa-documento');
   const lecturas = [];
@@ -15848,23 +15882,10 @@ router.post('/api/expensa-tanda-publicar', async (req, res) => {
     return res.status(400).json({ error: 'No hay filas para publicar' });
   }
 
-  const permitidos = edificiosPermitidos(req) || [];
-  // > [!CAUTION]
-  // > **El edificio sale del PERMISO, nunca del cuerpo del pedido.**
-  //
-  // Acá habia un `|| (req.body && req.body.edificio)` de respaldo. Con un cliente sin edificios
-  // asignados --el estado normal de uno recien creado-- ese respaldo ganaba, y el edificio pasaba
-  // a ser lo que viniera escrito en el pedido: se podia publicar una expensa dentro del consorcio
-  // de otro administrador, con el monto que fuera, y los vecinos de ese edificio la veian.
-  //
-  // Es exactamente lo que paso con `/api/pases-qr`, donde el edificio venia en el cuerpo y no se
-  // validaba contra ningun permiso. Y el endpoint de a una, treinta lineas mas abajo, ya lo hacia
-  // bien: `permitidos[0] || ''`.
-  //
-  // Sin edificio permitido no se publica nada. Que falte el dato es una cuenta a medio configurar,
-  // no una autorizacion.
-  const edificio = permitidos[0] || '';
-  if (!edificio) return res.status(400).json({ error: 'No se especificó edificio' });
+  // El edificio sale del PERMISO, nunca del cuerpo del pedido, y con varios no se adivina.
+  // Las dos reglas, y por qué, en `edificioParaEscribir`.
+  const { edificio, motivo } = edificioParaEscribir(req);
+  if (!edificio) return res.status(400).json({ error: motivo });
 
   const fecha = new Date().toLocaleString('es-AR');
   const perDefault = (mes && anio) ? `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}` : '';
@@ -15970,8 +15991,10 @@ router.post('/api/expensa', uploadExpensasMulter.single('archivo'), async (req, 
       nombre = req.file.originalname || req.file.filename;
     }
 
-    const permitidos = edificiosPermitidos(req) || [];
-    const edificio = permitidos[0] || '';
+    // Con varios edificios y ninguno elegido no se adivina: ver `edificioParaEscribir`.
+    const { edificio, motivo } = edificioParaEscribir(req);
+    if (!edificio) return res.status(400).json({ error: motivo });
+
     const fecha = new Date().toLocaleString('es-AR');
     const periodo = `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}`;
     const formFinal = formato || (req.file && req.file.mimetype && req.file.mimetype.startsWith('image/') ? 'imagen' : 'pdf');

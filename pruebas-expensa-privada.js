@@ -209,10 +209,27 @@ console.log('\n7) El edificio de una expensa sale del PERMISO, no del pedido');
         !/permitidos\[0\]\s*\|\|\s*\(?\s*req\.body/.test(panel),
         'Que falte el permiso es una cuenta a medio configurar, no una autorización.');
 
-    // Y que los tres --el de a una y los dos de tanda-- lo resuelvan igual.
-    const desdeElPermiso = (panel.match(/const edificio = permitidos\[0\] \|\| '';/g) || []).length;
+    // > [!CAUTION]
+    // > **Y `permitidos[0] || ''` tampoco alcanzaba.** Con el selector en "Todos los edificios" eso
+    // > es el PRIMERO de la lista, no el que el cliente tiene en la cabeza.
+    //
+    // Daniel subió cuatro liquidaciones con el selector en "Todos" --tenía 3 edificios-- y se
+    // archivaron bajo San Patricio 159 por el orden de la lista. Acertó de casualidad. Al revés,
+    // una expensa con el nombre de la unidad y el monto que debe una persona queda a la vista de
+    // los vecinos de otro consorcio.
+    vale('ningún endpoint de expensas elige el edificio por el orden de la lista',
+        !/const edificio = permitidos\[0\]/.test(panel),
+        'Con varios edificios `permitidos[0]` es una moneda al aire.');
+
+    // Y que los tres --el de a una y los dos de tanda-- lo resuelvan igual, en un solo lugar.
+    const desdeElPermiso = (panel.match(/const \{ edificio, motivo \} = edificioParaEscribir\(req\);/g) || []).length;
     vale(`los ${desdeElPermiso} endpoints de expensas lo resuelven del permiso`, desdeElPermiso >= 3,
         `Encontrados ${desdeElPermiso}. Si uno lo hace distinto, ese es el que se va a colar.`);
+
+    // Y ninguno sigue de largo sin edificio: con varios, se corta y se le pide que elija.
+    const cortes = (panel.match(/if \(!edificio\) return res\.status\(400\)\.json\(\{ error: motivo \}\);/g) || []).length;
+    vale(`los ${cortes} cortan si no se pudo determinar el edificio`, cortes >= 3,
+        'Resolverlo y no usarlo es lo mismo que no resolverlo.');
 
     // El archivo servido tampoco se elige desde el pedido: se busca la fila y se sirve SU url.
     vale('la ruta protegida decide con `puedeVerExpensa`',
