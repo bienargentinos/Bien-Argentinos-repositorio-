@@ -27,6 +27,30 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-24 — Corrección listado de expensas en clientes multi-edificio y selector de filtro
+
+- **Qué cambié y en qué archivo:**
+  - Archivo modificado: exclusivamente **`dashboard.js`**.
+  - **Causa raíz del bug reportado ("cargué las expensas pero no se ven en las listas")**:
+    - Las expensas sí se habían guardado correctamente en la pestaña `expensas` de Sheets con `edificio: 'san patricio casa'`.
+    - Al publicar sin edificio activo preseleccionado (`edificioActivo` undefined / vista general), `POST /api/expensa-tanda-publicar` usó `permitidos[0]` que correspondía al primer edificio del array del cliente en la sesión (`'san patricio casa'`).
+    - Sin embargo, en `GET /expensas`, se filtraba estrictamente por `cur = d.curBuilding`. En `cargarDatos`, `curBuilding` toma el primer edificio encontrado en la pestaña `EDIFICIOS`, cuyo orden alfabético/fila ponía primero a `'San patricio 270'`.
+    - Resultado: `compararEdificios('san patricio casa', 'San patricio 270')` daba `false`, ocultando las 4 expensas recién subidas tras el recargar de página y mostrando *"Todavía no publicaste expensas para este edificio"*.
+  - **Solución implementada en `GET /expensas`**:
+    - **Filtro multi-edificio**: Si hay un edificio activo (`activo`), filtra por ese edificio. Si no hay edificio activo (vista "Todos los edificios"), filtra por `permitidos.some(p => compararEdificios(x.edificio, p))`, permitiendo ver las expensas de todos los edificios asignados al cliente.
+    - **Pills de filtrado por edificio**: Para clientes con más de un edificio (`d.propios.length > 1`), se agregaron pills de selección rápida arriba del listado (`Todos (N)`, `🏢 [Edificio A] (N)`, etc.) que conservan la página actual con `volver=/admin/expensas`.
+    - **Badge identificador de edificio**: En cada tarjeta de expensa se agregó la pastilla `🏢 [Nombre Edificio]` cuando el cliente tiene más de un edificio, aclarando a cuál pertenece.
+    - **Aclaración del destino al publicar**: Se muestra claramente `Destino: 🏢 [Edificio]` y en el texto del formulario para que el administrador sepa a qué edificio se publicará la liquidación antes de subir.
+    - **Selector del topbar**: En `shell`, `selectorEdificioHtml` ahora preserva `req.originalUrl` en el parámetro `volver`, evitando que al cambiar de edificio desde el desplegable superior se redirija a `/admin` y perdiendo la pantalla actual. También contempla `previewEdificioActivo` en modo preview.
+    - **`set-filtro` con `normEdificio`**: Se normalizó la comparación contra `propios` para evitar que diferencias de mayúsculas/minúsculas entre `CLIENTES` y `EDIFICIOS` impidan activar el filtro.
+    - **Control en tanda**: En `publicarTanda` y `POST /api/expensa-tanda-publicar`, si `guardadas === 0` se arroja error en vez de mostrar un toast de éxito con 0 expensas.
+
+- **Verificación:**
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK.
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ Sin usos fuera de alcance.
+  - `node pruebas-expensa-privada.js`: ✅ 43 bien, 0 mal.
+  - `node verificar-antes-de-subir.js`: ✅ 65 de 65 pruebas en verde.
+
 ### 2026-09-24 — Ruta protegida del panel para servir archivos de expensas (/api/expensa-archivo/:nombre)
 
 - **Qué cambié y en qué archivo:**

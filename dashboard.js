@@ -1077,7 +1077,12 @@ function esDueno(req) {
 // Edificios visibles para la vista actual. null = todos (dueño).
 function edificiosPermitidos(req) {
   if (esDueno(req)) return null;
-  if (enPreview(req)) return req.session.previewEdificios || [];
+  if (enPreview(req)) {
+    const propios = req.session.previewEdificios || [];
+    const activo = req.session.previewEdificioActivo;
+    if (activo && propios.some(p => normEdificio(p) === normEdificio(activo))) return [activo];
+    return propios;
+  }
   const propios = req.session.edificios || [];
   const activo = req.session.edificioActivo;
   if (activo && propios.some(p => normEdificio(p) === normEdificio(activo))) return [activo];
@@ -8530,7 +8535,9 @@ async function publicarTanda(btn) {
     });
     var j = await r.json();
     if (!r.ok || j.error) throw new Error(j.error || 'Error al publicar la tanda');
-    toast('Tanda de ' + (j.guardadas || _expTandaDatos.length) + ' expensas publicada con éxito', 'ok');
+    var n = (typeof j.guardadas === 'number') ? j.guardadas : _expTandaDatos.length;
+    if (n === 0) throw new Error('No se guardó ninguna expensa. Revisá el log del servidor.');
+    toast('Tanda de ' + n + ' expensas publicada con éxito', 'ok');
     _expTandaDatos = null;
     setTimeout(function() { location.reload(); }, 1000);
   } catch (err) {
@@ -9677,6 +9684,8 @@ function shell(req, d, activeKey, contenido) {
 
   // --- datos del selector de edificio ---
   let selectorHtml = '';
+  const volverUrl = req.originalUrl && req.originalUrl.startsWith('/admin') ? req.originalUrl : ('/admin/' + activeKey);
+  const hrefBaseFiltro = `/admin/set-filtro?volver=${encodeURIComponent(volverUrl)}`;
   if (dueno) {
     const filtro = req.session.filtroEdificioDueno || '';
     const label = filtro || 'Todos los edificios';
@@ -9691,10 +9700,11 @@ function shell(req, d, activeKey, contenido) {
         val: e.nombre, activo: filtro === e.nombre,
       })),
     ];
-    selectorHtml = selectorEdificioHtml(label, sub, 'Filtrar por edificio', filas, '/admin/set-filtro');
+    selectorHtml = selectorEdificioHtml(label, sub, 'Filtrar por edificio', filas, hrefBaseFiltro);
   } else {
     const cur = d.curBuilding;
-    const todos = !req.session.edificioActivo;
+    const activoActual = preview ? req.session.previewEdificioActivo : req.session.edificioActivo;
+    const todos = !activoActual;
     const label = todos ? 'Todos los edificios' : (cur ? cur.nombre : 'Sin edificio');
     const sub = todos ? `${d.propios.length} edificios` : (cur ? (cur.zona || cur.direccion || '') : '');
     const filas = [
@@ -9707,7 +9717,7 @@ function shell(req, d, activeKey, contenido) {
       })),
     ];
     selectorHtml = d.propios.length > 1
-      ? selectorEdificioHtml(label, sub, 'Tus edificios', filas, '/admin/set-filtro')
+      ? selectorEdificioHtml(label, sub, 'Tus edificios', filas, hrefBaseFiltro)
       : `<div style="display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border:1px solid #E1E7F1;border-radius:11px;background:#F7F9FC">
           <span style="font-size:15px">🏢</span>
           <span style="text-align:left;line-height:1.15">
@@ -10362,11 +10372,13 @@ router.get('/set-filtro', (req, res) => {
   } else if (enPreview(req)) {
     // en preview el selector cambia el edificio activo del preview
     const propios = req.session.previewEdificios || [];
-    req.session.previewEdificioActivo = propios.includes(edificio) ? edificio : undefined;
+    const match = propios.find((p) => normEdificio(p) === normEdificio(edificio));
+    req.session.previewEdificioActivo = edificio ? match : undefined;
   } else {
     const propios = req.session.edificios || [];
-    if (!edificio || propios.includes(edificio)) {
-      req.session.edificioActivo = edificio || undefined;
+    const match = propios.find((p) => normEdificio(p) === normEdificio(edificio));
+    if (!edificio || match) {
+      req.session.edificioActivo = edificio ? (match || edificio) : undefined;
     }
   }
   const volver = req.query.volver && String(req.query.volver).startsWith('/admin') ? req.query.volver : '/admin';
@@ -13359,10 +13371,19 @@ router.get('/expensas', async (req, res) => {
   if (esDueno(req)) return res.redirect('/admin');
   try {
     const d = await cargarDatos(req);
+    const permitidos = edificiosPermitidos(req) || [];
+    const activo = enPreview(req) ? req.session.previewEdificioActivo : req.session.edificioActivo;
     const cur = d.curBuilding;
+    // Edificio destino para publicaciones: si hay activo se usa ese, sino el primer permitido o cur.nombre
+    const edTarget = activo || (permitidos.length ? permitidos[0] : (cur ? cur.nombre : ''));
+
     const { rows } = await readTab(TAB_EXPENSAS);
-    const expensas = rows.map(mapExpensa)
-      .filter((x) => cur && compararEdificios(x.edificio, cur.nombre) && x.estado !== 'eliminada')
+    const todasLasExpensas = rows.map(mapExpensa).filter((x) => x.estado !== 'eliminada');
+    const expensas = todasLasExpensas
+      .filter((x) => {
+        if (activo) return compararEdificios(x.edificio, activo);
+        return permitidos.some((p) => compararEdificios(x.edificio, p));
+      })
       .sort((a, b) => b._row - a._row);
 
     const tipoExp = (f) => (f === 'link'
@@ -13388,6 +13409,7 @@ router.get('/expensas', async (req, res) => {
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span style="font-size:15.5px;font-weight:800">${esc(x.periodo)}</span>
                 <span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:${t.bg};color:${t.fg}">${t.label}</span>
+                ${d.propios.length > 1 ? `<span style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EAF1FB;color:#1E5FB4">🏢 ${esc(x.edificio)}</span>` : ''}
                 ${x.departamento ? `<span style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EDE9FE;color:#5B21B6">Unidad: ${esc(x.departamento)}</span>` : `<span style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#F1F5F9;color:#475569">General (edificio)</span>`}
                 ${montoFmt ? `<span style="font-size:12px;font-weight:800;padding:2px 9px;border-radius:999px;background:#ECFDF5;color:#065F46">$ ${montoFmt}${x.monto_origen === 'ocr' ? ' <span style="font-size:9.5px;font-weight:600;opacity:0.8">(OCR)</span>' : ''}</span>` : ''}
                 ${x.vencimiento ? `<span style="font-size:11.5px;color:#64748B">Vence: ${esc(x.vencimiento)}</span>` : ''}
@@ -13403,14 +13425,40 @@ router.get('/expensas', async (req, res) => {
           </div>`;
         }).join('')}
       </div>`
-      : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Todavía no publicaste expensas para este edificio.</div>';
+      : `<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">${esc(activo ? `Todavía no publicaste expensas para ${activo}.` : (d.propios.length > 1 ? 'Todavía no publicaste expensas para ninguno de tus edificios.' : 'Todavía no publicaste expensas para este edificio.'))}</div>`;
+
+    let filtroEdificiosHtml = '';
+    if (d.propios.length > 1) {
+      const expensasPropias = todasLasExpensas.filter((x) => permitidos.some((p) => compararEdificios(x.edificio, p)));
+      filtroEdificiosHtml = `
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+          <span style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase">Filtrar por:</span>
+          <a href="/admin/set-filtro?edificio=&volver=${encodeURIComponent('/admin/expensas')}"
+            style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;font-size:12.5px;font-weight:700;text-decoration:none;${!activo ? 'background:#1E5FB4;color:#fff' : 'background:#F1F5F9;color:#475569;border:1px solid #E2E8F0'}">
+            Todos (${expensasPropias.length})
+          </a>
+          ${d.propios.map((p) => {
+            const sel = activo && normEdificio(p.nombre) === normEdificio(activo);
+            const count = todasLasExpensas.filter((x) => compararEdificios(x.edificio, p.nombre)).length;
+            return `
+              <a href="/admin/set-filtro?edificio=${encodeURIComponent(p.nombre)}&volver=${encodeURIComponent('/admin/expensas')}"
+                style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;font-size:12.5px;font-weight:700;text-decoration:none;${sel ? 'background:#1E5FB4;color:#fff' : 'background:#F1F5F9;color:#475569;border:1px solid #E2E8F0'}">
+                🏢 ${esc(p.nombre)} <span style="opacity:0.8;font-size:11px">(${count})</span>
+              </a>`;
+          }).join('')}
+        </div>`;
+    }
 
     const contenido = `
       <div style="animation:mFade .3s ease both;max-width:820px">
         <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Expensas</h1>
-        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Subí las expensas del mes de ${esc(cur ? cur.nombre : '')}. <strong style="color:#334259">Marcos queda habilitado para compartirlas</strong> con los vecinos que las pidan por WhatsApp, o para enviarlas cuando vos se lo indiques.</p>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Subí las expensas del mes de <strong>${esc(edTarget || 'tu edificio')}</strong>. <strong style="color:#334259">Marcos queda habilitado para compartirlas</strong> con los vecinos que las pidan por WhatsApp, o para enviarlas cuando vos se lo indiques.</p>
+        ${filtroEdificiosHtml}
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:26px">
-          <div style="font-size:15px;font-weight:800;margin-bottom:14px">Publicar nueva expensa</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+            <div style="font-size:15px;font-weight:800">Publicar nueva expensa</div>
+            ${edTarget ? `<span style="font-size:12px;font-weight:700;color:#1E5FB4;background:#EAF1FB;padding:4px 10px;border-radius:8px">Destino: 🏢 ${esc(edTarget)}</span>` : ''}
+          </div>
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
             <div style="flex:1;min-width:130px">
               <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Mes</div>
@@ -16305,7 +16353,11 @@ router.post('/api/expensa-tanda-publicar', async (req, res) => {
     }
   }
 
-  res.json({ ok: true, guardadas });
+  const fallidas = filas.length - guardadas;
+  if (guardadas === 0) {
+    return res.status(500).json({ ok: false, error: 'No se pudo guardar ninguna expensa. Revisá la conexión y permisos.', guardadas: 0, fallidas });
+  }
+  res.json({ ok: true, guardadas, fallidas });
 });
 
 // Cancelar una tanda de expensas descartando los archivos temporales no confirmados.
