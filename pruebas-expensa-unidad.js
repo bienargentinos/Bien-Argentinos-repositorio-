@@ -100,9 +100,13 @@ console.log('\n── LAS COLUMNAS EXISTEN ──');
         afirmar(`expensas.${col} se crea`,
             new RegExp(`ALTER TABLE expensas ADD COLUMN IF NOT EXISTS ${col}\\b`).test(DB));
     }
-    // De dónde salió el número: 'ia' o 'manual'. Un monto leído mal es peor que ninguno, y acá no
-    // hay dígito verificador como en el CBU, así que hay que poder distinguirlos.
-    afirmar('monto_origen solo acepta ia o manual', /monto_origen IN \('ia', 'manual'\)/.test(DB));
+    // De dónde salió el número: lo leyó la IA, o lo escribió una persona. Un monto leído mal es
+    // peor que ninguno, y acá no hay dígito verificador como en el CBU, así que hay que poder
+    // distinguirlos. QUÉ valores acepta se verifica más abajo contra lo que el panel escribe de
+    // verdad: esta prueba pedía 'ia' y 'manual' a secas, y por eso no vio que el panel escribe
+    // 'ocr' --o sea que medía el bug en vez de agarrarlo--.
+    afirmar('monto_origen tiene su CHECK', /monto_origen IS NULL OR monto_origen IN \(/.test(DB));
+    afirmar('distingue el monto leído del escrito a mano', /'manual'/.test(DB));
 }
 
 console.log('\n── EL IMPORTE SE ESCRIBE COMO EN ARGENTINA ──');
@@ -119,6 +123,40 @@ console.log('\n── EL IMPORTE SE ESCRIBE COMO EN ARGENTINA ──');
     verificar('cero', montoEnPesos(0), '$0,00');
     verificar('lo que no es número no rompe', montoEnPesos('x'), '');
     afirmar('no usa toLocaleString', !m[0].includes('toLocaleString'));
+}
+
+console.log('\n── EL CHECK NO PUEDE RECHAZAR LO QUE EL PANEL ESCRIBE ──');
+{
+    // CANDADO. Este es el bug que dejó a Daniel sin ver sus expensas, y no dio ni un error a la
+    // vista: el CHECK de `monto_origen` aceptaba 'ia' y 'manual', el panel escribe 'ocr', y el
+    // INSERT --que nombra las once columnas-- se rechazaba ENTERO. La fila quedaba en la planilla,
+    // el panel la mostraba publicada, y PostgreSQL --que es de donde lee el portal-- no la tenía.
+    // El error moría en un `console.warn` del panel.
+    //
+    // Por eso no alcanza con probar que el CHECK existe: hay que leer qué valores escribe el que
+    // escribe, y exigir que el CHECK los acepte a todos. Un CHECK más estricto que quien inserta
+    // no protege un dato: lo tira.
+    const PANEL = fs.readFileSync(path.join(__dirname, 'dashboard.js'), 'utf8');
+
+    const mCheck = DB.match(/monto_origen IS NULL OR monto_origen IN \(([^)]*)\)/);
+    afirmar('el CHECK de monto_origen está escrito', !!mCheck);
+    const aceptados = (mCheck ? mCheck[1] : '').match(/'([^']+)'/g) || [];
+    const acepta = aceptados.map(x => x.replace(/'/g, ''));
+
+    // Lo que el panel asigna a monto_origen, en cualquiera de sus formas.
+    const escritos = new Set();
+    const re = /monto_origen[^\n]*?=[^\n]*?'([a-z_]+)'|monto_origen:\s*[^\n]*?'([a-z_]+)'/g;
+    let m;
+    while ((m = re.exec(PANEL)) !== null) {
+        const val = m[1] || m[2];
+        if (val && val !== 'monto_origen' && val !== 'origen_monto') escritos.add(val);
+    }
+    // El ternario `x === 'ocr' ? 'ocr' : 'manual'` y sus variantes ya quedan cubiertos arriba.
+    afirmar('se encontró al menos un valor que el panel escribe', escritos.size > 0);
+
+    for (const val of escritos) {
+        afirmar(`el CHECK acepta '${val}', que es lo que escribe el panel`, acepta.includes(val));
+    }
 }
 
 console.log(`\n${fallos === 0 ? '✅ Todo bien' : `❌ ${fallos} fallo(s)`}\n`);

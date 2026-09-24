@@ -411,10 +411,23 @@ async function _initPgSchema() {
             -- la IA le extraiga el total, y que el vecino vea ese numero con un boton de descarga.
             -- Asi el monto deja de ser inventado: sale del papel que subio el administrador.
             --
-            -- La columna monto_origen dice de donde salio el numero: 'ia' cuando lo leyo el
-            -- lector de documentos, 'manual' cuando lo escribio o lo corrigio una persona. Un monto
-            -- leido mal es peor que ninguno --y aca no hay digito verificador como en el CBU-- asi
-            -- que quien lo muestre tiene que poder distinguirlos.
+            -- La columna monto_origen dice de donde salio el numero: lo leyo el lector de
+            -- documentos, o lo escribio o corrigio una persona. Un monto leido mal es peor que
+            -- ninguno --y aca no hay digito verificador como en el CBU-- asi que quien lo muestre
+            -- tiene que poder distinguirlos.
+            --
+            -- CUIDADO: 'ia' y 'ocr' son LA MISMA COSA con dos nombres. Esta columna se penso
+            -- con 'ia' y el panel escribe 'ocr' (dashboard.js, las dos vias: la tanda y el alta
+            -- de a uno). El CHECK acepta los dos a proposito: cuando solo aceptaba 'ia', TODA
+            -- expensa cuyo monto salia del documento se rechazaba entera --el INSERT nombra las
+            -- 11 columnas, y PostgreSQL rechaza el statement completo-- y el error moria en un
+            -- console.warn del panel. La fila quedaba en la planilla y NO en PostgreSQL, que es
+            -- justo de donde lee el portal: el administrador subia el PDF, veia la expensa
+            -- publicada, y al vecino no le aparecia nunca.
+            --
+            -- Que lo correcto sea un solo nombre no se arregla apretando el CHECK: eso vuelve a
+            -- tirar el dato. Se unifica cuando el panel escriba uno solo, y recien ahi se saca
+            -- el otro de aca.
             --
             -- Una fila SIN departamento sigue siendo el documento del edificio entero, como antes.
             ALTER TABLE expensas ADD COLUMN IF NOT EXISTS departamento VARCHAR(50);
@@ -423,7 +436,7 @@ async function _initPgSchema() {
             ALTER TABLE expensas ADD COLUMN IF NOT EXISTS vencimiento DATE;
             ALTER TABLE expensas DROP CONSTRAINT IF EXISTS expensas_monto_origen_chk;
             ALTER TABLE expensas ADD CONSTRAINT expensas_monto_origen_chk CHECK (
-                monto_origen IS NULL OR monto_origen IN ('ia', 'manual')
+                monto_origen IS NULL OR monto_origen IN ('ia', 'ocr', 'manual')
             );
             CREATE INDEX IF NOT EXISTS idx_expensas_unidad
                 ON expensas(LOWER(edificio), LOWER(COALESCE(departamento, '')));

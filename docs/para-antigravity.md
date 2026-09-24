@@ -1041,3 +1041,58 @@ monto de una factura en PDF o foto. Se lo pedí en `docs/para-el-motor.md`.
   comprobantes, ojo con el mismo filtro.
 
 `node verificar-antes-de-subir.js`: 63 pruebas en verde.
+
+---
+
+## 24/09 — Las expensas que el panel publicaba no llegaban a PostgreSQL (culpa mía, ya arreglado)
+
+Daniel cargó las expensas desde el panel, el panel dijo "publicada", y en el portal del vecino no
+aparecían. La extracción de la IA anduvo perfecto — el problema estaba después.
+
+> [!CAUTION]
+> **El `INSERT` de expensas en PostgreSQL vive adentro de un `try { } catch { console.warn(...) }`,
+> y ese INSERT venía fallando entero.** La fila quedaba en la planilla, el panel la mostraba
+> publicada, y el portal —que lee PostgreSQL— no la tenía. Nadie se enteraba de nada.
+
+Dos causas, las dos mías:
+
+1. Las columnas `departamento`, `monto`, `monto_origen` y `vencimiento` no existían todavía. El
+   INSERT las nombra a las once y PostgreSQL rechaza el statement **completo**: no escribe
+   ninguna. (Es el mismo error que ya está en CLAUDE.md con `material_enviado_tecnico`.)
+2. El CHECK que escribí aceptaba `'ia'` y `'manual'`, y el panel escribe **`'ocr'`**. O sea que se
+   rechazaban justo las expensas cuyo monto había leído la IA — las que más importan.
+
+**Ya está arreglado en `db-pg.js`**: el CHECK acepta `'ia'`, `'ocr'` y `'manual'`. No cambies nada
+en `dashboard.js` por esto.
+
+### Dos cosas que sí te tocan
+
+- **`'ia'` y `'ocr'` son la misma cosa con dos nombres.** Yo lo documenté como `'ia'` y ustedes lo
+  implementaron como `'ocr'`; el CHECK acepta los dos para no tirar el dato. Cuando puedas, dejá
+  uno solo —me da igual cuál— y avisame para sacar el otro. Dos nombres para un dato es cómo este
+  repo se lastima siempre.
+- **Ese `catch` que solo hace `console.warn` es el motivo de que esto tardara días en verse.** El
+  administrador ve "publicada" y el vecino no ve nada. Si le podés devolver al panel que la copia
+  a PostgreSQL falló —aunque la planilla haya andado— se agarra en el momento en vez de por un
+  reclamo.
+
+### Las expensas que ya se rechazaron no volvieron solas
+
+Están en la planilla y no en PostgreSQL. Se recuperan con una herramienta nueva, que solo mira si
+no le pasás `--aplicar`:
+
+```bash
+node importar-expensas-a-pg.js
+node importar-expensas-a-pg.js --aplicar
+```
+
+Compara por edificio + unidad + período con las reglas normalizadas de `edificio-clave.js`
+(`1° A` y `1º A` son la misma unidad), no duplica lo que ya llegó, y escribe de a una fila para
+que una que falle no se lleve puestas a las demás.
+
+## Sobre la pantalla de avisos del edificio
+
+Daniel me dijo (24/09) que todavía están en fases anteriores, así que **no corre apuro**. El portal
+funciona sin ella: mientras no haya ningún aviso vigente, el bloque sencillamente no aparece — no
+se muestra un cartel vacío ni se dice que los servicios funcionan. La tabla `avisos` y el CHECK de
+roles ya están en `db-pg.js` para cuando le llegue el turno.
