@@ -873,7 +873,37 @@ cd /root/marcos/Consorcio-AI-Assistant && git status --short
 cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
 ```
 
-Que quede en `c2dbc13`:
+### Y ahora sí hace falta `npm install`
+
+Tu `connect-pg-simple` es una dependencia nueva, así que este paso dejó de ser opcional:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && npm install
+```
+
+> [!CAUTION]
+> **Sin esto el panel arranca igual, y ahí está el problema.** El `require('connect-pg-simple')`
+> está adentro de un `try`, así que un módulo que falta se atrapa, se avisa por consola y se cae al
+> `MemoryStore` de antes. El despliegue "sale bien", el panel funciona, y las sesiones se siguen
+> borrando en cada `pm2 restart` — con el arreglo puesto en el repo y sin efecto en producción.
+>
+> Que degrade en vez de reventar está **bien** (un panel caído es peor que un panel que deslogea),
+> pero obliga a verificar que la línea de abajo NO aparezca:
+
+```bash
+pm2 logs marcos-ai --lines 60 --nostream | grep "store de sesiones"
+```
+
+Si aparece `⚠️ No se pudo inicializar store de sesiones`, el `npm install` no corrió o PostgreSQL
+no estaba disponible al arrancar.
+
+Y que la tabla haya quedado a nombre de `marcos`, que es lo que te avisaba más arriba:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-permisos-pg.js
+```
+
+Que quede en `c2dbc13` o posterior:
 
 ```bash
 cd /root/marcos/Consorcio-AI-Assistant && git log --oneline -1
