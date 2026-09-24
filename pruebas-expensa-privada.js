@@ -186,6 +186,44 @@ console.log('\n6) La ruta del archivo no se puede usar para salir de la carpeta'
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n7) El edificio de una expensa sale del PERMISO, no del pedido');
+// ─────────────────────────────────────────────────────────────────────────────
+{
+    // > [!CAUTION]
+    // > **Los endpoints de tanda traían `permitidos[0] || (req.body && req.body.edificio)`.**
+    //
+    // Con un cliente sin edificios asignados --el estado normal de uno recién creado-- ese
+    // respaldo ganaba, y el edificio pasaba a ser lo que viniera escrito en el pedido: se podía
+    // publicar una expensa dentro del consorcio de otro administrador, con el monto que fuera, y
+    // los vecinos de ese edificio la veían.
+    //
+    // Es exactamente lo que pasó con `/api/pases-qr`, donde el edificio venía en el cuerpo y no
+    // se validaba contra ningún permiso. Y el endpoint de a una, treinta líneas más abajo, ya lo
+    // hacía bien.
+    const panel = fs.readFileSync(path.join(__dirname, 'dashboard.js'), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+
+    vale('ningún endpoint toma el edificio del cuerpo del pedido',
+        !/permitidos\[0\]\s*\|\|\s*\(?\s*req\.body/.test(panel),
+        'Que falte el permiso es una cuenta a medio configurar, no una autorización.');
+
+    // Y que los tres --el de a una y los dos de tanda-- lo resuelvan igual.
+    const desdeElPermiso = (panel.match(/const edificio = permitidos\[0\] \|\| '';/g) || []).length;
+    vale(`los ${desdeElPermiso} endpoints de expensas lo resuelven del permiso`, desdeElPermiso >= 3,
+        `Encontrados ${desdeElPermiso}. Si uno lo hace distinto, ese es el que se va a colar.`);
+
+    // El archivo servido tampoco se elige desde el pedido: se busca la fila y se sirve SU url.
+    vale('la ruta protegida decide con `puedeVerExpensa`',
+        /puedeVerExpensa\(\s*\{\s*expensa,\s*quien\s*\}\s*\)/.test(panel),
+        'Si escribiera su propio criterio, el día que cambie una regla cambia en un solo lado.');
+
+    vale('…y el `quien` sale de la sesión, no del pedido',
+        /esDueno\(req\)[\s\S]{0,200}rol: 'consorcio'/.test(panel),
+        'Con el rol viniendo del pedido, cualquiera se declara dueño.');
+}
+
 console.log(`\n${'─'.repeat(70)}`);
 console.log(`   ${ok} bien, ${fallos} mal`);
 if (fallos) {

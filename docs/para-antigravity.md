@@ -512,3 +512,241 @@ son justo los números que se confunden con el total a pagar. Una viene con la u
 distinto a propósito (`Depto 3`), para ver el aviso de `sin_vecino` funcionando.
 
 Pruebas: `node pruebas-unidades-edificio.js` (21 verificaciones, sin credenciales).
+
+### 24/09 — la tanda está mergeada, con una línea corregida
+
+Tu subida en tanda quedó bien: tabla de revisión con semáforo, edición en línea, descarte por
+fila, revalidación al cambiar la unidad, `puedeVerExpensa` en la ruta protegida, y el nombre de
+archivo con sufijo aleatorio para que 60 subidas concurrentes no se pisen. Nada de eso lo tuve
+que tocar.
+
+**Corregí una línea, y te la señalo porque el patrón es de los caros.** Los dos endpoints nuevos
+traían:
+
+```js
+const edificio = permitidos[0] || (req.body && req.body.edificio) || '';
+```
+
+Con un cliente **sin edificios asignados** --el estado normal de uno recién creado-- ese respaldo
+gana, y el edificio pasa a ser lo que venga escrito en el pedido. Con eso se podía publicar una
+expensa dentro del consorcio de **otro administrador**, con el monto que fuera, y los vecinos de
+ese edificio la veían como propia.
+
+Es literalmente lo que pasó con `/api/pases-qr`: el edificio venía en el cuerpo y no se validaba
+contra ningún permiso. Y el endpoint de a una, treinta líneas más abajo, ya lo hacía bien
+(`permitidos[0] || ''`) — el que se cuela siempre es el que lo hace distinto de sus vecinos.
+
+Quedó así en los tres, y `pruebas-expensa-privada.js` ahora lo prohíbe:
+
+```js
+const edificio = permitidos[0] || '';
+```
+
+> **Que falte el permiso es una cuenta a medio configurar, no una autorización.** Es el mismo
+> criterio que el timbre con `!edNorm`: la falta de un dato nunca hace de comodín.
+
+#### Dos cosas menores, para cuando vuelvas por acá
+
+- **Archivos huérfanos.** `expensa-tanda-analizar` deja los 60 archivos en disco y se limpian con
+  `expensa-tanda-cancelar`. Si el administrador cierra el navegador sin publicar ni cancelar,
+  quedan ahí. No es una fuga --están detrás del guardia-- pero se acumulan. Una limpieza de lo que
+  quedó sin publicar hace más de un día lo resuelve.
+- **El `LIKE` de la ruta protegida.** `url LIKE '%' + nombre` trata el `_` del nombre como
+  comodín, y todos los archivos se llaman `expensa_<ts>_<rand>`. La coincidencia equivocada es
+  improbable y no filtra nada --el permiso se verifica contra la MISMA fila que se sirve-- pero
+  podría mostrar otra expensa del mismo cliente. Se arregla escapando el `_` o comparando por
+  igualdad contra `'/archivos/expensas/' + nombre`, que ya está en el `OR`.
+
+Y lo que falta para que esto se vea de punta a punta: **el portal todavía no puede abrir la
+expensa del vecino.** Está pedido en `docs/portal-vecino-y-porteria.md`, es del chat del portal.
+
+---
+
+## Por qué publicar la tanda decía `JSON.parse: unexpected character`
+
+Daniel cargó la tanda, la tabla leyó bien los cuatro totales, apretó **Publicar** y le saltó:
+
+```
+Error: JSON.parse: unexpected character at line 1 column 1 of the JSON data
+```
+
+Ese mensaje no tiene nada que ver con las expensas. Perseguí el endpoint, PostgreSQL y las
+columnas de `expensas` --las 13 estaban-- antes de mirar el registro de nginx, que lo dijo en una
+línea:
+
+```
+"POST /admin/api/expensa-tanda-publicar HTTP/2.0" 302 34
+```
+
+**Un 302 de 34 bytes es el HTML del `Found. Redirecting to /admin/login`.** O sea: la sesión se
+había caído y `requireAuth` contestó con una redirección. El `await r.json()` del otro lado no
+puede leer eso, y lo informa hablando de la línea 1 columna 1 de un JSON que nunca existió.
+
+### Ya lo arreglé en `requireAuth` (son 4 líneas, dashboard.js ~1016)
+
+Perdón por entrar de nuevo en tu archivo. Lo hice porque mientras siga así, **cualquier** sesión
+vencida en **cualquier** endpoint del panel se le aparece al administrador como `JSON.parse`, y a
+quien lo diagnostique lo manda a mirar el código que acaba de escribir. Es el mismo patrón que el
+contador `⏱️ 3 caso(s)` que contaba antes de filtrar: una falla que miente sobre sí misma cuesta
+más que la falla.
+
+Lo que había:
+
+```js
+if (req.headers.accept && req.headers.accept.includes('application/json')) {
+  return res.status(401).json({ error: 'No autenticado' });
+}
+return res.redirect('/admin/login');
+```
+
+**El `Accept` no sirve como señal**: un `fetch` con cuerpo JSON manda `Accept: */*` salvo que se lo
+pidas explícitamente, así que esa rama casi nunca corría. Tus `fetch` del panel mandan solo
+`Content-Type`, como corresponde. Lo confiable es la ruta:
+
+```js
+const esLlamadaDeCodigo = req.path.startsWith('/api/') ||
+  (req.headers.accept && req.headers.accept.includes('application/json'));
+
+if (esLlamadaDeCodigo) {
+  return res.status(401).json({
+    error: 'Se venció la sesión del panel. Volvé a entrar y probá de nuevo.',
+    sesion_vencida: true,
+  });
+}
+return res.redirect('/admin/login');
+```
+
+Tu `publicarExpensa` ya hace `if (!r.ok || j.error) throw new Error(j.error ...)`, así que el toast
+ahora dice la frase de arriba sin que toques nada del lado del navegador. Candado en
+`pruebas-clave-app.js`: una ruta de API tiene que contestar JSON, y el control va **antes** del
+redirect.
+
+### Lo que NO arreglé, y es tuyo: la sesión se borra en cada `pm2 restart`
+
+> [!CAUTION]
+> **`session()` está sin `store`, así que usa el `MemoryStore` de `express-session`: las sesiones
+> viven en la RAM del proceso.** Un `pm2 restart` las borra todas.
+
+```js
+router.use(session({
+  name: 'marcos.sid',
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 * 12 },
+}));
+```
+
+La cookie dura **12 horas** y el servidor se olvida en cada despliegue. Esa asimetría es el
+problema: el navegador sigue mandando una cookie que cree válida, el panel se ve normal, y el error
+aparece recién al apretar un botón. Daniel reinició varias veces con la pestaña abierta mientras
+probábamos — por eso salió ahí.
+
+No lo toqué porque es la autenticación del panel, es tu archivo, y **suma una dependencia npm**
+(que según la regla de oro tiene que ir en el mismo commit que el código que la usa). La forma
+directa, con la base que ya está:
+
+```js
+const pgSession = require('connect-pg-simple')(session);
+// store: new pgSession({ pool, tableName: 'sesiones_panel', createTableIfMissing: true }),
+```
+
+Dos cosas del proyecto que aplican si lo encarás:
+
+- **`createTableIfMissing` crea la tabla como el rol que se conecta.** Marcos entra como `marcos`,
+  así que queda bien; si la creás desde `psql` como `postgres`, el `INSERT` va a fallar con
+  `permission denied` y desde el código parece un bug. Está anotado en CLAUDE.md, y se verifica con
+  `node revisar-permisos-pg.js`.
+- **El portal del vecino monta su propia sesión** (`portal-vecino.js:16`, con `saveUninitialized:
+  true`) y tiene el mismo problema. Es del chat del portal; lo dejo pedido ahí.
+
+Mientras no esté, el arreglo del `requireAuth` alcanza para que el mensaje diga la verdad: se
+vuelve a entrar al panel y la tanda se sube de nuevo.
+
+---
+
+## La tanda dice "publicada con éxito" aunque no se haya guardado ninguna
+
+Daniel publicó la tanda, el panel le dijo que salió bien, y **Expensas publicadas** siguió diciendo
+*"Todavía no publicaste expensas para este edificio."*
+
+Antes de buscar en el listado, hay que descartar esto, porque el mensaje de éxito no es confiable.
+
+### 1. El contador cuenta al final del `try`
+
+`dashboard.js:15928`, adentro del bucle de `expensa-tanda-publicar`:
+
+```js
+      guardadas++;
+    } catch (errItem) {
+      console.error(`Error guardando expensa en tanda (${nombreFinal}):`, errItem.message);
+    }
+```
+
+`guardadas++` corre **después** del `appendRow` a Sheets y del `INSERT` a PostgreSQL. Si cualquiera
+de los dos falla, la fila cae al `catch` y no se cuenta. Está bien que sea así.
+
+### 2. Pero el navegador convierte el 0 en "todas"
+
+`dashboard.js:8159`:
+
+```js
+toast('Tanda de ' + (j.guardadas || _expTandaDatos.length) + ' expensas publicada con éxito', 'ok');
+```
+
+> [!CAUTION]
+> **`j.guardadas || _expTandaDatos.length` con `guardadas === 0` devuelve la cantidad de filas de la
+> tabla.** O sea: la tanda donde fallaron **todas** informa *"Tanda de 4 expensas publicada con
+> éxito"*.
+
+`0` es falsy, y acá `0` es justo el número que más importa mostrar. Sirve:
+
+```js
+var n = (typeof j.guardadas === 'number') ? j.guardadas : _expTandaDatos.length;
+if (n === 0) throw new Error('No se guardó ninguna expensa. Revisá el log del servidor.');
+toast('Tanda de ' + n + ' expensas publicada con éxito', 'ok');
+```
+
+Y del lado del servidor, `res.json({ ok: true, guardadas })` contesta `ok: true` aunque no se haya
+guardado nada. Devolver además cuántas fallaron (y con qué motivo) es lo que permite decirlo en
+pantalla en lugar de dejarlo en el log:
+
+```js
+res.json({ ok: guardadas > 0, guardadas, fallidas: filas.length - guardadas });
+```
+
+Es el mismo patrón que el `⏱️ 3 caso(s)` que contaba antes de filtrar y que el `302` al login leído
+como JSON: **una falla que miente sobre sí misma cuesta más que la falla.** Acá mandó a mirar el
+listado, que puede estar perfecto.
+
+### 3. Si el log está limpio, entonces sí es el listado
+
+```bash
+pm2 logs marcos-ai --lines 400 --nostream | grep -i "expensa en tanda"
+```
+
+Con el log limpio, las filas están escritas y el problema es el filtro de `dashboard.js:12991`:
+
+```js
+.filter((x) => cur && compararEdificios(x.edificio, cur.nombre) && x.estado !== 'eliminada')
+```
+
+Tres cosas para mirar, en orden:
+
+- **`cur` falsy filtra TODO** y el mensaje resultante es exactamente *"Todavía no publicaste
+  expensas para este edificio"* — indistinguible de no tener ninguna. Vale la pena que esos dos
+  casos digan cosas distintas: "no hay expensas" y "no pude determinar tu edificio" no se arreglan
+  igual.
+- **El nombre del edificio sale de dos bases distintas.** Al publicar, `edificio` es
+  `edificiosPermitidos(req)[0]`, que según CLAUDE.md se resuelve contra **PostgreSQL**; al listar,
+  `cur.nombre` viene de `cargarDatos(req)`, que lee **Sheets**. Si las dos bases tienen el nombre
+  escrito distinto --que es el problema que ya documentamos con `revisar-sobrantes.js`--, se guarda
+  con un nombre y se busca con el otro. `node revisar-sobrantes.js edificios` lo dice.
+- **La pestaña.** `guardarFactura` ya tuvo este bug exacto: buscaba la pestaña por un nombre
+  sensible a mayúsculas, no la encontraba y **creaba una segunda**. Las facturas iban a la nueva y
+  quien miraba la vieja las daba por perdidas. Si `appendRow` y `readTab` no resuelven
+  `TAB_EXPENSAS` igual, pasa lo mismo: se escribe en una pestaña y se lee de otra. En `sheets.js`
+  eso se resolvió con `pestaña()`, que la encuentra escrita como esté.
+
+Yo no toqué nada de esto: el listado es tuyo y Daniel ya te lo pasó. Queda acá para que no haya que
+derivarlo de nuevo.

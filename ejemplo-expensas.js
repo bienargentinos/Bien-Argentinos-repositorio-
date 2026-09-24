@@ -148,11 +148,61 @@ lista.forEach((unidad, i) => {
     escritos.push([archivo, `unidad ${unidad} · total ${pesos(total)}`]);
 });
 
+// ── A PDF, SI HAY UN CHROMIUM A MANO ────────────────────────────────────────
+//
+// > [!CAUTION]
+// > **"Guardar como..." NO produce un PDF.** Guarda el HTML con otro nombre.
+//
+// Pasó en la primera prueba real: las cuatro expensas se subieron, el navegador informó el tipo
+// por la extensión --así que pasaron el filtro-- y la IA se plantó con "The document has no
+// pages". Desde afuera parecía que el lector no servía.
+//
+// Imprimir a PDF de verdad son tres pasos que hay que explicar y acordarse. Si hay un Chromium
+// instalado, esto lo hace solo y el problema no existe.
+const { execFileSync } = require('child_process');
+
+function chromiumDisponible() {
+    const candidatos = [
+        process.env.CHROME_BIN,
+        '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+        '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome',
+    ].filter(Boolean);
+    for (const c of candidatos) { if (fs.existsSync(c)) return c; }
+    // Y los de Playwright, cuya carpeta lleva el número de versión adentro.
+    try {
+        const base = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
+        for (const d of fs.readdirSync(base)) {
+            const c = path.join(base, d, 'chrome-linux', 'chrome');
+            if (fs.existsSync(c)) return c;
+        }
+    } catch (_) {}
+    return null;
+}
+
+const chrome = chromiumDisponible();
+if (chrome) {
+    for (const [ruta] of escritos) {
+        const destino = ruta.replace(/\.html$/, '.pdf');
+        try {
+            execFileSync(chrome, [
+                '--headless', '--disable-gpu', '--no-sandbox', '--no-pdf-header-footer',
+                `--print-to-pdf=${destino}`, `file://${ruta}`,
+            ], { stdio: 'ignore' });
+        } catch (e) {
+            console.warn(`   ⚠️ No se pudo pasar a PDF ${path.basename(ruta)}: ${e.message}`);
+        }
+    }
+}
+
 console.log(`\n💸 ${escritos.length} expensa(s) de ejemplo en ${carpeta}\n`);
 for (const [ruta, que] of escritos) console.log(`   · ${path.basename(ruta)}\n     ${que}`);
+console.log(chrome ? `
+   Ya están en PDF al lado de cada HTML: esos .pdf son los que se suben al panel.` : `
+   Abrilas en el navegador e imprimilas a PDF (Ctrl+P → DESTINO: Guardar como PDF).
+   OJO: "Guardar como..." del menú NO sirve -- guarda el HTML con otro nombre, el
+   panel lo acepta por la extensión y la IA se planta con "no pages".`);
+
 console.log(`
-   Abrilas en el navegador e imprimilas a PDF (Ctrl+P → Guardar como PDF).
-   Ese PDF es lo que se sube al panel.
 
    Qué mirar al cargarlas:
    · Que el total leído sea el de "TOTAL A PAGAR" y NO el del edificio, ni un subtotal,

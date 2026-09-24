@@ -1019,8 +1019,37 @@ function requireAuth(req, res, next) {
     return claveDeEdifica(req, res, next);
   }
   if (req.session && req.session.authed) return next();
-  if (req.headers.accept && req.headers.accept.includes('application/json')) {
-    return res.status(401).json({ error: 'No autenticado' });
+
+  // > [!CAUTION]
+  // > **Una ruta de API NUNCA se redirige al login.**
+  //
+  // A `/api/...` la llama siempre el JavaScript de la página, jamás el navegador navegando. Un
+  // `res.redirect` le devuelve los 34 bytes de HTML del "Found. Redirecting to /admin/login", y
+  // el `await r.json()` del otro lado revienta con:
+  //
+  //     JSON.parse: unexpected character at line 1 column 1 of the JSON data
+  //
+  // Eso no dice nada de lo que pasó --que la sesión venció-- y manda a buscar el problema al
+  // código que se acaba de escribir. Paso de verdad al publicar una tanda de expensas: el
+  // registro de nginx mostraba `302 34` y el diagnostico costo media hora de mirar el endpoint,
+  // la base y las columnas, que estaban todos bien.
+  //
+  // El `Accept: application/json` no alcanza como señal: un `fetch` con cuerpo JSON manda
+  // `Accept: * / *` salvo que se lo pida explícitamente, así que la rama del 401 casi nunca
+  // corría. Lo que sí es confiable es la ruta: si empieza con `/api/`, la respuesta se lee con
+  // código, y tiene que ser JSON.
+  //
+  // > Y ojo con la causa de fondo: la sesión vive en memoria, así que **cada `pm2 restart` las
+  // > borra todas**. Con el panel abierto en una pestaña, un despliegue deja al administrador
+  // > con una sesión que el servidor ya no conoce. Por eso el mensaje dice qué hacer.
+  const esLlamadaDeCodigo = req.path.startsWith('/api/') ||
+    (req.headers.accept && req.headers.accept.includes('application/json'));
+
+  if (esLlamadaDeCodigo) {
+    return res.status(401).json({
+      error: 'Se venció la sesión del panel. Volvé a entrar y probá de nuevo.',
+      sesion_vencida: true,
+    });
   }
   return res.redirect('/admin/login');
 }
@@ -16107,7 +16136,21 @@ router.post('/api/expensa-tanda-analizar', uploadExpensasMulter.array('archivos'
   if (!files.length) return res.status(400).json({ error: 'No se recibieron archivos' });
 
   const permitidos = edificiosPermitidos(req) || [];
-  const edificio = permitidos[0] || (req.body && req.body.edificio) || '';
+  // > [!CAUTION]
+  // > **El edificio sale del PERMISO, nunca del cuerpo del pedido.**
+  //
+  // Acá habia un `|| (req.body && req.body.edificio)` de respaldo. Con un cliente sin edificios
+  // asignados --el estado normal de uno recien creado-- ese respaldo ganaba, y el edificio pasaba
+  // a ser lo que viniera escrito en el pedido: se podia publicar una expensa dentro del consorcio
+  // de otro administrador, con el monto que fuera, y los vecinos de ese edificio la veian.
+  //
+  // Es exactamente lo que paso con `/api/pases-qr`, donde el edificio venia en el cuerpo y no se
+  // validaba contra ningun permiso. Y el endpoint de a una, treinta lineas mas abajo, ya lo hacia
+  // bien: `permitidos[0] || ''`.
+  //
+  // Sin edificio permitido no se publica nada. Que falte el dato es una cuenta a medio configurar,
+  // no una autorizacion.
+  const edificio = permitidos[0] || '';
 
   const { leerExpensa } = require('./expensa-documento');
   const lecturas = [];
@@ -16180,7 +16223,21 @@ router.post('/api/expensa-tanda-publicar', async (req, res) => {
   }
 
   const permitidos = edificiosPermitidos(req) || [];
-  const edificio = permitidos[0] || (req.body && req.body.edificio) || '';
+  // > [!CAUTION]
+  // > **El edificio sale del PERMISO, nunca del cuerpo del pedido.**
+  //
+  // Acá habia un `|| (req.body && req.body.edificio)` de respaldo. Con un cliente sin edificios
+  // asignados --el estado normal de uno recien creado-- ese respaldo ganaba, y el edificio pasaba
+  // a ser lo que viniera escrito en el pedido: se podia publicar una expensa dentro del consorcio
+  // de otro administrador, con el monto que fuera, y los vecinos de ese edificio la veian.
+  //
+  // Es exactamente lo que paso con `/api/pases-qr`, donde el edificio venia en el cuerpo y no se
+  // validaba contra ningun permiso. Y el endpoint de a una, treinta lineas mas abajo, ya lo hacia
+  // bien: `permitidos[0] || ''`.
+  //
+  // Sin edificio permitido no se publica nada. Que falte el dato es una cuenta a medio configurar,
+  // no una autorizacion.
+  const edificio = permitidos[0] || '';
   if (!edificio) return res.status(400).json({ error: 'No se especificó edificio' });
 
   const fecha = new Date().toLocaleString('es-AR');

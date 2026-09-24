@@ -25,7 +25,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { montoANumero, montoConfiable, normalizarUnidad, mismaUnidad } = require('./expensa-documento');
+const { montoANumero, montoConfiable, normalizarUnidad, mismaUnidad,
+        tipoRealDelArchivo, motivoDeLaFalla } = require('./expensa-documento');
 
 let ok = 0, fallos = 0;
 function vale(titulo, condicion, detalle) {
@@ -186,6 +187,57 @@ console.log('\n6) Candados estructurales');
             (necesarias.expensas || []).includes(col),
             'Sin la columna, `appendRow` descarta el dato EN SILENCIO — como pasó con tel_tecnico.');
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n7) Un HTML guardado con extensión .pdf no engaña a nadie');
+// ─────────────────────────────────────────────────────────────────────────────
+{
+    // > [!CAUTION]
+    // > **El navegador informa el tipo por la EXTENSIÓN, no por el contenido.**
+    //
+    // Primera prueba real: las cuatro expensas salieron sin unidad, sin período y con total 0.00.
+    // En el log estaba la respuesta exacta de la IA --`The document has no pages`, o sea que el
+    // archivo no era un PDF-- pero eso vive en el servidor, y quien carga cuarenta archivos mira
+    // la pantalla. En la pantalla decía "no se pudo leer el documento": un motivo que manda a
+    // buscar el problema al lugar equivocado.
+    //
+    // Los primeros bytes no mienten, y mirarlos ahorra además una llamada a la IA por archivo.
+    const B = (s) => Buffer.from(s, 'latin1');
+
+    vale('un PDF de verdad es `pdf`', tipoRealDelArchivo(B('%PDF-1.7\n1 0 obj')) === 'pdf');
+    vale('una página guardada es `html`', tipoRealDelArchivo(B('<!DOCTYPE html>\n<html>')) === 'html');
+    vale('…aunque arranque con espacios o BOM',
+        tipoRealDelArchivo(Buffer.from('﻿   <html lang="es">', 'utf8')) === 'html');
+    vale('un archivo de 0 bytes es `vacio`', tipoRealDelArchivo(Buffer.alloc(0)) === 'vacio');
+
+    // Las imágenes se aceptan: una foto de la liquidación es una forma legítima de subirla.
+    vale('un JPEG es `imagen`', tipoRealDelArchivo(Buffer.from([0xFF, 0xD8, 0xFF, 0xE0])) === 'imagen');
+    vale('un PNG es `imagen`',
+        tipoRealDelArchivo(Buffer.concat([Buffer.from([0x89]), B('PNG\r\n')])) === 'imagen');
+
+    vale('cualquier otra cosa es `desconocido`', tipoRealDelArchivo(B('MZ\x90\x00binario')) === 'desconocido');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n8) El motivo del fallo dice qué hacer, no solo que falló');
+// ─────────────────────────────────────────────────────────────────────────────
+{
+    // Un diagnóstico que hay que ir a buscar al log es medio diagnóstico.
+    const real = new Error('{"error":{"code":400,"message":"The document has no pages.","status":"INVALID_ARGUMENT"}}');
+    vale('"no pages" explica que no es un PDF y cómo arreglarlo',
+        /Ctrl\+P|Guardar como PDF/i.test(motivoDeLaFalla(real)), motivoDeLaFalla(real));
+
+    vale('la falta de clave se dice como falta de configuración',
+        /clave|configurado/i.test(motivoDeLaFalla(new Error('API key not valid'))));
+    vale('el techo de pedidos invita a reintentar',
+        /de nuevo|rato/i.test(motivoDeLaFalla(new Error('429 RESOURCE_EXHAUSTED'))));
+    vale('un corte de red se distingue',
+        /conexi[oó]n|contactar/i.test(motivoDeLaFalla(new Error('ETIMEDOUT'))));
+
+    // Y lo que no se reconoce no se disfraza de diagnóstico.
+    vale('lo desconocido se admite como desconocido',
+        motivoDeLaFalla(new Error('algo rarísimo')) === 'no se pudo leer el documento');
 }
 
 console.log(`\n${'─'.repeat(70)}`);
