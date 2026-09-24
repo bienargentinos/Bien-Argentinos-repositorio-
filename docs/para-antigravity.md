@@ -662,3 +662,91 @@ Dos cosas del proyecto que aplican si lo encarás:
 
 Mientras no esté, el arreglo del `requireAuth` alcanza para que el mensaje diga la verdad: se
 vuelve a entrar al panel y la tanda se sube de nuevo.
+
+---
+
+## La tanda dice "publicada con éxito" aunque no se haya guardado ninguna
+
+Daniel publicó la tanda, el panel le dijo que salió bien, y **Expensas publicadas** siguió diciendo
+*"Todavía no publicaste expensas para este edificio."*
+
+Antes de buscar en el listado, hay que descartar esto, porque el mensaje de éxito no es confiable.
+
+### 1. El contador cuenta al final del `try`
+
+`dashboard.js:15928`, adentro del bucle de `expensa-tanda-publicar`:
+
+```js
+      guardadas++;
+    } catch (errItem) {
+      console.error(`Error guardando expensa en tanda (${nombreFinal}):`, errItem.message);
+    }
+```
+
+`guardadas++` corre **después** del `appendRow` a Sheets y del `INSERT` a PostgreSQL. Si cualquiera
+de los dos falla, la fila cae al `catch` y no se cuenta. Está bien que sea así.
+
+### 2. Pero el navegador convierte el 0 en "todas"
+
+`dashboard.js:8159`:
+
+```js
+toast('Tanda de ' + (j.guardadas || _expTandaDatos.length) + ' expensas publicada con éxito', 'ok');
+```
+
+> [!CAUTION]
+> **`j.guardadas || _expTandaDatos.length` con `guardadas === 0` devuelve la cantidad de filas de la
+> tabla.** O sea: la tanda donde fallaron **todas** informa *"Tanda de 4 expensas publicada con
+> éxito"*.
+
+`0` es falsy, y acá `0` es justo el número que más importa mostrar. Sirve:
+
+```js
+var n = (typeof j.guardadas === 'number') ? j.guardadas : _expTandaDatos.length;
+if (n === 0) throw new Error('No se guardó ninguna expensa. Revisá el log del servidor.');
+toast('Tanda de ' + n + ' expensas publicada con éxito', 'ok');
+```
+
+Y del lado del servidor, `res.json({ ok: true, guardadas })` contesta `ok: true` aunque no se haya
+guardado nada. Devolver además cuántas fallaron (y con qué motivo) es lo que permite decirlo en
+pantalla en lugar de dejarlo en el log:
+
+```js
+res.json({ ok: guardadas > 0, guardadas, fallidas: filas.length - guardadas });
+```
+
+Es el mismo patrón que el `⏱️ 3 caso(s)` que contaba antes de filtrar y que el `302` al login leído
+como JSON: **una falla que miente sobre sí misma cuesta más que la falla.** Acá mandó a mirar el
+listado, que puede estar perfecto.
+
+### 3. Si el log está limpio, entonces sí es el listado
+
+```bash
+pm2 logs marcos-ai --lines 400 --nostream | grep -i "expensa en tanda"
+```
+
+Con el log limpio, las filas están escritas y el problema es el filtro de `dashboard.js:12991`:
+
+```js
+.filter((x) => cur && compararEdificios(x.edificio, cur.nombre) && x.estado !== 'eliminada')
+```
+
+Tres cosas para mirar, en orden:
+
+- **`cur` falsy filtra TODO** y el mensaje resultante es exactamente *"Todavía no publicaste
+  expensas para este edificio"* — indistinguible de no tener ninguna. Vale la pena que esos dos
+  casos digan cosas distintas: "no hay expensas" y "no pude determinar tu edificio" no se arreglan
+  igual.
+- **El nombre del edificio sale de dos bases distintas.** Al publicar, `edificio` es
+  `edificiosPermitidos(req)[0]`, que según CLAUDE.md se resuelve contra **PostgreSQL**; al listar,
+  `cur.nombre` viene de `cargarDatos(req)`, que lee **Sheets**. Si las dos bases tienen el nombre
+  escrito distinto --que es el problema que ya documentamos con `revisar-sobrantes.js`--, se guarda
+  con un nombre y se busca con el otro. `node revisar-sobrantes.js edificios` lo dice.
+- **La pestaña.** `guardarFactura` ya tuvo este bug exacto: buscaba la pestaña por un nombre
+  sensible a mayúsculas, no la encontraba y **creaba una segunda**. Las facturas iban a la nueva y
+  quien miraba la vieja las daba por perdidas. Si `appendRow` y `readTab` no resuelven
+  `TAB_EXPENSAS` igual, pasa lo mismo: se escribe en una pestaña y se lee de otra. En `sheets.js`
+  eso se resolvió con `pestaña()`, que la encuentra escrita como esté.
+
+Yo no toqué nada de esto: el listado es tuyo y Daniel ya te lo pasó. Queda acá para que no haya que
+derivarlo de nuevo.
