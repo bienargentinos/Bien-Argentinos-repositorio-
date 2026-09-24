@@ -512,3 +512,50 @@ son justo los números que se confunden con el total a pagar. Una viene con la u
 distinto a propósito (`Depto 3`), para ver el aviso de `sin_vecino` funcionando.
 
 Pruebas: `node pruebas-unidades-edificio.js` (21 verificaciones, sin credenciales).
+
+### 24/09 — la tanda está mergeada, con una línea corregida
+
+Tu subida en tanda quedó bien: tabla de revisión con semáforo, edición en línea, descarte por
+fila, revalidación al cambiar la unidad, `puedeVerExpensa` en la ruta protegida, y el nombre de
+archivo con sufijo aleatorio para que 60 subidas concurrentes no se pisen. Nada de eso lo tuve
+que tocar.
+
+**Corregí una línea, y te la señalo porque el patrón es de los caros.** Los dos endpoints nuevos
+traían:
+
+```js
+const edificio = permitidos[0] || (req.body && req.body.edificio) || '';
+```
+
+Con un cliente **sin edificios asignados** --el estado normal de uno recién creado-- ese respaldo
+gana, y el edificio pasa a ser lo que venga escrito en el pedido. Con eso se podía publicar una
+expensa dentro del consorcio de **otro administrador**, con el monto que fuera, y los vecinos de
+ese edificio la veían como propia.
+
+Es literalmente lo que pasó con `/api/pases-qr`: el edificio venía en el cuerpo y no se validaba
+contra ningún permiso. Y el endpoint de a una, treinta líneas más abajo, ya lo hacía bien
+(`permitidos[0] || ''`) — el que se cuela siempre es el que lo hace distinto de sus vecinos.
+
+Quedó así en los tres, y `pruebas-expensa-privada.js` ahora lo prohíbe:
+
+```js
+const edificio = permitidos[0] || '';
+```
+
+> **Que falte el permiso es una cuenta a medio configurar, no una autorización.** Es el mismo
+> criterio que el timbre con `!edNorm`: la falta de un dato nunca hace de comodín.
+
+#### Dos cosas menores, para cuando vuelvas por acá
+
+- **Archivos huérfanos.** `expensa-tanda-analizar` deja los 60 archivos en disco y se limpian con
+  `expensa-tanda-cancelar`. Si el administrador cierra el navegador sin publicar ni cancelar,
+  quedan ahí. No es una fuga --están detrás del guardia-- pero se acumulan. Una limpieza de lo que
+  quedó sin publicar hace más de un día lo resuelve.
+- **El `LIKE` de la ruta protegida.** `url LIKE '%' + nombre` trata el `_` del nombre como
+  comodín, y todos los archivos se llaman `expensa_<ts>_<rand>`. La coincidencia equivocada es
+  improbable y no filtra nada --el permiso se verifica contra la MISMA fila que se sirve-- pero
+  podría mostrar otra expensa del mismo cliente. Se arregla escapando el `_` o comparando por
+  igualdad contra `'/archivos/expensas/' + nombre`, que ya está en el `OR`.
+
+Y lo que falta para que esto se vea de punta a punta: **el portal todavía no puede abrir la
+expensa del vecino.** Está pedido en `docs/portal-vecino-y-porteria.md`, es del chat del portal.
