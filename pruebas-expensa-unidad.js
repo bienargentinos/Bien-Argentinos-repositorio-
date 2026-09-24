@@ -60,10 +60,35 @@ console.log('\n── EL MONTO SALE DE LA BASE ──');
     afirmar('existe en db-pg', /async function expensaDeUnidad/.test(DB));
     const m = DB.match(/async function expensaDeUnidad[\s\S]*?\n}/);
     if (m) {
-        afirmar('busca primero la del departamento', m[0].includes('(departamento IS NULL) ASC'));
+        afirmar('busca primero la del departamento', m[0].includes('|| delEdificio.find(r => !claveUnidad'));
         afirmar('descarta las eliminadas', m[0].includes("<> 'eliminada'"));
         afirmar('devuelve null si no hay', m[0].includes('if (!fila) return null;'));
+        // El departamento lo tipea el administrador en el panel y el de la sesión viene de cómo se
+        // cargó la unidad: dos textos escritos por personas distintas. Compararlos carácter por
+        // carácter es el error que este repo ya pagó tres veces.
+        afirmar('NO compara el departamento con igualdad exacta en SQL',
+            !/LOWER\(TRIM\(COALESCE\(departamento/.test(m[0]));
+        afirmar('usa claveUnidad, que ya existe', m[0].includes("require('./edificio-clave')"));
     }
+}
+
+console.log('\n── "1° A", "1º A" Y "1A" SON EL MISMO DEPARTAMENTO ──');
+{
+    // El símbolo de grado (°) y el ordinal masculino (º) se ven iguales en pantalla y son dos
+    // caracteres distintos. Si el administrador tipea uno y la unidad se cargó con el otro, la
+    // expensa no aparece nunca y no hay ningún error que lo delate.
+    const { claveUnidad } = require('./edificio-clave');
+    const mismaUnidad = (a, b) => claveUnidad(a) === claveUnidad(b);
+
+    afirmar('grado vs ordinal masculino', mismaUnidad('1° A', '1º A'));
+    afirmar('con y sin espacio', mismaUnidad('1° A', '1A'));
+    afirmar('con guión', mismaUnidad('1-A', '1 a'));
+    afirmar('mayúsculas', mismaUnidad('4°B', '4b'));
+
+    // Y lo que NO puede pasar: que se lleve por delante a otra unidad.
+    afirmar('el 1A no es el 11A', !mismaUnidad('1A', '11A'));
+    afirmar('el 1A no es el 1B', !mismaUnidad('1° A', '1° B'));
+    afirmar('un vacío no matchea con nada', !mismaUnidad('', '1A'));
     // Si cae al documento del edificio, la pantalla tiene que decirlo: no es la cuenta de la unidad.
     afirmar('avisa cuando es la del edificio', PORTAL.includes("t('expensa.delEdificio')"));
 }

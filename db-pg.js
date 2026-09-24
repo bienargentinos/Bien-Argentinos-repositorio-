@@ -1253,27 +1253,47 @@ async function cambiarPasswordUsuario(usuarioId, passwordActual, passwordNueva) 
 async function expensaDeUnidad(edificio, departamento) {
     if (!edificio || !String(edificio).trim()) return null;
 
-    const q = `SELECT *, (departamento IS NULL) AS es_del_edificio
-                 FROM expensas
-                WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))
-                  AND COALESCE(LOWER(estado), '') <> 'eliminada'
-                  AND (LOWER(TRIM(COALESCE(departamento, ''))) = LOWER(TRIM($2)) OR departamento IS NULL)
-                ORDER BY (departamento IS NULL) ASC, id DESC
-                LIMIT 1`;
-    const res = await pool.query(q, [edificio, String(departamento || '').trim()]);
-    const fila = res.rows[0];
+    // El departamento lo escribe a mano el administrador en el panel, y el de la sesion del vecino
+    // viene de como se lo cargo al asignarle la unidad. Son dos textos tipeados por personas
+    // distintas en momentos distintos, asi que compararlos caracter por caracter no alcanza:
+    // "1° A" y "1º A" se ven iguales y son caracteres distintos (grado vs ordinal masculino), y
+    // "1A" es el mismo departamento escrito sin nada en el medio.
+    //
+    // Es el error que este repo ya pago tres veces: el edificio que "desaparecia" de su
+    // administrador, el proveedor renombrado que Marcos seguia llamando por el nombre viejo, y el
+    // timbre que sonaba en otro edificio. Por eso NO se normaliza aca de nuevo: se llama a
+    // `claveUnidad`, que ya existe en edificio-clave.js y es la que usa la porteria.
+    const { claveUnidad, mismoEdificio } = require('./edificio-clave');
+    const buscada = claveUnidad(departamento);
+
+    // Se traen las del edificio y se elige en JavaScript. Hacer la normalizacion en SQL seria una
+    // segunda copia de la misma regla, y arreglar una sin la otra es como se pierde una tarde.
+    const res = await pool.query(
+        `SELECT * FROM expensas
+          WHERE COALESCE(LOWER(estado), '') <> 'eliminada'
+          ORDER BY id DESC
+          LIMIT 500`
+    );
+
+    const delEdificio = (res.rows || []).filter(r => mismoEdificio(r.edificio, edificio));
+    // Primero la de la unidad; si no hay, la del edificio entero (departamento vacio).
+    const fila = delEdificio.find(r => buscada && claveUnidad(r.departamento) === buscada)
+              || delEdificio.find(r => !claveUnidad(r.departamento));
     if (!fila) return null;
+
+    const monto = fila.monto === null || fila.monto === undefined || fila.monto === ''
+        ? null : Number(fila.monto);
 
     return {
         id: fila.id,
         periodo: fila.periodo || '',
-        monto: fila.monto === null || fila.monto === undefined ? null : Number(fila.monto),
+        monto: (monto !== null && isFinite(monto)) ? monto : null,
         montoOrigen: fila.monto_origen || null,
         vencimiento: fila.vencimiento || null,
         url: fila.url || '',
         formato: fila.formato || '',
         nombre: fila.nombre || '',
-        esDelEdificio: !!fila.es_del_edificio,
+        esDelEdificio: !claveUnidad(fila.departamento),
     };
 }
 
