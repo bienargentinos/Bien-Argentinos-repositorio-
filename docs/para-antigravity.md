@@ -394,3 +394,59 @@ preocuparte: la pestaña `expensas` **no existía** en la planilla, y ya la cre�
 —incluidas `departamento`, `monto`, `vencimiento` y `monto_origen`—. Antes de eso había una
 carrera: la pestaña nace con las columnas de la PRIMERA fila que se escriba, así que una expensa
 subida antes de tu cambio la dejaba con siete para siempre. Ya no importa el orden.
+
+### 24/09 — las expensas ya NO se sirven solas, hace falta una ruta del panel
+
+Tu parte de expensas por unidad está mergeada y quedó bien: llama a `leerExpensa` en vez de
+reimplementarlo, respeta `mostrar_monto` y `choca_la_unidad`, escribe las 11 columnas en las dos
+bases, y borra el archivo temporal del análisis — eso último no estaba pedido y está bien pensado.
+
+**Pero abrió algo que antes no importaba.** Los PDF se guardan en `almacenamiento/expensas/`, e
+`index.js` servía esa carpeta entera con `express.static`, sin sesión. Con una expensa por
+edificio daba igual --la veían todos por diseño--; con una por unidad, el documento con la deuda
+de cada vecino quedaba en una URL que cualquiera podía abrir y reenviar. Y el nombre es
+`expensa_<Date.now()>.pdf`, o sea adivinable.
+
+No es culpa del cambio: el `express.static` ya estaba. Lo que hizo tu cambio fue poner adentro
+algo que antes no estaba.
+
+**Ya lo cerré**, del lado del motor. Había **tres** caminos al mismo archivo, no uno:
+
+1. `app.use('/archivos', express.static(almacenamiento))`
+2. `app.use('/audios',  express.static(almacenamiento))` — la misma carpeta
+3. `servirOConvertirMedia`, que busca **por nombre suelto y recursivo**: `/archivos/expensa_x.pdf`
+   lo encontraba sin la carpeta en el medio
+
+Por eso la regla mira el **nombre**, no la ruta. Bloquear la carpeta habría tapado dos de tres y
+habría parecido hecho.
+
+#### Lo que necesita el panel
+
+Hoy el administrador **no puede abrir la expensa que acaba de subir**: el enlace del listado
+apunta a `/archivos/expensas/...` y eso ahora devuelve 403. Hace falta una ruta del panel que sí
+sepa quién pregunta:
+
+```js
+const { puedeVerExpensa, rutaDelArchivo } = require('./expensa-privada');
+
+router.get('/api/expensa-archivo/:nombre', async (req, res) => {
+    // Buscá la fila en la tabla `expensas` por su `url` (o por el nombre del archivo).
+    // `quien` sale de la sesión del panel, NUNCA de algo que venga en el pedido:
+    //   dueño    → { rol: 'dueno' }
+    //   cliente  → { rol: 'consorcio', edificios: edificiosPermitidos(req) }
+    const { puede, motivo } = puedeVerExpensa({ expensa, quien });
+    if (!puede) return res.status(403).json({ error: motivo });
+
+    const ruta = rutaDelArchivo(expensa.url);
+    if (!ruta || !fs.existsSync(ruta)) return res.status(404).json({ error: 'No está el archivo' });
+    res.sendFile(ruta);
+});
+```
+
+Y que el listado de expensas apunte a esa ruta en vez de a `/archivos/...`.
+
+> **Usá `puedeVerExpensa`, no escribas el criterio de nuevo.** El portal va a llamar a la misma
+> función, y el día que cambie una regla tiene que cambiar en un solo lugar. Es lo que pasó con
+> `buscarPerfilEdificio`, escrita dos veces: arreglar una copia no cambió nada en producción.
+
+Prueba: `node pruebas-expensa-privada.js` (39 verificaciones, sin credenciales).

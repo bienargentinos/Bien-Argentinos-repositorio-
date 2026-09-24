@@ -42,6 +42,21 @@ const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 
+// > [!CAUTION]
+// > **Este guardia va ANTES de los `express.static`, y ese orden es todo el arreglo.**
+//
+// Puesto después, el archivo ya se sirvió y el guardia no se ejecuta nunca: quedaría un bloqueo
+// que parece puesto y no bloquea nada.
+//
+// Las expensas por unidad llevan el monto que debe cada vecino, y vivían en `almacenamiento/`,
+// que se sirve entero y sin sesión. El detalle que lo hacía peor: hay TRES caminos al mismo
+// archivo --las dos estáticas de acá abajo y el buscador por nombre suelto de más abajo, que
+// recorre las subcarpetas--, así que bloquear la carpeta habría tapado dos de tres.
+// `esArchivoDeExpensa` mira el NOMBRE, que es lo único común a los tres caminos.
+const { guardiaExpensas } = require('./expensa-privada');
+app.use('/archivos', guardiaExpensas);
+app.use('/audios', guardiaExpensas);
+
 app.use('/audios', express.static(path.join(__dirname, 'temp')));
 app.use('/audios', express.static(path.join(__dirname, 'almacenamiento')));
 app.use('/archivos', express.static(path.join(__dirname, 'almacenamiento')));

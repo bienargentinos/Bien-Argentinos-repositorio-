@@ -163,3 +163,68 @@ de reinicios de PM2 iba en 41.
 Ya está puesto el manejador que lo loguea, pero la lección queda: **acá adentro un error suelto no
 es solo tuyo.** Está contado en `CLAUDE.md`, en *"Un error suelto mataba a Marcos en mitad de una
 conversación"*.
+
+---
+
+## 24/09 — las expensas dejaron de servirse solas (hace falta una ruta del portal)
+
+El panel ya publica **expensas por unidad**: una fila de `expensas` puede tener `departamento`
+vacío (liquidación general del edificio, la ven todos) o con valor (de esa unidad y de nadie más),
+más `monto`, `vencimiento` y `monto_origen`.
+
+Eso convirtió el PDF en el dato privado de una persona, y estaba en `almacenamiento/expensas/`,
+que `index.js` servía entero con `express.static` y sin sesión. **Ya lo cerré**: `/archivos/...` y
+`/audios/...` devuelven 403 para cualquier archivo de expensas, por las tres puertas que llegaban
+a él (las dos estáticas y el buscador por nombre suelto, que recorre subcarpetas).
+
+> El filtrado por unidad en la pantalla no alcanzaba: protege la vista, no el archivo. Y estas URL
+> circulan solas — Marcos comparte la expensa por WhatsApp y el vecino la reenvía.
+
+### Lo que necesita el portal
+
+**Hoy el vecino no puede abrir su expensa**: `/vecino/expensas` lista filas cuya `url` apunta a
+`/archivos/expensas/...`, y eso ahora da 403. Hacen falta dos cosas:
+
+**1. Filtrar por unidad en la consulta.** Hoy es solo por edificio:
+
+```js
+const qExp = `SELECT * FROM expensas WHERE LOWER(edificio) = LOWER($1) AND estado != 'eliminada' ORDER BY id DESC`;
+```
+
+Con expensas por unidad, eso le muestra a cada vecino el monto de todos sus vecinos. Tiene que
+traer las del edificio **cuyo `departamento` esté vacío o sea el suyo**, y la unidad sale de
+`usuario_unidades` —lo que el vecino tiene asignado—, **nunca de algo que venga en el pedido**. Si
+saliera del pedido, cualquiera pide la del vecino escribiendo su número de unidad: es el agujero
+que tenía `/api/pases-qr`.
+
+**2. Una ruta propia que sirva el archivo**, porque la pública ya no lo hace:
+
+```js
+const { puedeVerExpensa, rutaDelArchivo } = require('./expensa-privada');
+
+router.get('/expensa-archivo/:nombre', async (req, res) => {
+    const v = getVecinoSession(req);
+    // buscá la fila por su `url` / nombre de archivo
+    const { puede, motivo } = puedeVerExpensa({
+        expensa,
+        quien: {
+            rol: 'vecino',
+            edificio: v.edificio,
+            departamento: v.departamento,
+            puede_ver_expensas: v.puede_ver_expensas,
+        },
+    });
+    if (!puede) return res.status(403).send(motivo);
+
+    const ruta = rutaDelArchivo(expensa.url);
+    if (!ruta || !fs.existsSync(ruta)) return res.status(404).send('No está el archivo');
+    res.sendFile(ruta);
+});
+```
+
+> **Llamá a `puedeVerExpensa`, no reescribas el criterio.** El panel va a llamar a la misma
+> función: el día que cambie una regla tiene que cambiar en un solo lugar. Ya cubre el permiso
+> `puede_ver_expensas` del huésped, la liquidación general, y que "1A" y "1° A" son la misma
+> unidad.
+
+Prueba: `node pruebas-expensa-privada.js` (39 verificaciones, sin credenciales ni bases).
