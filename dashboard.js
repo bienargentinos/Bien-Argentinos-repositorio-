@@ -192,8 +192,25 @@ function mapVecino(r) {
  * SESSION
  * =================================================================== */
 
+let sessionStore = null;
+try {
+  const { pool } = require('./db-pg');
+  if (pool) {
+    const pgSession = require('connect-pg-simple')(session);
+    sessionStore = new pgSession({
+      pool,
+      tableName: 'sesiones_panel',
+      createTableIfMissing: true,
+      pruneSessionInterval: 60 * 15, // Cada 15 minutos limpia expiradas
+    });
+  }
+} catch (errStore) {
+  console.warn('⚠️ No se pudo inicializar store de sesiones en PostgreSQL, usando MemoryStore fallback:', errStore.message);
+}
+
 router.use(
   session({
+    store: sessionStore || undefined,
     name: 'marcos.sid',
     secret: SESSION_SECRET,
     resave: false,
@@ -16204,10 +16221,11 @@ router.get('/api/expensa-archivo/:nombre', async (req, res) => {
     const { pool } = require('./db-pg');
     if (pool) {
       const q = `SELECT * FROM expensas 
-                 WHERE (url LIKE $1 OR nombre = $2 OR url = $3)
+                 WHERE (url LIKE $1 ESCAPE '=' OR nombre = $2 OR url = $3)
                    AND estado != 'eliminada' 
                  ORDER BY id DESC LIMIT 1`;
-      const resPg = await pool.query(q, ['%' + nombreParam, nombreParam, '/archivos/expensas/' + nombreParam]);
+      const safeLike = '%' + nombreParam.replace(/([_%])/g, '=$1');
+      const resPg = await pool.query(q, [safeLike, nombreParam, '/archivos/expensas/' + nombreParam]);
       if (resPg.rows && resPg.rows.length) {
         expensa = resPg.rows[0];
       }

@@ -27,6 +27,26 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-24 — Persistencia de sesiones en PostgreSQL (`connect-pg-simple`) y escape en ruta de expensas
+
+- **Qué cambié y en qué archivo:**
+  - **`package.json` y `package-lock.json`**:
+    - Se agregó `connect-pg-simple` en el mismo commit que el código que lo usa (siguiendo la regla de oro).
+  - **`dashboard.js`**:
+    - **Store de sesiones en PostgreSQL**:
+      - Se configuró `connect-pg-simple` apuntando al `pool` de PostgreSQL en la tabla `sesiones_panel` con `createTableIfMissing: true` y limpieza automática cada 15 min.
+      - Al conectarse como el rol `marcos` configurado en `urlPostgres()`, la tabla queda creada con el dueño correcto sin riesgo de `permission denied`.
+      - Cuenta con fallback a MemoryStore en caso de que PostgreSQL no esté disponible (por ejemplo en entornos locales de prueba).
+      - Con esto, las sesiones del panel sobreviven a los reinicios de PM2 (`pm2 restart marcos-ai`).
+    - **Escape de comodines en `GET /api/expensa-archivo/:nombre`**:
+      - Se añadió `ESCAPE '='` y escape explícito de `_` y `%` en el `LIKE` para evitar que el caracter `_` del nombre `expensa_<ts>_<rand>` coincida accidentalmente con otros nombres.
+  - **Despliegue al VPS**:
+    - Ambas ramas (`antigravity/panel-fase-1` y `claude/marcos-ia-whatsapp-template-vpg8gw`) fueron sincronizadas y desplegadas en el VPS (`200.58.102.182:5436`), proceso `marcos-ai` reiniciado con PM2 y verificado online.
+
+- **Verificación:**
+  - `node verificar-antes-de-subir.js`: ✅ 65 de 65 pruebas en verde.
+  - `node pruebas-expensa-privada.js`: ✅ 45 de 45 en verde.
+
 ### 2026-09-24 — Grid de tarjetas por edificio en Expensas y enlaces absolutos en Copiar
 
 - **Qué cambié y en qué archivo:**
