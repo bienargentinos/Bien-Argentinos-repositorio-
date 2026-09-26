@@ -1081,8 +1081,13 @@ function shellVecino(title, activeTab, content, vecinoData) {
   const v = vecinoData || getVecinoSession({});
   const t = textos(v.idioma);
 
+  // El `lang` sigue al idioma del vecino. Estaba fijo en `es-AR` para todo el mundo, y de ahí sale
+  // cómo lo pronuncia un lector de pantalla y si el navegador ofrece traducir la página. Una página
+  // en portugués declarada como castellano se lee mal en voz alta y no dispara ese aviso.
+  const lang = { es: 'es-AR', en: 'en', pt: 'pt-BR', fr: 'fr' }[t.idioma] || 'es-AR';
+
   return `<!DOCTYPE html>
-<html lang="es-AR">
+<html lang="${lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
@@ -4130,16 +4135,36 @@ router.get('/integrantes', (req, res) => {
 // -------------------------------------------------------------------
 router.get('/pases', (req, res) => {
   const v = getVecinoSession(req);
+  const t = textos(v.idioma);
+
+  // Los textos que necesita el JavaScript del navegador van en UN objeto y no en veinte
+  // interpolaciones sueltas: cada `'` de un idioma --"l'immeuble", "Vous n'avez"-- cerraría una
+  // cadena de JavaScript y rompería la página entera. `JSON.stringify` escapa una vez y bien.
+  const T = JSON.stringify({
+    sinActivos: t('pases.sinActivos'),
+    sinHistorial: t('pases.sinHistorial'),
+    activo: t('pases.activo'),
+    codigo: t('pases.codigo'),
+    vence: t('pases.vence'),
+    verQr: t('pases.verQr'),
+    generar: t('pases.generar'),
+    generando: t('pases.generando'),
+    validoHasta: t('pases.validoHasta'),
+    motivoVisita: t('pases.motivoVisita'),
+    usado: t('pases.estadoUtilizado'),
+    anulado: t('pases.estadoRevocado'),
+    vencido: t('pases.estadoVencido'),
+  });
 
   const content = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div>
-        <h1 style="font-size:20px;font-weight:900;color:var(--texto);letter-spacing:-.02em">Pases de Invitación QR</h1>
+        <h1 style="font-size:20px;font-weight:900;color:var(--texto);letter-spacing:-.02em">${esc(t('pases.titulo'))}</h1>
         <p style="font-size:12.5px;color:var(--texto-suave)">${esc(v.edificio)} · Depto ${esc(v.departamento)}</p>
       </div>
       <button onclick="abrirModalNuevoPase()" style="padding:9px 15px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--marca),var(--acento));color:#fff;font-weight:800;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 3px 10px rgba(15,50,106,.25)">
         <i class="ph ph-plus-circle" style="font-size:18px"></i>
-        <span>Nuevo Pase QR</span>
+        <span>${esc(t('pases.nuevo'))}</span>
       </button>
     </div>
 
@@ -4156,10 +4181,10 @@ router.get('/pases', (req, res) => {
     <!-- TABS: ACTIVOS / HISTORIAL -->
     <div style="display:flex;gap:8px;margin-bottom:12px;border-bottom:1px solid var(--borde);padding-bottom:8px">
       <button id="tab-btn-activos" onclick="cambiarTabPases('activos')" style="border:none;background:var(--marca);color:#fff;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:800;cursor:pointer">
-        Pases Activos (<span id="cnt-activos">0</span>)
+        ${esc(t('pases.tabActivos'))} (<span id="cnt-activos">0</span>)
       </button>
       <button id="tab-btn-historial" onclick="cambiarTabPases('historial')" style="border:none;background:var(--superficie-3);color:var(--texto-suave);padding:6px 14px;border-radius:20px;font-size:12px;font-weight:800;cursor:pointer">
-        Historial / Vencidos
+        ${esc(t('pases.tabHistorial'))}
       </button>
     </div>
 
@@ -4181,48 +4206,48 @@ router.get('/pases', (req, res) => {
     <div id="modal-nuevo-pase" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:16px">
       <div style="background:#fff;border-radius:24px;max-width:440px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.25);max-height:90vh;overflow-y:auto">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;border-bottom:1px solid var(--superficie-3);padding-bottom:10px">
-          <div style="font-size:16px;font-weight:900;color:var(--marca)">🎟️ Crear Pase de Invitación QR</div>
+          <div style="font-size:16px;font-weight:900;color:var(--marca)">🎟️ ${esc(t('pases.crearTitulo'))}</div>
           <button onclick="cerrarModal('modal-nuevo-pase')" style="border:none;background:var(--superficie-3);border-radius:50%;width:30px;height:30px;font-size:16px;cursor:pointer;color:var(--texto-suave)">✕</button>
         </div>
 
         <form onsubmit="crearPaseInvitacion(event)">
           <!-- Nombre del Invitado -->
           <div style="margin-bottom:12px">
-            <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Nombre del Invitado / Proveedor *</label>
-            <input type="text" id="pase-nombre" class="inp" placeholder="Ej: Lucas González o Cadete PedidosYa" required style="margin-bottom:0">
+            <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">${esc(t('pases.nombreInvitado'))} *</label>
+            <input type="text" id="pase-nombre" class="inp" placeholder="${esc(t('pases.nombrePlaceholder'))}" required style="margin-bottom:0">
           </div>
 
           <!-- Motivo de Acceso -->
           <div style="margin-bottom:12px">
-            <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Motivo de la Visita</label>
+            <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">${esc(t('pases.motivo'))}</label>
             <div style="display:grid;grid-template-columns:repeat(2, 1fr);gap:6px">
               <label class="opt-motivo" style="display:flex;align-items:center;gap:6px;background:var(--superficie-2);border:1.5px solid var(--borde);border-radius:10px;padding:8px 10px;font-size:12.5px;font-weight:700;color:var(--texto-medio);cursor:pointer">
                 <input type="radio" name="pase_motivo" value="🛵 Delivery" checked onchange="ajustarValidezPorMotivo('delivery')">
-                <span>🛵 Delivery</span>
+                <span>🛵 ${esc(t('pases.motivoDelivery'))}</span>
               </label>
               <label class="opt-motivo" style="display:flex;align-items:center;gap:6px;background:var(--superficie-2);border:1.5px solid var(--borde);border-radius:10px;padding:8px 10px;font-size:12.5px;font-weight:700;color:var(--texto-medio);cursor:pointer">
                 <input type="radio" name="pase_motivo" value="👋 Visita" onchange="ajustarValidezPorMotivo('visita')">
-                <span>👋 Visita</span>
+                <span>👋 ${esc(t('pases.motivoVisita'))}</span>
               </label>
               <label class="opt-motivo" style="display:flex;align-items:center;gap:6px;background:var(--superficie-2);border:1.5px solid var(--borde);border-radius:10px;padding:8px 10px;font-size:12.5px;font-weight:700;color:var(--texto-medio);cursor:pointer">
                 <input type="radio" name="pase_motivo" value="📦 Encomienda" onchange="ajustarValidezPorMotivo('encomienda')">
-                <span>📦 Encomienda</span>
+                <span>📦 ${esc(t('pases.motivoEncomienda'))}</span>
               </label>
               <label class="opt-motivo" style="display:flex;align-items:center;gap:6px;background:var(--superficie-2);border:1.5px solid var(--borde);border-radius:10px;padding:8px 10px;font-size:12.5px;font-weight:700;color:var(--texto-medio);cursor:pointer">
                 <input type="radio" name="pase_motivo" value="🧰 Proveedor / Servicio" onchange="ajustarValidezPorMotivo('proveedor')">
-                <span>🧰 Proveedor</span>
+                <span>🧰 ${esc(t('pases.motivoProveedor'))}</span>
               </label>
             </div>
           </div>
 
           <!-- Validez -->
           <div style="margin-bottom:12px">
-            <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Validez del Pase</label>
+            <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">${esc(t('pases.validez'))}</label>
             <select id="pase-validez" class="inp" onchange="toggleValidezPersonalizada()" style="margin-bottom:0">
-              <option value="2h">⏱️ 2 Horas (Recomendado Delivery)</option>
-              <option value="4h">⏱️ 4 Horas (Recomendado Visitas)</option>
-              <option value="dia">📅 Todo el día (hasta las 23:59 hs)</option>
-              <option value="custom">⚙️ Fecha y Hora Personalizada</option>
+              <option value="2h">⏱️ ${esc(t('pases.validez2h'))}</option>
+              <option value="4h">⏱️ ${esc(t('pases.validez4h'))}</option>
+              <option value="dia">📅 ${esc(t('pases.validezDia'))}</option>
+              <option value="custom">⚙️ ${esc(t('pases.validezCustom'))}</option>
             </select>
           </div>
 
@@ -4230,11 +4255,11 @@ router.get('/pases', (req, res) => {
           <div id="box-validez-custom" style="display:none;margin-bottom:12px;background:var(--superficie-2);border:1px solid var(--borde);border-radius:12px;padding:10px">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
               <div>
-                <label style="font-size:10px;font-weight:800;color:var(--texto-suave);display:block;margin-bottom:2px">Desde</label>
+                <label style="font-size:10px;font-weight:800;color:var(--texto-suave);display:block;margin-bottom:2px">${esc(t('pases.desde'))}</label>
                 <input type="datetime-local" id="pase-custom-desde" class="inp" style="font-size:11px;margin-bottom:0;padding:0 6px">
               </div>
               <div>
-                <label style="font-size:10px;font-weight:800;color:var(--texto-suave);display:block;margin-bottom:2px">Hasta</label>
+                <label style="font-size:10px;font-weight:800;color:var(--texto-suave);display:block;margin-bottom:2px">${esc(t('pases.hasta'))}</label>
                 <input type="datetime-local" id="pase-custom-hasta" class="inp" style="font-size:11px;margin-bottom:0;padding:0 6px">
               </div>
             </div>
@@ -4244,28 +4269,28 @@ router.get('/pases', (req, res) => {
           <div style="margin-bottom:14px;background:var(--superficie-3);border-radius:14px;padding:12px">
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:var(--texto);cursor:pointer">
               <input type="checkbox" id="pase-es-recurrente" onchange="toggleRecurrente()">
-              <span>🔁 Habilitar como pase recurrente (servicios/limpieza)</span>
+              <span>🔁 ${esc(t('pases.recurrente'))}</span>
             </label>
 
             <div id="box-recurrente-detalles" style="display:none;margin-top:10px;border-top:1px solid var(--borde);padding-top:10px">
-              <div style="font-size:11px;font-weight:800;color:var(--texto-medio);margin-bottom:6px">Días habilitados de la semana:</div>
+              <div style="font-size:11px;font-weight:800;color:var(--texto-medio);margin-bottom:6px">${esc(t('pases.diasHabilitados'))}</div>
               <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:10px">
-                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Lunes" checked> Lun</label>
-                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Martes"> Mar</label>
-                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Miércoles" checked> Mié</label>
-                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Jueves"> Jue</label>
-                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Viernes" checked> Vie</label>
-                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Sábado"> Sáb</label>
-                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Domingo"> Dom</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Lunes" checked> ${esc(t('dia.lun'))}</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Martes"> ${esc(t('dia.mar'))}</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Miércoles" checked> ${esc(t('dia.mie'))}</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Jueves"> ${esc(t('dia.jue'))}</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Viernes" checked> ${esc(t('dia.vie'))}</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Sábado"> ${esc(t('dia.sab'))}</label>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;color:var(--texto-medio)"><input type="checkbox" name="dias_rec" value="Domingo"> ${esc(t('dia.dom'))}</label>
               </div>
 
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
                 <div>
-                  <label style="font-size:10.5px;font-weight:800;color:var(--texto-suave);display:block;margin-bottom:2px">Hora Entrada</label>
+                  <label style="font-size:10.5px;font-weight:800;color:var(--texto-suave);display:block;margin-bottom:2px">${esc(t('pases.horaEntrada'))}</label>
                   <input type="time" id="pase-rec-desde" class="inp" value="08:00" style="margin-bottom:0">
                 </div>
                 <div>
-                  <label style="font-size:10.5px;font-weight:800;color:var(--texto-suave);display:block;margin-bottom:2px">Hora Salida</label>
+                  <label style="font-size:10.5px;font-weight:800;color:var(--texto-suave);display:block;margin-bottom:2px">${esc(t('pases.horaSalida'))}</label>
                   <input type="time" id="pase-rec-hasta" class="inp" value="14:00" style="margin-bottom:0">
                 </div>
               </div>
@@ -4273,7 +4298,7 @@ router.get('/pases', (req, res) => {
           </div>
 
           <button type="submit" id="btn-submit-pase" class="btn-primary" style="margin-bottom:0">
-            <span>✨ Generar Pase y Ver Código QR</span>
+            <span>✨ ${esc(t('pases.generar'))}</span>
           </button>
         </form>
       </div>
@@ -4283,11 +4308,11 @@ router.get('/pases', (req, res) => {
     <div id="modal-ver-pase" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.75);backdrop-filter:blur(4px);z-index:99999;align-items:center;justify-content:center;padding:16px">
       <div style="background:#fff;border-radius:24px;max-width:400px;width:100%;padding:24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,.3)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <span style="font-size:11px;font-weight:900;color:var(--ok);background:var(--ok-fondo);padding:3px 8px;border-radius:999px">✓ Pase Habilitado</span>
+          <span style="font-size:11px;font-weight:900;color:var(--ok);background:var(--ok-fondo);padding:3px 8px;border-radius:999px">✓ ${esc(t('pases.habilitado'))}</span>
           <button onclick="cerrarModal('modal-ver-pase')" style="border:none;background:var(--superficie-3);border-radius:50%;width:28px;height:28px;font-size:15px;cursor:pointer;color:var(--texto-suave)">✕</button>
         </div>
 
-        <h3 id="ver-pase-invitado" style="font-size:18px;font-weight:900;color:var(--marca);margin-bottom:2px">Invitado</h3>
+        <h3 id="ver-pase-invitado" style="font-size:18px;font-weight:900;color:var(--marca);margin-bottom:2px">${esc(t('pases.invitado'))}</h3>
         <p id="ver-pase-motivo" style="font-size:12px;color:var(--texto-suave);margin-bottom:12px">Motivo · Depto ${esc(v.departamento)}</p>
 
         <!-- Marco QR -->
@@ -4307,17 +4332,20 @@ router.get('/pases', (req, res) => {
         <div style="display:flex;flex-direction:column;gap:8px">
           <button onclick="compartirPaseWhatsApp()" style="height:44px;border:none;border-radius:12px;background:#25D366;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 3px 10px rgba(37,211,102,.3)">
             <i class="ph ph-whatsapp-logo" style="font-size:20px"></i>
-            <span>Compartir por WhatsApp</span>
+            <span>${esc(t('pases.compartirWhatsapp'))}</span>
           </button>
           <button onclick="copiarLinkPase()" class="btn-secondary" style="height:40px;font-size:12.5px">
             <i class="ph ph-copy" style="font-size:16px"></i>
-            <span id="btn-copy-txt">Copiar Enlace del Pase</span>
+            <span id="btn-copy-txt">${esc(t('pases.copiarEnlace'))}</span>
           </button>
         </div>
       </div>
     </div>
 
     <script>
+      // Los textos de esta pantalla, en el idioma del vecino. Van serializados con
+      // JSON.stringify: un apóstrofe de cualquier idioma cerraría la cadena y rompería la página.
+      const T = ${T};
       var _pasesData = [];
       var _paseSeleccionado = null;
 
@@ -4417,7 +4445,7 @@ router.get('/pases', (req, res) => {
 
         // Render activos
         if (activos.length === 0) {
-          boxAct.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--texto-suave);font-size:13px;background:#fff;border-radius:18px"><div style="font-size:32px;margin-bottom:8px">🎟️</div>No tenés ningún pase activo en este momento.</div>';
+          boxAct.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--texto-suave);font-size:13px;background:#fff;border-radius:18px"><div style="font-size:32px;margin-bottom:8px">🎟️</div>' + T.sinActivos + '</div>';
         } else {
           var htmlActivos = '';
           for (var i = 0; i < activos.length; i++) {
@@ -4426,19 +4454,19 @@ router.get('/pases', (req, res) => {
             htmlActivos += '<div class="card" style="padding:14px 16px;background:#fff;border-radius:18px;border:1px solid var(--borde);box-shadow:0 3px 10px rgba(15,23,42,.03)">' +
               '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">' +
                 '<div>' +
-                  '<span style="font-size:11px;font-weight:800;color:#0284C7;background:var(--acento-tenue);padding:2px 8px;border-radius:8px">' + (p.motivo || 'Visita') + '</span>' +
+                  '<span style="font-size:11px;font-weight:800;color:#0284C7;background:var(--acento-tenue);padding:2px 8px;border-radius:8px">' + (p.motivo || T.motivoVisita) + '</span>' +
                   '<h4 style="font-size:15px;font-weight:900;color:var(--texto);margin-top:4px">' + (p.nombre_invitado || '') + '</h4>' +
                 '</div>' +
-                '<span style="font-size:11px;font-weight:800;color:var(--ok);background:var(--ok-fondo);padding:2px 8px;border-radius:999px">● Activo</span>' +
+                '<span style="font-size:11px;font-weight:800;color:var(--ok);background:var(--ok-fondo);padding:2px 8px;border-radius:999px">● ' + T.activo + '</span>' +
               '</div>' +
               '<div style="font-size:12px;color:var(--texto-suave);margin-bottom:12px;display:flex;justify-content:space-between">' +
-                '<span>Código: <strong style="color:var(--marca);font-family:monospace">' + (p.token || '') + '</strong></span>' +
-                '<span>Vence: <strong>' + fHasta + '</strong></span>' +
+                '<span>' + T.codigo + ': <strong style="color:var(--marca);font-family:monospace">' + (p.token || '') + '</strong></span>' +
+                '<span>' + T.vence + ': <strong>' + fHasta + '</strong></span>' +
               '</div>' +
               '<div style="display:flex;gap:8px">' +
                 '<button onclick="verPaseModal(\'' + p.token + '\')" style="flex:1;height:38px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">' +
                   '<i class="ph ph-qr-code" style="font-size:16px"></i>' +
-                  '<span>Ver QR / Enviar</span>' +
+                  '<span>' + T.verQr + '</span>' +
                 '</button>' +
                 '<button onclick="revocarPase(\'' + p.token + '\')" style="height:38px;padding:0 12px;border:1.5px solid var(--error-borde);border-radius:10px;background:var(--error-fondo);color:var(--error);font-size:12px;font-weight:700;cursor:pointer">' +
                   'Revocar' +
@@ -4451,12 +4479,12 @@ router.get('/pases', (req, res) => {
 
         // Render historial
         if (historial.length === 0) {
-          boxHis.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--texto-suave);font-size:13px;background:#fff;border-radius:18px">Sin historial previo.</div>';
+          boxHis.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--texto-suave);font-size:13px;background:#fff;border-radius:18px">' + T.sinHistorial + '</div>';
         } else {
           var htmlHis = '';
           for (var j = 0; j < historial.length; j++) {
             var ph = historial[j];
-            var stLabel = (ph.estado === 'utilizado') ? 'Utilizado' : ((ph.estado === 'revocado') ? 'Revocado' : 'Vencido');
+            var stLabel = (ph.estado === 'utilizado') ? T.usado : ((ph.estado === 'revocado') ? T.anulado : T.vencido);
             var stColor = (ph.estado === 'utilizado') ? '#0284C7' : '#64748B';
             var stBg = (ph.estado === 'utilizado') ? '#E0F2FE' : '#F1F5F9';
             var fCreac = new Date(ph.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
@@ -4482,7 +4510,7 @@ router.get('/pases', (req, res) => {
         e.preventDefault();
         var btn = document.getElementById('btn-submit-pase');
         btn.disabled = true;
-        btn.innerHTML = '<span>⏳ Generando pase...</span>';
+        btn.innerHTML = '<span>⏳ ' + T.generando + '</span>';
 
         var nombre = document.getElementById('pase-nombre').value.trim();
         var motivo = (document.querySelector('input[name="pase_motivo"]:checked') || {}).value || 'Visita';
@@ -4528,7 +4556,7 @@ router.get('/pases', (req, res) => {
           alert('Error de conexión: ' + ex.message);
         } finally {
           btn.disabled = false;
-          btn.innerHTML = '<span>✨ Generar Pase y Ver Código QR</span>';
+          btn.innerHTML = '<span>✨ ' + T.generar + '</span>';
         }
       }
 
@@ -4543,7 +4571,7 @@ router.get('/pases', (req, res) => {
         document.getElementById('ver-pase-qr-img').src = 'https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=' + encodeURIComponent(p.token);
 
         var fHasta = p.valido_hasta ? new Date(p.valido_hasta).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) + ' hs' : (p.tipo_pase === 'recurrente' ? 'Días autorizados' : 'Sin límite');
-        document.getElementById('ver-pase-validez').innerHTML = 'Válido hasta: <strong>' + fHasta + '</strong>';
+        document.getElementById('ver-pase-validez').innerHTML = T.validoHasta + ': <strong>' + fHasta + '</strong>';
 
         document.getElementById('modal-ver-pase').style.display = 'flex';
       }
