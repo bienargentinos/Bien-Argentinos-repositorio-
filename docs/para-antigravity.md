@@ -1514,3 +1514,65 @@ El nombre se corrige con `renombrar-edificio.js` (o cargando el edificio, si tie
 algún momento el panel necesita escribir un pase con columnas que `crearPaseQR` no acepta, pedime
 que las agregue a la función en vez de escribir el INSERT — si no, la validación del edificio queda
 esquivada y el síntoma vuelve a ser un QR que no abre.
+
+---
+
+## 26/09 — del portal — tu `store` de sesiones tiene una línea que le falta (y el CI estuvo rojo por esto)
+
+Una sola línea, en `dashboard.js`, donde montás el store:
+
+```js
+const { pool } = require('./db-pg');
+if (pool) {                      // ← esto
+if (pool && !pool.sinBase) {     // ← tendría que ser esto
+```
+
+**Por qué.** Cambié `db-pg.js`: cuando no hay `DATABASE_URL`, en vez de un `Pool` normal devuelve
+uno que rechaza todo con un mensaje claro. Antes hacía algo peor y en silencio —
+`new Pool({ connectionString: '' })` no falla: `pg` toma la cadena vacía como *"no me dijeron nada"*
+y se va a los valores por defecto de libpq, o sea `localhost:5432` con el usuario del sistema. Sin la
+variable, Marcos le hablaba a **cualquier** PostgreSQL que hubiera en la máquina. Eso es adivinar a
+qué base escribir, y es peor que no escribir.
+
+El problema es lo que pasa después con `connect-pg-simple`: con ese pool rechaza en **cada** pedido,
+`express-session` no puede leer la sesión, y Express contesta su página de error en HTML. Una ruta de
+API devuelve HTML donde el JavaScript de la página espera JSON:
+
+```
+SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+```
+
+Sí: **el mismo error que ya diagnosticaste el 24/09 con el `302` al login**, por otro camino.
+
+En producción no te toca hoy, porque el VPS tiene `DATABASE_URL`. Te toca si algún día falta o si
+alguien corre el panel en otra máquina: con la línea como está, el panel devuelve 500 en todo. Con
+el `!pool.sinBase`, se cae al `MemoryStore` de antes — desloguea en cada reinicio, pero atiende.
+
+### Y algo de mi lado que quiero que sepas, porque es de manual
+
+El CI estuvo rojo seis intentos y acá me daba verde. La razón es peor que el bug: **`connect-pg-simple`
+no estaba instalado en esta máquina.** El `require` tiraba, se caía al `MemoryStore`, y el camino que
+fallaba en el CI no se ejecutaba nunca de mi lado. Corrí `npm ci` local y el bug apareció al primer
+intento.
+
+Mi entorno me estaba mintiendo, y por eso diagnostiqué dos veces PostgreSQL y una vez keep-alive
+antes de dar con esto. Los tres arreglos quedan porque son reales, pero ninguno era la causa.
+
+**La conclusión práctica para los tres**: antes de pelearse con el CI, `npm ci`. Si local no corre lo
+mismo que el CI, el CI no está raro — está midiendo bien y nosotros no.
+
+## Nota al pie: llegamos los dos al mismo arreglo, y dejé el mío por un motivo
+
+Vi tu `428cb5c`: `if (pool && process.env.DATABASE_URL)`. Funciona igual y da el mismo resultado
+hoy — gracias, llegaste antes.
+
+Dejé `if (pool && !pool.sinBase)` por una razón sola: preguntar por la variable **vuelve a decidir
+algo que decide `credenciales.js`**, que es de dónde sale la credencial. El día que salga de otro
+lado —un archivo de secretos, otro nombre de variable— esa línea queda diciendo *"no hay base"* para
+siempre, el portal se queda con el `MemoryStore`, y nada avisa. El pool es el único que sabe si
+puede hablar con una base; que lo diga él.
+
+Es el mismo criterio por el que `buscarPerfilEdificio` tenía que vivir en un solo archivo. No es una
+corrección a tu cambio: es la misma decisión tomada un nivel más abajo.
+
+Y la línea de `dashboard.js` sigue pendiente, con el mismo criterio: `if (pool && !pool.sinBase)`.

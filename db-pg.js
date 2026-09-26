@@ -2,13 +2,109 @@ const { Pool } = require('pg');
 const crypto = require('crypto');
 const { fechaHoraAR, fechaAR } = require('./fecha');
 
-const pool = new Pool({
-    // La contraseña NO vive acá. Estaba escrita como valor por defecto y el repositorio se hace
-    // público cada vez que se usa el `curl` de CLAUDE.md. Ver `credenciales.js`.
-    connectionString: require('./credenciales').urlPostgres(),
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 3000,
+// SIN `DATABASE_URL` NO SE CONECTA A NINGUNA PARTE, Y ESO ES EL ARREGLO.
+//
+// > [!CAUTION]
+// > **`new Pool({ connectionString: '' })` no falla: `pg` toma la cadena vacía como "no me dijeron
+// > nada" y se va a los valores por defecto de libpq — `localhost:5432`, usuario y base con el
+// > nombre del usuario del sistema.** O sea que sin la variable, Marcos intenta hablarle a
+// > CUALQUIER PostgreSQL que haya en la máquina.
+//
+// Eso es adivinar a qué base escribir, que es peor que no escribir. En una máquina con otra base
+// levantada --un servidor compartido, una instalación nueva, el runner del CI-- las consultas se van
+// a una base que no es `marcos_db` y nadie se entera.
+//
+// Y así apareció: el CI en rojo, verde acá. Local no hay nada escuchando en el 5432 y el error es un
+// `ECONNREFUSED` limpio que cae adentro del `try` de la consulta. En el runner de GitHub **sí hay un
+// PostgreSQL instalado**, así que la conexión se aceptaba y se cortaba: `read ECONNRESET` emitido en
+// el socket, sin oyente y sin stack de JavaScript, y el proceso se iba con código 1 en mitad de
+// `GET /vecino/`. Dos hipótesis mías antes de esta --el oyente del pool y el del cliente-- eran
+// arreglos correctos que no tocaban la causa.
+//
+// Ahora sin la variable se devuelve un pool de mentira que rechaza todo con un mensaje que dice qué
+// falta. Todas las llamadas ya están adentro de un `try`, así que las pantallas siguen contestando
+// --el portal ya se dibuja sin base-- y en el log queda una sola línea clara en vez de un volcado de
+// socket. Es el mismo criterio que `EDIFICA_API_KEY`: de los dos errores se elige el que se puede
+// deshacer.
+const _urlPg = require('./credenciales').urlPostgres();
+
+function poolDeMentira() {
+    const seQueja = () => Promise.reject(new Error(
+        'No hay DATABASE_URL configurada: no se intenta hablar con ningún PostgreSQL. ' +
+        'Poner la variable en el .env y reiniciar (pm2 restart marcos-ai).'
+    ));
+    return {
+        sinBase: true,
+        query: seQueja,
+        connect: seQueja,
+        end: () => Promise.resolve(),
+        on: () => {},
+        once: () => {},
+        removeListener: () => {},
+        listenerCount: () => 0,
+        emit: () => false,
+        totalCount: 0, idleCount: 0, waitingCount: 0,
+    };
+}
+
+const pool = _urlPg
+    ? new Pool({
+        // La contraseña NO vive acá. Estaba escrita como valor por defecto y el repositorio se hace
+        // público cada vez que se usa el `curl` de CLAUDE.md. Ver `credenciales.js`.
+        connectionString: _urlPg,
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 3000,
+    })
+    : poolDeMentira();
+
+// UN CLIENTE OCIOSO QUE SE MUERE MATABA EL PROCESO ENTERO.
+//
+// `pg` emite `'error'` en el Pool cuando una conexión que estaba quieta se cae sola: PostgreSQL se
+// reinicia, el `idle_in_transaction_session_timeout` la corta, un firewall la olvida. Eso no pasa
+// por ningún `try` --no hay ninguna consulta en curso-- y un evento `'error'` sin oyente en un
+// EventEmitter de Node SE TIRA como excepción.
+//
+// De ahí en adelante manda el manejador de `uncaughtException` de `index.js`, que loguea y SALE a
+// propósito. O sea que una conexión ociosa cortada --lo más inofensivo que le puede pasar a un
+// pool-- reiniciaba a Marcos en mitad de una conversación. Es exactamente el episodio que ya está
+// en CLAUDE.md ("Un error suelto mataba a Marcos en mitad de una conversación"), con otro
+// disparador.
+//
+// Y así se veía: el CI daba rojo con `read ECONNRESET` en una prueba que no necesita la base. La
+// prueba imprimía la mitad de sus líneas y desaparecía sin decir por qué, que es la peor forma de
+// fallar. Local pasaba porque ahí el error es `ECONNREFUSED` al conectar --ese sí cae adentro del
+// `try` de la consulta-- y nunca llegaba a ser un evento del pool.
+//
+// Se loguea y NO se corta: el pool descarta ese cliente y abre otro en la consulta siguiente. No
+// queda ningún estado a medias, que es la razón por la que `uncaughtException` sí sale.
+pool.on('error', (err) => {
+    console.warn('⚠️ [PG] Una conexión ociosa del pool se cayó:', err && err.message
+        ? err.message : err, '— el pool abre otra en la próxima consulta, no se corta nada.');
+});
+
+// Y LO MISMO EN CADA CLIENTE, QUE ES OTRO EMISOR.
+//
+// El `pool.on('error')` de arriba cubre a los clientes que están OCIOSOS en el pool. Un cliente que
+// todavía se está conectando --o que ya salió del pool-- emite `'error'` en sí mismo, y ahí el
+// oyente del pool no llega. Mismo final: un `'error'` sin oyente se tira, y el proceso se va.
+//
+// Así se veía, y me costó dos diagnósticos equivocados antes de leerlo bien:
+//
+//     ↳ terminó con código 1
+//     Error: read ECONNRESET
+//         at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+//
+// Sin una sola línea de stack de JavaScript. Eso NO es una promesa rechazada --esas traen el stack
+// de quien la creó--: es un evento `'error'` de un socket que nadie escucha. Y todo lo que salía
+// después de la última línea buena era stderr, no la continuación de stdout: el verificador pega
+// stderr al final, así que parecía que el proceso seguía imprimiendo cuando en realidad ya se había
+// muerto.
+pool.on('connect', (client) => {
+    client.on('error', (err) => {
+        console.warn('⚠️ [PG] Se cayó la conexión de un cliente:', err && err.message
+            ? err.message : err, '— se descarta ese cliente, no se corta nada.');
+    });
 });
 
 

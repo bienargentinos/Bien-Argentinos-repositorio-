@@ -86,7 +86,27 @@ function pedir(metodo, ruta, { cuerpo, tipo, cookie } = {}) {
         }
         if (cookie) cabeceras['Cookie'] = cookie;
         const req = http.request(
-            { host: '127.0.0.1', port: server.address().port, method: metodo, path: ruta, headers: cabeceras },
+            {
+                host: '127.0.0.1', port: server.address().port, method: metodo, path: ruta,
+                headers: cabeceras,
+                // UN SOCKET POR PEDIDO, Y NO ES UN DETALLE.
+                //
+                // `http.globalAgent` viene con `keepAlive` prendido desde Node 19, así que el
+                // pedido siguiente REUSA el socket del anterior. Si el servidor ya lo cerró --y
+                // Express cierra el de un 302 cuando le da la gana-- el pedido nuevo escribe en un
+                // socket muerto y llega un `read ECONNRESET`.
+                //
+                // Eso rechaza la promesa, el `.catch` del final imprime el error y sale con 1. En el
+                // log se ve así: la prueba imprime la mitad de sus líneas y abajo un
+                // `Error: read ECONNRESET at TCP.onStreamRead` sin una sola línea de stack de
+                // JavaScript --porque un error de socket no lo trae--. O sea que no parece una
+                // prueba que falla: parece un proceso que se murió.
+                //
+                // Acá nunca pasó y en el CI pasaba siempre. Diagnostiqué DOS veces PostgreSQL por
+                // esto --el `read ECONNRESET` daba justo en la pantalla que consulta la base-- y las
+                // dos veces era este socket.
+                agent: false,
+            },
             (res) => {
                 let txt = '';
                 res.on('data', (d) => { txt += d; });
@@ -324,6 +344,35 @@ const PANTALLA_VACIA = 'Todavía no tenés ningún departamento asignado';
         }
     }
 
+    console.log('\n── EL STORE DE SESIONES NO PUEDE TIRAR TODO EL PORTAL ──');
+    {
+        // CANDADO. Sin `DATABASE_URL`, `db-pg.js` devuelve un pool que rechaza todo --a propósito--.
+        // Con ESE pool, `connect-pg-simple` rechaza en cada pedido, `express-session` no puede leer
+        // la sesión, y Express contesta su página de error en HTML. Una ruta de API devuelve HTML
+        // donde el JavaScript de la página espera JSON, y sale el clásico:
+        //
+        //     SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+        //
+        // Sin base se sigue con el MemoryStore: desloguea en cada reinicio, pero el portal atiende.
+        //
+        // Esto estuvo rojo en el CI y verde acá durante seis intentos, y la razón es peor que el bug:
+        // `connect-pg-simple` NO estaba instalado en la máquina de desarrollo, así que el `require`
+        // tiraba, se caía al MemoryStore, y nunca se ejecutaba el camino que fallaba. `npm ci` local
+        // es lo que lo destrabó. Por eso esta prueba pide una respuesta JSON de verdad y no lee el
+        // código.
+        const login = await pedir('POST', '/vecino/auth', { cuerpo: 'rol=propietario' });
+        const r = await pedir('POST', '/vecino/api/idioma', {
+            cuerpo: JSON.stringify({ idioma: 'es' }), tipo: 'application/json', cookie: login.cookie,
+        });
+        afirmar('una ruta de API contesta JSON, no la página de error de Express',
+            !/^\s*<!DOCTYPE/i.test(r.cuerpo));
+        afirmar('y el portal no queda en 500 sin PostgreSQL', r.codigo < 500);
+
+        const SRC_PORTAL = fs.readFileSync(path.join(__dirname, 'portal-vecino.js'), 'utf8');
+        afirmar('el store de PostgreSQL solo se usa con un pool de verdad',
+            /if \(pool && !pool\.sinBase\)/.test(SRC_PORTAL));
+    }
+
     console.log('\n── TODAS LAS PANTALLAS RESPONDEN ──');
     {
         // POR QUÉ ESTÁ ESTO. Al traducir Mi Perfil, un reemplazo global se llevó puesto un texto
@@ -394,4 +443,13 @@ const PANTALLA_VACIA = 'Todavía no tenés ningún departamento asignado';
     server.close();
     console.log(`\n${fallos === 0 ? '✅ Todo bien' : `❌ ${fallos} fallo(s)`}\n`);
     process.exit(fallos === 0 ? 0 : 1);
-})().catch(e => { console.error(e); process.exit(1); });
+})().catch(e => {
+    // Un fallo ACÁ no es una afirmación que salió mal: es la prueba misma que se cayó. Decirlo
+    // cambia media hora de diagnóstico, porque lo que se ve arriba son las líneas que alcanzó a
+    // imprimir y engaña: parece que el proceso se murió solo.
+    console.error('\n✖ LA PRUEBA MISMA SE CAYÓ (no es una afirmación que falló):');
+    console.error(e && e.stack ? e.stack : e);
+    if (e && e.code) console.error(`   code=${e.code}  syscall=${e.syscall || '-'}`);
+    try { server.close(); } catch (_) {}
+    process.exit(1);
+});
