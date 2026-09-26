@@ -73,6 +73,33 @@ test('eliminar-edificio exporta eliminarEdificio y norm', () => {
     assert.strictEqual(typeof norm, 'function');
 });
 
+// 5. La cascada no puede olvidarse las tablas del portal y la portería.
+//
+// CANDADO. Faltaban las seis, y son justo donde duele que quede una fila huérfana: un nombre de
+// edificio que no existe no da error en ningún lado --no encuentra nada, en silencio--. Un pase QR
+// de un edificio borrado no lo matchea `mismoEdificio` con ninguno real, así que el relé NO ABRE y
+// desde afuera se ve como que "el QR no anda".
+//
+// Es el mismo agujero que `revisar-edificios.js` encontró con "Torre Norte Edifica", que estaba en
+// tres de estas tablas y en ninguna otra.
+test('la cascada limpia las 6 tablas del portal y la portería', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const SRC = fs.readFileSync(path.join(__dirname, 'eliminar-edificio.js'), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+
+    const faltan = ['reservas_amenities', 'pases_qr', 'eventos_acceso',
+                    'usuario_unidades', 'timbres', 'avisos']
+        .filter(t => !SRC.includes(`'${t}'`));
+    assert.deepStrictEqual(faltan, [], `la cascada no limpia: ${faltan.join(', ')}`);
+
+    // La persona no se borra: puede tener una unidad en otro edificio. Lo que deja de tener
+    // sentido es la asignación.
+    assert.ok(!/DELETE FROM usuarios\b/.test(SRC),
+        'borra la fila del usuario, y eso no corresponde: solo su unidad');
+});
+
 setTimeout(() => {
     if (fallos > 0) {
         console.error(`\n❌ ${fallos} prueba(s) fallaron.\n`);

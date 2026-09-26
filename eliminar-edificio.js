@@ -335,6 +335,43 @@ async function eliminarEdificio({ edificio, cliente = null, eliminarDeEdificios 
                     }
                 }
             } catch (_) {}
+
+            // F. LAS TABLAS DEL PORTAL Y LA PORTERIA.
+            //
+            // Faltaban las seis, y son justo donde duele que quede una fila huerfana: un nombre que
+            // no es ningun edificio no da error en ningun lado --simplemente no encuentra nada, en
+            // silencio--. Un pase QR de un edificio borrado no lo matchea `mismoEdificio` con
+            // ninguno real, asi que el rele NO ABRE y desde afuera se ve como que "el QR no anda".
+            //
+            // Es el mismo agujero que `revisar-edificios.js` encontro con "Torre Norte Edifica",
+            // que estaba en tres de estas tablas y en ninguna otra.
+            //
+            // `usuario_unidades` se borra pero `usuarios` NO: la persona sigue existiendo y puede
+            // tener una unidad en otro edificio. Lo que deja de tener sentido es la asignacion.
+            const tablasDelPortal = [
+                ['reservas_amenities', 'reserva de amenity'],
+                ['pases_qr',           'pase QR'],
+                ['eventos_acceso',     'evento de acceso'],
+                ['usuario_unidades',   'unidad asignada a un vecino'],
+                ['timbres',            'toque de timbre'],
+                ['avisos',             'aviso del edificio'],
+            ];
+            for (const [tabla, queEs] of tablasDelPortal) {
+                try {
+                    const res = await pool.query(
+                        `SELECT ctid, edificio FROM ${tabla} WHERE edificio IS NOT NULL AND edificio <> ''`);
+                    for (const row of res.rows) {
+                        if (norm(row.edificio) === N_EDIFICIO) {
+                            anotar('BORRAR_PORTAL_PG', tabla, `${queEs} de ${row.edificio}`);
+                            if (aplicar) {
+                                try { await pool.query(`DELETE FROM ${tabla} WHERE ctid = $1`, [row.ctid]); } catch (_) {}
+                            }
+                        }
+                    }
+                } catch (_) {
+                    // Una tabla que todavia no existe en esta instalacion no es un error.
+                }
+            }
         }
 
     } catch (e) {
