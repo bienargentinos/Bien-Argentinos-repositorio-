@@ -1660,6 +1660,33 @@ async function desvincularIntegrante(usuarioId, edificio, departamento) {
 
 // ── GESTIÓN DE PASES QR Y EVENTOS DE AUDITORÍA ──────────────────────────────
 
+// Un pase QR de un edificio que no existe no abre ninguna puerta.
+//
+// `revisar-edificios.js` encontró "Torre Norte Edifica" en `pases_qr`, y no es ningún edificio de
+// `EDIFICIOS`. El relé compara con `mismoEdificio` --normalizado pero exacto, porque el 270 y el
+// 159 de la misma calle son dos consorcios-- así que ese nombre no matchea con nada: el pase se
+// emite, el QR se genera, la persona lo escanea en la puerta y no pasa nada. Desde afuera se ve
+// como que "el QR no anda".
+//
+// Se valida acá adentro y no en cada endpoint: los pases se crean desde el portal, la portería y el
+// panel (la EdificaApp entra por ahí). Escribir la misma regla tres veces es lo que pasó con
+// `buscarPerfilEdificio`, que quedó en dos archivos y arreglar una copia no cambió nada en
+// producción.
+//
+// Se falla ANTES de escribir la fila, con el mensaje diciendo qué edificios sí existen: los tres
+// endpoints devuelven `e.message`, así que quien lo intenta se entera en el momento en vez de
+// descubrirlo alguien parado en la vereda.
+async function edificioExiste(nombre) {
+    const { mismoEdificio } = require('./edificio-clave');
+    const res = await pool.query(`SELECT edificio, nombre FROM edificios`);
+    const filas = res.rows || [];
+    const existe = filas.some(r => mismoEdificio(r.edificio, nombre) || mismoEdificio(r.nombre, nombre));
+    // Los nombres reales se devuelven para poder decirlos en el error. Que la lista esté vacía
+    // significa que no hay ningún edificio cargado, no que cualquier nombre valga.
+    const conocidos = filas.map(r => r.edificio || r.nombre).filter(Boolean);
+    return { existe, conocidos };
+}
+
 async function crearPaseQR(datos) {
     const {
         token,
@@ -1678,6 +1705,19 @@ async function crearPaseQR(datos) {
         hora_hasta = null,
         usos_permitidos = 1
     } = datos;
+
+    if (!edificio || !String(edificio).trim()) {
+        throw new Error('Un pase QR sin edificio no abre ninguna puerta: falta el edificio.');
+    }
+    const { existe, conocidos } = await edificioExiste(edificio);
+    if (!existe) {
+        throw new Error(
+            `"${edificio}" no es ningún edificio cargado, así que este pase no abriría la puerta. ` +
+            (conocidos.length
+                ? `Los que hay son: ${conocidos.join(' · ')}.`
+                : 'No hay ningún edificio cargado todavía.')
+        );
+    }
 
     const res = await pool.query(
         `INSERT INTO pases_qr (
@@ -1914,6 +1954,7 @@ module.exports = {
     obtenerPortafolioAsistente,
     asignarAsistenteAPropiedad,
     crearPaseQR,
+    edificioExiste,
     listarPasesEdificio,
     revocarPaseQR,
     validarConsumirPaseQR,

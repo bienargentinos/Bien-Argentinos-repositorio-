@@ -3280,15 +3280,21 @@ router.get('/', async (req, res) => {
       </div>
 
       <div style="margin-bottom:16px">
-        ${expensa && expensa.monto !== null ? `
-        <!-- Una expensa general NO es una deuda de esta persona: es el total de gastos del
-             consorcio. Con la etiqueta "Total a pagar" el vecino lee que le cobran eso. -->
-        <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(expensa.esDelEdificio ? t('expensa.gastosEdificio') : t('inicio.totalAPagar'))}</div>
+        <!-- LA LIQUIDACIÓN GENERAL NO MUESTRA NINGÚN MONTO.
+             Su total son los gastos del consorcio --salió $1.284.650,40-- y nadie paga eso. Primero
+             se le puso otra etiqueta; Daniel lo resolvió mejor: el número no hace falta acá. El
+             detalle de gastos ya está adentro del documento que comparte la Administración, así que
+             mostrarlo suelto arriba de la pantalla solo agrega una cifra grande que no es de nadie.
+             El dato se sigue guardando: lo que cambia es que no se le muestra al vecino. -->
+        ${expensa && expensa.esDelEdificio ? `
+        <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('expensa.liquidacionEdificio'))}</div>
+        <div style="font-size:13.5px;color:var(--texto-medio);line-height:1.45;margin-top:4px">${esc(t('expensa.delEdificio'))}</div>
+        ` : expensa && expensa.monto !== null ? `
+        <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('inicio.totalAPagar'))}</div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
           <div style="font-size:32px;font-weight:900;color:var(--texto);letter-spacing:-.03em">${esc(montoEnPesos(expensa.monto))}</div>
         </div>
         ${expensa.vencimiento ? `<div style="font-size:12px;color:var(--texto-suave);margin-top:2px">${esc(t('expensa.vence', { fecha: new Date(expensa.vencimiento).toLocaleDateString('es-AR') }))}</div>` : ''}
-        ${expensa.esDelEdificio ? `<div style="font-size:11.5px;color:var(--texto-tenue);margin-top:4px">${esc(t('expensa.noEsTuDeuda'))}</div>` : ''}
         ` : `
         <div style="font-size:13.5px;color:var(--texto-medio);line-height:1.45">${esc(t('expensa.sinCargar'))}</div>
         `}
@@ -5381,21 +5387,16 @@ router.get('/expensas', async (req, res) => {
       <div style="font-size:22px;font-weight:800;color:var(--texto);margin-bottom:4px">
         ${ultimaExpensa ? (ultimaExpensa.periodo || 'Período Vigente') : 'Período en Proceso'}
       </div>
-      ${ultimaExpensa && ultimaExpensa.monto !== null ? `
-      <!-- UNA EXPENSA GENERAL NO ES UNA DEUDA DE ESTA PERSONA.
-           La liquidación del edificio trae el total de gastos del consorcio --en la carga real
-           salió $1.284.650,40--. Mostrado con la misma etiqueta que el cupón de una unidad, el
-           vecino lee que le están cobrando eso. Va con otra etiqueta, y no se esconde: en qué se
-           fue la plata del consorcio es justo la transparencia que un vecino quiere. -->
-      <div style="font-size:11.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">
-        ${ultimaExpensa.esDelEdificio ? 'Gastos del edificio' : 'Total a pagar'}
-      </div>
+      ${ultimaExpensa && ultimaExpensa.esDelEdificio ? `
+      <!-- La liquidación del edificio va SIN monto: su total son los gastos del consorcio y nadie
+           paga eso. El detalle ya está adentro del documento que comparte la Administración. -->
+      <p style="font-size:13px;color:var(--texto-suave);line-height:1.45;margin-bottom:14px">
+        Es la liquidación general del edificio, no la de tu unidad. El detalle está en el documento.
+      </p>
+      ` : ultimaExpensa && ultimaExpensa.monto !== null ? `
+      <div style="font-size:11.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Total a pagar</div>
       <div style="font-size:26px;font-weight:900;color:var(--texto);letter-spacing:-.02em;margin-bottom:2px">${esc(montoEnPesos(ultimaExpensa.monto))}</div>
-      ${ultimaExpensa.esDelEdificio ? `
-      <p style="font-size:12.5px;color:var(--texto-suave);line-height:1.45;margin-bottom:14px">Es el total del consorcio, no lo que te toca pagar a vos.</p>
-      ` : `
       ${ultimaExpensa.vencimiento ? `<p style="font-size:12.5px;color:var(--texto-suave);margin-bottom:14px">Vence el ${esc(new Date(ultimaExpensa.vencimiento).toLocaleDateString('es-AR'))}</p>` : '<div style="margin-bottom:14px"></div>'}
-      `}
       ` : `
       <p style="font-size:13px;color:var(--texto-suave);line-height:1.45;margin-bottom:14px">
         ${ultimaExpensa ? 'La administración publicó el documento de este período. El total todavía no está cargado.' : 'La administración publicará la liquidación digital de este mes a la brevedad.'}
