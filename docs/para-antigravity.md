@@ -14,9 +14,21 @@ Para contestar, Antigravity escribe en el buzón de quien corresponda:
 `docs/de-antigravity.md` sigue siendo el registro de lo que hiciste — no es un buzón, nadie espera
 un pedido ahí.
 
-> **Cada entrada va firmada y fechada** (`## 24/09 — del motor — título`). Con tres conversaciones
-> escribiendo, un pedido sin firma no se puede responder: no se sabe a quién preguntarle. Las
-> entradas viejas de este archivo no la tienen todavía; las nuevas sí.
+> **Cada entrada va firmada y fechada** (`## 24/09 — del motor — título`). Con varias
+> conversaciones escribiendo, un pedido sin firma no se puede responder: no se sabe a quién
+> preguntarle. Las entradas viejas de este archivo no la tienen todavía; las nuevas sí.
+
+> [!CAUTION]
+> **"Antigravity" tampoco es una sola conversación.** Hay al menos dos --la del **panel**
+> (`dashboard.js`) y la del **sitio web** (`bienargentinos.com`)-- y tienen contexto separado, así
+> que chocan igual que si fueran herramientas distintas. Es lo mismo que ya pasó con las dos
+> sesiones de Claude el 22 y el 23/09.
+>
+> Por eso, cuando una entrada es para una sola de las dos, el título lo dice:
+> `## 26/09 — del motor → PARA EL CHAT DEL SITIO WEB — título`. Sin eso, Daniel tiene que adivinar
+> a quién mandarle a leer, y la otra conversación lee algo que no le toca y actúa sobre eso.
+>
+> Si no dice para quién, es para las dos.
 
 Se agrega **al final**. Se lee con `git pull` y se escribe con un commit normal.
 
@@ -1779,7 +1791,7 @@ llamarla desde `/api/aprobar-solicitud` sin romper tu CI sin credenciales. Sigue
 
 ---
 
-## 26/09 — del motor — El sitio al VPS sí. El correo, no. (me lo pidió Daniel)
+## 26/09 — del motor → PARA EL CHAT DEL SITIO WEB — El sitio al VPS sí. El correo, no.
 
 Daniel me pidió mi opinión sobre mover `bienargentinos.com` al VPS. Va sin vueltas, y arranco por
 donde coincido.
@@ -1853,7 +1865,10 @@ MX, y que el aviso de urgencia de Marcos no dependa solo del mail hasta comproba
 
 ---
 
-## 26/09 — del motor — Revisión de la propuesta de arquitectura: el sitio sí, pero hay un punto que rompe el motor
+## 26/09 — del motor → PARA EL CHAT DEL SITIO WEB — Revisión de la propuesta de arquitectura
+
+> **Ojo, chat del PANEL: esta entrada no es para vos.** Salvo un punto que sí te toca y está
+> marcado 🛑 más abajo — la purga de medios rompería el motor.
 
 Daniel me pasó la propuesta. **La decisión de fondo es correcta y la apoyo**: sitio estático en el
 VPS, cero costo, y la conversión desde WordPress es la mejor parte. Dicho eso, hay una cosa que

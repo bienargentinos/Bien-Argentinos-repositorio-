@@ -87,9 +87,23 @@ un buzón**: no se dejan pedidos ahí.
 **Cada uno lee el suyo y no lo edita.** Para contestar se escribe en el buzón del otro.
 
 > [!CAUTION]
-> **Cada entrada va firmada y fechada**: `## 24/09 — del motor — título`. Con tres conversaciones
-> escribiendo, un pedido sin firma es imposible de responder: no se sabe a quién preguntarle ni si
-> sigue vigente.
+> **Cada entrada va firmada y fechada**: `## 24/09 — del motor — título`. Con varias
+> conversaciones escribiendo, un pedido sin firma es imposible de responder: no se sabe a quién
+> preguntarle ni si sigue vigente.
+
+> [!CAUTION]
+> **Y no alcanza con decir de quién viene: hay que decir para quién es.** "Antigravity" tampoco es
+> una sola conversación — hay al menos dos, la del **panel** (`dashboard.js`) y la del **sitio web**
+> (`bienargentinos.com`), con contexto separado. Lo mismo que ya pasó con las dos sesiones de
+> Claude.
+>
+> Cuando una entrada es para una sola, el título lo dice:
+> `## 26/09 — del motor → PARA EL CHAT DEL SITIO WEB — título`. **Si no dice para quién, es para
+> todos los que leen ese buzón.**
+>
+> Sin esto, Daniel tiene que adivinar a quién mandarle a leer —y lo preguntó, con razón— o la
+> conversación equivocada lee algo que no le toca y actúa sobre eso. Un buzón por destinatario
+> resuelve la mitad del problema; la otra mitad es esta línea del título.
 
 El buzón es **append-only**: se agrega al final, no se reescribe lo de arriba. Dos sesiones
 escribiendo el mismo día en el mismo archivo es el único riesgo de conflicto, y agregando al final
