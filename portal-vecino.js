@@ -3636,6 +3636,26 @@ router.get('/', async (req, res) => {
 // -------------------------------------------------------------------
 router.get('/integrantes', (req, res) => {
   const v = getVecinoSession(req);
+  const t = textos(v.idioma);
+  const TI = JSON.stringify({
+    cargando: t('int.cargando'), guardando: t('int.guardando'),
+    reubicando: t('int.reubicando'), verificado: t('int.usuarioVerificado'),
+    noRegistrado: t('int.usuarioNoRegistrado'), noRegistradoAyuda: t('int.usuarioNoRegistradoAyuda'),
+    faltaUsuario: t('int.faltaUsuario'), asignado: t('int.asignado'),
+    errorAsignar: t('int.errorAsignar'), confirmarDesvincular: t('int.confirmarDesvincular'),
+    desvinculado: t('int.desvinculado'), errorConexion: t('int.errorConexion'),
+    elegirHuesped: t('int.elegirHuesped'), elegirDestino: t('int.elegirDestino'),
+    cargandoHuespedes: t('int.cargandoHuespedes'), cargandoUnidades: t('int.cargandoUnidades'),
+    errorPortafolio: t('int.errorPortafolio'), faltaHuespedDestino: t('int.faltaHuespedDestino'),
+    reubicado: t('int.reubicado'), errorReubicar: t('int.errorReubicar'),
+    confirmarReubicacion: t('int.confirmarReubicacion'),
+    badgeTurista: t('int.badgeTurista'), badgePropietario: t('int.badgePropietario'),
+    badgeAsistente: t('int.badgeAsistente'), badgeInquilino: t('int.badgeInquilino'),
+    badgeFamiliar: t('int.badgeFamiliar'),
+    timbreOn: t('int.timbreOn'), timbreOff: t('int.timbreOff'),
+    reubicarDepto: t('int.reubicarDepto'), desvincular: t('int.desvincular'),
+    huesped: t('int.huesped'), dueno: t('int.dueno'), del: t('int.del'), al: t('int.al'),
+  });
   if (v.rol !== 'propietario' && v.rol !== 'asistente') {
     return res.redirect('/vecino');
   }
@@ -3645,7 +3665,7 @@ router.get('/integrantes', (req, res) => {
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <a href="/vecino" style="display:inline-flex;align-items:center;gap:6px;color:var(--marca);font-size:13px;font-weight:800;text-decoration:none;background:var(--superficie-3);padding:7px 12px;border-radius:10px">
         <i class="ph ph-arrow-left" style="font-size:16px"></i>
-        <span>Volver al Inicio</span>
+        <span>${esc(t('int.volver'))}</span>
       </a>
       <span style="font-size:12px;font-weight:800;color:var(--texto-suave);background:#fff;padding:5px 12px;border-radius:20px;border:1px solid var(--borde)">
         ${esc(v.edificio)} · Depto ${esc(v.departamento)}
@@ -3659,31 +3679,31 @@ router.get('/integrantes', (req, res) => {
           <i class="ph ph-user-plus"></i>
         </div>
         <div>
-          <div style="font-size:15px;font-weight:900;color:var(--texto)">Asignar a la Unidad</div>
-          <div style="font-size:11.5px;color:var(--texto-suave)">Convivientes, inquilinos, turistas o asistentes de propiedad</div>
+          <div style="font-size:15px;font-weight:900;color:var(--texto)">${esc(t('int.asignarTitulo'))}</div>
+          <div style="font-size:11.5px;color:var(--texto-suave)">${esc(t('int.asignarAyuda'))}</div>
         </div>
       </div>
 
       <form onsubmit="guardarAsignacion(event)">
         <!-- 1. Selección de Rol -->
         <div style="margin-bottom:14px">
-          <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:8px">1. Seleccioná el Rol en el Departamento</label>
+          <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:8px">${esc(t('int.paso1'))}</label>
           <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px" id="grid-roles-asignar">
             <button type="button" class="btn-rol-selector active" onclick="seleccionarRol('conviviente', this)">
               <i class="ph ph-user-circle"></i>
-              <span>Familiar / Conviviente</span>
+              <span>${esc(t('int.rolFamiliar'))}</span>
             </button>
             <button type="button" class="btn-rol-selector" onclick="seleccionarRol('inquilino', this)">
               <i class="ph ph-key"></i>
-              <span>Inquilino (Fijo)</span>
+              <span>${esc(t('int.rolInquilino'))}</span>
             </button>
             <button type="button" class="btn-rol-selector" onclick="seleccionarRol('turista', this)">
               <i class="ph ph-suitcase"></i>
-              <span>Pase Huésped Turista</span>
+              <span>${esc(t('int.rolTurista'))}</span>
             </button>
             <button type="button" class="btn-rol-selector" onclick="seleccionarRol('asistente', this)">
               <i class="ph ph-buildings"></i>
-              <span>Asistente de Propiedad</span>
+              <span>${esc(t('int.rolAsistente'))}</span>
             </button>
           </div>
           <input type="hidden" id="asig-rol" value="conviviente">
@@ -3692,11 +3712,11 @@ router.get('/integrantes', (req, res) => {
         <!-- 2. Búsqueda por Email de Usuario Registrado -->
         <div style="margin-bottom:14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em">2. Email del Usuario Registrado</label>
-            <span id="txt-buscando-status" style="font-size:11px;font-weight:700;color:var(--texto-suave);display:none">Verificando...</span>
+            <label style="font-size:11px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em">${esc(t('int.paso2'))}</label>
+            <span id="txt-buscando-status" style="font-size:11px;font-weight:700;color:var(--texto-suave);display:none">${esc(t('int.verificando'))}</span>
           </div>
           <div style="position:relative">
-            <input type="email" id="asig-email" class="inp" placeholder="ejemplo: usuario@correo.com" required oninput="buscarUsuarioDebounced()" style="padding-right:38px;background:#fff">
+            <input type="email" id="asig-email" class="inp" placeholder="${esc(t('int.emailPlaceholder'))}" required oninput="buscarUsuarioDebounced()" style="padding-right:38px;background:#fff">
             <span id="asig-email-status-icon" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:18px"></span>
           </div>
         </div>
@@ -3706,25 +3726,25 @@ router.get('/integrantes', (req, res) => {
 
         <!-- Campos adicionales si es Huésped Turista (Fechas) -->
         <div id="box-fechas-turista" style="display:none;margin-bottom:14px;background:var(--aviso-fondo);border:1px solid var(--aviso-borde);border-radius:14px;padding:12px 14px">
-          <div style="font-size:11.5px;font-weight:800;color:var(--aviso);text-transform:uppercase;margin-bottom:8px">Fechas de Estadía del Huésped</div>
+          <div style="font-size:11.5px;font-weight:800;color:var(--aviso);text-transform:uppercase;margin-bottom:8px">${esc(t('int.fechasEstadia'))}</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
-              <label style="font-size:11px;font-weight:700;color:var(--aviso);display:block;margin-bottom:4px">Check-in</label>
+              <label style="font-size:11px;font-weight:700;color:var(--aviso);display:block;margin-bottom:4px">${esc(t('int.checkin'))}</label>
               <input type="date" id="asig-fecha-desde" class="inp" style="background:#fff">
             </div>
             <div>
-              <label style="font-size:11px;font-weight:700;color:var(--aviso);display:block;margin-bottom:4px">Check-out</label>
+              <label style="font-size:11px;font-weight:700;color:var(--aviso);display:block;margin-bottom:4px">${esc(t('int.checkout'))}</label>
               <input type="date" id="asig-fecha-hasta" class="inp" style="background:#fff">
             </div>
           </div>
           <div style="font-size:11px;color:var(--aviso);margin-top:8px;line-height:1.3">
-            🔒 <em>Expensas ocultas: el turista solo tendrá acceso a timbre digital, reservas de amenities y Marcos IA.</em>
+            🔒 <em>${esc(t('int.turistaSinExpensas'))}</em>
           </div>
         </div>
 
         <!-- Aviso si es Asistente de Propiedad -->
         <div id="box-aviso-asistente" style="display:none;margin-bottom:14px;background:var(--info-fondo);border:1px solid var(--info-borde);border-radius:14px;padding:12px 14px;color:var(--info);font-size:12px;line-height:1.4">
-          🏢 <strong>Cesión de Gestión:</strong> Esta unidad se incorporará al portafolio de administración del asistente. Podrá coordinar estadías, registrar huéspedes temporales, solicitar reubicaciones y gestionar tickets en tu nombre.
+          🏢 <strong>${esc(t('int.cesionGestion'))}</strong> ${esc(t('int.cesionAyuda'))}
         </div>
 
         <!-- Botón de Confirmación -->
@@ -3742,8 +3762,8 @@ router.get('/integrantes', (req, res) => {
             <i class="ph ph-users-three"></i>
           </div>
           <div>
-            <div style="font-size:15px;font-weight:900;color:var(--texto)">Integrantes Activos</div>
-            <div style="font-size:11.5px;color:var(--texto-suave)">Personas con acceso a la unidad</div>
+            <div style="font-size:15px;font-weight:900;color:var(--texto)">${esc(t('int.activosTitulo'))}</div>
+            <div style="font-size:11.5px;color:var(--texto-suave)">${esc(t('int.activosAyuda'))}</div>
           </div>
         </div>
         <button onclick="cargarIntegrantes()" style="border:none;background:var(--superficie-3);color:var(--texto-medio);width:32px;height:32px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center">
@@ -3752,7 +3772,7 @@ router.get('/integrantes', (req, res) => {
       </div>
 
       <div id="lista-integrantes-box" style="display:flex;flex-direction:column;gap:8px">
-        <div style="font-size:12px;color:var(--texto-tenue);text-align:center;padding:12px">Cargando integrantes...</div>
+        <div style="font-size:12px;color:var(--texto-tenue);text-align:center;padding:12px">${esc(t('int.cargando'))}</div>
       </div>
     </div>
 
@@ -3760,39 +3780,40 @@ router.get('/integrantes', (req, res) => {
     <div id="modal-reubicar-huesped" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:16px">
       <div style="background:#fff;border-radius:20px;max-width:460px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.2)">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div style="font-size:16px;font-weight:900;color:var(--texto)">🔄 Reubicar Huésped a Otra Unidad</div>
+          <div style="font-size:16px;font-weight:900;color:var(--texto)">🔄 ${esc(t('int.reubicarTitulo'))}</div>
           <button onclick="cerrarModal('modal-reubicar-huesped')" style="border:none;background:var(--superficie-3);border-radius:50%;width:30px;height:30px;font-size:16px;cursor:pointer;color:var(--texto-suave)">✕</button>
         </div>
         <form onsubmit="ejecutarReubicacion(event)">
           <div style="margin-bottom:10px">
-            <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;display:block;margin-bottom:4px">Huésped a Trasladar</label>
+            <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;display:block;margin-bottom:4px">${esc(t('int.huespedATrasladar'))}</label>
             <select id="sel-reub-huesped" class="inp" style="background:#fff" required>
-              <option value="">Cargando huéspedes...</option>
+              <option value="">${esc(t('int.cargandoHuespedes'))}</option>
             </select>
           </div>
           <div style="margin-bottom:10px">
-            <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;display:block;margin-bottom:4px">Unidad de Destino (Portafolio Disponible)</label>
+            <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;display:block;margin-bottom:4px">${esc(t('int.unidadDestino'))}</label>
             <select id="sel-reub-destino" class="inp" style="background:#fff" required>
-              <option value="">Cargando unidades disponibles...</option>
+              <option value="">${esc(t('int.cargandoUnidades'))}</option>
             </select>
           </div>
           <div style="margin-bottom:12px">
-            <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;display:block;margin-bottom:4px">Motivo del Traslado</label>
-            <input type="text" id="inp-reub-motivo" placeholder="Ej: Fuga de agua / Reparación urgente" class="inp" style="background:#fff" required>
+            <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;display:block;margin-bottom:4px">${esc(t('int.motivoTraslado'))}</label>
+            <input type="text" id="inp-reub-motivo" placeholder="${esc(t('int.motivoPlaceholder'))}" class="inp" style="background:#fff" required>
           </div>
           <div style="font-size:11.5px;color:#4338CA;line-height:1.4;margin-bottom:14px;background:var(--info-fondo);padding:10px 12px;border-radius:10px;border:1px solid var(--info-borde)">
-            ✨ <strong>Efectos Inmediatos:</strong><br>
+            ✨ <strong>${esc(t('int.efectos'))}</strong><br>
             • El timbre digital del huésped se redirige al nuevo departamento.<br>
             • Las reservas de amenities se transfieren automáticamente.<br>
             • Se registra la trazabilidad para administración y propietario.
           </div>
-          <button type="submit" id="btn-reub-ejecutar" style="width:100%;height:44px;border:none;border-radius:12px;background:#4F46E5;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer">Confirmar Reubicación Inmediata</button>
+          <button type="submit" id="btn-reub-ejecutar" style="width:100%;height:44px;border:none;border-radius:12px;background:#4F46E5;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer">${esc(t('int.confirmarReubicacion'))}</button>
         </form>
       </div>
     </div>
 
     <!-- SCRIPTS DE CLIENTE -->
     <script>
+      const TI = ${TI};
       let _integrantesActuales = [];
       let _usuarioVerificado = null;
       let _timerBusqueda = null;
@@ -3853,7 +3874,7 @@ router.get('/integrantes', (req, res) => {
               const nombreCompleto = (data.usuario.nombre || '') + ' ' + (data.usuario.apellido || '');
               const tel = data.usuario.telefono ? (' · 📞 ' + data.usuario.telefono) : '';
               box.innerHTML = '<div style="background:#F0FDF4;border:1.5px solid var(--ok-borde);border-radius:12px;padding:12px 14px;color:var(--ok)">' +
-                                '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--ok);margin-bottom:3px">✓ Usuario Verificado en la App</div>' +
+                                '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--ok);margin-bottom:3px">✓ ' + TI.verificado + '</div>' +
                                 '<div style="font-size:14px;font-weight:900;color:var(--texto)">' + nombreCompleto + '</div>' +
                                 '<div style="font-size:12px;color:var(--texto-medio)">✉️ ' + data.usuario.email + tel + '</div>' +
                               '</div>';
@@ -3864,8 +3885,8 @@ router.get('/integrantes', (req, res) => {
             if (icon) icon.innerText = '⚠️';
             if (box) {
               box.innerHTML = '<div style="background:var(--error-fondo);border:1.5px solid var(--error-borde);border-radius:12px;padding:12px 14px;color:var(--error);font-size:12.5px;line-height:1.4">' +
-                                '<strong style="display:block;margin-bottom:3px">⚠️ Usuario no registrado</strong>' +
-                                'Este email no pertenece a ningún usuario registrado en la app. La persona debe registrarse previamente con su email y número de teléfono para poder asociarla a la unidad.' +
+                                '<strong style="display:block;margin-bottom:3px">⚠️ ' + TI.noRegistrado + '</strong>' +
+                                TI.noRegistradoAyuda +
                               '</div>';
               box.style.display = 'block';
             }
@@ -3898,12 +3919,12 @@ router.get('/integrantes', (req, res) => {
       async function guardarAsignacion(e) {
         e.preventDefault();
         if (!_usuarioVerificado) {
-          alert('Debés ingresar un usuario registrado previamente en la app.');
+          alert(TI.faltaUsuario);
           return;
         }
         const btn = document.getElementById('btn-confirmar-asignacion');
         btn.disabled = true;
-        btn.innerText = 'Guardando...';
+        btn.innerText = TI.guardando;
 
         const rol = document.getElementById('asig-rol').value;
         const payload = {
@@ -3921,7 +3942,7 @@ router.get('/integrantes', (req, res) => {
           });
           const data = await res.json();
           if (data.ok) {
-            alert(data.mensaje || 'Asignación realizada con éxito.');
+            alert(data.mensaje || TI.asignado);
             document.getElementById('asig-email').value = '';
             document.getElementById('asig-feedback-box').style.display = 'none';
             document.getElementById('asig-email-status-icon').innerText = '';
@@ -3929,7 +3950,7 @@ router.get('/integrantes', (req, res) => {
             validarBotonSubmit();
             cargarIntegrantes();
           } else {
-            alert(data.error || 'Error al realizar la asignación.');
+            alert(data.error || TI.errorAsignar);
           }
         } catch (_) {
           alert('Error de conexión con el servidor.');
@@ -3942,7 +3963,7 @@ router.get('/integrantes', (req, res) => {
       async function cargarIntegrantes() {
         const box = document.getElementById('lista-integrantes-box');
         if (!box) return;
-        box.innerHTML = '<div style="font-size:12px;color:var(--texto-tenue);text-align:center;padding:12px">Cargando integrantes...</div>';
+        box.innerHTML = '<div style="font-size:12px;color:var(--texto-tenue);text-align:center;padding:12px">' + TI.cargando + '</div>';
 
         try {
           const res = await fetch('/vecino/api/ocupantes-unidad');
@@ -3972,13 +3993,13 @@ router.get('/integrantes', (req, res) => {
           const esTur = (o.rol === 'turista');
           const esAsis = (o.rol === 'asistente');
           const badgeClass = esTur ? 'badge-ocupante-turista' : (o.rol === 'propietario' ? 'badge-ocupante-propietario' : (esAsis ? 'badge-ocupante-asistente' : 'badge-ocupante-inquilino'));
-          const badgeTxt = esTur ? '🧳 Turista' : (o.rol === 'propietario' ? '👑 Propietario' : (esAsis ? '🏢 Asistente / Gestor' : (o.rol === 'inquilino' ? '🔑 Inquilino' : '👥 Familiar')));
-          const timbreTxt = o.timbre_activo !== false ? '🔔 Timbre ON' : '🔕 Timbre OFF';
+          const badgeTxt = esTur ? ('🧳 ' + TI.badgeTurista) : (o.rol === 'propietario' ? ('👑 ' + TI.badgePropietario) : (esAsis ? ('🏢 ' + TI.badgeAsistente) : (o.rol === 'inquilino' ? ('🔑 ' + TI.badgeInquilino) : ('👥 ' + TI.badgeFamiliar))));
+          const timbreTxt = o.timbre_activo !== false ? ('🔔 ' + TI.timbreOn) : ('🔕 ' + TI.timbreOff);
           const timbreClass = o.timbre_activo !== false ? 'timbre-on' : 'timbre-off';
 
           let fechasTxt = '';
           if (o.fecha_desde && o.fecha_hasta) {
-            fechasTxt = ' · Del ' + String(o.fecha_desde).slice(0, 10) + ' al ' + String(o.fecha_hasta).slice(0, 10);
+            fechasTxt = ' · ' + TI.del + ' ' + String(o.fecha_desde).slice(0, 10) + ' ' + TI.al + ' ' + String(o.fecha_hasta).slice(0, 10);
           }
           const nom = (o.nombre || '') + ' ' + (o.apellido || '');
           const contacto = o.email || o.telefono || 'Sin contacto';
@@ -3987,14 +4008,14 @@ router.get('/integrantes', (req, res) => {
           if (esTur) {
             btnReubicar = '<button type="button" onclick="abrirModalReubicar(' + o.usuario_id + ')" style="padding:4px 10px;border-radius:8px;background:var(--info-fondo);border:1px solid var(--info-borde);color:#4F46E5;font-size:11px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-top:6px">' +
                             '<i class="ph ph-arrows-left-right"></i>' +
-                            '<span>Reubicar Depto</span>' +
+                            '<span>' + TI.reubicarDepto + '</span>' +
                           '</button>';
           }
 
           let btnDesvincular = '';
           if (o.usuario_id && o.usuario_id !== _miUsuarioId && o.rol !== 'propietario') {
             btnDesvincular = '<button type="button" onclick="desvincular(' + o.usuario_id + ')" style="padding:4px 8px;border-radius:8px;background:var(--error-fondo);border:1px solid var(--error-borde);color:var(--error);font-size:11px;font-weight:800;cursor:pointer;margin-top:6px" title="Desvincular">' +
-                               '✕ Desvincular' +
+                               '✕ ' + TI.desvincular +
                              '</button>';
           }
 
@@ -4016,7 +4037,7 @@ router.get('/integrantes', (req, res) => {
       async function desvincular(usuarioId) {
         const integrante = _integrantesActuales.find(function(x) { return x.usuario_id === usuarioId; });
         const nombre = integrante ? (integrante.nombre || 'el integrante') : 'el integrante';
-        if (!confirm('¿Estás seguro de que querés desvincular a ' + nombre + ' de este departamento?')) return;
+        if (!confirm(TI.confirmarDesvincular.replace('{nombre}', nombre))) return;
         try {
           const res = await fetch('/vecino/api/desvincular-integrante', {
             method: 'POST',
@@ -4025,13 +4046,13 @@ router.get('/integrantes', (req, res) => {
           });
           const data = await res.json();
           if (data.ok) {
-            alert('Integrante desvinculado con éxito.');
+            alert(TI.desvinculado);
             cargarIntegrantes();
           } else {
             alert(data.error || 'No se pudo desvincular.');
           }
         } catch (_) {
-          alert('Error de conexión.');
+          alert(TI.errorConexion);
         }
       }
 
@@ -4041,29 +4062,29 @@ router.get('/integrantes', (req, res) => {
         m.style.display = 'flex';
 
         const selH = document.getElementById('sel-reub-huesped');
-        selH.innerHTML = '<option value="">Seleccionar huésped...</option>';
+        selH.innerHTML = '<option value="">' + TI.elegirHuesped + '</option>';
         const turistas = _integrantesActuales.filter(function(o) { return o.rol === 'turista'; });
         for (let i = 0; i < turistas.length; i++) {
           const t = turistas[i];
           const opt = document.createElement('option');
           opt.value = t.usuario_id;
-          opt.innerText = (t.nombre || 'Huésped') + ' (' + (t.email || t.telefono || ('ID: ' + t.usuario_id)) + ')';
+          opt.innerText = (t.nombre || TI.huesped) + ' (' + (t.email || t.telefono || ('ID: ' + t.usuario_id)) + ')';
           if (turistaId && t.usuario_id === turistaId) opt.selected = true;
           selH.appendChild(opt);
         }
 
         const selD = document.getElementById('sel-reub-destino');
-        selD.innerHTML = '<option value="">Cargando unidades disponibles...</option>';
+        selD.innerHTML = '<option value="">' + TI.cargandoUnidades + '</option>';
         try {
           const res = await fetch('/vecino/api/portafolio-asistente');
           const data = await res.json();
-          selD.innerHTML = '<option value="">Seleccionar depto de destino...</option>';
+          selD.innerHTML = '<option value="">' + TI.elegirDestino + '</option>';
           if (data.ok && data.unidades && data.unidades.length > 0) {
             for (let j = 0; j < data.unidades.length; j++) {
               const u = data.unidades[j];
               const opt = document.createElement('option');
               opt.value = JSON.stringify({ edificio: u.edificio, depto: u.departamento });
-              const propInfo = u.propietario_nombre ? (' [Dueño: ' + u.propietario_nombre + ']') : '';
+              const propInfo = u.propietario_nombre ? (' [' + TI.dueno + ': ' + u.propietario_nombre + ']') : '';
               opt.innerText = u.edificio + ' - Depto ' + u.departamento + propInfo;
               selD.appendChild(opt);
             }
@@ -4071,7 +4092,7 @@ router.get('/integrantes', (req, res) => {
             selD.innerHTML = '<option value="">No hay otras unidades asignadas en el portafolio</option>';
           }
         } catch (_) {
-          selD.innerHTML = '<option value="">Error al consultar portafolio</option>';
+          selD.innerHTML = '<option value="">' + TI.errorPortafolio + '</option>';
         }
       }
 
@@ -4083,12 +4104,12 @@ router.get('/integrantes', (req, res) => {
         const motivo = document.getElementById('inp-reub-motivo').value;
 
         if (!uId || !destJson) {
-          alert('Por favor seleccioná el huésped y el departamento de destino.');
+          alert(TI.faltaHuespedDestino);
           return;
         }
 
         btn.disabled = true;
-        btn.innerText = 'Reubicando...';
+        btn.innerText = TI.reubicando;
 
         try {
           const dest = JSON.parse(destJson);
@@ -4104,17 +4125,17 @@ router.get('/integrantes', (req, res) => {
           });
           const data = await res.json();
           if (data.ok) {
-            alert(data.mensaje || 'Huésped reubicado con éxito.');
+            alert(data.mensaje || TI.reubicado);
             cerrarModal('modal-reubicar-huesped');
             cargarIntegrantes();
           } else {
-            alert(data.error || 'No se pudo reubicar al huésped.');
+            alert(data.error || TI.errorReubicar);
           }
         } catch (_) {
-          alert('Error de conexión.');
+          alert(TI.errorConexion);
         } finally {
           btn.disabled = false;
-          btn.innerText = 'Confirmar Reubicación Inmediata';
+          btn.innerText = TI.confirmarReubicacion;
         }
       }
 
@@ -4638,7 +4659,7 @@ router.get('/pases', (req, res) => {
             alert(data.error || 'No se pudo revocar el pase.');
           }
         } catch(_) {
-          alert('Error de conexión.');
+          alert(TI.errorConexion);
         }
       }
 

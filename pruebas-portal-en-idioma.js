@@ -61,6 +61,17 @@ const PANTALLAS = [
         castellano: ['Avisos del Edificio', 'Limpieza de tanques de agua',
                      'Ascensor principal en servicio', 'ServiElev'],
     },
+    {
+        ruta: '/vecino/integrantes',
+        // Un huesped NO ve esta pantalla: la ruta lo manda al inicio, y esta bien --quien entra a
+        // la unidad lo decide el propietario--. Asi que se prueba como propietario, cambiandole el
+        // idioma desde el perfil: la via que Daniel pidio "por si falla la traduccion".
+        rol: 'propietario',
+        traducido: ['Adicionar alguém à unidade', 'Quem tem acesso', 'Hóspede por alguns dias',
+                    'Datas da estadia', 'Chega', 'Sai'],
+        castellano: ['Asignar a la Unidad', 'Integrantes Activos', 'Pase Huésped Turista',
+                     'Fechas de Estadía del Huésped', 'Check-in', 'Check-out'],
+    },
 ];
 
 let fallos = 0;
@@ -73,11 +84,11 @@ const app = express();
 app.use('/vecino', require('./portal-vecino'));
 const server = app.listen(0, '127.0.0.1', main);
 
-function pedir(metodo, ruta, { cookie, cuerpo } = {}) {
+function pedir(metodo, ruta, { cookie, cuerpo, json } = {}) {
     return new Promise((resolve, reject) => {
         const cabeceras = {};
         if (cuerpo) {
-            cabeceras['Content-Type'] = 'application/x-www-form-urlencoded';
+            cabeceras['Content-Type'] = json ? 'application/json' : 'application/x-www-form-urlencoded';
             cabeceras['Content-Length'] = Buffer.byteLength(cuerpo);
         }
         if (cookie) cabeceras['Cookie'] = cookie;
@@ -105,9 +116,17 @@ async function main() {
     // El huésped de demostración viene de Brasil (`idioma: 'pt'` en `sesion-demo.js`).
     const login = await pedir('POST', '/vecino/auth', { cuerpo: 'rol=turista' });
 
+    // Y un propietario al que le cambiamos el idioma a portugués desde el perfil, para las
+    // pantallas que un huésped no puede ver.
+    const loginProp = await pedir('POST', '/vecino/auth', { cuerpo: 'rol=propietario' });
+    await pedir('POST', '/vecino/api/idioma', {
+        cookie: loginProp.cookie, cuerpo: JSON.stringify({ idioma: 'pt' }), json: true,
+    });
+
     for (const pantalla of PANTALLAS) {
         console.log(`\n── ${pantalla.ruta} EN PORTUGUÉS ──`);
-        const r = await pedir('GET', pantalla.ruta, { cookie: login.cookie });
+        const cookie = pantalla.rol === 'propietario' ? loginProp.cookie : login.cookie;
+        const r = await pedir('GET', pantalla.ruta, { cookie });
         afirmar(`responde (${r.codigo})`, r.codigo === 200);
 
         for (const frase of pantalla.traducido) {
