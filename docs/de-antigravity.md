@@ -27,6 +27,171 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-26 — Despliegue en VPS (PR #12 y #13), verificación de expensas y diagnósticos para prueba de Meta
+
+- **Qué se hizo:**
+  - Se completó el despliegue al VPS (`200.58.102.182:5436`) solicitado en `docs/para-antigravity.md`:
+    - `git pull origin claude/marcos-ia-whatsapp-template-vpg8gw`
+    - `npm install --omit=dev`
+    - `node --check db-pg.js && node --check portal-vecino.js && node --check dashboard.js && node --check importar-expensas-a-pg.js`
+    - `pm2 restart marcos-ai`
+  - Se corrieron todas las comprobaciones de expensas y los 5 diagnósticos solicitados por el motor para la prueba de ventana de 24hs de Meta.
+
+#### 1. Verificación de sintaxis y despliegue en VPS
+```bash
+node --check db-pg.js && node --check portal-vecino.js && node --check dashboard.js && node --check importar-expensas-a-pg.js && echo SINTAXIS-OK
+```
+Salida:
+```
+SINTAXIS-OK
+```
+
+PM2 logs de arranque (`pm2 logs marcos-ai --lines 60 --nostream`):
+```
+0|marcos-a | 🚀 Servidor Marcos corriendo en puerto 3000
+0|marcos-a | ✅ Esquema PostgreSQL con pgvector inicializado exitosamente.
+0|marcos-a | ⏰ Cron de reportes programado a las 08:00 y 20:00
+0|marcos-a | 🚧 Portal del vecino ACTIVO en /vecino y /portal — sin login real todavía. No dejar prendido en producción.
+```
+
+#### 2. Columnas y CHECK de expensas en PostgreSQL
+```bash
+node revisar-columnas-pg.js expensas
+```
+Salida:
+```
+✅ Esquema PostgreSQL con pgvector inicializado exitosamente.
+
+📋 expensas  (13 columnas)
+   id, fecha, edificio, periodo, formato, nombre, url, estado, created_at, departamento, monto, vencimiento, monto_origen
+   🔒 expensas_monto_origen_chk: CHECK (((monto_origen IS NULL) OR ((monto_origen)::text = ANY ((ARRAY['ia'::character varying, 'ocr'::character varying, 'manual'::character varying])::text[]))))
+```
+Están las 13 columnas y el CHECK acepta `ia`, `ocr` y `manual`.
+
+#### 3. Sincronización de expensas Sheets -> PostgreSQL
+```bash
+node importar-expensas-a-pg.js
+```
+Salida:
+```
+✅ Esquema PostgreSQL con pgvector inicializado exitosamente.
+✅ Conectado a Google Sheets: "Base Maestra Bien Argentinos"
+
+📄 Pestaña "expensas": 4 fila(s). En PostgreSQL: 4.
+   ✅ ya estaban en las dos: 4
+   ➕ faltan en PostgreSQL:  0
+
+No hay nada que traer.
+```
+Las 4 liquidaciones existentes están en ambas bases.
+
+#### 4. Diagnósticos para el motor (preparación prueba ventana 24hs)
+
+**Diagnóstico 1: Columnas de marcas de entrega en Sheets y PostgreSQL**
+```bash
+node revisar-columnas.js
+```
+Salida:
+```
+✅ Conectado a Google Sheets: "Base Maestra Bien Argentinos"
+✅ EVENTOS: 34 columnas puestas, caben 39. Está completa.
+✅ facturas: 11 columnas puestas, caben 26. Está completa.
+✅ proveedores: 16 columnas puestas, caben 26. Está completa.
+✅ VECINOS: 17 columnas puestas, caben 27. Está completa.
+✅ accesos: 11 columnas puestas, caben 26. Está completa.
+✅ expensas: 11 columnas puestas, caben 26. Está completa.
+✅ Ninguna pestaña está perdiendo datos por falta de columnas.
+```
+
+```bash
+node revisar-columnas-pg.js reportes
+```
+Salida:
+```
+✅ Esquema PostgreSQL con pgvector inicializado exitosamente.
+
+📋 reportes  (41 columnas)
+   id, codigo_caso, fecha, vecino, telefono, edificio, problema, urgencia, tecnico, acceso, estado, notas_ia, embedding, created_at, depto, unidad, mensaje, tipo, notas, feedback, hora_fin, audio_url, transcripcion, historial_chat, audios_json, involucrados_json, chat_vecino_json, chat_proveedor_json, tecnico_notificado, proximo_seguimiento, seguimiento_paso, seguimiento_nota, tecnico_confirmado, tecnico_eta, admin_notificado, contacto_acceso_avisado, tel_tecnico, rubro_tecnico, material_enviado_tecnico, foto_url, entrega_rebotada
+```
+`material_enviado_tecnico` y `contacto_acceso_avisado` están presentes en `reportes`.
+
+**Diagnóstico 2: Sobrantes y desfasajes de configuración**
+```bash
+node revisar-sobrantes.js
+```
+Salida:
+```
+✅ Conectado a Google Sheets: "Base Maestra Bien Argentinos"
+✅ Esquema PostgreSQL con pgvector inicializado exitosamente.
+
+📋 clientes  ·  planilla "CLIENTES": 1  ·  PostgreSQL: 1
+   ✅ Las dos bases dicen lo mismo.
+
+📋 edificios  ·  planilla "EDIFICIOS": 3  ·  PostgreSQL: 3
+   ✅ Las dos bases dicen lo mismo.
+
+📋 proveedores  ·  planilla "proveedores": 4  ·  PostgreSQL: 4
+   ✅ Las dos bases dicen lo mismo.
+
+📋 proveedor_asignaciones  ·  planilla "proveedor_asignaciones": 7  ·  PostgreSQL: 7
+   ✅ Las dos bases dicen lo mismo.
+
+✅ Sheets y PostgreSQL coinciden en toda la configuración.
+```
+
+**Diagnóstico 3: Nombres de edificios en el sistema**
+```bash
+node revisar-edificios.js
+```
+Salida:
+```
+🏢 EDIFICIOS (la tabla que manda)
+   · San patricio 270 (san patricio 270 casa dany)
+   · San Patricio 159 (CASA DE TRINI)
+   · Zeballos Cia (Virrey cevallos 1747)
+
+🔎 Nombres de edificio usados en el resto del sistema
+   ❌ "Torre Norte Edifica" — no es ningún edificio de EDIFICIOS
+      🐘 reservas_amenities.edificio (2 filas)
+      🐘 pases_qr.edificio (1 fila)
+      🐘 eventos_acceso.edificio (2 filas)
+
+   1 nombre(s) apuntando a la nada.
+```
+
+**Diagnóstico 4: Casos desfasados entre bases**
+```bash
+node emparejar-casos.js
+```
+Salida:
+```
+✅ Conectado a Google Sheets: "Base Maestra Bien Argentinos"
+✅ Esquema PostgreSQL con pgvector inicializado exitosamente.
+
+🔀 CASOS DESFASADOS ENTRE LAS DOS BASES
+   En la planilla: 4 · En PostgreSQL: 4
+   ✅ Las dos bases dicen lo mismo de todos los casos.
+```
+
+**Diagnóstico 5: Seguimientos vencidos**
+```bash
+node revisar-seguimientos.js
+```
+Salida:
+```
+⏱️  SEGUIMIENTOS VENCIDOS
+   PostgreSQL (lo que levanta el barrido): 2
+   Sheets     (donde se agenda)          : 2
+
+── CASO POR CASO, SEGÚN POSTGRESQL ──
+   CASO-1004  —  San Patricio 159 (estado en_proceso · paso 9 → pide el 9)
+      ✅ se agenda bien
+   CASO-1003  —  San Patricio 159 (estado en_proceso · paso 9 → pide el 9)
+      ✅ se agenda bien
+
+   ✅ Ningún caso trabado por falta de fila.
+```
+
 ### 2026-09-24 — Persistencia de sesiones en PostgreSQL (`connect-pg-simple`) y escape en ruta de expensas
 
 - **Qué cambié y en qué archivo:**
