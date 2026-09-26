@@ -108,6 +108,32 @@ async function main() {
     }
     afirmar('el error de un cliente no tira el proceso', sobrevivioCliente);
 
+    console.log('\n── SIN DATABASE_URL NO SE CONECTA A NINGUNA PARTE ──');
+    {
+        // CANDADO. `new Pool({ connectionString: '' })` no falla: `pg` toma la cadena vacía como
+        // "no me dijeron nada" y se va a los valores por defecto de libpq --`localhost:5432`, con
+        // el usuario del sistema--. O sea que sin la variable, Marcos le habla a CUALQUIER
+        // PostgreSQL que haya en la máquina. Eso es adivinar a qué base escribir, y es peor que no
+        // escribir: en un servidor con otra base levantada las consultas se van a donde no es y
+        // nadie se entera.
+        //
+        // Se prueba en un proceso aparte porque este ya cargó `db-pg.js` con la variable puesta.
+        const { execFileSync } = require('child_process');
+        const env = { ...process.env };
+        delete env.DATABASE_URL;
+        const salida = execFileSync(process.execPath, ['-e', `
+            const { pool } = require('./db-pg');
+            console.log(JSON.stringify({
+                esDeMentira: pool.sinBase === true,
+                tieneOpciones: !!(pool.options && pool.options.host),
+            }));
+        `], { cwd: __dirname, env, encoding: 'utf8' });
+
+        const r = JSON.parse(salida.trim().split('\n').filter(l => l.startsWith('{')).pop());
+        afirmar('sin la variable el pool no es uno de verdad', r.esDeMentira);
+        afirmar('y no tiene ningún host al que salir', !r.tieneOpciones);
+    }
+
     srv.close();
     await pool.end().catch(() => {});
 

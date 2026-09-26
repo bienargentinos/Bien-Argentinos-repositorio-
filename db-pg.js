@@ -2,14 +2,61 @@ const { Pool } = require('pg');
 const crypto = require('crypto');
 const { fechaHoraAR, fechaAR } = require('./fecha');
 
-const pool = new Pool({
-    // La contraseña NO vive acá. Estaba escrita como valor por defecto y el repositorio se hace
-    // público cada vez que se usa el `curl` de CLAUDE.md. Ver `credenciales.js`.
-    connectionString: require('./credenciales').urlPostgres(),
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 3000,
-});
+// SIN `DATABASE_URL` NO SE CONECTA A NINGUNA PARTE, Y ESO ES EL ARREGLO.
+//
+// > [!CAUTION]
+// > **`new Pool({ connectionString: '' })` no falla: `pg` toma la cadena vacía como "no me dijeron
+// > nada" y se va a los valores por defecto de libpq — `localhost:5432`, usuario y base con el
+// > nombre del usuario del sistema.** O sea que sin la variable, Marcos intenta hablarle a
+// > CUALQUIER PostgreSQL que haya en la máquina.
+//
+// Eso es adivinar a qué base escribir, que es peor que no escribir. En una máquina con otra base
+// levantada --un servidor compartido, una instalación nueva, el runner del CI-- las consultas se van
+// a una base que no es `marcos_db` y nadie se entera.
+//
+// Y así apareció: el CI en rojo, verde acá. Local no hay nada escuchando en el 5432 y el error es un
+// `ECONNREFUSED` limpio que cae adentro del `try` de la consulta. En el runner de GitHub **sí hay un
+// PostgreSQL instalado**, así que la conexión se aceptaba y se cortaba: `read ECONNRESET` emitido en
+// el socket, sin oyente y sin stack de JavaScript, y el proceso se iba con código 1 en mitad de
+// `GET /vecino/`. Dos hipótesis mías antes de esta --el oyente del pool y el del cliente-- eran
+// arreglos correctos que no tocaban la causa.
+//
+// Ahora sin la variable se devuelve un pool de mentira que rechaza todo con un mensaje que dice qué
+// falta. Todas las llamadas ya están adentro de un `try`, así que las pantallas siguen contestando
+// --el portal ya se dibuja sin base-- y en el log queda una sola línea clara en vez de un volcado de
+// socket. Es el mismo criterio que `EDIFICA_API_KEY`: de los dos errores se elige el que se puede
+// deshacer.
+const _urlPg = require('./credenciales').urlPostgres();
+
+function poolDeMentira() {
+    const seQueja = () => Promise.reject(new Error(
+        'No hay DATABASE_URL configurada: no se intenta hablar con ningún PostgreSQL. ' +
+        'Poner la variable en el .env y reiniciar (pm2 restart marcos-ai).'
+    ));
+    return {
+        sinBase: true,
+        query: seQueja,
+        connect: seQueja,
+        end: () => Promise.resolve(),
+        on: () => {},
+        once: () => {},
+        removeListener: () => {},
+        listenerCount: () => 0,
+        emit: () => false,
+        totalCount: 0, idleCount: 0, waitingCount: 0,
+    };
+}
+
+const pool = _urlPg
+    ? new Pool({
+        // La contraseña NO vive acá. Estaba escrita como valor por defecto y el repositorio se hace
+        // público cada vez que se usa el `curl` de CLAUDE.md. Ver `credenciales.js`.
+        connectionString: _urlPg,
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 3000,
+    })
+    : poolDeMentira();
 
 // UN CLIENTE OCIOSO QUE SE MUERE MATABA EL PROCESO ENTERO.
 //
