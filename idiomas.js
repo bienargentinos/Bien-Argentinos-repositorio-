@@ -144,8 +144,7 @@ const TEXTOS = {
         'expensa.vence': 'Vence el {fecha}',
         'expensa.descargar': 'Descargar',
         'expensa.delEdificio': 'Es la expensa general del edificio, no la de tu unidad.',
-        'expensa.gastosEdificio': 'Gastos del edificio',
-        'expensa.noEsTuDeuda': 'Es el total del consorcio, no lo que te toca pagar a vos.',
+        'expensa.liquidacionEdificio': 'Liquidación del edificio',
 
         'error.generico': 'No se pudo completar la acción.',
     },
@@ -265,8 +264,7 @@ const TEXTOS = {
         'expensa.vence': 'Due {fecha}',
         'expensa.descargar': 'Download',
         'expensa.delEdificio': "This is the building's general fee, not your unit's.",
-        'expensa.gastosEdificio': 'Building expenses',
-        'expensa.noEsTuDeuda': "It's the building's total, not what you owe.",
+        'expensa.liquidacionEdificio': "Building's statement",
 
         'error.generico': 'The action could not be completed.',
     },
@@ -386,8 +384,7 @@ const TEXTOS = {
         'expensa.vence': 'Vence em {fecha}',
         'expensa.descargar': 'Baixar',
         'expensa.delEdificio': 'É o documento geral do prédio, não o da sua unidade.',
-        'expensa.gastosEdificio': 'Despesas do prédio',
-        'expensa.noEsTuDeuda': 'É o total do condomínio, não o que você tem que pagar.',
+        'expensa.liquidacionEdificio': 'Balanço do prédio',
 
         'error.generico': 'Não foi possível concluir a ação.',
     },
@@ -507,8 +504,7 @@ const TEXTOS = {
         'expensa.vence': 'Échéance le {fecha}',
         'expensa.descargar': 'Télécharger',
         'expensa.delEdificio': "C'est le document général de l'immeuble, pas celui de votre logement.",
-        'expensa.gastosEdificio': "Dépenses de l'immeuble",
-        'expensa.noEsTuDeuda': "C'est le total de la copropriété, pas ce que vous devez payer.",
+        'expensa.liquidacionEdificio': "Décompte de l'immeuble",
 
         'error.generico': "L'action n'a pas pu être effectuée.",
     },

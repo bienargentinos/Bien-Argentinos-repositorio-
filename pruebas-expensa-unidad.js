@@ -98,7 +98,7 @@ console.log('\n── "1° A", "1º A" Y "1A" SON EL MISMO DEPARTAMENTO ──')
     afirmar('un vacío no matchea con nada', !mismaUnidad('', '1A'));
     // Si cae al documento del edificio, la pantalla tiene que decirlo: no es la cuenta de la
     // unidad, y el monto que trae no es una deuda de esta persona.
-    afirmar('avisa que no es su deuda', PORTAL.includes("t('expensa.noEsTuDeuda')"));
+    afirmar('avisa que es la del edificio y no la de su unidad', PORTAL.includes("t('expensa.delEdificio')"));
     afirmar('y en el historial se distingue cuál es la del edificio', PORTAL.includes('DEL EDIFICIO'));
 }
 
@@ -229,27 +229,57 @@ console.log('\n── EL ARCHIVO DE LA EXPENSA NO SE SIRVE POR UNA URL PÚBLICA 
     afirmar('el historial también', /const downloadUrl = enlaceDeExpensa\(x\)/.test(codigo));
 }
 
-console.log('\n── LA LIQUIDACIÓN GENERAL NO SE PRESENTA COMO UNA DEUDA ──');
+console.log('\n── LA LIQUIDACIÓN GENERAL NO MUESTRA NINGÚN MONTO ──');
 {
     // El total de la liquidación general salió $1.284.650,40 en la carga real. Está bien leído
-    // --es el total de gastos del consorcio-- pero nadie paga eso. Con la etiqueta "Total a
-    // pagar", el vecino entiende que le cobran un millón doscientos mil.
+    // --es el total de gastos del consorcio-- pero nadie paga eso.
     //
-    // No se esconde: en qué se fue la plata del consorcio es justo la transparencia que un vecino
-    // quiere. Lo que no puede es parecer una deuda.
-    afirmar('la etiqueta del monto cambia si es la del edificio',
-        /esDelEdificio \? t\('expensa\.gastosEdificio'\) : t\('inicio\.totalAPagar'\)/.test(PORTAL));
-    afirmar('y en la pantalla de Expensas también',
-        /esDelEdificio \? 'Gastos del edificio' : 'Total a pagar'/.test(PORTAL));
+    // La primera versión le puso otra etiqueta ("Gastos del edificio"). Daniel lo resolvió mejor:
+    // el número no hace falta en la pantalla. El detalle de gastos ya está adentro del documento
+    // que comparte la Administración, así que mostrarlo suelto arriba solo agrega una cifra grande
+    // que no es de nadie — y toda cifra grande en una pantalla de expensas se lee como una deuda.
+    //
+    // El dato se sigue guardando (`expensaDeUnidad` lo devuelve). Lo que cambia es que no se
+    // renderiza.
+    afirmar('en el Inicio, si es del edificio se rama antes del monto',
+        /expensa && expensa\.esDelEdificio \?/.test(PORTAL));
+    afirmar('y lo que muestra es la etiqueta del edificio, no un importe',
+        PORTAL.includes("t('expensa.liquidacionEdificio')"));
+    afirmar('en la pantalla de Expensas, igual',
+        /ultimaExpensa && ultimaExpensa\.esDelEdificio \?/.test(PORTAL));
 
+    // Las etiquetas que existían para MOSTRAR ese total se fueron. Si alguna vuelve, es que el
+    // monto volvió con ella.
     const { textos } = require('./idiomas');
     for (const idioma of ['es', 'en', 'pt', 'fr']) {
         const t = textos(idioma);
-        afirmar(`${idioma}: "gastos del edificio" tiene texto`, !!t('expensa.gastosEdificio').trim());
-        afirmar(`${idioma}: dice que no es su deuda`, !!t('expensa.noEsTuDeuda').trim());
-        afirmar(`${idioma}: y no dice "total a pagar"`,
-            !/total a pagar|total to pay/i.test(t('expensa.gastosEdificio')));
+        afirmar(`${idioma}: la etiqueta del edificio tiene texto`, !!t('expensa.liquidacionEdificio').trim());
+        afirmar(`${idioma}: dice que no es la de su unidad`, !!t('expensa.delEdificio').trim());
     }
+    afirmar('ya no existe la etiqueta del total general', !PORTAL.includes('gastosEdificio'));
+    afirmar('ni la que aclaraba que no era su deuda', !PORTAL.includes('noEsTuDeuda'));
+
+    // CANDADO DE VERDAD: con una expensa del edificio, el importe NO puede salir renderizado.
+    // Se arma el bloque tal como lo genera el portal y se mira el HTML, en vez de leer el código:
+    // una condición dada vuelta pasaría cualquier prueba que solo busque el texto de la etiqueta.
+    const trozo = PORTAL.slice(PORTAL.indexOf('const tarjetaSuperior ='),
+                               PORTAL.indexOf('<!-- Acciones de la Expensa -->'));
+    const render = new Function('expensa', 't', 'esc', 'montoEnPesos', `
+        return \`${trozo.slice(trozo.indexOf('${expensa && expensa.esDelEdificio'))}\`;
+    `);
+    const t = textos('es');
+    const html = render(
+        { esDelEdificio: true, monto: 1284650.4, periodo: 'Septiembre 2026', vencimiento: null },
+        t, (x) => String(x), (n) => '$' + n
+    );
+    afirmar('el importe del edificio NO aparece en el HTML', !/1284650|1\.284\.650/.test(html));
+    afirmar('y sí aparece la etiqueta del edificio', html.includes('Liquidación del edificio'));
+
+    const htmlUnidad = render(
+        { esDelEdificio: false, monto: 85000, periodo: 'Septiembre 2026', vencimiento: null },
+        t, (x) => String(x), (n) => '$' + n
+    );
+    afirmar('el de SU unidad sí se muestra', htmlUnidad.includes('85000'));
 }
 
 console.log(`\n${fallos === 0 ? '✅ Todo bien' : `❌ ${fallos} fallo(s)`}\n`);
