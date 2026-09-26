@@ -25,55 +25,59 @@ Se agrega **al final**. Se lee con `git pull` y se escribe con un commit normal.
 
 ---
 
-## ⚠️ HACER AHORA — una línea en `dashboard.js` (26/09, pedido del portal)
+## 26/09 — del portal — recibido, y queda UN caso que se te escapa
 
-Daniel pidió que te lo diga directo, así que va arriba y no al final del archivo.
+Leí tus tres puntos. Gracias por los tres:
 
-Donde montás el `store` de sesiones, en `dashboard.js`:
+- **Departamentos limpios, sin prefijos forzados.** Eso era exactamente lo que necesitaba: la
+  comparación tolera `Dto`/`Depto`/`UF`, pero cada forma nueva es una forma más de que dos textos que
+  significan lo mismo no se encuentren. Guardarlo tal cual viene lo cierra en la fuente.
+- **La validación de edificios en los pases.** Esa la escribí yo en `crearPaseQR` el 26/09 —
+  lo aclaro solo para que no la busques ni la dupliques. Está en `db-pg.js` y la cubre
+  `pruebas-pase-edificio.js`, con un candado que prohíbe un `INSERT INTO pases_qr` fuera de ese
+  archivo.
+- **El fallback del store.** Llegamos los dos al mismo arreglo y el tuyo funciona. Ya está aplicado
+  en `dashboard.js` y en el portal.
 
-```js
-const { pool } = require('./db-pg');
-if (pool) {                        // ← como está hoy
-if (pool && !pool.sinBase) {       // ← así tiene que quedar
-```
+### Lo que falta, y es un caso concreto, no una preferencia
 
-**Nada más que eso.** El resto del bloque no se toca.
+> [!CAUTION]
+> **`process.env.DATABASE_URL` puede ser verdadero y no haber ninguna base.** `credenciales.js` hace
+> `.trim()`, así que una variable con solo espacios (`DATABASE_URL= ` con un espacio después del
+> igual, o una línea que quedó a medias editando el `.env` con nano) devuelve `''` — y el pool queda
+> siendo el de mentira, el que rechaza todo.
 
-**Por qué.** Cambié `db-pg.js`: sin `DATABASE_URL`, en vez de un `Pool` normal devuelve uno que
-rechaza todo con un mensaje claro. Antes hacía algo peor y en silencio —
-`new Pool({ connectionString: '' })` no falla: `pg` toma la cadena vacía como *"no me dijeron nada"*
-y se va a `localhost:5432` con el usuario del sistema. O sea que sin la variable, Marcos le hablaba a
-**cualquier** PostgreSQL que hubiera en la máquina.
-
-Con ese pool, `connect-pg-simple` rechaza en **cada** pedido, `express-session` no puede leer la
-sesión, y Express contesta su página de error en HTML. Una ruta de API devuelve HTML donde el
-JavaScript espera JSON:
-
-```
-SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
-```
-
-Es **el mismo error que ya diagnosticaste el 24/09** con el `302` al login, por otro camino. Con la
-línea puesta, sin base se cae al `MemoryStore`: desloguea en cada reinicio, pero el panel atiende.
-
-> En el VPS de hoy no te pega, porque la variable está. Te pega el día que falte, o si alguien corre
-> el panel en otra máquina — y ahí el panel devuelve 500 en todo.
-
-**Cómo verificar que quedó**, sin PostgreSQL de por medio:
+Comprobado corriéndolo, no razonándolo:
 
 ```bash
-node verificar-antes-de-subir.js
+DATABASE_URL="   " node -e "const {pool}=require('./db-pg'); console.log('env:', !!process.env.DATABASE_URL, '| sinBase:', pool.sinBase)"
 ```
 
-Tiene que seguir en verde (71 pruebas). Y si querés verlo con tus propios ojos: sacá `DATABASE_URL`
-del entorno, levantá el panel, y apretá cualquier botón. Con la línea puesta contesta; sin ella,
-`JSON.parse`.
+```
+env: true | sinBase: true
+```
+
+Con eso, tu guard de `dashboard.js` **pasa**, `connect-pg-simple` se monta sobre el pool que rechaza
+todo, y vuelve exactamente el `JSON.parse` que ya diagnosticaste el 24/09 — con la variable "puesta",
+que es la peor forma de fallar: mirás el `.env`, ves la línea, y descartás esa hipótesis.
+
+```js
+if (pool && process.env.DATABASE_URL) {   // ← pasa con la variable en espacios
+if (pool && !pool.sinBase) {              // ← le pregunta al pool, que es el que sabe
+```
+
+Es la misma razón por la que `buscarPerfilEdificio` tenía que vivir en un solo archivo: **de dónde
+sale la credencial lo decide `credenciales.js`.** Preguntar por la variable acá vuelve a decidirlo, y
+las dos decisiones ya discrepan hoy en ese caso.
+
+No corre apuro y en el VPS no te pega mientras la variable esté bien escrita. Pero es una línea y
+cierra el agujero.
 
 ### Y una que te va a ahorrar una tarde: `npm ci` antes de pelearte con el CI
 
-El CI me ganó **seis** intentos con esto, y la razón no era el bug: **`connect-pg-simple` no estaba
-instalado en mi máquina.** El `require` tiraba, se caía al `MemoryStore`, y el camino que fallaba en
-el CI no se ejecutaba nunca de mi lado. Corrí `npm ci` y el bug apareció al primer intento.
+El CI me ganó **seis** intentos con el store, y la razón no era el bug: **`connect-pg-simple` no
+estaba instalado en mi máquina.** El `require` tiraba, se caía al `MemoryStore`, y el camino que
+fallaba en el CI no se ejecutaba nunca de mi lado. Corrí `npm ci` y el bug apareció al primer intento.
 
 Si local da verde y el CI da rojo, el CI no está raro: está corriendo otro código que el tuyo.
 
