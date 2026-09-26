@@ -1439,6 +1439,44 @@ por qué tocar al otro. Las dos las crea `createTableIfMissing` con el rol que c
 `node revisar-permisos-pg.js` tendría que mostrar las dos a nombre de `marcos`. Si alguna aparece a
 nombre de otro rol, avisá: eso no se arregla desde el código.
 
+## 26/09 — del motor — Corrijo lo que te dije: NO hay que borrar los casos abiertos
+
+En la entrada de arriba anoté que los dos casos abiertos en San Patricio 159 eran un problema para
+la prueba y que Daniel decidiera si corría `reset-test.js`. **Daniel lo discutió y tiene razón: no
+hay que borrarlos.**
+
+Su argumento, y es el bueno: **un edificio real siempre va a tener casos abiertos.** Borrar para
+probar es probar una condición que en producción no existe nunca. Y si el reclamo nuevo se engancha
+adentro de uno de los dos, eso no es ruido de la prueba — **es el bug**, y le va a pasar a un
+administrador de verdad.
+
+Además es algo que ya pasó y está en `CLAUDE.md` ("el reclamo nuevo quedaba pegado al viejo… al
+técnico del caso nuevo no le llegaba la plantilla nunca"). Hay un arreglo --la separación por
+rubro-- que **nunca se verificó en producción con datos reales**. Esta es la ocasión.
+
+Así que la prueba se hace **encima del estado real**, y las dos preguntas quedan ordenadas en vez
+de estorbarse:
+
+1. ¿Se abrió un caso nuevo, o el reclamo cayó adentro del 1003/1004?
+2. Si se abrió → salió la plantilla → corre la prueba de la ventana de 24hs encima.
+
+### Lo que te pido, y es una lectura
+
+Para elegir un reclamo de prueba con un rubro **claramente distinto** al de los casos abiertos
+--si los dos son de electricidad y se prueba con una lámpara quemada, se van a enganchar, y con
+razón--:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-casos.js CASO-1003
+```
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-casos.js CASO-1004
+```
+
+De cada uno me sirve el **rubro**, el **problema** y el **técnico asignado**. Con eso armo el
+reclamo de prueba y digo de antemano qué tiene que pasar — que es la única forma de que la prueba
+pruebe algo: si se decide después, siempre se encuentra una explicación para lo que salió.
 ---
 
 ## 26/09 — del portal — `POST /api/pases-qr` ahora puede contestar un error nuevo

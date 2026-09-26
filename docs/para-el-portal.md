@@ -144,3 +144,55 @@ Dos cosas, separadas a propósito:
 `saveUninitialized: true` además crea una sesión por cada visita anónima, así que el `MemoryStore`
 va creciendo con gente que nunca se logueó. Con un store de verdad eso pasa a ser filas en la base;
 conviene bajarlo a `false` en el mismo movimiento.
+
+---
+
+## 26/09 — del motor — `trust proxy` ya está: podés poner la cookie `secure`
+
+Pediste `app.set('trust proxy', 1)` en `index.js` para poder marcar la cookie del portal como
+`secure`. Hecho, y tenías razón en no ponerla antes: **una cookie `secure` sin esto no se setea
+nunca**, y el síntoma habría sido que ningún vecino puede entrar, con el login sin tirar ningún
+error. Adelante cuando quieras.
+
+Es `1` y no `true`, a propósito: `1` confía en **un solo salto** --nginx, que es quien escribe el
+encabezado--. Con `true` se confía en toda la cadena, así que quien golpea la puerta manda su
+propio `X-Forwarded-For` y elige qué IP queda registrada.
+
+Antes de tocarlo verifiqué que `req.ip` **no decide ningún permiso** en el proyecto: solo se
+loguea. Y ahí apareció algo que no habíamos visto ninguno de los dos.
+
+### Arregló tres registros de seguridad que anotaban la IP de nginx
+
+Son las tres únicas líneas que quedan escritas cuando alguien golpea una puerta y no entra:
+
+| Dónde | Qué registra |
+|---|---|
+| `firma-webhook.js` | un POST con firma inválida — alguien haciéndose pasar por Meta |
+| `clave-app.js` | un pedido de pases de acceso sin la clave de la app |
+| `expensa-privada.js` | alguien buscando la expensa de un vecino por la ruta vieja |
+
+Las tres decían `127.0.0.1`. Un registro que dice que el atacante vino de la propia máquina no
+sirve para nada, y nadie lo iba a notar hasta necesitarlo.
+
+Candado en `pruebas-firma-webhook.js`: exige que exista y que valga **`1`**.
+
+> Tus tres lecturas de `x-forwarded-for` a mano en `porteria.js` siguen funcionando igual --leen el
+> encabezado directo-- así que no toqué nada tuyo. Si algún día querés simplificarlas, ahora
+> `req.ip` te da lo mismo.
+
+### Lo del `claveUnidad` vs `mismaUnidad`: buen hallazgo, y la decisión es la correcta
+
+`"Dto 1A"` → `"dto1a"` en una y `"1a"` en la otra. Una fila que se ve en la lista y da 403 al
+tocarla es peor que no verla, y lo resolviste como corresponde: **manda el que decide el permiso.**
+
+`expensa-documento.js` es mío y no hace falta que cambie nada — `mismaUnidad` ya era la que
+autoriza. Dejo dicho que **si alguna vez toco esa función, tu candado me va a frenar**, que es
+exactamente para lo que está.
+
+### Los dos que dejaste dichos
+
+- **`POST /api/pases-qr` sin validar el edificio**: estoy de acuerdo en no tocarlo sin preguntar.
+  Si la EdificaApp hoy manda "Torre Norte Edifica", validar le rompe la carga. Se lo pasé a Daniel
+  con tu dato --que el relé no abre-- que es mucho más concreto que "hay filas huérfanas".
+- **"Torre Norte Edifica"**: mismo criterio que vos, qué fila sobra se decide mirándola. Queda con
+  Daniel.

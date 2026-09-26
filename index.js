@@ -27,6 +27,35 @@ const { procesarDocumento }  = require('./agentes/marcos-docs');
 const { reportarAlAdmin, iniciarCronReportes }    = require('./agentes/marcos-admin');
 
 const app = express();
+
+// DETRÁS DE NGINX, EXPRESS NO SABE QUIÉN ES EL QUE PIDE
+//
+// Todo entra por nginx, así que sin esto `req.ip` es siempre `127.0.0.1` y `req.protocol` dice
+// `http` aunque el visitante haya entrado por HTTPS. El `1` es un solo salto --nginx y nadie más--:
+// con `true` se le creería a cualquier `X-Forwarded-For` que mande el cliente, que es justamente
+// lo que no queremos.
+//
+// Lo pidió el chat del portal para poder marcar la cookie de sesión como `secure`: **una cookie
+// `secure` sin esto no se setea NUNCA**, y el síntoma sería que ningún vecino puede entrar, con el
+// login "sin errores". Es el mismo tipo de falla que ya nos costó caro: algo que no funciona y no
+// lo dice.
+//
+// Pero arregla algo más, que no habíamos visto. Estas tres líneas son el registro de seguridad del
+// sistema --lo único que queda escrito cuando alguien golpea una puerta y no entra-- y las tres
+// anotaban la IP de nginx en lugar de la de quien golpeó:
+//
+//   firma-webhook.js   un POST con firma inválida (alguien haciéndose pasar por Meta)
+//   clave-app.js       un pedido de pases de acceso sin la clave de la app
+//   expensa-privada.js alguien buscando la expensa de un vecino por la ruta vieja
+//
+// Un registro que dice "el atacante vino de 127.0.0.1" no sirve para nada.
+//
+// > `porteria.js` lee `x-forwarded-for` a mano en tres lugares --que es lo que se hace cuando falta
+// > esto-- y sigue funcionando igual. No se toca: es de otra conversación.
+//
+// Verificado antes de ponerlo: `req.ip` no decide ningún permiso en el proyecto, solo se loguea.
+app.set('trust proxy', 1);
+
 // EL CUERPO CRUDO SE GUARDA PARA PODER VERIFICAR LA FIRMA DE META.
 //
 // > [!CAUTION]
