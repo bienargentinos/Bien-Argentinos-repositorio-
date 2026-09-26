@@ -2122,7 +2122,36 @@ function validarYSanitizarNombre(nombre) {
 
     // "El técnico ya vino y resolvió" no entraba: el patrón pedía "resuelto" y la gente conjuga el
     // verbo, con acento. Lo mismo con "lo solucionó", "ya lo arreglaron" o "ya finalicé".
-    const diceQueSeResolvio = /solucionad|solucion[oó]|resuelt|resolv[ií]|trabajo.*terminad|trabajo.*realizad|listo.*trabajo|ya qued. arreglad|ya qued. listo|ya arreglaron|ya lo arregl|ya vino y (lo )?(arregl|solucion|repar|resolv)|ya funciona|ya lo repar|ya finalic|ya termin[eé]/i.test(textoFinal);
+    //
+    // > [!CAUTION]
+    // > **Y exigía la palabra `ya` PEGADA adelante.** `ya finalic` y `ya termin[eé]` eran las dos
+    // > únicas formas del verbo que cerraban un caso, así que **"finalicé"** y **"terminé"** a
+    // > secas --como se escribe de verdad-- no cerraban nada.
+    //
+    // Visto en producción: Daniel avisó desde el lado del proveedor que había finalizado y mandó
+    // las facturas, y los CASO-1003 y CASO-1004 siguieron abiertos cuatro días. El seguimiento
+    // siguió corriendo contra alguien que ya había terminado, y al vecino se le preguntó por un
+    // trabajo hecho.
+    //
+    // Es el mismo defecto que `"1001 es el caso"` (pedía `CASO` pegado adelante) y que
+    // `"no cierra la puerta"` (pedía ese orden exacto): **el orden de las palabras decidiendo.**
+    //
+    // > **Aflojarlo de más es peor**, y por eso el `ya` estaba: forzaba el pasado. `termino
+    // > mañana`, `voy a terminar` y `cuando termine` NO pueden cerrar un caso — prometer que se
+    // > terminó algo que sigue roto deja al vecino sin reclamo abierto justo cuando más lo
+    // > necesita. Ahora el pasado se pide por la forma del verbo (`terminé`, `terminado`,
+    // > `finalicé`, `finalizado`) y se excluye explícitamente lo que mira al futuro.
+    // > Ojo con la raíz del verbo: **"finalicé" va con C y "finalizado" con Z.** Escribir solo
+    // > `finaliz` deja afuera *"apenas finalice te mando la factura"*, que es una promesa a futuro
+    // > y cerraría el caso. Es el mismo error que este bloque viene a arreglar, un nivel más abajo.
+    const miraAlFuturo = /\b(?:voy a|vamos a|paso a|cuando|apenas|en cuanto|reci[eé]n|deber[ií]a|tendr[ií]a|intento|trato de|espero)\b[^.!?]{0,24}(?:termin|final(?:iz|ic)|resolv|arregl|solucion)/i.test(textoFinal)
+        || /\b(?:termin|final(?:iz|ic)|arregl|resuelv|soluciono)[oaeé]?\s+(?:ma[nñ]ana|el lunes|el martes|el mi[eé]rcoles|el jueves|el viernes|el s[aá]bado|el domingo|la semana|m[aá]s tarde|despu[eé]s|en la tarde|a la tarde)/i.test(textoFinal);
+
+    const diceQueSeResolvio = !miraAlFuturo && (
+        /solucionad|solucion[oó]|resuelt|resolv[ií]|trabajo.*terminad|trabajo.*realizad|listo.*trabajo|ya qued. arreglad|ya qued. listo|ya arreglaron|ya lo arregl|ya vino y (lo )?(arregl|solucion|repar|resolv)|ya funciona|ya lo repar/i.test(textoFinal)
+        // El verbo en pasado alcanza solo: no hace falta que venga con "ya" adelante.
+        || /(?<![a-záéíóúüñ])(?:finalic[eé]|finaliz[oó]|finalizad[oa]|termin[eé]|termin[oó]|terminad[oa]|complet[eé]|completad[oa])(?![a-záéíóúüñ])/i.test(textoFinal)
+    );
     // "Todavía no se resolvió" trae las mismas palabras que "ya se resolvió" y significa lo
     // contrario. Cerrar un caso que sigue roto es peor que no cerrarlo: el vecino se queda sin
     // reclamo abierto justo cuando más lo necesita.
