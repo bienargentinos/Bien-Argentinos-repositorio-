@@ -5910,10 +5910,13 @@ const _reclamosEnMemoria = [
   }
 ];
 
-function renderItemReclamo(r) {
-  const estadoColor = r.estado === 'resuelto' ? { bg: '#DCFCE7', text: '#15803D', border: '#86EFAC', label: '✓ Resuelto' }
-    : r.estado === 'en_curso' ? { bg: '#EBF3FC', text: '#1E5FB4', border: '#93C5FD', label: '⚙️ En curso' }
-    : { bg: '#FEF3C7', text: '#92400E', border: '#FCD34D', label: '⏳ Pendiente' };
+// `t` se recibe, no se arma acá: esta tarjeta la dibujan dos pantallas y el idioma es del vecino,
+// no de la función. Si falta, se cae a castellano en vez de reventar.
+function renderItemReclamo(r, t) {
+  const tr = t || textos('es');
+  const estadoColor = r.estado === 'resuelto' ? { bg: '#DCFCE7', text: '#15803D', border: '#86EFAC', label: '✓ ' + tr('recl.estadoResuelto') }
+    : r.estado === 'en_curso' ? { bg: '#EBF3FC', text: '#1E5FB4', border: '#93C5FD', label: '⚙️ ' + tr('recl.estadoEnCurso') }
+    : { bg: '#FEF3C7', text: '#92400E', border: '#FCD34D', label: '⏳ ' + tr('recl.estadoPendiente') };
 
   const iconRubro = (r.rubro || '').toLowerCase().includes('plom') ? '💧'
     : (r.rubro || '').toLowerCase().includes('elec') ? '⚡'
@@ -5922,14 +5925,14 @@ function renderItemReclamo(r) {
     : (r.rubro || '').toLowerCase().includes('limp') ? '🧹'
     : '🛠️';
 
-  const fechaStr = r.created_at ? new Date(r.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Reciente';
+  const fechaStr = r.created_at ? new Date(r.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : tr('recl.reciente');
 
   return `
     <div class="card" style="padding:14px 16px;background:#fff;border-radius:16px;border:1px solid var(--borde)">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
         <div style="display:flex;align-items:center;gap:6px">
           <span style="font-size:18px">${iconRubro}</span>
-          <span style="font-size:13.5px;font-weight:900;color:var(--texto)">${esc(r.rubro || 'Avería')}</span>
+          <span style="font-size:13.5px;font-weight:900;color:var(--texto)">${esc(r.rubro || tr('recl.averia'))}</span>
           <span style="font-size:11px;font-weight:800;color:var(--texto-suave);background:var(--superficie-3);padding:2px 6px;border-radius:6px">${esc(r.codigo_caso)}</span>
         </div>
         <span style="font-size:11px;font-weight:800;padding:3px 8px;border-radius:999px;background:${estadoColor.bg};color:${estadoColor.text};border:1px solid ${estadoColor.border}">
@@ -5943,7 +5946,7 @@ function renderItemReclamo(r) {
 
       ${r.foto_url ? `
         <div style="margin-bottom:10px">
-          <img src="${r.foto_url}" onclick="verFotoGrande(this.src)" style="width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--borde-fuerte);cursor:pointer" title="Click para ampliar">
+          <img src="${r.foto_url}" onclick="verFotoGrande(this.src)" style="width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--borde-fuerte);cursor:pointer" title="${esc(tr('recl.ampliar'))}">
         </div>
       ` : ''}
 
@@ -5957,6 +5960,12 @@ function renderItemReclamo(r) {
 
 router.get('/reclamos', async (req, res) => {
   const v = getVecinoSession(req);
+  const t = textos(v.idioma);
+  const TR = JSON.stringify({
+    enviar: t('recl.enviar'),
+    enviando: t('recl.enviando'),
+    errorEnviar: t('recl.errorEnviar'),
+  });
   let reclamosLista = [];
 
   try {
@@ -6005,12 +6014,12 @@ router.get('/reclamos', async (req, res) => {
   const content = `
     <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
       <div>
-        <h2 style="font-size:20px;font-weight:900;color:var(--marca);margin-bottom:2px">Reclamos y Averías</h2>
+        <h2 style="font-size:20px;font-weight:900;color:var(--marca);margin-bottom:2px">${esc(t('recl.titulo'))}</h2>
         <p style="font-size:13px;color:var(--texto-suave)">${esc(v.edificio)} · Depto ${esc(v.departamento)}</p>
       </div>
       <button onclick="abrirModalReclamo()" style="padding:10px 18px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--marca),var(--acento));color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 4px 14px rgba(15,50,106,.25)">
         <i class="ph ph-plus-circle" style="font-size:18px"></i>
-        <span>Reportar Rotura</span>
+        <span>${esc(t('recl.reportar'))}</span>
       </button>
     </div>
 
@@ -6018,34 +6027,34 @@ router.get('/reclamos', async (req, res) => {
     <div class="card" style="padding:16px 18px;background:#fff;margin-bottom:16px;border-radius:18px;display:flex;align-items:center;justify-content:space-around;text-align:center">
       <div>
         <div style="font-size:22px;font-weight:900;color:#D97706">${totalActivos}</div>
-        <div style="font-size:11.5px;font-weight:700;color:var(--texto-suave);text-transform:uppercase">En Gestión</div>
+        <div style="font-size:11.5px;font-weight:700;color:var(--texto-suave);text-transform:uppercase">${esc(t('recl.enGestion'))}</div>
       </div>
       <div style="width:1px;height:36px;background:var(--borde)"></div>
       <div>
         <div style="font-size:22px;font-weight:900;color:var(--ok)">${reclamosLista.filter(r => r.estado === 'resuelto').length}</div>
-        <div style="font-size:11.5px;font-weight:700;color:var(--texto-suave);text-transform:uppercase">Resueltos</div>
+        <div style="font-size:11.5px;font-weight:700;color:var(--texto-suave);text-transform:uppercase">${esc(t('recl.resueltos'))}</div>
       </div>
       <div style="width:1px;height:36px;background:var(--borde)"></div>
       <div>
         <div style="font-size:22px;font-weight:900;color:var(--marca)">${misReclamos.length}</div>
-        <div style="font-size:11.5px;font-weight:700;color:var(--texto-suave);text-transform:uppercase">Mis Casos</div>
+        <div style="font-size:11.5px;font-weight:700;color:var(--texto-suave);text-transform:uppercase">${esc(t('recl.misCasos'))}</div>
       </div>
     </div>
 
     <!-- LISTADO DE RECLAMOS DEL VECINO -->
     <div style="margin-bottom:20px">
       <div style="font-size:14px;font-weight:800;color:var(--texto);margin-bottom:10px;display:flex;align-items:center;gap:6px">
-        <span>👤</span> Mis Reclamos Reportados (${misReclamos.length})
+        <span>👤</span> ${esc(t('recl.misReportados'))} (${misReclamos.length})
       </div>
       ${misReclamos.length === 0 ? `
         <div class="card" style="padding:24px 16px;text-align:center;color:var(--texto-suave);border-radius:16px">
           <div style="font-size:32px;margin-bottom:8px">🎉</div>
-          <div style="font-size:14px;font-weight:700;color:var(--texto);margin-bottom:4px">No tenés reclamos activos</div>
-          <p style="font-size:12.5px;color:var(--texto-suave)">Si notás alguna rotura en tu departamento o en el edificio, podés reportarla aquí.</p>
+          <div style="font-size:14px;font-weight:700;color:var(--texto);margin-bottom:4px">${esc(t('recl.sinActivos'))}</div>
+          <p style="font-size:12.5px;color:var(--texto-suave)">${esc(t('recl.sinActivosAyuda'))}</p>
         </div>
       ` : `
         <div style="display:flex;flex-direction:column;gap:10px">
-          ${misReclamos.map(r => renderItemReclamo(r)).join('')}
+          ${misReclamos.map(r => renderItemReclamo(r, t)).join('')}
         </div>
       `}
     </div>
@@ -6054,10 +6063,10 @@ router.get('/reclamos', async (req, res) => {
     ${otrosReclamos.length > 0 ? `
       <div style="margin-bottom:20px">
         <div style="font-size:14px;font-weight:800;color:var(--texto);margin-bottom:10px;display:flex;align-items:center;gap:6px">
-          <span>🏢</span> Averías en Áreas Comunes (${otrosReclamos.length})
+          <span>🏢</span> ${esc(t('recl.areasComunes'))} (${otrosReclamos.length})
         </div>
         <div style="display:flex;flex-direction:column;gap:10px">
-          ${otrosReclamos.map(r => renderItemReclamo(r)).join('')}
+          ${otrosReclamos.map(r => renderItemReclamo(r, t)).join('')}
         </div>
       </div>
     ` : ''}
@@ -6071,7 +6080,7 @@ router.get('/reclamos', async (req, res) => {
               🛠️
             </div>
             <div>
-              <h3 style="font-size:17px;font-weight:900;color:var(--marca)">Reportar Reclamo o Rotura</h3>
+              <h3 style="font-size:17px;font-weight:900;color:var(--marca)">${esc(t('recl.modalTitulo'))}</h3>
               <div style="font-size:12px;color:var(--texto-suave)">${esc(v.edificio)}</div>
             </div>
           </div>
@@ -6081,47 +6090,47 @@ router.get('/reclamos', async (req, res) => {
         <form id="form-reclamo" onsubmit="enviarReclamo(event)">
           <!-- 1. Rubro con Chips -->
           <div style="margin-bottom:14px">
-            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Rubro / Tipo de Problema</label>
+            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">${esc(t('recl.rubro'))}</label>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px" id="chips-rubros">
-              <div class="chip-rubro active" onclick="seleccionarRubro('Plomería / Agua', this)">💧 Plomería</div>
-              <div class="chip-rubro" onclick="seleccionarRubro('Electricidad / Luces', this)">⚡ Electricidad</div>
-              <div class="chip-rubro" onclick="seleccionarRubro('Ascensores', this)">🛗 Ascensor</div>
-              <div class="chip-rubro" onclick="seleccionarRubro('Portón / Control de acceso', this)">🚪 Portón / Acceso</div>
-              <div class="chip-rubro" onclick="seleccionarRubro('Gas / Calefacción', this)">🔥 Gas</div>
-              <div class="chip-rubro" onclick="seleccionarRubro('Limpieza / Residuos', this)">🧹 Limpieza</div>
+              <div class="chip-rubro active" onclick="seleccionarRubro('Plomería / Agua', this)">💧 ${esc(t('recl.rubroPlomeria'))}</div>
+              <div class="chip-rubro" onclick="seleccionarRubro('Electricidad / Luces', this)">⚡ ${esc(t('recl.rubroElectricidad'))}</div>
+              <div class="chip-rubro" onclick="seleccionarRubro('Ascensores', this)">🛗 ${esc(t('recl.rubroAscensor'))}</div>
+              <div class="chip-rubro" onclick="seleccionarRubro('Portón / Control de acceso', this)">🚪 ${esc(t('recl.rubroPorton'))}</div>
+              <div class="chip-rubro" onclick="seleccionarRubro('Gas / Calefacción', this)">🔥 ${esc(t('recl.rubroGas'))}</div>
+              <div class="chip-rubro" onclick="seleccionarRubro('Limpieza / Residuos', this)">🧹 ${esc(t('recl.rubroLimpieza'))}</div>
             </div>
           </div>
 
           <!-- 2. Ubicación -->
           <div style="margin-bottom:14px">
-            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Ubicación del Problema</label>
+            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">${esc(t('recl.ubicacion'))}</label>
             <div style="display:flex;gap:8px">
               <label style="flex:1;display:flex;align-items:center;gap:6px;background:var(--superficie-2);border:1.5px solid var(--borde-fuerte);border-radius:10px;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer">
                 <input type="radio" name="ubicacion-tipo" value="depto" checked onchange="actualizarUbicacion(this.value)">
-                <span>En mi Depto (${esc(v.departamento)})</span>
+                <span>${esc(t('recl.enMiDepto', { depto: v.departamento }))}</span>
               </label>
               <label style="flex:1;display:flex;align-items:center;gap:6px;background:var(--superficie-2);border:1.5px solid var(--borde-fuerte);border-radius:10px;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer">
                 <input type="radio" name="ubicacion-tipo" value="comun" onchange="actualizarUbicacion(this.value)">
-                <span>Área Común</span>
+                <span>${esc(t('recl.areaComun'))}</span>
               </label>
             </div>
           </div>
 
           <!-- 3. Descripción -->
           <div style="margin-bottom:14px">
-            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Descripción del problema</label>
-            <textarea id="desc-reclamo" placeholder="Explicá en detalle qué ocurre (ej: Hay una fuga de agua debajo del fregadero o la luz del palier no prende)..." required style="width:100%;height:80px;border:1.5px solid var(--borde-fuerte);border-radius:12px;padding:10px 12px;font-size:13.5px;font-family:inherit;outline:none;resize:none;box-sizing:border-box"></textarea>
+            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">${esc(t('recl.descripcion'))}</label>
+            <textarea id="desc-reclamo" placeholder="${esc(t('recl.descPlaceholder'))}" required style="width:100%;height:80px;border:1.5px solid var(--borde-fuerte);border-radius:12px;padding:10px 12px;font-size:13.5px;font-family:inherit;outline:none;resize:none;box-sizing:border-box"></textarea>
           </div>
 
           <!-- 4. Subir Foto / Cámara -->
           <div style="margin-bottom:16px">
-            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Foto de la rotura (Muy Recomendado)</label>
+            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">${esc(t('recl.foto'))}</label>
             <input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none" onchange="procesarFotoReclamo(event)">
             
             <div id="btn-foto-box" onclick="document.getElementById('foto-input').click()" style="border:2px dashed #93C5FD;background:var(--superficie-2);border-radius:14px;padding:16px;text-align:center;cursor:pointer">
               <div style="font-size:26px;margin-bottom:4px">📸</div>
-              <div style="font-size:13px;font-weight:800;color:var(--acento)">Sacar Foto con la Cámara o Elegir de Galería</div>
-              <div style="font-size:11.5px;color:var(--texto-suave)">Ayuda al técnico a traer el repuesto exacto</div>
+              <div style="font-size:13px;font-weight:800;color:var(--acento)">${esc(t('recl.fotoBoton'))}</div>
+              <div style="font-size:11.5px;color:var(--texto-suave)">${esc(t('recl.fotoAyuda'))}</div>
             </div>
 
             <!-- Preview de Foto Cargada -->
@@ -6136,14 +6145,14 @@ router.get('/reclamos', async (req, res) => {
             <label style="display:flex;align-items:center;gap:8px;background:var(--error-fondo);border:1.5px solid var(--error-borde);border-radius:12px;padding:10px 14px;cursor:pointer">
               <input type="checkbox" id="check-urgente" style="width:18px;height:18px">
               <div>
-                <div style="font-size:13px;font-weight:900;color:var(--error)">🚨 Marcar como Urgencia Grave</div>
-                <div style="font-size:11px;color:#7F1D1D">Inundación, corte de luz general, fuga de gas o riesgo físico</div>
+                <div style="font-size:13px;font-weight:900;color:var(--error)">🚨 ${esc(t('recl.urgencia'))}</div>
+                <div style="font-size:11px;color:#7F1D1D">${esc(t('recl.urgenciaAyuda'))}</div>
               </div>
             </label>
           </div>
 
           <button id="btn-enviar-reclamo" type="submit" style="width:100%;height:48px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--marca),var(--acento));color:#fff;font-weight:800;font-size:15px;cursor:pointer;box-shadow:0 4px 14px rgba(15,50,106,.3);display:flex;align-items:center;justify-content:center;gap:8px">
-            <span>Enviar Reclamo a Marcos IA</span>
+            <span>${esc(t('recl.enviar'))}</span>
           </button>
         </form>
       </div>
@@ -6176,6 +6185,7 @@ router.get('/reclamos', async (req, res) => {
     </style>
 
     <script>
+      const TR = ${TR};
       var _rubroSeleccionado = 'Plomería / Agua';
       var _fotoReclamoBase64 = '';
       var _ubicacionTipo = 'depto';
@@ -6235,7 +6245,7 @@ router.get('/reclamos', async (req, res) => {
         }
 
         btn.disabled = true;
-        btn.innerHTML = '<span>⏳ Registrando reclamo...</span>';
+        btn.innerHTML = '<span>⏳ ' + TR.enviando + '</span>';
 
         try {
           var res = await fetch('/vecino/api/reclamos', {
@@ -6254,14 +6264,14 @@ router.get('/reclamos', async (req, res) => {
             alert('✅ ¡Reclamo registrado con éxito! Código: ' + (data.codigoCaso || '') + '\\n\\nMarcos IA ya lo asignó y notificó a la Administración.');
             location.reload();
           } else {
-            alert('Error al registrar reclamo: ' + (data.error || 'Intente nuevamente'));
+            alert(TR.errorEnviar + ': ' + (data.error || ''));
             btn.disabled = false;
-            btn.innerHTML = '<span>Enviar Reclamo a Marcos IA</span>';
+            btn.innerHTML = '<span>' + TR.enviar + '</span>';
           }
         } catch(err) {
           alert('Error de conexión: ' + err.message);
           btn.disabled = false;
-          btn.innerHTML = '<span>Enviar Reclamo a Marcos IA</span>';
+          btn.innerHTML = '<span>' + TR.enviar + '</span>';
         }
       }
     </script>

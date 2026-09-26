@@ -40,6 +40,14 @@ const PANTALLAS = [
                      'Elegí la fecha', 'Confirmar Reserva', 'Mis Reservas',
                      'Motivo / Cantidad de personas'],
     },
+    {
+        ruta: '/vecino/reclamos',
+        // Avisar de algo roto. Un huésped que no puede explicar que se inundó el baño no avisa.
+        traducido: ['Reparos e avarias', 'Avisar de algo quebrado', 'Tipo de problema',
+                    'Onde está o problema', 'Enviar o aviso', 'Encanamento', 'Elevador'],
+        castellano: ['Reclamos y Averías', 'Reportar Rotura', 'Rubro / Tipo de Problema',
+                     'Ubicación del Problema', 'Enviar Reclamo a Marcos IA', 'Área Común'],
+    },
 ];
 
 let fallos = 0;
