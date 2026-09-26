@@ -13,7 +13,56 @@ const router = express.Router();
 const session = require('express-session');
 // El secreto era, literalmente, la palabra 'secret'. Con eso se falsifica una sesión de vecino
 // — y una sesión de vecino es lo que `apertura-remota.js` autoriza para abrir la puerta de calle.
-router.use(session({ secret: require('./credenciales').secretoDeSesion(), resave: false, saveUninitialized: true }));
+//
+// LA SESIÓN VIVÍA EN LA RAM DEL PROCESO, así que cada `pm2 restart` deslogueaba a todos los
+// vecinos. `session()` sin `store` usa el `MemoryStore` de express-session, y el síntoma no se
+// parece a la causa: el navegador sigue mandando una cookie que cree válida, la página se ve
+// normal, y el error aparece recién al apretar un botón. En el panel salió como
+// `JSON.parse: unexpected character at line 1 column 1` y mandó a buscar el problema al código
+// recién escrito — media hora de diagnóstico.
+//
+// El store va en PostgreSQL, igual que el del panel, pero en su propia tabla: el portal y el panel
+// son dos públicos distintos y un pruneo no tiene por qué tocar al otro. `createTableIfMissing` la
+// crea con el rol que conecta (`marcos`), que es lo que hace falta: una tabla creada desde `psql`
+// como `postgres` no la puede escribir Marcos, y desde el código parece un bug
+// (`node revisar-permisos-pg.js` lo dice).
+//
+// Si PostgreSQL no está, se sigue con el MemoryStore a propósito: un portal que no arranca es peor
+// que uno que desloguea en cada despliegue. Pero queda dicho en el log, porque si no nadie se
+// entera de que volvió el problema.
+let storePortal = null;
+try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+        const PgSession = require('connect-pg-simple')(session);
+        storePortal = new PgSession({
+            pool,
+            tableName: 'sesiones_portal',
+            createTableIfMissing: true,
+            pruneSessionInterval: 60 * 15,
+        });
+    }
+} catch (errStore) {
+    console.warn('⚠️ Portal: sin store en PostgreSQL, las sesiones se pierden en cada reinicio:', errStore.message);
+}
+
+router.use(session({
+    store: storePortal || undefined,
+    name: 'portal.sid',
+    secret: require('./credenciales').secretoDeSesion(),
+    resave: false,
+    // Estaba en `true`, o sea que creaba una sesión por cada visita anónima --incluida la de
+    // cualquier robot-- y el MemoryStore iba creciendo con gente que nunca se logueó. Con un store
+    // de verdad eso serían filas en la base.
+    saveUninitialized: false,
+    cookie: {
+        // Una sesión de vecino abre la puerta de calle: que el JavaScript de la página no pueda
+        // leer la cookie es lo mínimo.
+        httpOnly: true,
+        sameSite: 'lax',
+        maxAge: 1000 * 60 * 60 * 24 * 30,
+    },
+}));
 // Los formularios del login (`/vecino/auth`) mandan `application/x-www-form-urlencoded`, y de eso
 // no se encargaba NADIE: `index.js` monta `bodyParser.json()` solamente. Así que `req.body` llegaba
 // vacío y el `identificador` del formulario nunca se leía — sin un solo error en el log, porque

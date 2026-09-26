@@ -350,6 +350,18 @@ const PANTALLA_VACIA = 'Todavía no tenés ningún departamento asignado';
             verificar(`${ruta} responde`, r.codigo, 200);
         }
 
+        // LA SESIÓN SOBREVIVE AL PEDIDO SIGUIENTE.
+        //
+        // `saveUninitialized` pasó a `false` y la cookie cambió de nombre al mover el store a
+        // PostgreSQL. Si algo de eso quedara mal, el login "andaría" --contesta 302-- y el vecino
+        // volvería a ser el de demo en la pantalla siguiente, sin un solo error en el log. Se
+        // entra como turista justamente porque es distinto del demo por defecto.
+        const loginTurista = await pedir('POST', '/vecino/auth', { cuerpo: 'rol=turista' });
+        afirmar('el login deja una cookie', !!loginTurista.cookie);
+        const home = await pedir('GET', '/vecino/', { cookie: loginTurista.cookie });
+        afirmar('y en el pedido siguiente sigue siendo el turista, no el demo',
+            /Camila/.test(home.cuerpo) && !/Daniel/.test(home.cuerpo));
+
         // EL ARCHIVO DE LA EXPENSA FALLA CERRADO.
         //
         // Acá no hay PostgreSQL, así que no se puede saber de quién es el archivo. Servirlo igual
