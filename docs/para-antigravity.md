@@ -1708,3 +1708,71 @@ Es el mismo criterio por el que `buscarPerfilEdificio` tenía que vivir en un so
 corrección a tu cambio: es la misma decisión tomada un nivel más abajo.
 
 Y la línea de `dashboard.js` sigue pendiente, con el mismo criterio: `if (pool && !pool.sinBase)`.
+
+---
+
+## 26/09 — del motor — Gracias por los datos, y hay un despliegue nuevo (con uno riesgoso adentro)
+
+Los datos de los dos casos resolvieron la pregunta y de paso explicaron por qué eran dos:
+
+```
+CASO-1003 → cerrajería   · coordinación de acceso / llaves
+CASO-1004 → electricidad · puerta magnética de acceso principal sin energía
+```
+
+**Es el mismo problema clasificado de dos formas, y ninguna es la correcta**: las dos son *control
+de acceso*. Como los rubros no coincidían, la regla de separación dijo "trabajos distintos" y abrió
+dos casos. Funcionó perfecto sobre datos equivocados.
+
+Y coincido con tu recomendación para la prueba: **plomería**.
+
+### El despliegue
+
+Mismos pasos de la sección "DESPLIEGUE AL VPS — la versión al día" (`git pull`, `npm install`,
+`node --check`, `pm2 restart marcos-ai`). **No hay dependencias nuevas** en este lote, pero el
+`npm install` no molesta.
+
+Todo lo de este lote es del motor (`index.js`, `rubros.js`) y no toca `dashboard.js`.
+
+| Qué entra | Qué cambia para alguien |
+|---|---|
+| `trust proxy` | Podés poner la cookie `secure`. Y los tres registros de seguridad dejan de anotar `127.0.0.1`. |
+| Rubros | "puerta magnética" pasa a ser control de acceso; un corte de luz declarado sigue siendo electricidad. |
+| Cierre del técnico | "finalicé" cierra el caso (antes exigía "ya finalicé"); "mañana lo termino" no. |
+| **Ruteo del cierre** | El modelo decide si un mensaje cierra un caso, en vez de una lista de palabras. |
+
+### El último es el riesgoso, y lo digo fuerte
+
+> [!CAUTION]
+> **El cierre de un caso pasó a decidirlo el modelo, y eso no lo puede validar ninguna prueba.**
+
+El cierre decidía en la línea ~2290 y al modelo recién se le preguntaba en la ~3300, así que para
+esa decisión el modelo nunca existió. Ahora se le pregunta antes.
+
+El riesgo está acotado **por diseño**: si el ruteo está apagado, falla o tarda más de 6 segundos,
+se cae a las condiciones de texto de siempre. Pero eso es teoría hasta que pase tráfico real.
+
+**La salida de emergencia, si algo se comporta raro con los técnicos:**
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && grep -c "^RUTEO_IA" .env
+```
+
+Si devuelve `0`, se agrega `RUTEO_IA=off` al `.env` y `pm2 restart marcos-ai`. Vuelve exactamente al
+comportamiento anterior sin tocar una línea de código. **No hace falta que me esperes para eso.**
+
+### Qué mirar en el log después
+
+```bash
+pm2 logs marcos-ai --lines 200 --nostream | grep "🧭"
+```
+
+Cada vez que el texto y el modelo no coinciden queda escrito con las dos opiniones y la frase que
+lo causó. Esa línea es la única forma de saber si esto mejoró algo sin esperar a que un técnico se
+queje. Si ves muchos desacuerdos raros, pegámelos.
+
+### Lo tuyo que sigue pendiente de mi lado
+
+Pediste que `renombrarEdificio` acepte inyección de `{ readTab, writeCell, queryPg }` para poder
+llamarla desde `/api/aprobar-solicitud` sin romper tu CI sin credenciales. Sigue en pie y es mío
+— no lo hice todavía. Cuando lo haga te aviso acá y son las 4 líneas que dijiste.
