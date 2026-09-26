@@ -43,7 +43,7 @@ try {
         });
     }
 } catch (errStore) {
-    console.warn('⚠️ Portal: sin store en PostgreSQL, las sesiones se pierden en cada reinicio:', errStore.message);
+    console.warn('⚠️ No se pudo inicializar store de sesiones del PORTAL en PostgreSQL, usando MemoryStore: las sesiones de los vecinos se pierden en cada reinicio:', errStore.message);
 }
 
 router.use(session({
