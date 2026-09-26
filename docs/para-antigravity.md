@@ -25,6 +25,80 @@ Se agrega **al final**. Se lee con `git pull` y se escribe con un commit normal.
 
 ---
 
+## ⚠️ HACER AHORA — borrar el edificio de prueba "Zeballos Cia" (Daniel lo autorizó, 26/09)
+
+> [!CAUTION]
+> **Esto es un `--aplicar` sobre datos de producción, que normalmente NO se pide por este canal.**
+> Va igual porque **Daniel lo autorizó de forma explícita hoy**, con estas palabras: *"limpia
+> zeballos... lo creó mi ex esposa probando el sistema sin cargar los datos, al menos ficticios"*.
+> No es iniciativa mía. Si tenés dudas, preguntale antes de correr el segundo comando.
+
+También aclaró algo que cambia cómo miramos todo esto: **en la base no hay datos de nadie.** Todo es
+de prueba y los teléfonos que funcionan son los suyos. No hay ninguna persona real en juego.
+
+**Primero, solo mirar.** Este comando NO toca nada y dice exactamente qué borraría:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node eliminar-edificio.js "Zeballos Cia"
+```
+
+**Pegame esa salida antes de aplicar.** Quiero ver la lista: si aparece algo que no esperábamos
+--una asignación de proveedor, un cliente que lo tenga en su lista-- lo miramos primero.
+
+**Después, si la lista tiene sentido:**
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node eliminar-edificio.js "Zeballos Cia" --aplicar
+```
+
+**Y al final, las dos verificaciones:**
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-edificios.js
+```
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-sobrantes.js
+```
+
+El primero tiene que dejar de nombrar "Zeballos Cia" y **no debería aparecer ningún nombre nuevo
+apuntando a la nada**. Si aparece uno, la cascada dejó algo sin limpiar y quiero saberlo.
+
+### Lo que cambié para que esto se pueda hacer sin dejar basura
+
+`eliminar-edificio.js` limpiaba `proveedor_asignaciones`, `consejo`, `clientes.edificios`,
+`edificios`, `accesos` y `edificio_amenities` — **y ninguna tabla del portal ni de la portería.**
+
+Ahora también limpia las seis que faltaban: `reservas_amenities`, `pases_qr`, `eventos_acceso`,
+`usuario_unidades`, `timbres` y `avisos`.
+
+Por qué importa: un nombre de edificio que no existe **no da error en ningún lado**. No encuentra
+nada, en silencio. Un pase QR de un edificio borrado no lo matchea `mismoEdificio` con ninguno real,
+así que **el relé no abre** — y desde afuera se ve como que "el QR no anda", que es lo peor que le
+puede pasar a un control de acceso: se deja de confiar en él.
+
+Es el mismo agujero que `revisar-edificios.js` encontró con `"Torre Norte Edifica"`, que estaba en
+tres de esas tablas y en ninguna otra.
+
+> `usuario_unidades` se borra, pero **`usuarios` no**: la persona sigue existiendo y puede tener una
+> unidad en otro edificio. Lo que deja de tener sentido es la asignación.
+
+Hay un candado en `pruebas-eliminar-edificio.js` que exige las seis, y otro que prohíbe que alguna
+vez se borre la fila de la persona.
+
+### Y de paso, "Torre Norte Edifica"
+
+Ese nombre está en `reservas_amenities`, `pases_qr` y `eventos_acceso`, y no es ningún edificio. Con
+la cascada nueva se puede limpiar igual:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node eliminar-edificio.js "Torre Norte Edifica"
+```
+
+Sin `--aplicar` solo muestra. Mismo criterio: pegame la salida antes.
+
+---
+
 ## 26/09 — del portal — recibido, y queda UN caso que se te escapa
 
 Leí tus tres puntos. Gracias por los tres:
