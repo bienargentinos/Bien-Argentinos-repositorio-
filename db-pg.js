@@ -1283,21 +1283,30 @@ async function cambiarPasswordUsuario(usuarioId, passwordActual, passwordNueva) 
 //
 // Devuelve null cuando no hay ninguna. Eso NO es "no debe nada": es "todavia no se cargo", y la
 // pantalla tiene que decir eso y no un $0, que seria afirmar algo que no sabemos.
-async function expensaDeUnidad(edificio, departamento) {
-    if (!edificio || !String(edificio).trim()) return null;
+// TODAS las expensas que este vecino tiene derecho a ver: la de SU unidad y la liquidacion
+// general del edificio (la que va sin departamento). Ninguna otra.
+//
+// Una fila de `expensas` puede ser de una unidad puntual o del edificio entero, y desde que el
+// panel publica por unidad, filtrar solo por edificio le muestra a cada vecino el monto de todos
+// sus vecinos. La unidad sale de lo que el vecino tiene asignado, NUNCA de algo que venga en el
+// pedido: si saliera del pedido, cualquiera pide la del vecino escribiendo su numero de unidad,
+// que es el agujero que tenia `/api/pases-qr`.
+async function expensasVisiblesDeUnidad(edificio, departamento) {
+    if (!edificio || !String(edificio).trim()) return [];
 
     // El departamento lo escribe a mano el administrador en el panel, y el de la sesion del vecino
     // viene de como se lo cargo al asignarle la unidad. Son dos textos tipeados por personas
     // distintas en momentos distintos, asi que compararlos caracter por caracter no alcanza:
-    // "1° A" y "1º A" se ven iguales y son caracteres distintos (grado vs ordinal masculino), y
-    // "1A" es el mismo departamento escrito sin nada en el medio.
+    // "1° A" y "1º A" se ven iguales y son caracteres distintos (grado vs ordinal masculino).
     //
-    // Es el error que este repo ya pago tres veces: el edificio que "desaparecia" de su
-    // administrador, el proveedor renombrado que Marcos seguia llamando por el nombre viejo, y el
-    // timbre que sonaba en otro edificio. Por eso NO se normaliza aca de nuevo: se llama a
-    // `claveUnidad`, que ya existe en edificio-clave.js y es la que usa la porteria.
-    const { claveUnidad, mismoEdificio } = require('./edificio-clave');
-    const buscada = claveUnidad(departamento);
+    // La comparacion es `mismaUnidad` de expensa-documento.js, LA MISMA que usa `puedeVerExpensa`
+    // para decidir si sirve el archivo. Antes esto usaba `claveUnidad` de edificio-clave.js, que
+    // coincide en todo menos en el prefijo: "Dto 1A" le daba "dto1a" y a la otra "1a". Con eso, una
+    // expensa cargada como "Dto 1A" NO aparecia en la pantalla y el archivo SI se servia --o al
+    // revés--: la lista mostraba una fila que al tocarla daba 403. Mostrar y autorizar tienen que
+    // decidir con la misma regla o el vecino ve una puerta que no abre.
+    const { mismaUnidad, normalizarUnidad } = require('./expensa-documento');
+    const { mismoEdificio } = require('./edificio-clave');
 
     // Se traen las del edificio y se elige en JavaScript. Hacer la normalizacion en SQL seria una
     // segunda copia de la misma regla, y arreglar una sin la otra es como se pierde una tarde.
@@ -1309,11 +1318,26 @@ async function expensaDeUnidad(edificio, departamento) {
     );
 
     const delEdificio = (res.rows || []).filter(r => mismoEdificio(r.edificio, edificio));
-    // Primero la de la unidad; si no hay, la del edificio entero (departamento vacio).
-    const fila = delEdificio.find(r => buscada && claveUnidad(r.departamento) === buscada)
-              || delEdificio.find(r => !claveUnidad(r.departamento));
-    if (!fila) return null;
 
+    return delEdificio
+        .filter(r => {
+            // Sin departamento es la liquidacion general: la ven todos los del edificio, y tiene
+            // que ser asi --es la que explica en que se gasto la plata del consorcio--.
+            if (!normalizarUnidad(r.departamento)) return true;
+            return mismaUnidad(r.departamento, departamento);
+        })
+        .map(filaAExpensa);
+}
+
+// La que se le muestra en el Inicio: primero la de su unidad, y si no hay, la general.
+async function expensaDeUnidad(edificio, departamento) {
+    const visibles = await expensasVisiblesDeUnidad(edificio, departamento);
+    if (!visibles.length) return null;
+    return visibles.find(e => !e.esDelEdificio) || visibles[0];
+}
+
+function filaAExpensa(fila) {
+    const { normalizarUnidad } = require('./expensa-documento');
     const monto = fila.monto === null || fila.monto === undefined || fila.monto === ''
         ? null : Number(fila.monto);
 
@@ -1326,7 +1350,13 @@ async function expensaDeUnidad(edificio, departamento) {
         url: fila.url || '',
         formato: fila.formato || '',
         nombre: fila.nombre || '',
-        esDelEdificio: !claveUnidad(fila.departamento),
+        edificio: fila.edificio || '',
+        departamento: fila.departamento || '',
+        // Una expensa sin departamento es la del edificio entero. Su monto es INFORMATIVO: son los
+        // gastos del consorcio, no una deuda de esta persona, y nunca se le presenta como algo a
+        // pagar. Salio $1.284.650,40 en la carga real; mostrado igual que el de una unidad, el
+        // vecino entiende que le cobran eso.
+        esDelEdificio: !normalizarUnidad(fila.departamento),
     };
 }
 
@@ -1873,6 +1903,7 @@ module.exports = {
     obtenerUnidadesDeUsuario,
     ROLES_QUE_AVISAN,
     expensaDeUnidad,
+    expensasVisiblesDeUnidad,
     publicarAviso,
     avisosVigentesDeEdificio,
     levantarAviso,

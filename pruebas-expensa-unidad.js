@@ -58,18 +58,25 @@ console.log('\n── EL MONTO SALE DE LA BASE ──');
 {
     afirmar('el portal llama a expensaDeUnidad', PORTAL.includes('expensaDeUnidad(v.edificio, v.departamento)'));
     afirmar('existe en db-pg', /async function expensaDeUnidad/.test(DB));
-    const m = DB.match(/async function expensaDeUnidad[\s\S]*?\n}/);
+    afirmar('y sale de la lista de las visibles, no de una segunda consulta',
+        /async function expensaDeUnidad[\s\S]{0,400}?expensasVisiblesDeUnidad\(/.test(DB));
+
+    const m = DB.match(/async function expensasVisiblesDeUnidad[\s\S]*?\n}/);
+    afirmar('existe expensasVisiblesDeUnidad', !!m);
     if (m) {
-        afirmar('busca primero la del departamento', m[0].includes('|| delEdificio.find(r => !claveUnidad'));
         afirmar('descarta las eliminadas', m[0].includes("<> 'eliminada'"));
-        afirmar('devuelve null si no hay', m[0].includes('if (!fila) return null;'));
         // El departamento lo tipea el administrador en el panel y el de la sesión viene de cómo se
         // cargó la unidad: dos textos escritos por personas distintas. Compararlos carácter por
         // carácter es el error que este repo ya pagó tres veces.
         afirmar('NO compara el departamento con igualdad exacta en SQL',
             !/LOWER\(TRIM\(COALESCE\(departamento/.test(m[0]));
-        afirmar('usa claveUnidad, que ya existe', m[0].includes("require('./edificio-clave')"));
+        // La liquidación general la ven todos los del edificio; la de una unidad, solo esa unidad.
+        afirmar('la general pasa el filtro', /if \(!normalizarUnidad\(r\.departamento\)\) return true;/.test(m[0]));
+        afirmar('y la de otra unidad no', /return mismaUnidad\(r\.departamento, departamento\);/.test(m[0]));
     }
+    // El Inicio prefiere la de su unidad, y cae a la general solo si no hay.
+    afirmar('primero la de su unidad', /visibles\.find\(e => !e\.esDelEdificio\) \|\| visibles\[0\]/.test(DB));
+    afirmar('devuelve null si no hay ninguna', /if \(!visibles\.length\) return null;/.test(DB));
 }
 
 console.log('\n── "1° A", "1º A" Y "1A" SON EL MISMO DEPARTAMENTO ──');
@@ -89,8 +96,10 @@ console.log('\n── "1° A", "1º A" Y "1A" SON EL MISMO DEPARTAMENTO ──')
     afirmar('el 1A no es el 11A', !mismaUnidad('1A', '11A'));
     afirmar('el 1A no es el 1B', !mismaUnidad('1° A', '1° B'));
     afirmar('un vacío no matchea con nada', !mismaUnidad('', '1A'));
-    // Si cae al documento del edificio, la pantalla tiene que decirlo: no es la cuenta de la unidad.
-    afirmar('avisa cuando es la del edificio', PORTAL.includes("t('expensa.delEdificio')"));
+    // Si cae al documento del edificio, la pantalla tiene que decirlo: no es la cuenta de la
+    // unidad, y el monto que trae no es una deuda de esta persona.
+    afirmar('avisa que no es su deuda', PORTAL.includes("t('expensa.noEsTuDeuda')"));
+    afirmar('y en el historial se distingue cuál es la del edificio', PORTAL.includes('DEL EDIFICIO'));
 }
 
 console.log('\n── LAS COLUMNAS EXISTEN ──');
@@ -156,6 +165,90 @@ console.log('\n── EL CHECK NO PUEDE RECHAZAR LO QUE EL PANEL ESCRIBE ──'
 
     for (const val of escritos) {
         afirmar(`el CHECK acepta '${val}', que es lo que escribe el panel`, acepta.includes(val));
+    }
+}
+
+console.log('\n── MOSTRAR Y AUTORIZAR DECIDEN CON LA MISMA REGLA ──');
+{
+    // CANDADO. La pantalla elegía la expensa con `claveUnidad` (edificio-clave.js) y el permiso
+    // del archivo la elige con `mismaUnidad` (expensa-documento.js). Coinciden en todo menos en el
+    // prefijo de formulario: "Dto 1A" da "dto1a" en una y "1a" en la otra.
+    //
+    // Con eso, una expensa cargada como "Dto 1A" no aparecía en la pantalla del vecino de "1A" y
+    // el archivo sí se servía --o al revés: la lista mostraba una fila que al tocarla daba 403--.
+    // Una puerta que se ve y no abre es peor que no verla.
+    const { mismaUnidad, normalizarUnidad } = require('./expensa-documento');
+    const { claveUnidad } = require('./edificio-clave');
+
+    afirmar('expensasVisiblesDeUnidad usa mismaUnidad, no claveUnidad',
+        /expensasVisiblesDeUnidad[\s\S]{0,2000}?mismaUnidad/.test(DB));
+    const cuerpo = DB.slice(DB.indexOf('async function expensasVisiblesDeUnidad'),
+                            DB.indexOf('function filaAExpensa'));
+    afirmar('y no quedó ninguna comparación de unidad por claveUnidad',
+        !/claveUnidad\s*\(/.test(cuerpo));
+
+    // El caso concreto que las separa, para que no se pierda si alguien toca una de las dos.
+    verificar('"Dto 1A" y "1A" son la misma unidad para el permiso', mismaUnidad('Dto 1A', '1A'), true);
+    afirmar('y claveUnidad NO las junta (por eso no se usa acá)', claveUnidad('Dto 1A') !== claveUnidad('1A'));
+
+    // Lo que las dos tienen que seguir diciendo igual.
+    for (const [a, b, esperado] of [
+        ['1° A', '1º A', true], ['1A', '1-A', true], ['PB', 'pb', true],
+        ['1A', '11A', false], ['1° A', '1° B', false], ['', '1A', false], ['1A', '', false],
+    ]) {
+        verificar(`mismaUnidad(${JSON.stringify(a)}, ${JSON.stringify(b)})`, mismaUnidad(a, b), esperado);
+    }
+    verificar('sin unidad es la liquidación general', normalizarUnidad('  '), '');
+}
+
+console.log('\n── EL ARCHIVO DE LA EXPENSA NO SE SIRVE POR UNA URL PÚBLICA ──');
+{
+    // CANDADO. `almacenamiento/expensas/` lo servía `express.static` sin sesión: alcanzaba con
+    // adivinar el nombre del archivo para leer cuánto paga un vecino. El motor cerró esas rutas
+    // con 403, así que un enlace a `/archivos/expensas/...` en el portal es un botón roto — y si
+    // algún día se reabre, es una filtración.
+    afirmar('existe la ruta que sirve la expensa con permiso',
+        /router\.get\('\/expensa-archivo\/:nombre'/.test(PORTAL));
+    afirmar('llama a puedeVerExpensa y no reescribe el criterio',
+        /puedeVerExpensa\s*\(/.test(PORTAL));
+    afirmar('y no arma la respuesta antes de preguntar',
+        PORTAL.indexOf("puedeVerExpensa({") < PORTAL.indexOf('res.sendFile'));
+
+    // Ningún enlace de expensa puede salir apuntando al archivo crudo. Se miran solo las líneas
+    // de código: el comentario que explica esto nombra la ruta vieja, y una prueba que confunda
+    // el comentario con el código mide el comentario.
+    const codigo = PORTAL
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n')
+        .filter(l => !l.trim().startsWith('//'))
+        .join('\n');
+    afirmar('no queda ningún enlace a /archivos/expensas',
+        !/['"`]\/archivos\/expensas/.test(codigo));
+    afirmar('la descarga del Inicio pasa por enlaceDeExpensa',
+        /href="\$\{expensa && enlaceDeExpensa\(expensa\)/.test(codigo));
+    afirmar('el historial también', /const downloadUrl = enlaceDeExpensa\(x\)/.test(codigo));
+}
+
+console.log('\n── LA LIQUIDACIÓN GENERAL NO SE PRESENTA COMO UNA DEUDA ──');
+{
+    // El total de la liquidación general salió $1.284.650,40 en la carga real. Está bien leído
+    // --es el total de gastos del consorcio-- pero nadie paga eso. Con la etiqueta "Total a
+    // pagar", el vecino entiende que le cobran un millón doscientos mil.
+    //
+    // No se esconde: en qué se fue la plata del consorcio es justo la transparencia que un vecino
+    // quiere. Lo que no puede es parecer una deuda.
+    afirmar('la etiqueta del monto cambia si es la del edificio',
+        /esDelEdificio \? t\('expensa\.gastosEdificio'\) : t\('inicio\.totalAPagar'\)/.test(PORTAL));
+    afirmar('y en la pantalla de Expensas también',
+        /esDelEdificio \? 'Gastos del edificio' : 'Total a pagar'/.test(PORTAL));
+
+    const { textos } = require('./idiomas');
+    for (const idioma of ['es', 'en', 'pt', 'fr']) {
+        const t = textos(idioma);
+        afirmar(`${idioma}: "gastos del edificio" tiene texto`, !!t('expensa.gastosEdificio').trim());
+        afirmar(`${idioma}: dice que no es su deuda`, !!t('expensa.noEsTuDeuda').trim());
+        afirmar(`${idioma}: y no dice "total a pagar"`,
+            !/total a pagar|total to pay/i.test(t('expensa.gastosEdificio')));
     }
 }
 

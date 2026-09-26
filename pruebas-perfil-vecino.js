@@ -337,13 +337,27 @@ const PANTALLA_VACIA = 'Todavía no tenés ningún departamento asignado';
         // Por eso se piden TODAS las pantallas, no solo las que se tocaron: una variable fuera de
         // alcance en cualquiera de ellas la tira abajo, y acá adentro un error suelto no es solo
         // de esa pantalla (el portal corre en el mismo proceso que Marcos).
+        //
+        // Y van TODAS las que el vecino puede abrir del menú, no las siete de entonces: Expensas,
+        // Reclamos y Amenities habían quedado afuera, que es el mismo agujero con otro nombre --la
+        // pantalla que se acaba de reescribir es justo la que nadie pide--.
         const pantallas = ['/vecino/login', '/vecino/', '/vecino/perfil', '/vecino/novedades',
-                           '/vecino/integrantes', '/vecino/pases', '/vecino/chat'];
+                           '/vecino/integrantes', '/vecino/pases', '/vecino/chat',
+                           '/vecino/expensas', '/vecino/reclamos', '/vecino/amenities'];
         const login = await pedir('POST', '/vecino/auth', { cuerpo: 'rol=propietario' });
         for (const ruta of pantallas) {
             const r = await pedir('GET', ruta, { cookie: login.cookie });
             verificar(`${ruta} responde`, r.codigo, 200);
         }
+
+        // EL ARCHIVO DE LA EXPENSA FALLA CERRADO.
+        //
+        // Acá no hay PostgreSQL, así que no se puede saber de quién es el archivo. Servirlo igual
+        // sería publicar cuánto paga un vecino; negarlo cuesta que no lo pueda bajar hasta que
+        // vuelva la base. Se elige el error que se puede deshacer, igual que con `EDIFICA_API_KEY`.
+        const arch = await pedir('GET', '/vecino/expensa-archivo/cualquiera.pdf', { cookie: login.cookie });
+        afirmar(`sin poder verificar el permiso no se sirve el archivo (dio ${arch.codigo})`,
+            arch.codigo === 403 || arch.codigo === 503);
     }
 
     console.log('\n── LO QUE ESCRIBE EN LA BASE ──');
