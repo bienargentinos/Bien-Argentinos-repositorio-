@@ -865,7 +865,7 @@ Ya está más arriba en este archivo, pero se juntan acá porque son el mismo ep
 
 ---
 
-## DESPLIEGUE AL VPS — la versión al día (24/09, tarde)
+## DESPLIEGUE AL VPS — la versión al día (26/09)
 
 > Esta sección reemplaza cualquier instrucción de despliegue anterior de este archivo. Si leíste
 > una que nombra el commit `c2dbc13`, era esta misma más temprano y quedó vieja.
@@ -888,6 +888,7 @@ Lo que entra, de las tres conversaciones:
 | **Vos** | El `store` de sesiones en PostgreSQL, el grid de tarjetas por edificio, las expensas en clientes multi-edificio, el escape del `_` en el `LIKE`, y el modo oscuro de la tanda. |
 | **Motor** (yo) | `requireAuth` contesta `401` JSON en una ruta de API en vez de redirigir al login; publicar una expensa con varios edificios y ninguno elegido corta y pide elegir. |
 | **Portal** | El `CHECK` de `monto_origen` en `db-pg.js` --rechazaba `'ocr'`, que es lo que escribe tu panel--, la privacidad de los comprobantes, los avisos del edificio y los cuatro idiomas. |
+| **Portal** (26/09) | La ruta que le sirve la expensa al vecino con permiso --sin eso la descarga da 403 desde que el archivo dejó de ser público--, el filtro por unidad en la pantalla de Expensas, la etiqueta "Gastos del edificio" para la liquidación general, y el `store` de sesiones del portal en PostgreSQL. |
 
 ### 1. Antes de pulear, mirá si alguien editó algo a mano
 
@@ -958,7 +959,12 @@ pm2 logs marcos-ai --lines 60 --nostream | grep "store de sesiones"
 Si aparece `⚠️ No se pudo inicializar store de sesiones`, el `npm install` no corrió o PostgreSQL
 no estaba disponible al arrancar — y las sesiones se siguen perdiendo en cada reinicio.
 
-Y que `sesiones_panel` haya quedado a nombre del rol `marcos`:
+> **Desde el 26/09 hay DOS stores**, no uno: el del panel y el del portal del vecino, cada uno con
+> su tabla (`sesiones_panel` y `sesiones_portal`). Separadas a propósito: son dos públicos distintos
+> y un pruneo no tiene por qué tocar al otro. El `grep` de arriba cubre los dos --el aviso del
+> portal dice "del PORTAL" adentro de la misma frase, justamente para que una sola línea alcance--.
+
+Y que `sesiones_panel` y `sesiones_portal` hayan quedado a nombre del rol `marcos`:
 
 ```bash
 cd /root/marcos/Consorcio-AI-Assistant && node revisar-permisos-pg.js
@@ -991,6 +997,20 @@ cd /root/marcos/Consorcio-AI-Assistant && node importar-expensas-a-pg.js --aplic
    `requireAuth` está bien y el store no.
 3. **Una expensa publicada con monto leído por la IA tiene que aparecer en el portal del vecino.**
    Es lo que el `CHECK` estaba tirando.
+
+### 9. Qué mirar en el portal del vecino (26/09)
+
+1. **Entrar al portal como el vecino de una unidad con expensa cargada y tocar "Descargar".** Tiene
+   que bajar el PDF. Hasta este despliegue daba 403: el motor cerró `/archivos/expensas/...` --con
+   razón, ese archivo dice cuánto paga una persona-- y los enlaces del portal seguían apuntando
+   ahí. Ahora pasan por `/vecino/expensa-archivo/:nombre`, que verifica de quién es.
+2. **Que solo vea la de SU unidad y la general del edificio.** La consulta filtraba nada más que
+   por edificio: cada vecino veía la liquidación de todos sus vecinos, con su botón de descarga.
+3. **Si la que aparece es la general, el monto NO puede decir "Total a pagar".** Ese número son los
+   gastos del consorcio --salió `$1.284.650,40`-- y nadie paga eso. Tiene que decir "Gastos del
+   edificio".
+4. **Dejar el portal abierto, reiniciar, y navegar.** Con el store del portal andando ya no tendría
+   que volver a pedir el login ni cambiarte por el vecino de demo.
 
 ## 23/09 — Pedido: avisos del edificio y expensas por departamento
 
