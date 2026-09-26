@@ -9542,6 +9542,103 @@ async function revocarPaseDash(id) {
 }
 window.revocarPaseDash = revocarPaseDash;
 
+function abrirModalNuevoAviso(edificio) {
+  var selEd = document.getElementById('aviso-edificio');
+  if (selEd && edificio) selEd.value = edificio;
+  var inTit = document.getElementById('aviso-titulo');
+  if (inTit) inTit.value = '';
+  var inTxt = document.getElementById('aviso-texto');
+  if (inTxt) inTxt.value = '';
+  var inTipo = document.getElementById('aviso-tipo');
+  if (inTipo) inTipo.value = 'mantenimiento';
+  var inRub = document.getElementById('aviso-rubro');
+  if (inRub) inRub.value = '';
+  var inUrg = document.getElementById('aviso-urgente');
+  if (inUrg) inUrg.checked = false;
+  var inDur = document.getElementById('aviso-duracion-tipo');
+  if (inDur) inDur.value = 'indefinido';
+  var wrapHasta = document.getElementById('aviso-hasta-wrap');
+  if (wrapHasta) wrapHasta.style.display = 'none';
+  var inHasta = document.getElementById('aviso-hasta');
+  if (inHasta) inHasta.value = '';
+  abrirModal('modal-nuevo-aviso');
+}
+window.abrirModalNuevoAviso = abrirModalNuevoAviso;
+
+function toggleAvisoDuracion() {
+  var sel = document.getElementById('aviso-duracion-tipo');
+  var wrap = document.getElementById('aviso-hasta-wrap');
+  if (wrap) wrap.style.display = (sel && sel.value === 'fecha') ? 'block' : 'none';
+}
+window.toggleAvisoDuracion = toggleAvisoDuracion;
+
+async function guardarNuevoAviso(btn) {
+  var ed = document.getElementById('aviso-edificio') ? document.getElementById('aviso-edificio').value.trim() : '';
+  var titulo = document.getElementById('aviso-titulo') ? document.getElementById('aviso-titulo').value.trim() : '';
+  var texto = document.getElementById('aviso-texto') ? document.getElementById('aviso-texto').value.trim() : '';
+  var tipo = document.getElementById('aviso-tipo') ? document.getElementById('aviso-tipo').value : 'otro';
+  var rubro = document.getElementById('aviso-rubro') ? document.getElementById('aviso-rubro').value.trim() : '';
+  var urgente = document.getElementById('aviso-urgente') ? document.getElementById('aviso-urgente').checked : false;
+  var durTipo = document.getElementById('aviso-duracion-tipo') ? document.getElementById('aviso-duracion-tipo').value : 'indefinido';
+  var hastaVal = (durTipo === 'fecha' && document.getElementById('aviso-hasta')) ? document.getElementById('aviso-hasta').value : null;
+  var rol = document.getElementById('aviso-rol') ? document.getElementById('aviso-rol').value : 'administrador';
+  var publicadoPor = document.getElementById('aviso-publicado-por') ? document.getElementById('aviso-publicado-por').value.trim() : '';
+
+  if (!ed) { toast('Falta seleccionar el edificio', 'err'); return; }
+  if (!titulo && !texto) { toast('El aviso debe contener un título o descripción', 'err'); return; }
+
+  var origText = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Publicando...'; }
+
+  try {
+    var res = await fetch('/admin/api/avisos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        edificio: ed,
+        titulo: titulo,
+        texto: texto,
+        tipo: tipo,
+        rubro: rubro || null,
+        urgente: urgente,
+        hasta: hastaVal || null,
+        publicadoPor: publicadoPor || null,
+        rol: rol || 'administrador'
+      })
+    });
+    var data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo publicar el aviso');
+
+    toast('Aviso publicado con éxito para el consorcio', 'ok');
+    cerrarModal('modal-nuevo-aviso');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch (err) {
+    toast(err.message || 'Error al publicar aviso', 'err');
+    if (btn) { btn.disabled = false; btn.innerHTML = origText; }
+  }
+}
+window.guardarNuevoAviso = guardarNuevoAviso;
+
+async function darDeBajaAviso(id, btn) {
+  if (!confirm('¿Confirmás que querés dar de baja este aviso? Dejará de mostrarse en el portal del vecino.')) return;
+  var origText = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Levantando...'; }
+  try {
+    var res = await fetch('/admin/api/avisos/' + encodeURIComponent(id) + '/levantar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    var data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo dar de baja el aviso');
+    toast('Aviso dado de baja exitosamente', 'ok');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch (err) {
+    toast(err.message || 'Error al dar de baja aviso', 'err');
+    if (btn) { btn.disabled = false; btn.innerHTML = origText; }
+  }
+}
+window.darDeBajaAviso = darDeBajaAviso;
+
 document.addEventListener('DOMContentLoaded', function() {
   if (document.getElementById('tabla-eventos-acceso-body')) {
     cargarAuditoriaAccesos();
@@ -9844,6 +9941,7 @@ function shell(req, d, activeKey, contenido) {
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
     { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosCliente },
     { key: 'edificio', icon: '🏢', label: 'Mi Edificio', href: '/admin/mi-edificio' },
+    { key: 'avisos', icon: '📢', label: 'Avisos al Edificio', href: '/admin/avisos' },
     { key: 'porteria_accesos', icon: '🚪', label: 'Control de Accesos & Portería', href: '/admin/accesos-porteria' },
     { key: 'proveedores', icon: '🧰', label: 'Proveedores', href: '/admin/proveedores' },
     { key: 'facturas', icon: '🧾', label: 'Facturas/Fotos', href: '/admin/archivos' },
@@ -9854,6 +9952,7 @@ function shell(req, d, activeKey, contenido) {
   const navDueno = [
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
     { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosDueno },
+    { key: 'avisos', icon: '📢', label: 'Avisos al Edificio', href: '/admin/avisos' },
     { key: 'porteria_accesos', icon: '🚪', label: 'Control de Accesos & Portería', href: '/admin/accesos-porteria' },
     { key: 'consumos', icon: '📈', label: 'Consumos', href: '/admin/consumos' },
     { key: 'facturas', icon: '🧾', label: 'Facturas/Fotos', href: '/admin/archivos' },
@@ -13638,6 +13737,411 @@ router.get('/expensas', async (req, res) => {
     res.send(shell(req, d, 'expensas', contenido));
   } catch (e) {
     res.status(500).send(paginaError(e));
+  }
+});
+
+/* ===================================================================
+ * AVISOS DEL EDIFICIO (comunicados oficiales al consorcio)
+ * =================================================================== */
+
+function formatearFechaAviso(d) {
+  if (!d) return '';
+  try {
+    const f = new Date(d);
+    if (isNaN(f.getTime())) return String(d);
+    return f.toLocaleString('es-AR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch (e) {
+    return String(d);
+  }
+}
+
+function badgeTipoAviso(tipo) {
+  const t = String(tipo || '').toLowerCase();
+  if (t === 'corte') {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#FEE2E2;color:#991B1B;border:1px solid #FECACA">🚰 Corte programado</span>';
+  }
+  if (t === 'mantenimiento') {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#FEF3C7;color:#92400E;border:1px solid #FDE68A">🔧 Mantenimiento</span>';
+  }
+  if (t === 'fumigacion') {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#E0E7FF;color:#3730A3;border:1px solid #C7D2FE">🪲 Fumigación</span>';
+  }
+  if (t === 'obra') {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#FFEDD5;color:#9A3412;border:1px solid #FED7AA">🔨 Obra / Reparación</span>';
+  }
+  if (t === 'seguridad') {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0">🛡️ Seguridad</span>';
+  }
+  return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#EAF1FB;color:#1E5FB4;border:1px solid #D4E2F6">ℹ️ General</span>';
+}
+
+async function obtenerAvisosPanel(edificio) {
+  if (!edificio || !String(edificio).trim()) return { vigentes: [], historico: [] };
+  try {
+    const { pool: p, avisosVigentesDeEdificio } = require('./db-pg');
+    if (!p || p.sinBase) return { vigentes: [], historico: [] };
+    const vigentes = await avisosVigentesDeEdificio(edificio);
+    const resAll = await p.query(
+      `SELECT * FROM avisos
+        WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))
+        ORDER BY created_at DESC
+        LIMIT 50`,
+      [edificio]
+    );
+    const todos = resAll.rows || [];
+    const vigentesIds = new Set((vigentes || []).map((v) => v.id));
+    const historico = todos.filter((a) => !vigentesIds.has(a.id));
+    return { vigentes: vigentes || [], historico };
+  } catch (err) {
+    console.warn('[obtenerAvisosPanel] Info/Aviso de PostgreSQL:', err.message);
+    return { vigentes: [], historico: [] };
+  }
+}
+
+router.get('/avisos', async (req, res) => {
+  try {
+    const d = await cargarDatos(req);
+    const permitidos = edificiosPermitidos(req) || [];
+    const activo = enPreview(req) ? req.session.previewEdificioActivo : req.session.edificioActivo;
+    const cur = d.curBuilding;
+    const edTarget = activo || (permitidos.length ? permitidos[0] : (cur ? cur.nombre : ''));
+
+    // Si tiene varios edificios y ninguno activo, mostrar grid de selección
+    if (!activo && d.propios.length > 1) {
+      const cards = await Promise.all(d.propios.map(async (e) => {
+        const { vigentes } = await obtenerAvisosPanel(e.nombre);
+        const count = vigentes.length;
+        let statusBadge = '';
+        if (count > 0) {
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#FEF3C7;color:#92400E">📢 ${count} aviso${count === 1 ? '' : 's'} activo${count === 1 ? '' : 's'}</span>`;
+        } else {
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ Sin avisos vigentes</span>`;
+        }
+        return `
+          <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/avisos')}"
+            style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px;text-decoration:none;transition:transform .15s ease,box-shadow .15s ease" class="hv-card">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">
+              <span style="width:44px;height:44px;border-radius:12px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏢</span>
+              ${statusBadge}
+            </div>
+            <div style="font-size:16.5px;font-weight:800;color:#16233B;letter-spacing:-.01em;margin-bottom:4px">${esc(e.nombre)}</div>
+            <div style="font-size:13px;color:#8595AD;margin-bottom:14px">${esc(e.direccion || e.nombre)}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#1E5FB4">
+              <span>Gestionar comunicados</span>
+              <span style="font-size:15px">→</span>
+            </div>
+          </a>`;
+      }));
+
+      const contenido = `
+        <div style="max-width:1120px;margin:0 auto">
+          <div style="margin-bottom:24px">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Comunicados oficiales</div>
+            <div style="font-size:24px;font-weight:800;color:#16233B;letter-spacing:-.02em;margin-bottom:6px">Avisos del Edificio</div>
+            <div style="font-size:14px;color:#64748B;line-height:1.5">Elegí un consorcio para ver sus avisos vigentes, el historial o publicar un nuevo comunicado para los vecinos.</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">
+            ${cards.join('')}
+          </div>
+        </div>`;
+
+      return res.send(shell(req, d, 'avisos', contenido));
+    }
+
+    // Edificio seleccionado
+    const { vigentes, historico } = await obtenerAvisosPanel(edTarget);
+
+    let vigentesHtml = '';
+    if (vigentes.length === 0) {
+      vigentesHtml = `
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:36px 24px;text-align:center;margin-bottom:28px">
+          <div style="width:54px;height:54px;border-radius:50%;background:#E7F4EC;color:#1B7A43;font-size:26px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px">✓</div>
+          <div style="font-size:16px;font-weight:800;color:#16233B;margin-bottom:6px">No hay avisos vigentes en este edificio</div>
+          <div style="font-size:13.5px;color:#64748B;max-width:440px;margin:0 auto 18px;line-height:1.45">Todos los servicios funcionan con normalidad y no hay cortes programados ni obras anunciadas actualmente.</div>
+          <button type="button" onclick="abrirModalNuevoAviso('${esc(edTarget)}')"
+            style="display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:13.5px;border:none;cursor:pointer" class="hv-primary">
+            <span>+ Publicar Nuevo Aviso</span>
+          </button>
+        </div>`;
+    } else {
+      vigentesHtml = `
+        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:28px">
+          ${vigentes.map((a) => {
+            const tipoBadge = badgeTipoAviso(a.tipo);
+            const urgBadge = a.urgente ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#DC2626;color:#fff;letter-spacing:.02em">🚨 URGENTE</span>' : '';
+            const rubBadge = a.rubro ? `<span style="font-size:11.5px;font-weight:700;color:#64748B;background:#F1F5F9;padding:3px 9px;border-radius:8px">🏷️ ${esc(a.rubro)}</span>` : '';
+            const vigencia = a.hasta ? `⏳ Hasta el ${formatearFechaAviso(a.hasta)}` : '📌 Hasta nuevo aviso';
+
+            return `
+              <div style="background:#fff;border:1px solid ${a.urgente ? '#FCA5A5' : '#E7ECF3'};border-radius:16px;padding:18px 22px;box-shadow:${a.urgente ? '0 4px 14px rgba(220,38,38,0.08)' : 'none'}">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    ${tipoBadge}
+                    ${urgBadge}
+                    ${rubBadge}
+                  </div>
+                  <div style="font-size:12px;font-weight:700;color:${a.hasta ? '#B45309' : '#047857'};background:${a.hasta ? '#FEF3C7' : '#ECFDF5'};padding:4px 10px;border-radius:8px">
+                    ${vigencia}
+                  </div>
+                </div>
+
+                <div style="font-size:17.5px;font-weight:800;color:#16233B;letter-spacing:-.01em;margin-bottom:8px">
+                  ${esc(a.titulo || 'Comunicado oficial')}
+                </div>
+
+                <div style="font-size:14px;color:#334259;line-height:1.55;white-space:pre-wrap;background:#F8FAFC;padding:12px 16px;border-radius:10px;border:1px solid #E2E8F0;margin-bottom:14px">
+                  ${esc(a.texto)}
+                </div>
+
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding-top:10px;border-top:1px solid #F1F5F9">
+                  <div style="font-size:12.5px;color:#64748B">
+                    Publicado por: <strong style="color:#1E293B">${esc(a.publicado_por || 'Administración')}</strong> (${esc(a.publicado_rol || 'administrador')}) · ${formatearFechaAviso(a.desde || a.created_at)}
+                  </div>
+                  <button type="button" onclick="darDeBajaAviso(${a.id}, this)"
+                    style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:1px solid #FCA5A5;background:#FFF5F5;color:#B91C1C;font-size:12.5px;font-weight:700;border-radius:8px;cursor:pointer" class="hv-soft" title="Dar de baja aviso">
+                    <span>✓ Dar de baja aviso</span>
+                  </button>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>`;
+    }
+
+    let historicoHtml = '';
+    if (historico.length === 0) {
+      historicoHtml = '<div style="font-size:13px;color:#8595AD;padding:14px 0">No hay avisos anteriores en el historial de este edificio.</div>';
+    } else {
+      historicoHtml = `
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;text-align:left">
+            <thead>
+              <tr style="border-bottom:1.5px solid #E2E8F0;color:#64748B;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">
+                <th style="padding:10px 12px">Fecha</th>
+                <th style="padding:10px 12px">Tipo</th>
+                <th style="padding:10px 12px">Título / Detalle</th>
+                <th style="padding:10px 12px">Publicó</th>
+                <th style="padding:10px 12px">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${historico.map((h) => {
+                const estBadge = h.estado === 'levantado'
+                  ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#F1F5F9;color:#64748B">Levantado</span>'
+                  : '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#FEF3C7;color:#92400E">Vencido</span>';
+                return `
+                  <tr style="border-bottom:1px solid #F1F5F9;color:#334259">
+                    <td style="padding:10px 12px;white-space:nowrap;color:#64748B;font-size:12px">${formatearFechaAviso(h.created_at)}</td>
+                    <td style="padding:10px 12px;white-space:nowrap">${badgeTipoAviso(h.tipo)}</td>
+                    <td style="padding:10px 12px">
+                      <div style="font-weight:700;color:#1E293B">${esc(h.titulo || 'Sin título')}</div>
+                      <div style="font-size:12px;color:#64748B;max-width:480px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(h.texto)}</div>
+                    </td>
+                    <td style="padding:10px 12px;white-space:nowrap;font-size:12px;color:#64748B">${esc(h.publicado_por || '')} <span style="font-size:11px;color:#94A3B8">(${esc(h.publicado_rol || '')})</span></td>
+                    <td style="padding:10px 12px;white-space:nowrap">${estBadge}</td>
+                  </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    const modalNuevoAvisoHtml = `
+      <div id="modal-nuevo-aviso" class="modal-overlay" onclick="cerrarModal('modal-nuevo-aviso')">
+        <div class="modal-box" style="max-width:540px;max-height:92vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Comunicado oficial</div>
+            <div style="font-size:20px;font-weight:800;color:#16233B;letter-spacing:-.01em">📢 Publicar Aviso al Consorcio</div>
+          </div>
+          
+          <div style="padding:20px 24px;overflow-y:auto;flex:1;min-height:0">
+            <div style="margin-bottom:14px">
+              <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Edificio de destino</label>
+              <select id="aviso-edificio" class="inp" style="height:42px;font-weight:700">
+                ${(permitidos.length ? permitidos : (d.propios.map(p => p.nombre))).map(e => `<option value="${esc(e)}" ${normEdificio(e) === normEdificio(edTarget) ? 'selected' : ''}>${esc(e)}</option>`).join('')}
+              </select>
+            </div>
+
+            <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+              <div style="flex:1;min-width:180px">
+                <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Tipo de aviso</label>
+                <select id="aviso-tipo" class="inp" style="height:42px">
+                  <option value="mantenimiento" selected>🔧 Mantenimiento</option>
+                  <option value="corte">🚰 Corte programado</option>
+                  <option value="fumigacion">🪲 Fumigación</option>
+                  <option value="obra">🔨 Obra / Reparación</option>
+                  <option value="seguridad">🛡️ Seguridad</option>
+                  <option value="otro">ℹ️ Comunicado general</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:180px">
+                <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Rubro afectado <span style="font-weight:400;color:#8595AD">(opcional)</span></label>
+                <select id="aviso-rubro" class="inp" style="height:42px">
+                  <option value="">Ninguno / General</option>
+                  ${RUBROS_PROVEEDOR.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Título del aviso</label>
+              <input id="aviso-titulo" class="inp" placeholder="Ej: Corte de agua por mantenimiento de bombas" style="height:42px">
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Mensaje para los vecinos</label>
+              <textarea id="aviso-texto" class="inp" style="min-height:90px;padding:10px 12px;line-height:1.45" placeholder="Explicá el motivo, áreas afectadas y horarios..."></textarea>
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Vigencia del aviso</label>
+              <select id="aviso-duracion-tipo" class="inp" style="height:42px" onchange="toggleAvisoDuracion()">
+                <option value="indefinido" selected>📌 Hasta nuevo aviso (queda activo hasta que lo des de baja)</option>
+                <option value="fecha">⏳ Con fecha y hora de finalización (se apaga automáticamente)</option>
+              </select>
+            </div>
+
+            <div id="aviso-hasta-wrap" style="display:none;margin-bottom:14px">
+              <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Fecha y hora de finalización</label>
+              <input id="aviso-hasta" type="datetime-local" class="inp" style="height:42px">
+              <div style="font-size:11.5px;color:#8595AD;margin-top:4px">Al llegar esta fecha y hora, el aviso se levantará solo del portal del vecino.</div>
+            </div>
+
+            <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+              <div style="flex:1;min-width:180px">
+                <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Firma / Publicado por</label>
+                <input id="aviso-publicado-por" class="inp" style="height:42px" value="${esc(d.clienteActual ? d.clienteActual.nombre : (req.session.user || 'Administración'))}">
+              </div>
+              <div style="flex:1;min-width:180px">
+                <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Rol</label>
+                <select id="aviso-rol" class="inp" style="height:42px">
+                  <option value="administrador" selected>Administrador</option>
+                  <option value="encargado">Encargado</option>
+                  <option value="consejo">Consejo</option>
+                  <option value="seguridad">Seguridad / Portería</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="background:#FFF5F5;border:1px solid #FECACA;border-radius:10px;padding:12px 14px">
+              <label style="display:flex;align-items:center;gap:9px;font-size:13px;font-weight:700;color:#991B1B;cursor:pointer">
+                <input type="checkbox" id="aviso-urgente" style="width:17px;height:17px;cursor:pointer">
+                <span>🚨 Marcar como comunicado URGENTE</span>
+              </label>
+              <div style="font-size:11.5px;color:#B91C1C;margin-top:4px;margin-left:26px">
+                Los avisos urgentes se muestran arriba de todo con alerta roja destacada en el Portal del Vecino.
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:11px;padding:16px 24px;border-top:1px solid #EEF1F6;flex-shrink:0">
+            <button type="button" onclick="cerrarModal('modal-nuevo-aviso')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button type="button" id="btn-guardar-aviso" onclick="guardarNuevoAviso(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Publicar Aviso</button>
+          </div>
+        </div>
+      </div>`;
+
+    const contenido = `
+      <div style="max-width:1040px;margin:0 auto">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:24px;flex-wrap:wrap">
+          <div>
+            ${d.propios.length > 1 ? `<a href="/admin/set-filtro?edificio=&volver=${encodeURIComponent('/admin/avisos')}" style="display:inline-flex;align-items:center;gap:4px;font-size:12.5px;font-weight:700;color:#2E6FC0;text-decoration:none;margin-bottom:6px">← Ver todos los consorcios</a>` : ''}
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Comunicados oficiales</div>
+            <div style="font-size:24px;font-weight:800;color:#16233B;letter-spacing:-.02em;margin-bottom:4px">Avisos · ${esc(edTarget)}</div>
+            <div style="font-size:13.5px;color:#64748B;line-height:1.45;max-width:620px">Publicá comunicados para los vecinos. Aparecen al instante en el Inicio del Portal del Vecino y por WhatsApp.</div>
+          </div>
+          <button type="button" onclick="abrirModalNuevoAviso('${esc(edTarget)}')"
+            style="display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 20px;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;border:none;cursor:pointer;box-shadow:0 2px 8px rgba(46,111,192,0.25)" class="hv-primary">
+            <span>+ Publicar Nuevo Aviso</span>
+          </button>
+        </div>
+
+        <div style="font-size:15.5px;font-weight:800;color:#16233B;margin-bottom:12px;display:flex;align-items:center;gap:8px">
+          <span>Avisos Vigentes</span>
+          <span style="font-size:12px;font-weight:700;background:#EAF1FB;color:#2E6FC0;padding:2px 8px;border-radius:999px">${vigentes.length}</span>
+        </div>
+        ${vigentesHtml}
+
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 24px;margin-bottom:32px">
+          <div style="font-size:15px;font-weight:800;color:#16233B;margin-bottom:4px">Historial de Comunicados Anteriores</div>
+          <div style="font-size:12.5px;color:#64748B;margin-bottom:16px">Registro de avisos finalizados o levantados de este consorcio.</div>
+          ${historicoHtml}
+        </div>
+
+        ${modalNuevoAvisoHtml}
+      </div>`;
+
+    res.send(shell(req, d, 'avisos', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+// ── POST /api/avisos ──
+router.post('/api/avisos', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, titulo, texto, tipo, rubro, urgente, hasta, publicadoPor, rol } = req.body || {};
+    const permitidos = edificiosPermitidos(req) || [];
+    if (!edificio) return res.status(400).json({ error: 'Falta el edificio' });
+    if (!permitidos.some((e) => normEdificio(e) === normEdificio(edificio))) {
+      return res.status(403).json({ error: 'No tenés permisos para publicar avisos en este edificio' });
+    }
+    if (!String(texto || titulo || '').trim()) {
+      return res.status(400).json({ error: 'El aviso no puede estar vacío' });
+    }
+
+    const { publicarAviso, ROLES_QUE_AVISAN } = require('./db-pg');
+    const rolNorm = String(rol || 'administrador').trim().toLowerCase();
+    if (!ROLES_QUE_AVISAN.includes(rolNorm)) {
+      return res.status(400).json({ error: `Rol no autorizado. Solo: ${ROLES_QUE_AVISAN.join(', ')}` });
+    }
+
+    let hastaFecha = null;
+    if (hasta) {
+      hastaFecha = new Date(hasta);
+      if (isNaN(hastaFecha.getTime())) hastaFecha = null;
+    }
+
+    const nuevoAviso = await publicarAviso({
+      edificio: String(edificio).trim(),
+      titulo: String(titulo || '').trim() || null,
+      texto: String(texto || titulo || '').trim(),
+      tipo: tipo || 'otro',
+      rubro: rubro || null,
+      urgente: !!urgente,
+      hasta: hastaFecha,
+      publicadoPor: String(publicadoPor || req.session.user || 'Administración').trim(),
+      rol: rolNorm,
+      origen: 'panel',
+    });
+
+    res.json({ ok: true, aviso: nuevoAviso });
+  } catch (err) {
+    console.error('Error en POST /api/avisos:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/avisos/:id/levantar ──
+router.post('/api/avisos/:id/levantar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { id } = req.params;
+    const idNum = parseInt(id, 10);
+    if (!idNum) return res.status(400).json({ error: 'ID de aviso inválido' });
+
+    const { levantarAviso } = require('./db-pg');
+    const avisoLevantado = await levantarAviso(idNum);
+    res.json({ ok: true, aviso: avisoLevantado });
+  } catch (err) {
+    console.error('Error en POST /api/avisos/:id/levantar:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

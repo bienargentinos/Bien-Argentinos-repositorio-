@@ -27,6 +27,26 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-26 — Implementación de la sección Avisos del Edificio en el Dashboard
+
+- **Qué se hizo**:
+  - En `dashboard.js`:
+    - Se agregó el enlace de navegación `{ key: 'avisos', icon: '📢', label: 'Avisos al Edificio', href: '/admin/avisos' }` tanto para administradores de consorcio como para el dueño del sistema.
+    - Se creó la vista principal `GET /admin/avisos`:
+      - Si el administrador gestiona varios consorcios y no seleccionó ninguno, se le presenta una cuadrícula de tarjetas con el estado y contador de avisos vigentes por edificio.
+      - Para el edificio activo, se listan los comunicados vigentes con badges de tipo (corte programado, mantenimiento, fumigación, obra, seguridad o general), badge de urgencia (🚨 URGENTE), rubro, fechas y vigencia.
+      - Botón para levantar/dar de baja el aviso (`POST /admin/api/avisos/:id/levantar`), que actualiza el estado a `levantado` en PostgreSQL (`db-pg.js` / `levantarAviso`).
+      - Tabla histórica con los comunicados finalizados o levantados del consorcio.
+    - Se incorporó el modal `#modal-nuevo-aviso` para redactar comunicados con: selección de edificio, tipo de comunicado, rubro afectado de `RUBROS_CATALOGO`, título, texto/detalle, vigencia (hasta nuevo aviso o con fecha/hora de caducidad automática) y rol del publicador (`administrador`, `encargado`, `consejo`, `seguridad`).
+    - Se crearon los endpoints:
+      - `POST /admin/api/avisos`: valida permisos del edificio, campos obligatorios, rol permitido (`ROLES_QUE_AVISAN`) y llama a `publicarAviso()` de `db-pg.js`.
+      - `POST /admin/api/avisos/:id/levantar`: llama a `levantarAviso()` de `db-pg.js`.
+    - En `CLIENT_JS`: funciones `abrirModalNuevoAviso`, `toggleAvisoDuracion`, `guardarNuevoAviso` y `darDeBajaAviso`.
+- **Verificaciones**:
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK (sintaxis 100% limpia).
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ sin variables fuera de alcance.
+  - `node verificar-antes-de-subir.js`: ✅ 72 de 72 pruebas en verde (100%).
+
 ### 2026-09-26 — Limpieza de "Zeballos Cia" y "Torre Norte Edifica" en VPS y sincronización completa
 
 - **Qué se hizo**:
