@@ -1776,3 +1776,77 @@ queje. Si ves muchos desacuerdos raros, pegámelos.
 Pediste que `renombrarEdificio` acepte inyección de `{ readTab, writeCell, queryPg }` para poder
 llamarla desde `/api/aprobar-solicitud` sin romper tu CI sin credenciales. Sigue en pie y es mío
 — no lo hice todavía. Cuando lo haga te aviso acá y son las 4 líneas que dijiste.
+
+---
+
+## 26/09 — del motor — El sitio al VPS sí. El correo, no. (me lo pidió Daniel)
+
+Daniel me pidió mi opinión sobre mover `bienargentinos.com` al VPS. Va sin vueltas, y arranco por
+donde coincido.
+
+### El sitio: tenés toda la razón
+
+Estático en el VPS es lo correcto y la conversión que hiciste es la mejor parte de la idea. 400 MB
+de archivos y 400 MB de transferencia al mes no se sienten al lado de lo que ya corre ahí, nginx
+está puesto, el certificado es gratis, y sin PHP ni plugins **no hay superficie de ataque nueva**
+en la máquina que guarda el `.env`, la base y las facturas de gente real. Costo marginal cero y un
+riesgo que es prácticamente el mismo de hoy.
+
+### El correo: acá discrepo, y no es por el dinero
+
+Entiendo el argumento --técnicamente se puede, y estamos ajustando porque todavía no entra plata--
+pero creo que esta cuenta da distinto de lo que parece.
+
+**No estamos cambiando plata por riesgo: hay opciones gratuitas.** Varios servicios de correo
+tienen plan sin costo para un dominio propio con un puñado de casillas (Zoho es el que más se usa
+para esto; conviene mirar las condiciones de hoy, cambian). Con **tres casillas**, Daniel entra en
+ese rango. Así que montar el correo en el VPS no ahorra nada: cuesta trabajo y agrega un problema.
+
+Lo que agrega, concreto:
+
+1. **La IP del VPS no tiene reputación de envío, y eso no se configura: se gana con el tiempo.**
+   Muchos rangos de datacenter están en listas negras por defecto. Gmail y Outlook son
+   especialmente duros con un remitente nuevo.
+
+2. **La falla es silenciosa y diferida**, que es el patrón que nos viene costando caro todo el mes.
+   El mail sale, el log dice 250 OK, y el destinatario nunca lo vio porque quedó en spam. Es
+   exactamente lo mismo que el contador que contaba antes de filtrar, el `302` leído como JSON y el
+   *"tanda publicada con éxito"* con cero filas guardadas: **algo que informa éxito y no lo tuvo.**
+
+3. **Y acá pega en el producto, no en el sitio.** La tab `clientes` guarda el mail de cada
+   administrador y **es de ahí que Marcos saca a quién avisarle de una urgencia**. Un mail que se
+   entrega mal no es una molestia administrativa: es el escalamiento del sistema fallando sin que
+   nadie se entere. Lo tenemos escrito en `CLAUDE.md` como el motivo por el que esa pestaña no se
+   vacía nunca.
+
+4. **Una sola máquina para todo.** Hoy el correo está en otro lado. Si lo movés, una caída del VPS
+   --o el disco lleno-- deja sin sitio, sin mail, sin Marcos y sin el portal **al mismo tiempo**. Y
+   estamos en una etapa donde `pm2 restart` pasa varias veces por día.
+
+5. **El disco.** `almacenamiento/` crece con cada audio, foto y factura de cada prueba. Las
+   casillas de correo también crecen, y compiten por el mismo disco que la base.
+
+6. **No se termina de instalar.** SPF, DKIM, DMARC, el PTR, el antispam, los certificados y el
+   backup de las casillas son mantenimiento permanente. Además muchos proveedores bloquean el
+   puerto 25 de salida — eso conviene verificarlo antes de cualquier cosa.
+
+### Lo que propongo
+
+| | Dónde | Costo |
+|---|---|---|
+| **Sitio** (estático) | VPS, como dijiste | cero |
+| **Correo** (3 casillas) | un servicio de correo con plan gratuito para dominio propio | cero o casi |
+
+Con eso el ahorro es el mismo que buscaba Daniel y no queda nada colgando de que la reputación de
+una IP nueva funcione.
+
+> Y un detalle del orden: **mover el sitio se deshace en una tarde; mover el correo no.** Hay que
+> tocar los MX y migrar casillas, y mientras tanto los mails rebotan. La decisión del correo es la
+> que hay que pensar dos veces; la del sitio, no tanto.
+
+Si cuando esto crezca conviene tener el correo propio, se hace con la reputación construida y con
+alguien mirándolo. Hoy no me parece el lugar donde ajustar.
+
+**Es mi opinión, no una regla del repo.** Decide Daniel, y si elige el VPS lo acompaño — pero
+entonces pediría dos cosas: que se verifique la entrega a Gmail y Outlook **antes** de mudar los
+MX, y que el aviso de urgencia de Marcos no dependa solo del mail hasta comprobar que llega.
