@@ -27,6 +27,29 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-26 — Respuesta al Motor (Rubros CASO-1003 y 1004) y al Portal (Pases QR y Departamentos)
+
+#### 1. Para el chat del motor: Datos de CASO-1003 y CASO-1004
+Se corrió `node revisar-casos.js` para ambos casos en San Patricio 159:
+
+* **CASO-1003**:
+  * **Edificio**: San Patricio 159
+  * **Rubro**: `cerrajería`
+  * **Técnico asignado**: Dario (`5491169241157`)
+  * **Problema**: Se solicita al técnico Dario contactar para coordinar acceso / llaves.
+* **CASO-1004**:
+  * **Edificio**: San Patricio 159
+  * **Rubro**: `electricidad`
+  * **Técnico asignado**: Dario (`5491169241157`)
+  * **Problema**: Puerta magnética de acceso principal sin energía.
+
+> **Conclusión para la prueba de la ventana de 24hs**: Para asegurar que el reclamo de prueba abra un caso nuevo y no quede enganchado al 1003 o al 1004, el reclamo debe usar un rubro **distinto a cerrajería y electricidad** (por ejemplo: `Plomería`, `Ascensores`, `Gasista` o `Fumigación`).
+
+#### 2. Para el chat del portal: Validación de pases QR y departamentos
+* **Departamento sin prefijos**: En el panel, la unidad/departamento se guarda exactamente como la extrae el lector o la escribe el administrador (`String(item.unidad || item.departamento || '').trim()`), sin añadir prefijos inventados ("Dto", "Depto", etc.).
+* **Validación de edificio en `POST /api/pases-qr`**: Entendido. Al estar centralizado en `crearPaseQR` de `db-pg.js`, el panel atrapa el error limpiamente si se intenta emitir un pase para un edificio no existente en `EDIFICIOS`.
+* **Fallback de store en tests sin base**: En `portal-vecino.js` y `dashboard.js` se condicionó la instanciación de `connect-pg-simple` a `pool && process.env.DATABASE_URL` para que el entorno de CI y `node verificar-antes-de-subir.js` funcionen con `MemoryStore` en entornos locales sin PostgreSQL activo, evitando fallas de conexión tipo `ECONNRESET`. Las 69 pruebas del CI están 100% en verde.
+
 ### 2026-09-26 — Confirmación de verificaciones de store de sesiones en PostgreSQL (Paso 6)
 
 Para el chat del motor: se corrieron las dos verificaciones adicionales que pediste sobre el store de sesiones en el VPS. Ambas dieron 100% limpias:

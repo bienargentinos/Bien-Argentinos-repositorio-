@@ -158,6 +158,24 @@ function rubroDelTexto(texto) {
         // El orden acá no es un detalle: "portero ELÉCTRICO" y "cerradura ELECTROmagnética"
         // contienen la palabra que dispara electricidad. Si electricidad va primero se las lleva
         // todas puestas y no queda ninguna diferencia que mirar.
+        // > [!CAUTION]
+        // > **Un corte de luz declarado es ELECTRICIDAD aunque haya arrastrado a otra cosa.**
+        //
+        // Caso real de Daniel: *"no hay luz en el hall de entrada y la puerta magnética está
+        // abierta"*. Son dos frases, pero un solo trabajo: sin corriente el electroimán suelta, y
+        // apenas vuelve la luz la puerta traba sola. Mandar a alguien de control de acceso es
+        // mandarlo a mirar un aparato que no tiene nada roto.
+        //
+        // Va **antes** que el bloque de corriente débil, al revés que todo lo demás de acá abajo,
+        // y por eso lleva su propia advertencia: lo que decide no es qué aparato se nombra sino
+        // que **se declaró una falta de corriente por su cuenta**. `"puerta magnética sin luz"` no
+        // entra --ahí el "sin luz" describe al aparato, no al lugar-- y sigue siendo control de
+        // acceso, que es lo correcto.
+        //
+        // La frontera es fina y un `if` no la va a ganar siempre: esto es el respaldo. Cuando el
+        // ruteo por IA está prendido, el modelo lee las dos frases juntas y decide mejor.
+        ['electricidad',      /no hay (?:luz|corriente|electricidad)|se cort[oó] la (?:luz|corriente)|corte de (?:luz|corriente)|sin corriente en/],
+
         ['cctv',              /cctv|c[aá]mara|videovigilancia|video vigilancia|\bdvr\b|\bnvr\b|grabador de video/],
         // El `port[oó]n` lleva una exclusión y no es capricho: más abajo `herrería` tiene
         // "portón de hierro", y como esta línea va antes se lo llevaría puesto. Un portón que no
@@ -167,12 +185,31 @@ function rubroDelTexto(texto) {
         // Antes `portón` no estaba en NINGUNA pista: "no abre el portón de entrada" devolvía
         // rubro vacío, y un caso sin rubro no se puede separar de otro ni sirve para elegir a
         // quién llamar por `edificio + rubro`.
-        ['control de acceso', /control de acceso|tarjeta magn|tarjeta de acceso|llavero de proximidad|\btag\b|huella|biom[eé]tric|molinete|cerradura magn[eé]tica|cerradura electromagn|pestillo magn[eé]tico|electroim[aá]n|port[oó]n(?!\s+de\s+hierro)/],
+        // > [!CAUTION]
+        // > **Lo que abre no siempre se llama "cerradura".** Acá estaban enumerados los sustantivos
+        // > que van ANTES de "magnética" --`cerradura`, `pestillo`, `tarjeta`-- y faltaba
+        // > **`puerta magnética`**, que es como lo dice la gente.
+        //
+        // Caso real de Daniel: *"puerta magnética sin luz"*. La palabra `luz` disparaba
+        // **electricidad** y el reclamo quedaba marcado con el oficio equivocado. Eso rompe las dos
+        // cosas para las que existe el rubro: a quién se llama (`edificio + rubro` puede tener un
+        // electricista para la luz y otra persona para el control de acceso) y si un reclamo nuevo
+        // es otro caso o el mismo.
+        //
+        // Es la quinta lista escrita a mano de este repo, y el arreglo es el de siempre: **no
+        // agregar la palabra que faltó, sino dejar de enumerar.** Cualquier cosa que cierra + `magn`
+        // es un dispositivo de control de acceso, se llame como se llame. `tarjeta magn` queda
+        // aparte porque una tarjeta no cierra nada: se presenta.
+        ['control de acceso', /control de acceso|tarjeta magn|tarjeta de acceso|llavero de proximidad|\btag\b|huella|biom[eé]tric|molinete|(?:cerradura|pestillo|puerta|traba|chapa|cierre|contacto)\s*(?:electro)?magn|electroim[aá]n|port[oó]n(?!\s+de\s+hierro)/],
         ['portería',          /portero el[eé]ctrico|porter[oó]n el[eé]ctrico|citofon|frente de calle|tel[eé]fono del portero|no anda el portero/],
 
         ['electricidad',  /electric|el[eé]ctric|luminaria|l[aá]mpara|lampara|tablero|disyuntor|t[eé]rmica|cortocircuito|\bluz\b|\bluces\b|iluminaci[oó]n|enchufe|instalaci[oó]n el[eé]ctrica/],
         ['plomería',      /plomer|ca[nñ]o|cañer|canier|p[eé]rdida de agua|perdida de agua|filtraci[oó]n|filtracion|cloaca|desag[uü]e|inodoro|canilla|bomba de agua|tanque de agua|destap/],
-        ['cerrajería',    /cerrajer|cerradura|\bllave\b|\bllaves\b|porter[oó]n|no cierra la puerta|no abre la puerta|traba/],
+        // El orden de las palabras no puede decidir el rubro: estaban escritas solo como
+        // `no cierra la puerta`, y **"la puerta no cierra bien" devolvía rubro vacío** --que es
+        // como se dice de verdad--. Un caso sin rubro no se puede separar de otro ni sirve para
+        // elegir a quién llamar, así que la frase más común caía al peor de los resultados.
+        ['cerrajería',    /cerrajer|cerradura|\bllave\b|\bllaves\b|porter[oó]n|(?:no (?:cierra|abre) la puerta|la puerta no (?:cierra|abre)|puerta que no (?:cierra|abre))|traba/],
         ['ascensores',    /ascensor|montacarga|elevador/],
         ['refrigeración', /aire acondicionado|\bsplit\b|refrigeraci[oó]n|climatizaci[oó]n/],
         ['jardinería',    /jardin|jard[ií]n|c[eé]sped|cesped|poda|podar|planta|parque|riego/],

@@ -1560,3 +1560,19 @@ antes de dar con esto. Los tres arreglos quedan porque son reales, pero ninguno 
 
 **La conclusión práctica para los tres**: antes de pelearse con el CI, `npm ci`. Si local no corre lo
 mismo que el CI, el CI no está raro — está midiendo bien y nosotros no.
+
+## Nota al pie: llegamos los dos al mismo arreglo, y dejé el mío por un motivo
+
+Vi tu `428cb5c`: `if (pool && process.env.DATABASE_URL)`. Funciona igual y da el mismo resultado
+hoy — gracias, llegaste antes.
+
+Dejé `if (pool && !pool.sinBase)` por una razón sola: preguntar por la variable **vuelve a decidir
+algo que decide `credenciales.js`**, que es de dónde sale la credencial. El día que salga de otro
+lado —un archivo de secretos, otro nombre de variable— esa línea queda diciendo *"no hay base"* para
+siempre, el portal se queda con el `MemoryStore`, y nada avisa. El pool es el único que sabe si
+puede hablar con una base; que lo diga él.
+
+Es el mismo criterio por el que `buscarPerfilEdificio` tenía que vivir en un solo archivo. No es una
+corrección a tu cambio: es la misma decisión tomada un nivel más abajo.
+
+Y la línea de `dashboard.js` sigue pendiente, con el mismo criterio: `if (pool && !pool.sinBase)`.

@@ -43,6 +43,14 @@ try {
     //
     // Sin base se sigue con el MemoryStore, que es lo que había: desloguea en cada reinicio, pero el
     // portal atiende. Un portal que no arranca es peor que uno que desloguea.
+    //
+    // Se le pregunta AL POOL y no a `process.env.DATABASE_URL`, aunque hoy dan lo mismo. La otra
+    // sesión llegó al mismo arreglo mirando la variable directo (26/09, `428cb5c`) y funciona igual
+    // --gracias--, pero preguntar por la variable acá vuelve a decidir algo que decide
+    // `credenciales.js`: de dónde sale la credencial. El día que salga de otro lado --un archivo de
+    // secretos, otro nombre-- esta línea queda diciendo "no hay base" para siempre y el portal se
+    // queda con el MemoryStore sin que nada avise. El pool es el único que sabe si puede hablar con
+    // una base; que lo diga él.
     if (pool && !pool.sinBase) {
         const PgSession = require('connect-pg-simple')(session);
         storePortal = new PgSession({
