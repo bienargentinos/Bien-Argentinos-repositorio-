@@ -33,7 +33,17 @@ const session = require('express-session');
 let storePortal = null;
 try {
     const { pool } = require('./db-pg');
-    if (pool) {
+    // `!pool.sinBase`: cuando no hay `DATABASE_URL`, `db-pg.js` devuelve un pool que rechaza todo
+    // --a propósito, para no salir a adivinar un PostgreSQL en localhost--. Con ESE pool,
+    // `connect-pg-simple` rechaza en CADA pedido, `express-session` no puede leer la sesión, y
+    // Express contesta su página de error en HTML. O sea que el portal devolvería 500 en todo, y una
+    // ruta de API devolvería HTML donde el JavaScript de la página espera JSON:
+    //
+    //     SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+    //
+    // Sin base se sigue con el MemoryStore, que es lo que había: desloguea en cada reinicio, pero el
+    // portal atiende. Un portal que no arranca es peor que uno que desloguea.
+    if (pool && !pool.sinBase) {
         const PgSession = require('connect-pg-simple')(session);
         storePortal = new PgSession({
             pool,
