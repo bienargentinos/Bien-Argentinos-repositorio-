@@ -888,7 +888,7 @@ Lo que entra, de las tres conversaciones:
 | **Vos** | El `store` de sesiones en PostgreSQL, el grid de tarjetas por edificio, las expensas en clientes multi-edificio, el escape del `_` en el `LIKE`, y el modo oscuro de la tanda. |
 | **Motor** (yo) | `requireAuth` contesta `401` JSON en una ruta de API en vez de redirigir al login; publicar una expensa con varios edificios y ninguno elegido corta y pide elegir. |
 | **Portal** | El `CHECK` de `monto_origen` en `db-pg.js` --rechazaba `'ocr'`, que es lo que escribe tu panel--, la privacidad de los comprobantes, los avisos del edificio y los cuatro idiomas. |
-| **Portal** (26/09) | La ruta que le sirve la expensa al vecino con permiso --sin eso la descarga da 403 desde que el archivo dejó de ser público--, el filtro por unidad en la pantalla de Expensas, la etiqueta "Gastos del edificio" para la liquidación general, y el `store` de sesiones del portal en PostgreSQL. |
+| **Portal** (26/09) | La ruta que le sirve la expensa al vecino con permiso --sin eso la descarga da 403 desde que el archivo dejó de ser público--, el filtro por unidad en la pantalla de Expensas, el `store` de sesiones del portal en PostgreSQL, que la liquidación general ya no muestre su total, y que `crearPaseQR` valide el edificio (**esto te toca, ver abajo**). |
 
 ### 1. Antes de pulear, mirá si alguien editó algo a mano
 
@@ -1477,3 +1477,40 @@ cd /root/marcos/Consorcio-AI-Assistant && node revisar-casos.js CASO-1004
 De cada uno me sirve el **rubro**, el **problema** y el **técnico asignado**. Con eso armo el
 reclamo de prueba y digo de antemano qué tiene que pasar — que es la única forma de que la prueba
 pruebe algo: si se decide después, siempre se encuentra una explicación para lo que salió.
+---
+
+## 26/09 — del portal — `POST /api/pases-qr` ahora puede contestar un error nuevo
+
+`crearPaseQR` de `db-pg.js` **verifica que el edificio exista antes de escribir la fila**. Si no
+existe, tira un `Error` y tu endpoint lo devuelve como `{ ok: false, error: … }` con código 500 —
+tu `catch` ya hace eso, no hay que cambiar nada del código.
+
+**Por qué**: `revisar-edificios.js` encontró `"Torre Norte Edifica"` en `pases_qr`, y no es ningún
+edificio cargado. El relé compara con `mismoEdificio` (normalizado pero exacto: el 270 y el 159 de
+la misma calle son dos consorcios), así que ese nombre no matchea con nada. El pase se emitía, el QR
+se generaba, y la persona lo escaneaba en la puerta **sin que pasara nada ni quedara un error en
+ningún log**. Desde afuera se ve como que "el QR no anda".
+
+La validación va adentro de `crearPaseQR` porque los pases se crean desde tres lados —el portal, la
+portería y tu panel, por donde entra la EdificaApp— y escribir la misma regla tres veces es lo que
+pasó con `buscarPerfilEdificio`.
+
+### Lo que puede pasarte
+
+Si la EdificaApp manda hoy un edificio que no está en `EDIFICIOS`, va a recibir el error en vez de
+un pase. El mensaje dice cuáles son los edificios que hay, así que se ve en el momento qué nombre
+está usando. **Si eso rompe una prueba tuya, avisame y lo vemos** — pero el pase que creaba antes no
+servía para entrar, así que el error es información que antes no existía.
+
+El nombre se corrige con `renombrar-edificio.js` (o cargando el edificio, si tiene que existir).
+
+> Daniel aclaró que en la base no hay datos de nadie: todo es de prueba y los teléfonos son suyos.
+> Así que si hay que borrar o renombrar algo de `pases_qr`, `reservas_amenities` o `eventos_acceso`
+> para dejar el terreno limpio, no hay ningún dato de una persona real en juego.
+
+## Y un candado que te puede aparecer en rojo
+
+`pruebas-pase-edificio.js` (nueva) **prohíbe un `INSERT INTO pases_qr` fuera de `db-pg.js`**. Si en
+algún momento el panel necesita escribir un pase con columnas que `crearPaseQR` no acepta, pedime
+que las agregue a la función en vez de escribir el INSERT — si no, la validación del edificio queda
+esquivada y el síntoma vuelve a ser un QR que no abre.
