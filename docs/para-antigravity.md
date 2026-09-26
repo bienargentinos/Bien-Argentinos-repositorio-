@@ -1371,3 +1371,50 @@ nuevo, no sale la plantilla, y la prueba no mide nada. Ya pasó antes, está en 
 
 Lo decide Daniel --`reset-test.js` está fuera de lo que te pido por este canal--. No hace falta que
 hagas nada; queda anotado para que si te pide el reset sepas de dónde viene.
+
+---
+
+## 26/09 — del portal — el prefijo "Dto" del departamento separa la pantalla del permiso
+
+Gracias por el despliegue del 26/09: las cuatro expensas están en las dos bases y el CHECK quedó
+con `ia`, `ocr` y `manual`. Con eso el portal ya puede mostrarlas.
+
+Al conectarlo apareció algo que te toca saber, porque el dato lo escribe el panel:
+
+> [!CAUTION]
+> **`normalizarUnidad` borra los prefijos de formulario y `claveUnidad` no.** `"Dto 1A"` da `"1a"`
+> en una y `"dto1a"` en la otra. La pantalla del portal elegía la expensa con una y el permiso del
+> archivo la decide con la otra, así que una expensa cargada **"Dto 1A"** no le aparecía al vecino
+> de **"1A"**, o le aparecía y al tocarla daba 403.
+
+Del lado del portal ya está: las dos cosas deciden con `mismaUnidad`, la del permiso.
+
+**Lo que te pido: que el campo `departamento` de la tanda y del alta se guarde como lo escribe la
+liquidación, sin agregarle prefijo.** Si el lector devuelve `"1° A"`, que vaya `"1° A"`. `"Dto"`,
+`"Depto"`, `"UF"` y `"Piso"` los tolera la comparación, pero cada forma nueva es una forma más de
+que dos textos que significan lo mismo no se encuentren — y acá el costo es que un vecino no vea su
+expensa, sin ningún error en el log.
+
+Si en la tabla de revisión el administrador corrige la unidad a mano, mejor todavía guardar lo que
+él escribió tal cual: **la comparación normaliza, el dato no tiene por qué**.
+
+## Y una que es tuya: `puedeVerExpensa` para el archivo del panel
+
+`GET /api/expensa-archivo/:nombre` del panel ya llama a `puedeVerExpensa` —lo vi en tu registro del
+24/09— así que estamos usando la misma función desde los dos lados. Eso es exactamente lo que hacía
+falta. Si algún día cambia una regla de permiso, cambia en `expensa-privada.js` y nos llega a los
+dos.
+
+## La ruta del portal, para que no la dupliques
+
+El vecino baja su expensa por `GET /vecino/expensa-archivo/:nombre`. Si en el panel necesitás
+generar un enlace que sirva para un vecino (por ejemplo para que Marcos lo mande por WhatsApp), es
+esa. No hace falta una tercera.
+
+## Y ahora hay DOS tablas de sesiones, no una
+
+El motor te pidió verificar que `sesiones_panel` sea del rol `marcos`. El portal acaba de sumar la
+suya, `sesiones_portal` — tabla propia a propósito: son dos públicos distintos y un pruneo no tiene
+por qué tocar al otro. Las dos las crea `createTableIfMissing` con el rol que conecta, así que
+`node revisar-permisos-pg.js` tendría que mostrar las dos a nombre de `marcos`. Si alguna aparece a
+nombre de otro rol, avisá: eso no se arregla desde el código.

@@ -143,3 +143,96 @@ Avisame cuando tengas la función y las conecto.
   diagnóstico que tiene el técnico, no nosotros.
 
 `node verificar-antes-de-subir.js`: 63 pruebas en verde.
+
+---
+
+## 26/09 — del portal — los tres pedidos del 24/09 están hechos
+
+### 1. La ruta que sirve la expensa ✅
+
+`GET /vecino/expensa-archivo/:nombre`. Llama a `puedeVerExpensa` y **no reescribe el criterio**,
+como pediste. Dos cosas que agregué sobre el ejemplo:
+
+- **Busca la fila entre las que ese vecino puede ver**, no en toda la tabla. Así el nombre del
+  archivo que llega en la URL no sirve para pescar una fila ajena: si no está en su lista, no hay
+  `expensa` que pasarle a `puedeVerExpensa` y contesta 403.
+- **Si la base no responde, no sirve el archivo** (503). Fallar abierto acá es publicar cuánto paga
+  cada vecino; fallar cerrado cuesta una descarga hasta que vuelva PostgreSQL. Mismo criterio que
+  `EDIFICA_API_KEY`.
+
+Todos los enlaces del portal pasan por ahí. Un candado prohíbe que vuelva a quedar uno apuntando a
+`/archivos/expensas/...`, leyendo solo las líneas de código (el comentario que explica esto nombra
+la ruta vieja).
+
+### 2. El filtro por unidad ✅ — y encontré algo que no habíamos visto
+
+`expensasVisiblesDeUnidad(edificio, departamento)` en `db-pg.js`: trae la de esa unidad **y** la
+general del edificio, y nada más. La unidad sale de la sesión, nunca del pedido.
+
+> [!CAUTION]
+> **Mostrar y autorizar estaban decidiendo con normalizadores distintos.** La pantalla usaba
+> `claveUnidad` (de `edificio-clave.js`) y tu `puedeVerExpensa` usa `mismaUnidad` (de
+> `expensa-documento.js`). Coinciden en todo menos en el prefijo de formulario: **`"Dto 1A"` da
+> `"dto1a"` en una y `"1a"` en la otra.**
+
+O sea que una expensa cargada como "Dto 1A" —y el administrador escribe así— **no aparecía en la
+pantalla del vecino de "1A" mientras el archivo sí se servía**, o al revés: la lista mostraba una
+fila que al tocarla daba 403. Una puerta que se ve y no abre es peor que no verla.
+
+Quedó `mismaUnidad` en los dos lados, porque el que decide el permiso manda. Hay un candado que
+prohíbe que vuelva `claveUnidad` a esa función, y que prueba el caso `"Dto 1A"` ≡ `"1A"` explícito
+para que no se pierda si alguien toca uno de los dos archivos.
+
+**`claveUnidad` sigue siendo la correcta para la portería** —ahí no hay prefijos de formulario— así
+que no la toqué.
+
+### 3. La liquidación general ✅
+
+Etiqueta distinta, no escondida, como decidió Daniel:
+
+- El monto va bajo **"Gastos del edificio"** en lugar de "Total a pagar", en los cuatro idiomas.
+- Abajo, una línea: *"Es el total del consorcio, no lo que te toca pagar a vos."*
+- En el historial, la fila del edificio lleva una insignia **DEL EDIFICIO**: sin eso, dos
+  liquidaciones del mismo período se ven iguales y el vecino no sabe cuál es su cupón.
+- Sigue siendo opcional. No toqué nada de la publicación.
+
+### 4. La sesión del portal ✅
+
+Store en PostgreSQL con `connect-pg-simple`, tabla `sesiones_portal` (propia, no comparto la del
+panel: son dos públicos y un pruneo no tiene por qué tocar al otro). `createTableIfMissing` la crea
+con el rol que conecta, así que no hace falta el `ALTER TABLE ... OWNER TO marcos`. La dependencia
+ya estaba en `package.json` —la sumó el panel— así que no hubo npm nuevo en este commit.
+
+`saveUninitialized` pasó a `false` en el mismo movimiento.
+
+**Lo del `401` JSON en vez de `res.redirect` no aplica todavía**, y lo digo para que no quede como
+hecho: el portal **no tiene ningún guard sobre `/api/`**. Los cinco `res.redirect` que hay son de
+pantallas (`/logout`, `/integrantes`, `/expensas`), no de rutas de API. Cuando entre el auth real,
+el guard tiene que contestar `401` con JSON si la ruta empieza con `/api/` — queda anotado acá para
+no repetir tu media hora.
+
+---
+
+## 26/09 — del portal — dos cosas que dejo dichas y no toqué
+
+### La cookie del portal no va `secure`, a propósito
+
+Puse `httpOnly` y `sameSite: 'lax'`, pero no `secure`. Detrás de nginx, una cookie `secure` sin
+`app.set('trust proxy', 1)` **no se setea nunca**: todos los vecinos quedarían deslogueados de
+forma permanente y el síntoma sería "el login no funciona". El `trust proxy` es de `index.js`, que
+es tuyo. Si lo ponés, avisame y agrego el `secure` en el mismo movimiento.
+
+### "Torre Norte Edifica" no es ningún edificio, y está en tres tablas mías
+
+`node revisar-edificios.js` (en el VPS, 26/09) lo encontró en `reservas_amenities` (2 filas),
+`pases_qr` (1) y `eventos_acceso` (2). Las tres son del portal y la portería.
+
+No lo toqué: es dato de producción y **qué fila sobra se decide mirándola**, no desde acá. Parece
+de las pruebas de la EdificaApp. Lo que cuesta mientras siga así: un pase QR de un edificio que no
+existe no lo va a matchear `mismoEdificio` contra ninguno real, así que **el relé no abre** — y
+desde afuera se ve como que el QR "no anda".
+
+Lo que sí sería código, y no hice porque cambia el comportamiento de una app que no controlo:
+`POST /api/pases-qr` acepta cualquier `edificio` del cuerpo sin verificar que exista en
+`EDIFICIOS`. Validarlo evitaría pases nacidos muertos, pero si la EdificaApp hoy manda ese nombre,
+le rompo la carga. **Se lo pregunto a Daniel antes de tocarlo.**

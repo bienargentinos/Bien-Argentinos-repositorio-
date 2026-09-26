@@ -13,7 +13,56 @@ const router = express.Router();
 const session = require('express-session');
 // El secreto era, literalmente, la palabra 'secret'. Con eso se falsifica una sesión de vecino
 // — y una sesión de vecino es lo que `apertura-remota.js` autoriza para abrir la puerta de calle.
-router.use(session({ secret: require('./credenciales').secretoDeSesion(), resave: false, saveUninitialized: true }));
+//
+// LA SESIÓN VIVÍA EN LA RAM DEL PROCESO, así que cada `pm2 restart` deslogueaba a todos los
+// vecinos. `session()` sin `store` usa el `MemoryStore` de express-session, y el síntoma no se
+// parece a la causa: el navegador sigue mandando una cookie que cree válida, la página se ve
+// normal, y el error aparece recién al apretar un botón. En el panel salió como
+// `JSON.parse: unexpected character at line 1 column 1` y mandó a buscar el problema al código
+// recién escrito — media hora de diagnóstico.
+//
+// El store va en PostgreSQL, igual que el del panel, pero en su propia tabla: el portal y el panel
+// son dos públicos distintos y un pruneo no tiene por qué tocar al otro. `createTableIfMissing` la
+// crea con el rol que conecta (`marcos`), que es lo que hace falta: una tabla creada desde `psql`
+// como `postgres` no la puede escribir Marcos, y desde el código parece un bug
+// (`node revisar-permisos-pg.js` lo dice).
+//
+// Si PostgreSQL no está, se sigue con el MemoryStore a propósito: un portal que no arranca es peor
+// que uno que desloguea en cada despliegue. Pero queda dicho en el log, porque si no nadie se
+// entera de que volvió el problema.
+let storePortal = null;
+try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+        const PgSession = require('connect-pg-simple')(session);
+        storePortal = new PgSession({
+            pool,
+            tableName: 'sesiones_portal',
+            createTableIfMissing: true,
+            pruneSessionInterval: 60 * 15,
+        });
+    }
+} catch (errStore) {
+    console.warn('⚠️ Portal: sin store en PostgreSQL, las sesiones se pierden en cada reinicio:', errStore.message);
+}
+
+router.use(session({
+    store: storePortal || undefined,
+    name: 'portal.sid',
+    secret: require('./credenciales').secretoDeSesion(),
+    resave: false,
+    // Estaba en `true`, o sea que creaba una sesión por cada visita anónima --incluida la de
+    // cualquier robot-- y el MemoryStore iba creciendo con gente que nunca se logueó. Con un store
+    // de verdad eso serían filas en la base.
+    saveUninitialized: false,
+    cookie: {
+        // Una sesión de vecino abre la puerta de calle: que el JavaScript de la página no pueda
+        // leer la cookie es lo mínimo.
+        httpOnly: true,
+        sameSite: 'lax',
+        maxAge: 1000 * 60 * 60 * 24 * 30,
+    },
+}));
 // Los formularios del login (`/vecino/auth`) mandan `application/x-www-form-urlencoded`, y de eso
 // no se encargaba NADIE: `index.js` monta `bodyParser.json()` solamente. Así que `req.body` llegaba
 // vacío y el `identificador` del formulario nunca se leía — sin un solo error en el log, porque
@@ -3232,12 +3281,14 @@ router.get('/', async (req, res) => {
 
       <div style="margin-bottom:16px">
         ${expensa && expensa.monto !== null ? `
-        <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('inicio.totalAPagar'))}</div>
+        <!-- Una expensa general NO es una deuda de esta persona: es el total de gastos del
+             consorcio. Con la etiqueta "Total a pagar" el vecino lee que le cobran eso. -->
+        <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(expensa.esDelEdificio ? t('expensa.gastosEdificio') : t('inicio.totalAPagar'))}</div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
           <div style="font-size:32px;font-weight:900;color:var(--texto);letter-spacing:-.03em">${esc(montoEnPesos(expensa.monto))}</div>
         </div>
         ${expensa.vencimiento ? `<div style="font-size:12px;color:var(--texto-suave);margin-top:2px">${esc(t('expensa.vence', { fecha: new Date(expensa.vencimiento).toLocaleDateString('es-AR') }))}</div>` : ''}
-        ${expensa.esDelEdificio ? `<div style="font-size:11.5px;color:var(--texto-tenue);margin-top:4px">${esc(t('expensa.delEdificio'))}</div>` : ''}
+        ${expensa.esDelEdificio ? `<div style="font-size:11.5px;color:var(--texto-tenue);margin-top:4px">${esc(t('expensa.noEsTuDeuda'))}</div>` : ''}
         ` : `
         <div style="font-size:13.5px;color:var(--texto-medio);line-height:1.45">${esc(t('expensa.sinCargar'))}</div>
         `}
@@ -3249,9 +3300,9 @@ router.get('/', async (req, res) => {
           <i class="ph ph-credit-card" style="font-size:18px"></i>
           <span>${esc(t('inicio.pagarExpensa'))}</span>
         </a>
-        <a href="${expensa && expensa.url ? esc(expensa.url) : '/vecino/expensas'}"${expensa && expensa.url ? ' target="_blank" rel="noopener"' : ''} style="height:44px;border-radius:12px;background:var(--superficie-3);color:var(--marca);font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--borde);text-decoration:none">
-          <i class="ph ph-${expensa && expensa.url ? 'download-simple' : 'receipt'}" style="font-size:18px"></i>
-          <span>${esc(expensa && expensa.url ? t('expensa.descargar') : t('inicio.verRecibo'))}</span>
+        <a href="${expensa && enlaceDeExpensa(expensa) ? enlaceDeExpensa(expensa) : '/vecino/expensas'}"${expensa && enlaceDeExpensa(expensa) ? ' target="_blank" rel="noopener"' : ''} style="height:44px;border-radius:12px;background:var(--superficie-3);color:var(--marca);font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--borde);text-decoration:none">
+          <i class="ph ph-${expensa && enlaceDeExpensa(expensa) ? 'download-simple' : 'receipt'}" style="font-size:18px"></i>
+          <span>${esc(expensa && enlaceDeExpensa(expensa) ? t('expensa.descargar') : t('inicio.verRecibo'))}</span>
         </a>
       </div>
     </div>
@@ -5160,6 +5211,67 @@ router.post('/api/chat', async (req, res) => {
 // vacío: la pantalla ya sabe qué decir cuando no hay ninguno.
 const _comprobantesEnMemoria = [];
 
+// El vecino abre SU expensa por acá, y por ningún otro lado.
+//
+// El PDF de una expensa vivía en `almacenamiento/expensas/`, que `index.js` servía entero con
+// `express.static` y sin sesión: alcanzaba con adivinar el nombre del archivo. Desde que el panel
+// publica por unidad eso dejó de ser un documento del edificio y pasó a ser el dato privado de una
+// persona --cuánto paga, cuánto debe--, así que el motor cerró esas rutas con 403.
+//
+// Filtrar por unidad en la pantalla NO alcanzaba: eso protege la vista, no el archivo. Y estas URL
+// circulan solas: Marcos comparte la expensa por WhatsApp y el vecino la reenvía.
+//
+// El permiso lo decide `puedeVerExpensa`, que es la MISMA función que llama el panel. No se
+// reescribe el criterio acá: el día que cambie una regla tiene que cambiar en un solo lugar. Es
+// exactamente lo que pasó con `buscarPerfilEdificio`, que quedó escrita dos veces y arreglar una
+// copia no cambió nada en producción.
+router.get('/expensa-archivo/:nombre', async (req, res) => {
+  const v = getVecinoSession(req);
+  const nombre = path.basename(String(req.params.nombre || ''));
+
+  let expensa = null;
+  try {
+    const { expensasVisiblesDeUnidad } = require('./db-pg');
+    const visibles = await expensasVisiblesDeUnidad(v.edificio, v.departamento);
+    // Se busca entre las que este vecino puede ver, por el nombre del archivo. Si la fila no está
+    // en esa lista, `puedeVerExpensa` va a decir que no --y es lo correcto: que no la encontremos
+    // no se responde con el archivo.
+    expensa = visibles.find(e => path.basename(String(e.url || '')) === nombre
+                              || String(e.nombre || '') === nombre) || null;
+  } catch (e) {
+    // Si la base no contesta no se sirve el archivo. Fallar abierto acá es publicar cuánto paga
+    // cada vecino; fallar cerrado cuesta que no pueda descargar su expensa hasta que vuelva la
+    // base. De los dos errores se elige el que se puede deshacer.
+    console.warn('No se pudo verificar el permiso de la expensa:', e.message);
+    return res.status(503).send('No se pudo verificar el permiso. Probá de nuevo en un rato.');
+  }
+
+  const { puedeVerExpensa, rutaDelArchivo } = require('./expensa-privada');
+  const { puede, motivo } = puedeVerExpensa({
+    expensa,
+    quien: {
+      rol: 'vecino',
+      edificio: v.edificio,
+      departamento: v.departamento,
+      puede_ver_expensas: v.puede_ver_expensas,
+    },
+  });
+  if (!puede) return res.status(403).send(motivo || 'No tenés permiso para ver este archivo');
+
+  const ruta = rutaDelArchivo(expensa.url || expensa.nombre);
+  if (!ruta || !fs.existsSync(ruta)) {
+    return res.status(404).send('El archivo no está en el servidor. Avisale a la Administración.');
+  }
+  return res.sendFile(ruta);
+});
+
+// Por dónde se baja una expensa. Nunca la `url` cruda de la fila: esa apunta a
+// `/archivos/expensas/...`, que da 403 desde que el archivo dejó de ser público.
+function enlaceDeExpensa(exp) {
+  const nombre = path.basename(String((exp && (exp.url || exp.nombre)) || ''));
+  return nombre ? '/vecino/expensa-archivo/' + encodeURIComponent(nombre) : '';
+}
+
 router.get('/expensas', async (req, res) => {
   const v = getVecinoSession(req);
   if (v.puede_ver_expensas === false) {
@@ -5174,11 +5286,16 @@ router.get('/expensas', async (req, res) => {
   try {
     const { pool } = require('./db-pg');
     if (pool) {
-      const qExp = `SELECT * FROM expensas WHERE LOWER(edificio) = LOWER($1) AND estado != 'eliminada' ORDER BY id DESC`;
-      const resExp = await pool.query(qExp, [v.edificio]);
-      if (resExp && resExp.rows && resExp.rows.length > 0) {
-        expensas = resExp.rows;
-      }
+      // SOLO las que este vecino puede ver: la de SU unidad y la liquidación general del
+      // edificio. La consulta filtraba nada más que por edificio, y desde que el panel publica
+      // por unidad eso le mostraba a cada vecino la liquidación de todos sus vecinos --y el
+      // botón de descarga de cada una--.
+      //
+      // La unidad sale de la sesión, de lo que el vecino tiene asignado. Nunca de algo que venga
+      // en el pedido: si saliera de ahí, cualquiera pide la del vecino escribiendo su número de
+      // unidad. Es el agujero que tenía `/api/pases-qr`.
+      const { expensasVisiblesDeUnidad } = require('./db-pg');
+      expensas = await expensasVisiblesDeUnidad(v.edificio, v.departamento);
 
       // Obtener comprobantes subidos
       // SOLO los comprobantes de ESTA unidad.
@@ -5264,11 +5381,28 @@ router.get('/expensas', async (req, res) => {
       <div style="font-size:22px;font-weight:800;color:var(--texto);margin-bottom:4px">
         ${ultimaExpensa ? (ultimaExpensa.periodo || 'Período Vigente') : 'Período en Proceso'}
       </div>
+      ${ultimaExpensa && ultimaExpensa.monto !== null ? `
+      <!-- UNA EXPENSA GENERAL NO ES UNA DEUDA DE ESTA PERSONA.
+           La liquidación del edificio trae el total de gastos del consorcio --en la carga real
+           salió $1.284.650,40--. Mostrado con la misma etiqueta que el cupón de una unidad, el
+           vecino lee que le están cobrando eso. Va con otra etiqueta, y no se esconde: en qué se
+           fue la plata del consorcio es justo la transparencia que un vecino quiere. -->
+      <div style="font-size:11.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">
+        ${ultimaExpensa.esDelEdificio ? 'Gastos del edificio' : 'Total a pagar'}
+      </div>
+      <div style="font-size:26px;font-weight:900;color:var(--texto);letter-spacing:-.02em;margin-bottom:2px">${esc(montoEnPesos(ultimaExpensa.monto))}</div>
+      ${ultimaExpensa.esDelEdificio ? `
+      <p style="font-size:12.5px;color:var(--texto-suave);line-height:1.45;margin-bottom:14px">Es el total del consorcio, no lo que te toca pagar a vos.</p>
+      ` : `
+      ${ultimaExpensa.vencimiento ? `<p style="font-size:12.5px;color:var(--texto-suave);margin-bottom:14px">Vence el ${esc(new Date(ultimaExpensa.vencimiento).toLocaleDateString('es-AR'))}</p>` : '<div style="margin-bottom:14px"></div>'}
+      `}
+      ` : `
       <p style="font-size:13px;color:var(--texto-suave);line-height:1.45;margin-bottom:14px">
-        ${ultimaExpensa ? 'La administración publicó el resumen de expensas correspondiente a este período.' : 'La administración publicará la liquidación digital de este mes a la brevedad.'}
+        ${ultimaExpensa ? 'La administración publicó el documento de este período. El total todavía no está cargado.' : 'La administración publicará la liquidación digital de este mes a la brevedad.'}
       </p>
-      ${ultimaExpensa && (ultimaExpensa.url || ultimaExpensa.nombre) ? `
-      <a href="${ultimaExpensa.url || ('/archivos/facturas/' + ultimaExpensa.nombre)}" target="_blank" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;background:linear-gradient(180deg,var(--acento),var(--acento));color:#fff;font-weight:700;font-size:13.5px;box-shadow:0 3px 10px rgba(46,111,192,.3)">
+      `}
+      ${ultimaExpensa && enlaceDeExpensa(ultimaExpensa) ? `
+      <a href="${enlaceDeExpensa(ultimaExpensa)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;background:linear-gradient(180deg,var(--acento),var(--acento));color:#fff;font-weight:700;font-size:13.5px;box-shadow:0 3px 10px rgba(46,111,192,.3)">
         <i class="ph ph-file-pdf" style="font-size:18px"></i>
         <span>Ver / Descargar Liquidación</span>
       </a>` : `
@@ -5421,7 +5555,10 @@ router.get('/expensas', async (req, res) => {
       ${expensas.length > 0 ? `
       <div style="display:flex;flex-direction:column;gap:10px">
         ${expensas.map((x, idx) => {
-          const downloadUrl = x.url || ('/archivos/facturas/' + x.nombre);
+          // Por la ruta del portal, que verifica quién pregunta. La `url` cruda apunta a
+          // `/archivos/expensas/...` y da 403: el archivo dejó de ser público el día que pasó a
+          // tener el monto de una unidad adentro.
+          const downloadUrl = enlaceDeExpensa(x);
           const isUltima = idx === 0;
           return `
           <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid var(--borde);border-radius:12px;background:var(--superficie-2);gap:10px;flex-wrap:wrap">
@@ -5433,6 +5570,9 @@ router.get('/expensas', async (req, res) => {
                 <div style="display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px;font-weight:800;color:var(--texto)">${x.periodo || 'Período'}</span>
                   ${isUltima ? '<span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:var(--ok-fondo);color:var(--ok)">ÚLTIMO</span>' : ''}
+                  <!-- Cuál de estas filas es la del edificio entero. Sin esto, dos liquidaciones
+                       del mismo período se ven iguales y el vecino no sabe cuál es su cupón. -->
+                  ${x.esDelEdificio ? '<span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:var(--superficie-3);color:var(--texto-medio);border:1px solid var(--borde)">DEL EDIFICIO</span>' : ''}
                 </div>
                 <div style="font-size:11.5px;color:var(--texto-suave)">${x.nombre || 'Liquidación de Expensas'}</div>
               </div>
