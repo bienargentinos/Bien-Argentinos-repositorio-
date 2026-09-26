@@ -29,6 +29,17 @@ const PANTALLAS = [
                      'Generar Pase', 'Compartir por WhatsApp', 'Días habilitados',
                      'Historial / Vencidos'],
     },
+    {
+        ruta: '/vecino/amenities',
+        // Reservar la parrilla o el SUM. Un huésped lo usa, y acá hay plata de por medio: si no
+        // entiende el arancel, reserva creyendo que es gratis.
+        traducido: ['Reservar espaço comum', 'Nova reserva por horas', 'Escolha o espaço',
+                    'Escolha a data', 'Confirmar a reserva', 'Minhas reservas',
+                    'Motivo ou quantidade de pessoas'],
+        castellano: ['Reserva de Amenities', 'Nueva Reserva por Horas', 'Elegí el espacio común',
+                     'Elegí la fecha', 'Confirmar Reserva', 'Mis Reservas',
+                     'Motivo / Cantidad de personas'],
+    },
 ];
 
 let fallos = 0;

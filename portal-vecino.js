@@ -3129,6 +3129,16 @@ function montoEnPesos(n) {
   return `${num < 0 ? '-' : ''}$${conPuntos},${dec}`;
 }
 
+// El mismo importe sin los centavos, para un arancel redondo: `$15.000` en vez de `$15.000,00`.
+// Mismo motivo para no usar `toLocaleString`: el ICU reducido del VPS devuelve `$15,000`.
+function montoRedondo(n) {
+  const num = Number(n);
+  if (!isFinite(num)) return '';
+  const entera = String(Math.round(Math.abs(num)));
+  const conPuntos = entera.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${num < 0 ? '-' : ''}$${conPuntos}`;
+}
+
 // LO QUE EL EDIFICIO TIENE PARA DECIR HOY
 //
 // Junta las dos fuentes y las devuelve ordenadas por autoridad: primero lo que alguien del
@@ -5326,6 +5336,10 @@ function enlaceDeExpensa(exp) {
 
 router.get('/expensas', async (req, res) => {
   const v = getVecinoSession(req);
+  // Esta pantalla todavia esta en castellano, pero necesita `t` igual: comparte el bloque de
+  // "subir un comprobante" con Amenities, y una clave de alla termino aca por un reemplazo global.
+  // Es el mismo error que dejo /vecino/login caido en produccion, y lo agarro el mismo candado.
+  const t = textos(v.idioma);
   if (v.puede_ver_expensas === false) {
     return res.redirect('/vecino');
   }
@@ -5518,7 +5532,7 @@ router.get('/expensas', async (req, res) => {
           
           <div id="box-select-comprobante" onclick="document.getElementById('inp-comprobante-file').click()" style="border:2px dashed #93C5FD;background:#fff;border-radius:12px;padding:16px;text-align:center;cursor:pointer">
             <div style="font-size:26px;margin-bottom:4px">🧾</div>
-            <div style="font-size:13px;font-weight:800;color:var(--acento)">Seleccionar Foto o PDF del Comprobante</div>
+            <div style="font-size:13px;font-weight:800;color:var(--acento)">${esc(t('amen.elegirArchivo'))}</div>
             <div style="font-size:11.5px;color:var(--texto-suave)">Tocá para elegir desde tu celular o galería</div>
           </div>
 
@@ -6318,6 +6332,30 @@ router.post('/api/reclamos', async (req, res) => {
 // -------------------------------------------------------------------
 router.get('/amenities', async (req, res) => {
   const v = getVecinoSession(req);
+  const t = textos(v.idioma);
+
+  // Los textos que necesita el JavaScript del navegador, en un objeto y serializados una sola vez.
+  // Un apóstrofe de cualquier idioma --"l'heure", "d'1 heure"-- cerraría una cadena de JavaScript y
+  // rompería la pantalla entera.
+  const TA = JSON.stringify({
+    arancel: t('amen.arancel'),
+    tarifaFija: t('amen.tarifaFija'),
+    porHora: t('amen.porHora'),
+    notaFija: t('amen.notaFija'),
+    notaPorHora: t('amen.notaPorHora'),
+    notaTransferir: t('amen.notaTransferir'),
+    sinCostoEspacio: t('amen.sinCostoEspacio'),
+    sinCosto: t('amen.sinCosto'),
+    elegiFecha: t('amen.elegiFecha'),
+    totalAAbonar: t('amen.totalAAbonar'),
+    hora: t('amen.hora'),
+    horas: t('amen.horas'),
+    fijo: t('amen.fijo'),
+    alias: t('amen.alias'),
+    confirmar: t('amen.confirmar'),
+    reservaHecha: t('amen.reservaHecha'),
+  });
+
   let misReservas = [];
   let todasReservasEdificio = [];
   let amenitiesList = [];
@@ -6408,15 +6446,15 @@ router.get('/amenities', async (req, res) => {
 
   const content = `
     <div style="margin-bottom:16px">
-      <h2 style="font-size:20px;font-weight:800;color:var(--marca);margin-bottom:2px">Reserva de Amenities</h2>
-      <p style="font-size:13px;color:var(--texto-suave)">Espacios comunes y turnos por hora en ${esc(v.edificio)}</p>
+      <h2 style="font-size:20px;font-weight:800;color:var(--marca);margin-bottom:2px">${esc(t('amen.titulo'))}</h2>
+      <p style="font-size:13px;color:var(--texto-suave)">${esc(t('amen.subtitulo', { edificio: v.edificio }))}</p>
     </div>
 
     <!-- MIS RESERVAS PRÓXIMAS -->
     ${misReservas.length ? `
     <div class="card" style="margin-bottom:16px;padding:16px 18px">
       <div style="font-size:14px;font-weight:800;color:var(--texto);margin-bottom:10px;display:flex;align-items:center;gap:6px">
-        <span>🎟️</span> Mis Reservas (${misReservas.length})
+        <span>🎟️</span> ${esc(t('amen.misReservas'))} (${misReservas.length})
       </div>
       <div style="display:flex;flex-direction:column;gap:10px">
         ${misReservas.map(r => {
@@ -6425,19 +6463,19 @@ router.get('/amenities', async (req, res) => {
           let badgePago = '';
           if (montoNum > 0) {
             if (estadoPago === 'aprobado') {
-              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--ok-fondo);color:var(--ok);border:1px solid var(--ok-borde)">✅ Pago Aprobado ($' + montoNum.toLocaleString('es-AR') + ')</span>';
+              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--ok-fondo);color:var(--ok);border:1px solid var(--ok-borde)">✅ ' + esc(t('amen.pagoAprobado')) + ' (' + montoRedondo(montoNum) + ')</span>';
             } else if (estadoPago === 'comprobante_subido') {
-              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--aviso-fondo);color:var(--aviso);border:1px solid var(--aviso-borde)">⏳ Pago en Revisión ($' + montoNum.toLocaleString('es-AR') + ')</span>' +
-                (r.comprobante_url ? ' <a href="' + r.comprobante_url + '" target="_blank" style="font-size:11px;font-weight:700;color:var(--acento);text-decoration:underline;margin-left:4px">👁️ Ver Comprobante</a>' : '');
+              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--aviso-fondo);color:var(--aviso);border:1px solid var(--aviso-borde)">⏳ ' + esc(t('amen.pagoEnRevision')) + ' (' + montoRedondo(montoNum) + ')</span>' +
+                (r.comprobante_url ? ' <a href="' + r.comprobante_url + '" target="_blank" style="font-size:11px;font-weight:700;color:var(--acento);text-decoration:underline;margin-left:4px">👁️ ' + esc(t('amen.verComprobante')) + '</a>' : '');
             } else if (estadoPago === 'rechazado') {
-              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--error-fondo);color:var(--error);border:1px solid var(--error-borde)">❌ Comprobante Observado ($' + montoNum.toLocaleString('es-AR') + ')</span>' +
-                ' <button onclick="abrirModalPagarReserva(' + r.id + ', \'' + escJs(r.amenity) + '\', ' + montoNum + ')" style="border:none;background:linear-gradient(135deg,#DC2626,#EF4444);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;cursor:pointer;margin-left:6px;box-shadow:0 2px 6px rgba(220,38,38,0.25)">🔄 Subir Nuevo Comprobante</button>';
+              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--error-fondo);color:var(--error);border:1px solid var(--error-borde)">❌ ' + esc(t('amen.comprobanteObservado')) + ' (' + montoRedondo(montoNum) + ')</span>' +
+                ' <button onclick="abrirModalPagarReserva(' + r.id + ', \'' + escJs(r.amenity) + '\', ' + montoNum + ')" style="border:none;background:linear-gradient(135deg,#DC2626,#EF4444);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;cursor:pointer;margin-left:6px;box-shadow:0 2px 6px rgba(220,38,38,0.25)">🔄 ' + esc(t('amen.subirNuevo')) + '</button>';
             } else {
-              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--error-fondo);color:var(--error);border:1px solid var(--error-borde)">⚠️ Pago Pendiente ($' + montoNum.toLocaleString('es-AR') + ')</span>' +
-                ' <button onclick="abrirModalPagarReserva(' + r.id + ', \'' + escJs(r.amenity) + '\', ' + montoNum + ')" style="border:none;background:linear-gradient(135deg,var(--acento),var(--acento));color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;cursor:pointer;margin-left:6px;box-shadow:0 2px 6px rgba(30,95,180,0.25)">💳 Subir Comprobante</button>';
+              badgePago = '<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--error-fondo);color:var(--error);border:1px solid var(--error-borde)">⚠ ' + esc(t('amen.pagoPendiente')) + ' (' + montoRedondo(montoNum) + ')</span>' +
+                ' <button onclick="abrirModalPagarReserva(' + r.id + ', \'' + escJs(r.amenity) + '\', ' + montoNum + ')" style="border:none;background:linear-gradient(135deg,var(--acento),var(--acento));color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;cursor:pointer;margin-left:6px;box-shadow:0 2px 6px rgba(30,95,180,0.25)">💳 ' + esc(t('amen.subirComprobante')) + '</button>';
             }
           } else {
-            badgePago = '<span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--superficie-3);color:var(--texto-suave)">🟢 Sin costo</span>';
+            badgePago = '<span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--superficie-3);color:var(--texto-suave)">🟢 ' + esc(t('amen.sinCosto')) + '</span>';
           }
 
           return `
@@ -6450,11 +6488,11 @@ router.get('/amenities', async (req, res) => {
               <div style="font-size:12px;color:var(--texto-suave)">📆 ${esc(r.fecha)} · ⏰ <strong>${esc(r.hora_desde || '00:00')} a ${esc(r.hora_hasta || '00:00')} hs</strong>${r.notas ? ' · ' + esc(r.notas) : ''}</div>
               ${estadoPago === 'rechazado' ? `
                 <div style="background:#FFF1F2;border-left:3px solid #E11D48;border-radius:0 6px 6px 0;padding:6px 10px;margin-top:6px;font-size:11.5px;color:#9F1239">
-                  <strong>⚠️ Observación de administración:</strong> ${esc(r.motivo_rechazo || 'El comprobante previo no pudo ser verificado. Por favor adjuntá uno nuevo legible.')}
+                  <strong>⚠️ ${esc(t('amen.observacionAdmin'))}</strong> ${esc(r.motivo_rechazo || t('amen.observacionDefault'))}
                 </div>
               ` : ''}
             </div>
-            <button onclick="cancelarReserva(${r.id})" style="border:1px solid var(--error-borde);background:var(--error-fondo);color:var(--error);font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:6px;cursor:pointer">Cancelar</button>
+            <button onclick="cancelarReserva(${r.id})" style="border:1px solid var(--error-borde);background:var(--error-fondo);color:var(--error);font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:6px;cursor:pointer">${esc(t('amen.cancelar'))}</button>
           </div>`;
         }).join('')}
       </div>
@@ -6464,13 +6502,13 @@ router.get('/amenities', async (req, res) => {
     <!-- FORMULARIO DE RESERVA POR HORAS (ESTILO BUTACAS / BLOQUES) -->
     <div class="card" style="margin-bottom:16px;padding:18px 20px">
       <div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:14px;display:flex;align-items:center;gap:6px">
-        <span>📅</span> Nueva Reserva por Horas
+        <span>📅</span> ${esc(t('amen.nueva'))}
       </div>
 
       <form id="form-reserva-amenity" onsubmit="guardarReserva(event)">
         <!-- 1. Selección del Amenity -->
         <div style="margin-bottom:16px">
-          <label style="font-size:12.5px;font-weight:700;color:var(--texto-medio);display:block;margin-bottom:8px">1. Elegí el espacio común</label>
+          <label style="font-size:12.5px;font-weight:700;color:var(--texto-medio);display:block;margin-bottom:8px">${esc(t('amen.paso1'))}</label>
           <div id="grid-amenities" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
             ${amenitiesList.map((a, idx) => `
               <div onclick="seleccionarAmenity('${escJs(a.nombre)}', this)" class="amenity-card-item ${idx === 0 ? 'selected' : ''}">
@@ -6478,8 +6516,8 @@ router.get('/amenities', async (req, res) => {
                 <div class="amenity-title">${esc(a.nombre)}</div>
                 <div class="amenity-time">${esc(a.hora_apertura)} a ${esc(a.hora_cierre)} hs</div>
                 ${a.arancelado && a.precio > 0 
-                  ? `<div class="amenity-badge-arancel">💰 $${Number(a.precio).toLocaleString('es-AR')} ${a.tipo_arancel === 'por_reserva' ? 'fijo' : '/ h'}</div>`
-                  : `<div style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(74,222,128,0.12);color:var(--ok);border:1px solid rgba(74,222,128,0.3);margin-top:4px;display:inline-block">🟢 Sin costo</div>`
+                  ? `<div class="amenity-badge-arancel">💰 ${montoRedondo(a.precio)} ${a.tipo_arancel === 'por_reserva' ? esc(t('amen.fijo')) : '/ h'}</div>`
+                  : `<div style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(74,222,128,0.12);color:var(--ok);border:1px solid rgba(74,222,128,0.3);margin-top:4px;display:inline-block">🟢 ${esc(t('amen.sinCosto'))}</div>`
                 }
               </div>
             `).join('')}
@@ -6494,15 +6532,15 @@ router.get('/amenities', async (req, res) => {
 
         <!-- 2. Fecha -->
         <div style="margin-bottom:16px">
-          <label style="font-size:12.5px;font-weight:700;color:var(--texto-medio);display:block;margin-bottom:6px">2. Elegí la fecha</label>
+          <label style="font-size:12.5px;font-weight:700;color:var(--texto-medio);display:block;margin-bottom:6px">${esc(t('amen.paso2'))}</label>
           <input type="date" id="inp-reserva-fecha" value="${hoyStr}" min="${hoyStr}" class="inp" style="background:#fff;margin-bottom:0" onchange="renderGrillaHoras()">
         </div>
 
         <!-- 3. Grilla de Horas Estilo Asientos de Cine -->
         <div style="margin-bottom:16px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <label style="font-size:12.5px;font-weight:700;color:var(--texto-medio)">3. Tocá las horas que vas a utilizar (bloques de 1h)</label>
-            <span style="font-size:11px;color:var(--texto-suave)">🟩 Libre · 🟥 Ocupado</span>
+            <label style="font-size:12.5px;font-weight:700;color:var(--texto-medio)">${esc(t('amen.paso3'))}</label>
+            <span style="font-size:11px;color:var(--texto-suave)">${esc(t('amen.libreOcupado'))}</span>
           </div>
           <div style="background:var(--superficie-2);border:1px solid var(--borde);border-radius:12px;padding:12px;margin-bottom:8px">
             <div id="grid-horas-container" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(95px,1fr));gap:8px">
@@ -6517,8 +6555,8 @@ router.get('/amenities', async (req, res) => {
 
         <!-- 4. Notas / Motivo -->
         <div style="margin-bottom:16px">
-          <label style="font-size:12.5px;font-weight:700;color:var(--texto-medio);display:block;margin-bottom:6px">Motivo / Cantidad de personas (opcional)</label>
-          <input type="text" id="inp-reserva-notas" placeholder="Ej: Cumpleaños familiar o Reunión de trabajo" class="inp" style="background:#fff;margin-bottom:0">
+          <label style="font-size:12.5px;font-weight:700;color:var(--texto-medio);display:block;margin-bottom:6px">${esc(t('amen.motivoOpcional'))}</label>
+          <input type="text" id="inp-reserva-notas" placeholder="${esc(t('amen.motivoPlaceholder'))}" class="inp" style="background:#fff;margin-bottom:0">
         </div>
 
         <input type="hidden" id="inp-hora-desde" value="">
@@ -6526,7 +6564,7 @@ router.get('/amenities', async (req, res) => {
 
         <button id="btn-submit-reserva" type="submit" disabled style="width:100%;height:48px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--acento),var(--acento));color:#fff;font-size:15px;font-weight:800;cursor:not-allowed;display:flex;align-items:center;justify-content:center;gap:8px;opacity:0.5;box-shadow:0 3px 12px rgba(30,95,180,.3)">
           <i class="ph ph-check-circle" style="font-size:18px"></i>
-          <span>Confirmar Reserva</span>
+          <span>${esc(t('amen.confirmar'))}</span>
         </button>
       </form>
     </div>
@@ -6534,7 +6572,7 @@ router.get('/amenities', async (req, res) => {
     <!-- REGLAMENTO DINÁMICO DEL AMENITY SELECCIONADO -->
     <div id="box-reglamento-amenity" class="card" style="padding:16px 18px;background:var(--superficie-2)">
       <div style="font-size:13.5px;font-weight:800;color:var(--texto);margin-bottom:6px;display:flex;align-items:center;gap:6px">
-        <span>📜</span> <span id="titulo-reglamento-amenity">Reglamento: ${esc(amenitiesList[0].nombre)}</span>
+        <span>📜</span> <span id="titulo-reglamento-amenity">${esc(t('amen.reglamento'))}: ${esc(amenitiesList[0].nombre)}</span>
       </div>
       <div id="contenido-reglamento-amenity" style="font-size:12.5px;color:var(--texto-medio);line-height:1.6;background:#fff;padding:10px 14px;border:1px solid var(--borde);border-radius:10px">
         ${amenitiesList[0].reglamento ? esc(amenitiesList[0].reglamento) : 'Podés reservar desde 1 sola hora hasta varias continuas. El espacio debe entregarse limpio y en orden. Horario límite de música/ruidos: 01:00 hs.'}
@@ -6547,7 +6585,7 @@ router.get('/amenities', async (req, res) => {
         <div style="padding:16px 20px;border-bottom:1px solid var(--borde);display:flex;align-items:center;justify-content:space-between;background:var(--superficie-2)">
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:20px">💳</span>
-            <span style="font-weight:800;font-size:15px;color:var(--texto)">Informar Pago de Reserva</span>
+            <span style="font-weight:800;font-size:15px;color:var(--texto)">${esc(t('amen.informarPago'))}</span>
           </div>
           <button type="button" onclick="cerrarModalPagarReserva()" style="background:none;border:none;font-size:20px;color:var(--texto-suave);cursor:pointer">✕</button>
         </div>
@@ -6556,17 +6594,17 @@ router.get('/amenities', async (req, res) => {
           <input type="hidden" id="inp-modal-reserva-id" value="">
           
           <div style="margin-bottom:12px">
-            <div style="font-size:12.5px;color:var(--texto-suave)">Espacio a abonar:</div>
+            <div style="font-size:12.5px;color:var(--texto-suave)">${esc(t('amen.espacioAAbonar'))}</div>
             <div id="txt-modal-amenity-nombre" style="font-size:15px;font-weight:800;color:var(--texto)"></div>
             <div id="txt-modal-arancel-info" style="font-size:13px;font-weight:700;color:var(--acento);margin-top:2px"></div>
           </div>
 
           <!-- Datos de transferencia bancaria -->
           <div style="background:var(--superficie-2);border:1px solid var(--borde);border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;color:var(--texto-medio)">
-            <div style="font-weight:800;color:var(--texto);margin-bottom:4px">🏦 Datos Bancarios Oficiales:</div>
-            <div>Titular: <strong>${esc(datosBanco.titular || 'Consorcio')}</strong></div>
+            <div style="font-weight:800;color:var(--texto);margin-bottom:4px">🏦 ${esc(t('amen.datosBancarios'))}</div>
+            <div>${esc(t('amen.titular'))}: <strong>${esc(datosBanco.titular || 'Consorcio')}</strong></div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
-              <span>Alias: <strong style="color:var(--acento)">${esc(datosBanco.alias || '—')}</strong></span>
+              <span>${esc(t('amen.alias'))}: <strong style="color:var(--acento)">${esc(datosBanco.alias || '—')}</strong></span>
               ${datosBanco.alias ? `<button type="button" onclick="copiarTexto('${escJs(datosBanco.alias)}', this)" style="padding:2px 8px;border-radius:4px;border:1px solid var(--borde-fuerte);background:#fff;color:var(--acento);font-size:11px;font-weight:700;cursor:pointer">Copiar</button>` : ''}
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
@@ -6577,13 +6615,13 @@ router.get('/amenities', async (req, res) => {
 
           <!-- Selector de Archivo con Preview -->
           <div style="margin-bottom:14px">
-            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);display:block;margin-bottom:6px">Adjuntar Comprobante (Foto o PDF) <span style="color:#EF4444">*</span></label>
+            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);display:block;margin-bottom:6px">${esc(t('amen.adjuntar'))} <span style="color:#EF4444">*</span></label>
             <input type="file" id="inp-comprobante-reserva-file" accept="image/*,.pdf" style="display:none" onchange="previewComprobanteReserva(event)" required>
             
             <div id="box-select-comprobante-reserva" onclick="document.getElementById('inp-comprobante-reserva-file').click()" style="border:2px dashed #93C5FD;background:#FAFCFF;border-radius:12px;padding:16px;text-align:center;cursor:pointer">
               <div style="font-size:24px;margin-bottom:4px">🧾</div>
               <div style="font-size:13px;font-weight:800;color:var(--acento)">Seleccionar Foto o PDF del Comprobante</div>
-              <div style="font-size:11px;color:var(--texto-suave)">Tocá para elegir desde tu dispositivo o galería</div>
+              <div style="font-size:11px;color:var(--texto-suave)">${esc(t('amen.elegirAyuda'))}</div>
             </div>
 
             <div id="preview-comprobante-reserva-box" style="display:none;position:relative;margin-top:8px;border-radius:10px;overflow:hidden;border:1px solid var(--borde-fuerte);background:#fff;padding:8px">
@@ -6602,19 +6640,21 @@ router.get('/amenities', async (req, res) => {
           </div>
 
           <div style="margin-bottom:16px">
-            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);display:block;margin-bottom:6px">Monto Abonado ($)</label>
-            <input type="text" id="inp-comprobante-reserva-monto" class="inp" style="background:#fff;margin-bottom:0" placeholder="Ej: 15000">
+            <label style="font-size:12px;font-weight:800;color:var(--texto-medio);display:block;margin-bottom:6px">${esc(t('amen.montoAbonado'))}</label>
+            <input type="text" id="inp-comprobante-reserva-monto" class="inp" style="background:#fff;margin-bottom:0" placeholder="${esc(t('amen.montoPlaceholder'))}">
           </div>
 
           <div style="display:flex;gap:10px;justify-content:flex-end">
-            <button type="button" onclick="cerrarModalPagarReserva()" style="padding:10px 16px;border-radius:10px;border:1px solid var(--borde-fuerte);background:#fff;color:var(--texto-suave);font-size:13px;font-weight:700;cursor:pointer">Cancelar</button>
-            <button id="btn-enviar-comprobante-reserva" type="submit" style="padding:10px 18px;border-radius:10px;border:none;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:13.5px;font-weight:800;cursor:pointer;box-shadow:0 2px 8px rgba(22,163,74,.3)">Enviar Comprobante</button>
+            <button type="button" onclick="cerrarModalPagarReserva()" style="padding:10px 16px;border-radius:10px;border:1px solid var(--borde-fuerte);background:#fff;color:var(--texto-suave);font-size:13px;font-weight:700;cursor:pointer">${esc(t('amen.cancelar'))}</button>
+            <button id="btn-enviar-comprobante-reserva" type="submit" style="padding:10px 18px;border-radius:10px;border:none;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:13.5px;font-weight:800;cursor:pointer;box-shadow:0 2px 8px rgba(22,163,74,.3)">${esc(t('amen.enviarComprobante'))}</button>
           </div>
         </form>
       </div>
     </div>
 
     <script>
+      // Los textos de esta pantalla en el idioma del vecino, serializados una sola vez.
+      const TA = ${TA};
       var _todasReservas = ${JSON.stringify(todasReservasEdificio)};
       var _amenitiesList = ${JSON.stringify(amenitiesList)};
       var _horasSeleccionadas = [];
@@ -6660,16 +6700,16 @@ router.get('/amenities', async (req, res) => {
         if (amObj && amObj.arancelado && amObj.precio > 0) {
           box.className = 'arancel-box arancel-pago';
           var esFijo = amObj.tipo_arancel === 'por_reserva';
-          var modoTexto = esFijo ? 'tarifa fija por reserva' : 'por hora reservada';
+          var modoTexto = esFijo ? TA.tarifaFija : TA.porHora;
           var calculoNota = esFijo 
-            ? 'El arancel total es fijo independientemente de la cantidad de horas elegidas.' 
-            : 'El costo total se calculará automáticamente multiplicando el arancel por la cantidad de horas que selecciones.';
-          box.innerHTML = '<div style="font-size:13.5px;font-weight:800;margin-bottom:4px">💰 Arancel: <span class="txt-destacado-oro">$' + Number(amObj.precio).toLocaleString('es-AR') + '</span> <span style="font-size:12px;font-weight:600;opacity:0.9">(' + modoTexto + ')</span></div>' +
+            ? TA.notaFija
+            : TA.notaPorHora;
+          box.innerHTML = '<div style="font-size:13.5px;font-weight:800;margin-bottom:4px">💰 ' + TA.arancel + ': <span class="txt-destacado-oro">$' + Number(amObj.precio).toLocaleString('es-AR') + '</span> <span style="font-size:12px;font-weight:600;opacity:0.9">(' + modoTexto + ')</span></div>' +
             '<div style="font-size:12px;line-height:1.45;margin-bottom:6px">' + calculoNota + '</div>' +
-            '<div style="font-size:11.5px;line-height:1.4;opacity:0.95">Una vez confirmada la reserva, podrás transferir a la cuenta del consorcio (Alias: <strong class="txt-destacado-oro">${escJs(datosBanco.alias || '')}</strong>) y adjuntar el comprobante desde "Mis Reservas" para su validación oficial.</div>';
+            '<div style="font-size:11.5px;line-height:1.4;opacity:0.95">' + TA.notaTransferir + ' (' + TA.alias + ': <strong class="txt-destacado-oro">${escJs(datosBanco.alias || '')}</strong>)</div>';
         } else {
           box.className = 'arancel-box arancel-gratis';
-          box.innerHTML = '<div style="font-size:13px;font-weight:800;margin-bottom:2px">🟢 Espacio sin costo adicional</div>' +
+          box.innerHTML = '<div style="font-size:13px;font-weight:800;margin-bottom:2px">🟢 ' + TA.sinCostoEspacio + '</div>' +
             '<div style="font-size:12px;line-height:1.4">El uso de este amenity está incluido en el mantenimiento ordinario de las expensas.</div>';
         }
       }
@@ -6690,7 +6730,7 @@ router.get('/amenities', async (req, res) => {
         grid.innerHTML = '';
 
         if (!fecha) {
-          grid.innerHTML = '<div style="grid-column:1/-1;padding:12px;color:var(--texto-suave);font-size:12.5px;text-align:center">Elegí una fecha para ver los horarios disponibles.</div>';
+          grid.innerHTML = '<div style="grid-column:1/-1;padding:12px;color:var(--texto-suave);font-size:12.5px;text-align:center">' + TA.elegiFecha + '</div>';
           return;
         }
 
@@ -6829,10 +6869,10 @@ router.get('/amenities', async (req, res) => {
         if (amObj && amObj.arancelado && amObj.precio > 0) {
           if (amObj.tipo_arancel === 'por_reserva') {
             total = Number(amObj.precio);
-            detallePrecio = '💰 Total a abonar: $' + total.toLocaleString('es-AR') + ' (tarifa fija por reserva)';
+            detallePrecio = '💰 ' + TA.totalAAbonar + ': $' + total.toLocaleString() + ' (' + TA.tarifaFija + ')';
           } else {
             total = Number(amObj.precio) * duracion;
-            detallePrecio = '💰 Total a abonar: $' + total.toLocaleString('es-AR') + ' (' + duracion + (duracion === 1 ? ' hora' : ' horas') + ' × $' + Number(amObj.precio).toLocaleString('es-AR') + ')';
+            detallePrecio = '💰 ' + TA.totalAAbonar + ': $' + total.toLocaleString() + ' (' + duracion + ' ' + (duracion === 1 ? TA.hora : TA.horas) + ' × $' + Number(amObj.precio).toLocaleString() + ')';
           }
         } else {
           detallePrecio = '🟢 Espacio sin costo adicional';
@@ -6848,8 +6888,8 @@ router.get('/amenities', async (req, res) => {
         btn.disabled = false;
         btn.style.opacity = '1';
         btn.style.cursor = 'pointer';
-        var btnSubTexto = total > 0 ? (' · $' + total.toLocaleString('es-AR')) : ' · Sin costo';
-        btn.innerHTML = '<i class="ph ph-check-circle" style="font-size:18px"></i><span>Confirmar Reserva (' + duracion + (duracion === 1 ? ' hr' : ' hrs') + btnSubTexto + ')</span>';
+        var btnSubTexto = total > 0 ? (' · $' + total.toLocaleString()) : (' · ' + TA.sinCosto);
+        btn.innerHTML = '<i class="ph ph-check-circle" style="font-size:18px"></i><span>' + TA.confirmar + ' (' + duracion + ' ' + (duracion === 1 ? TA.hora : TA.horas) + btnSubTexto + ')</span>';
       }
 
       async function guardarReserva(e) {
@@ -6878,7 +6918,7 @@ router.get('/amenities', async (req, res) => {
           var data = await res.json();
           if (data.ok) {
             if (data.monto && Number(data.monto) > 0) {
-              alert('✓ ¡Reserva registrada de ' + horaDesde + ' a ' + horaHasta + ' hs!\\n\\nEste espacio requiere un arancel de $' + Number(data.monto).toLocaleString('es-AR') + '.\\nPodés transferir y adjuntar el comprobante ahora mismo o más tarde desde "Mis Reservas".');
+              alert(TA.reservaHecha.replace('{desde}', horaDesde).replace('{hasta}', horaHasta) + '\\n\\n' + TA.arancel + ': $' + Number(data.monto).toLocaleString() + '\\n' + TA.notaTransferir);
               abrirModalPagarReserva(data.id, amenity, data.monto);
             } else {
               alert('✓ ¡Reserva confirmada de ' + horaDesde + ' a ' + horaHasta + ' hs con éxito!');
@@ -6887,12 +6927,12 @@ router.get('/amenities', async (req, res) => {
           } else {
             alert('Error: ' + (data.error || 'No se pudo completar la reserva'));
             btn.disabled = false;
-            btn.textContent = 'Confirmar Reserva';
+            btn.textContent = TA.confirmar;
           }
         } catch(err) {
           alert('Error de conexión al guardar la reserva.');
           btn.disabled = false;
-          btn.textContent = 'Confirmar Reserva';
+          btn.textContent = TA.confirmar;
         }
       }
 
