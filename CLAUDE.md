@@ -79,7 +79,7 @@ que serían seis archivos y nadie se acuerda de seis nombres:
 | **El panel** (Antigravity) y **el sitio web** | `docs/para-antigravity.md` | los demás |
 | **El motor** (Marcos) | `docs/para-el-motor.md` | los demás |
 | **El portal** (vecino + portería) | `docs/para-el-portal.md` | los demás |
-| **La guía/tutorial del panel** | `docs/para-el-tutorial.md` | los demás |
+| **La guía/tutorial del panel** | `docs/para-el-tutorial.md` | solo decisiones y motivos — **no se avisa cada cambio** |
 
 `docs/de-antigravity.md` sigue existiendo como el registro de lo que hizo Antigravity, y
 `docs/portal-vecino-y-porteria.md` como el informe de arranque del portal. **Ninguno de los dos es
@@ -163,18 +163,15 @@ está. Es un atajo, no un servicio.
 | **Chat de Marcos IA** (esta, Claude en la nube) | nube | el motor: `index.js`, `datos*.js`, `sheets.js`, `db-pg.js`, `agentes/`, `rubros.js`, seguimiento, facturas, y las herramientas de diagnóstico |
 | **Chat de la guía/tutorial** | — | el material con el que el asistente del panel le explica las cosas al AC. **No escribe código** |
 
-> [!CAUTION]
-> **La del tutorial es la más fácil de romper sin que nadie se entere.** No escribe código: escribe
-> lo que una persona va a leer y hacer. Un tutorial que enseña el comportamiento viejo es **peor que
-> no tener tutorial** — el AC lo sigue, no le funciona, y concluye que el sistema está roto, no que
-> el tutorial está viejo.
+> **La del tutorial arranca al final, no ahora.** Decisión de Daniel, 26/09: el material se arma
+> cuando el sistema esté terminado y salga a probar. Hasta entonces los botones aparecen y
+> desaparecen varias veces por semana --solo Expensas cambió tres veces en un día-- y mantener el
+> tutorial sincronizado sería una cinta sin fin que no sirve mientras no haya nadie leyéndolo.
 >
-> Por eso la obligación es de los demás: **cuando un cambio modifica lo que el AC ve o hace, quien
-> lo hizo deja una línea en `docs/para-el-tutorial.md`.** Solo Expensas cambió tres veces en un día.
->
-> Y el tutorial **no se escribe desde `CLAUDE.md` ni desde `design/`**: esos documentan
-> intenciones, y varias no existen todavía en el panel (impersonación, Consumos, la campana con
-> contador). Se escribe mirando lo que el panel hace hoy.
+> **No hay que avisarle cada cambio.** `docs/para-el-tutorial.md` guarda solo lo que no se puede
+> averiguar mirando el panel el día que se escriba: las decisiones y sus motivos (que el vecino no
+> sabe que Marcos es IA, que el horario del encargado está feo a propósito, y que `design/`
+> documenta intenciones que todavía no existen).
 
 Si uno necesita un cambio del lado del otro, **lo pide en vez de hacerlo** — dos agentes editando
 el mismo archivo el mismo día es cómo se pierde trabajo.
