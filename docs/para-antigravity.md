@@ -25,6 +25,60 @@ Se agrega **al final**. Se lee con `git pull` y se escribe con un commit normal.
 
 ---
 
+## ⚠️ HACER AHORA — una línea en `dashboard.js` (26/09, pedido del portal)
+
+Daniel pidió que te lo diga directo, así que va arriba y no al final del archivo.
+
+Donde montás el `store` de sesiones, en `dashboard.js`:
+
+```js
+const { pool } = require('./db-pg');
+if (pool) {                        // ← como está hoy
+if (pool && !pool.sinBase) {       // ← así tiene que quedar
+```
+
+**Nada más que eso.** El resto del bloque no se toca.
+
+**Por qué.** Cambié `db-pg.js`: sin `DATABASE_URL`, en vez de un `Pool` normal devuelve uno que
+rechaza todo con un mensaje claro. Antes hacía algo peor y en silencio —
+`new Pool({ connectionString: '' })` no falla: `pg` toma la cadena vacía como *"no me dijeron nada"*
+y se va a `localhost:5432` con el usuario del sistema. O sea que sin la variable, Marcos le hablaba a
+**cualquier** PostgreSQL que hubiera en la máquina.
+
+Con ese pool, `connect-pg-simple` rechaza en **cada** pedido, `express-session` no puede leer la
+sesión, y Express contesta su página de error en HTML. Una ruta de API devuelve HTML donde el
+JavaScript espera JSON:
+
+```
+SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+```
+
+Es **el mismo error que ya diagnosticaste el 24/09** con el `302` al login, por otro camino. Con la
+línea puesta, sin base se cae al `MemoryStore`: desloguea en cada reinicio, pero el panel atiende.
+
+> En el VPS de hoy no te pega, porque la variable está. Te pega el día que falte, o si alguien corre
+> el panel en otra máquina — y ahí el panel devuelve 500 en todo.
+
+**Cómo verificar que quedó**, sin PostgreSQL de por medio:
+
+```bash
+node verificar-antes-de-subir.js
+```
+
+Tiene que seguir en verde (71 pruebas). Y si querés verlo con tus propios ojos: sacá `DATABASE_URL`
+del entorno, levantá el panel, y apretá cualquier botón. Con la línea puesta contesta; sin ella,
+`JSON.parse`.
+
+### Y una que te va a ahorrar una tarde: `npm ci` antes de pelearte con el CI
+
+El CI me ganó **seis** intentos con esto, y la razón no era el bug: **`connect-pg-simple` no estaba
+instalado en mi máquina.** El `require` tiraba, se caía al `MemoryStore`, y el camino que fallaba en
+el CI no se ejecutaba nunca de mi lado. Corrí `npm ci` y el bug apareció al primer intento.
+
+Si local da verde y el CI da rojo, el CI no está raro: está corriendo otro código que el tuyo.
+
+---
+
 ## Si venís a desplegar al VPS, andá directo a **"DESPLIEGUE AL VPS — la versión al día"**
 
 Este archivo pasó las mil líneas y lo escriben dos sesiones distintas de Claude (el motor y el
