@@ -2,15 +2,39 @@
 
 ## Accesos VPS (DonWeb)
 
+**Se entra SOLO con clave SSH. El login por contraseña está apagado en el servidor**
+(`PasswordAuthentication no`), así que no hay contraseña que pedir, escribir ni perder.
+
 ```
-ssh -p5436 root@200.58.102.182
+ssh -i ~/.ssh/marcos_vps -p5436 root@200.58.102.182
 ```
+
+Desde Windows la ruta de la clave se escribe según la terminal: `$env:USERPROFILE\.ssh\marcos_vps`
+en PowerShell, `%USERPROFILE%\.ssh\marcos_vps` en CMD. Un agente que se conecta por código pasa la
+**ruta** del archivo, nunca su contenido:
+
+```js
+privateKey: require('fs').readFileSync(process.env.USERPROFILE + '\\.ssh\\marcos_vps')
+```
+
+> [!CAUTION]
+> **Ninguna credencial va en este archivo, ni en un comando, ni en un mensaje.** El repo se hace
+> público cada vez que se usa el `curl` de más abajo, así que todo lo que esté acá es público en
+> ese rato. Y un comando con la contraseña adentro queda en el historial de la terminal y en el
+> log del agente que lo corrió — así fue como se filtró la de root, después de haberla sacado de
+> este archivo. La clave privada (`~/.ssh/marcos_vps`) tampoco se comparte: se comparte la
+> **pública** (`.pub`), que es la que va al servidor.
+>
+> Si alguna credencial se expone, cambiarla es lo único que la invalida: borrarla del archivo no
+> la borra del historial de git ni de los logs.
 
 - Proyecto en: `/root/marcos/Consorcio-AI-Assistant/`
 - Process manager: PM2 → `pm2 list` / `pm2 restart marcos-ia` / `pm2 logs marcos-ia`
 - Nginx + SSL en: `marcos.bienargentinos.com`
 - Dashboard admin: `https://marcos.bienargentinos.com/admin`
-  - Usuario dueño: `admin` / `marcos2024` (o env `DASHBOARD_USER` / `DASHBOARD_PASS`)
+  - Usuario dueño: `admin`. **La contraseña sale de `DASHBOARD_PASS` del `.env` y no está
+    escrita en ningún archivo del repo**: estaba acá y en `dashboard.js`, y era la misma que
+    la de PostgreSQL. Sin esa variable no entra nadie, a propósito.
 
 ## Repositorio GitHub
 
@@ -33,15 +57,145 @@ ssh -p5436 root@200.58.102.182
     -o /root/marcos/Consorcio-AI-Assistant/design/assets/logo.png
   ```
 
+## REGLA DE ORO DE DESPLIEGUE Y DEPENDENCIAS (GITHUB = FUENTE DE VERDAD)
+
+> [!CAUTION]
+> **CONTRATO OBLIGATORIO PARA TODOS LOS AGENTES (Claude, Antigravity, Gemini, ChatGPT, etc.)**:
+> - **GitHub es la ÚNICA fuente de verdad**: Todo cambio de código debe commitearse y enviarse a GitHub (`bienargentinos/Bien-Argentinos-repositorio-`). El VPS se actualiza **únicamente mediante `git pull`** y `pm2 restart marcos-ai`.
+> - **Prohibido modificar archivos a mano en el VPS**: No se deben subir scripts ni parchar archivos de código directamente en el servidor sin pasar por Git.
+> - **Inclusión de Dependencias NPM en el Mismo Commit**: Si se utiliza una librería nueva (`npm install`), la adición en `package.json` y `package-lock.json` **DEBE ser commiteada en el mismo commit de Git** que el código que la invoca. Ningún archivo debe hacer `require()` de un paquete no declarado en `package.json`.
+
+### Cómo hablan entre sí los agentes
+
+El repo también es el lugar donde los agentes se dejan notas, porque es el único sitio al que
+llegan los dos: Antigravity corre en la PC de Daniel y Claude en la nube. Sin esto, cada dato pasa
+por Daniel copiando y pegando, y ahí es donde se pierden.
+
+**Son tres conversaciones, no dos**, así que hay **un buzón por destinatario** — no uno por par,
+que serían seis archivos y nadie se acuerda de seis nombres:
+
+| Para quién es | Archivo | Quién escribe ahí |
+|---|---|---|
+| **El panel** (Antigravity) y **el sitio web** | `docs/para-antigravity.md` | los demás |
+| **El motor** (Marcos) | `docs/para-el-motor.md` | los demás |
+| **El portal** (vecino + portería) | `docs/para-el-portal.md` | los demás |
+| **La guía/tutorial del panel** | `docs/para-el-tutorial.md` | solo decisiones y motivos — **no se avisa cada cambio** |
+
+`docs/de-antigravity.md` sigue existiendo como el registro de lo que hizo Antigravity, y
+`docs/portal-vecino-y-porteria.md` como el informe de arranque del portal. **Ninguno de los dos es
+un buzón**: no se dejan pedidos ahí.
+
+**Cada uno lee el suyo y no lo edita.** Para contestar se escribe en el buzón del otro.
+
+> [!CAUTION]
+> **Cada entrada va firmada y fechada**: `## 24/09 — del motor — título`. Con varias
+> conversaciones escribiendo, un pedido sin firma es imposible de responder: no se sabe a quién
+> preguntarle ni si sigue vigente.
+
+> [!CAUTION]
+> **Y no alcanza con decir de quién viene: hay que decir para quién es.** "Antigravity" tampoco es
+> una sola conversación — hay al menos dos, la del **panel** (`dashboard.js`) y la del **sitio web**
+> (`bienargentinos.com`), con contexto separado. Lo mismo que ya pasó con las dos sesiones de
+> Claude.
+>
+> Cuando una entrada es para una sola, el título lo dice:
+> `## 26/09 — del motor → PARA EL CHAT DEL SITIO WEB — título`. **Si no dice para quién, es para
+> todos los que leen ese buzón.**
+>
+> Sin esto, Daniel tiene que adivinar a quién mandarle a leer —y lo preguntó, con razón— o la
+> conversación equivocada lee algo que no le toca y actúa sobre eso. Un buzón por destinatario
+> resuelve la mitad del problema; la otra mitad es esta línea del título.
+
+El buzón es **append-only**: se agrega al final, no se reescribe lo de arriba. Dos sesiones
+escribiendo el mismo día en el mismo archivo es el único riesgo de conflicto, y agregando al final
+el rebase sale limpio (ya pasó el 24/09 con `para-antigravity.md`, tres veces).
+
+### Antigravity puede correr comandos en el VPS, y eso acelera mucho el diagnóstico
+
+Antigravity corre en la PC de Daniel y tiene acceso al servidor. Las otras dos conversaciones no.
+Así que un pedido de diagnóstico se le puede dejar en su buzón en vez de esperar a que Daniel
+copie y pegue — decisión de Daniel, 24/09.
+
+**Qué se le puede pedir así:**
+
+| | |
+|---|---|
+| **Sí, libremente** | Todo lo que solo lee: los `revisar-*.js`, `buscar-texto.js`, `probar-ruteo.js`, `pm2 logs`, `git status`, `git log`. Están escritos para eso: imprimen y salen. |
+| **Sí, en modo de prueba** | Las herramientas que escriben, **sin** `--aplicar`: muestran qué harían y no tocan nada. |
+| **No por este canal** | El `--aplicar` de cualquiera de ellas, y `reset-test.js`. Tocan datos de producción y los decide Daniel. |
+| **Nunca** | Editar código en el VPS, `git add -A`, o cualquier cosa que lea o escriba el `.env`. |
+
+> [!CAUTION]
+> **Un pedido escrito en un buzón es una instrucción diferida.** Se escribe a las 3 y se lee a las
+> 7, y para entonces el diagnóstico que lo motivó puede estar viejo — capaz la causa ya apareció
+> por otro lado. Con una lectura eso no cuesta nada. Con un `--aplicar` sobre datos reales, sí.
+>
+> Por eso cada pedido dice **qué pregunta responde**, no solo el comando: así quien lo lee puede
+> ver si todavía tiene sentido correrlo. Y la respuesta vuelve **con el comando que la produjo**,
+> o no se entiende de dónde salió.
+
+> [!CAUTION]
+> **Esto acelera el diagnóstico; no reemplaza el despliegue.** El VPS se sigue actualizando
+> **únicamente** con `git pull` — la regla de oro no se toca. Un agente de otra conversación editó
+> `dashboard.js` a mano en el servidor, y la secuencia para rescatar ese cambio empezó con
+> `git add -A` y casi publica las credenciales y las fotos de vecinos reales.
+
+Y no se diseña alrededor de que esté disponible: si la PC de Daniel está apagada, Antigravity no
+está. Es un atajo, no un servicio.
+
+> [!CAUTION]
+> **Un buzón que pasa las mil líneas deja de leerse.** `para-antigravity.md` llegó a 54 KB con las
+> instrucciones de despliegue **viejas** en el medio, así que decirle "leelo" lo mandaba a la
+> versión de la mañana. Lo que hay que hacer hoy va **arriba**, con un puntero; lo de abajo es
+> historia. Y **no se nombra un commit puntual**: escribí un SHA a la mañana y para la tarde había
+> quedado cuatro merges atrás.
+
+> **Nadie se entera solo.** No hay aviso: se lee en el próximo `git pull`. Es un pizarrón, no un
+> chat. Quien escribe algo urgente se lo dice a Daniel además de dejarlo acá.
+
+**Reparto vigente** (26/09) — son **cinco** conversaciones, y van creciendo:
+
+| Quién | Dónde corre | Qué toca |
+|---|---|---|
+| **Antigravity — panel** | la PC de Daniel | `dashboard.js`. Es el único con acceso al VPS |
+| **Antigravity — sitio web** | la PC de Daniel | `bienargentinos.com` (estático). No toca el repo del motor |
+| **Chat del portal** (Claude, en la nube) | nube | `portal-vecino.js`, `porteria.js`, `qr-firmado.js`, `clave-app.js`, `sesion-demo.js`. Su informe de arranque: `docs/portal-vecino-y-porteria.md` |
+| **Chat de Marcos IA** (esta, Claude en la nube) | nube | el motor: `index.js`, `datos*.js`, `sheets.js`, `db-pg.js`, `agentes/`, `rubros.js`, seguimiento, facturas, y las herramientas de diagnóstico |
+| **Chat de la guía/tutorial** | — | el material con el que el asistente del panel le explica las cosas al AC. **No escribe código** |
+
+> **La del tutorial arranca al final, no ahora.** Decisión de Daniel, 26/09: el material se arma
+> cuando el sistema esté terminado y salga a probar. Hasta entonces los botones aparecen y
+> desaparecen varias veces por semana --solo Expensas cambió tres veces en un día-- y mantener el
+> tutorial sincronizado sería una cinta sin fin que no sirve mientras no haya nadie leyéndolo.
+>
+> **No hay que avisarle cada cambio.** `docs/para-el-tutorial.md` guarda solo lo que no se puede
+> averiguar mirando el panel el día que se escriba: las decisiones y sus motivos (que el vecino no
+> sabe que Marcos es IA, que el horario del encargado está feo a propósito, y que `design/`
+> documenta intenciones que todavía no existen).
+
+Si uno necesita un cambio del lado del otro, **lo pide en vez de hacerlo** — dos agentes editando
+el mismo archivo el mismo día es cómo se pierde trabajo.
+
+> [!CAUTION]
+> **Que las dos sean "Claude" no las hace una sola.** El 22 y el 23/09 dos sesiones de Claude
+> editaron `portal-vecino.js` el mismo día sin saber una de la otra. Zafamos porque el rebase
+> salió limpio, no porque estuviera bien: son conversaciones separadas, con contexto separado, y
+> chocan igual que si fueran agentes distintos.
+>
+> La regla práctica es más simple que un reparto perfecto: **la sesión con la que Daniel está
+> hablando es la que toca ese archivo; la otra espera.** Y quien trabaje, que pullee antes de
+> editar y empuje apenas termina — cuanto menos tiempo queda algo sin empujar, menos hay para
+> perder.
+
 ## Stack técnico
 
-- **Runtime**: Node.js + Express — `index.js` es el servidor principal
+- **Runtime**: Node.js + Express — `index.js` es el servidor principal (acumulación de **25 segundos** en ráfagas).
 - **IA**: Google Gemini 2.5 Flash (multi-agente: marcos-caso, marcos-cara, marcos-ops, marcos-docs, marcos-admin)
 - **WhatsApp**: Meta WhatsApp Cloud API → webhook en `/webhook`
 - **Llamadas**: Vapi → endpoints `/vapi` y `/vapi/llamada-finalizada`
-- **Voz TTS**: ElevenLabs (solo primeros 2 audios por sesión, luego texto)
-- **Base de datos**: Google Sheets via `googleapis` + service account
-- **Dashboard**: `dashboard.js` montado en `/admin`
+- **Voz TTS**: ElevenLabs (solo primeros 2 audios por sesión en 24h, luego texto)
+- **Base de datos**: SQLite Local (`db.js`) en `marcos_database.sqlite` + Google Sheets (`sheets.js`) como respaldo.
+- **Dashboard**: `dashboard.js` montado en `/admin` (Visor de chats mensaje a mensaje y búsqueda global <10ms).
 
 ## Google Sheets
 
@@ -83,6 +237,17 @@ ssh -p5436 root@200.58.102.182
   **horario del encargado** con selectores de hora (relojito): 2 rangos Lun-Vie + 1 Sábados, se serializa a
   JSON `{lv1:[hh,hh],lv2:[...],sab:[...]}` en la celda `encargado_horario`. Aparece solo si está activo.
   Endpoint `POST /api/mi-edificio`.
+
+  > [!CAUTION]
+  > **Los bloques Lun-Vie + Sábado no alcanzan, y no hay que arreglarlos: hay que reemplazarlos.**
+  > En producción salió `L-V 08:00-12:00 | L-V 01:00-11:00 · Sáb 12:00-08:00` — un sábado de 12 a 8
+  > no existe. Pero el problema no es cómo se muestra: es que la estructura no puede representar lo
+  > que pasa de verdad. Daniel: *"hay edificios que solo va uno de limpieza 3 días a la semana en un
+  > horario muy raro y no se puede cargar en este estilo de bloques"*.
+  >
+  > Va a pasar a **calendario o texto libre**, y que Marcos lo interprete —que es justo lo que sabe
+  > hacer. Hasta entonces **no maquillar el renderizado**: dejarlo feo es lo que mantiene visible
+  > que la estructura está mal. Decisión de Daniel, 28/08.
 - **Proveedores (flujo de 2 pasos, para no recargar 27 veces)**: (1) el cliente carga su **lista maestra**
   una vez (modal "Mi lista de proveedores") → `POST /api/proveedor`; (2) en cada edificio **asigna** desde un
   desplegable de su lista + prioridad → `POST /api/proveedor-asignar`. Quitar: `/api/proveedor-quitar` (de la
@@ -180,9 +345,2062 @@ Siguiendo el boceto de diseño (no la primera versión que armé, que era plana)
     el admin de edificio sí sabe que es IA.
 - Cuentas de prueba del prototipo: `daniel / sistema2025` (dueño), `amato_admin / demo1234` (cliente).
 
+## Reset de pruebas (`reset-test.js`, vive en el VPS)
+
+Para que Marcos "no te reconozca" y poder repetir un test end-to-end desde cero se vacían
+**solo estas tres pestañas** de Sheets:
+
+- `VECINOS`
+- `EVENTOS`
+- `memoria`
+
+> [!CAUTION]
+> **NUNCA vaciar `CLIENTES`** (ni `EDIFICIOS`, `proveedores`, `proveedor_asignaciones`). Eso es
+> configuración, no dato de prueba: `clientes` guarda usuario/contraseña/email de cada administrador
+> y es de donde Marcos saca el mail para avisar de una urgencia. Borrarla rompe el login del
+> dashboard y la notificación al admin.
+
+El lado PostgreSQL se limpia aparte (la BD se llama `marcos_db`, no `marcos_ia`):
+
+`reset-test.js` limpia **los dos lados de una sola vez** — Sheets y PostgreSQL:
+
+```bash
+node reset-test.js
+```
+
+Del lado PostgreSQL vacía `mensajes`, `mensajes_wa`, `reportes`, `vecinos`, `memoria`, `accesos`,
+`audios_tts` y `facturas`, y además borra el contenido de `almacenamiento/` (los audios, fotos y
+comprobantes que se subieron durante la prueba). Está adentro del script y no como comandos sueltos justamente para que no pueda quedar
+a medias: un reset parcial es peor que ninguno, porque parece limpio y no lo está.
+
+`mensajes` es la que alimenta el **visor de chat del dashboard**, y es la que más confusión genera:
+vaciar `EVENTOS` en Sheets borra el caso, pero las burbujas de la conversación siguen en esta tabla
+y el panel las vuelve a mostrar mezcladas con el caso nuevo. Si el visor muestra chats de pruebas
+viejas, es porque falta este DELETE.
+
+`accesos` guarda lo que Marcos aprendió de las conversaciones sobre instalaciones del edificio
+(quién tiene la llave de qué). En un reset de prueba conviene vaciarla porque se llenó con datos de
+la conversación borrada.
+
+`audios_tts` guarda cuándo se le mandó cada nota de voz a cada teléfono, para sostener el techo de
+2 por 24h a través de los reinicios de PM2. Vaciarla devuelve los 2 audios y hace falta para
+repetir un test que incluya la voz — **es lo único de la lista que se borra por comodidad de
+prueba y no porque sea rastro de la conversación**. En producción no se toca.
+
+Nota: el proceso de PM2 se llama **`marcos-ai`** (no `marcos-ia`).
+
+**Borrado total** (clientes, proveedores, edificios, asignaciones y multimedia de
+`almacenamiento/`): se hace **únicamente cuando Daniel lo pide de forma explícita**. Está previsto
+para el momento previo a mandar el sistema a probar afuera, con la base limpia de punta a punta.
+Nunca por iniciativa propia ni como parte de un reset de test.
+
 ## Regla de oro
 
 **Los vecinos NO deben saber que Marcos es IA.** Marcos se comporta como humano, usa expresiones argentinas, rechaza preguntas sobre si es robot de forma natural.
+
+## Identidad del proveedor: teléfono + rubro, no solo teléfono (IMPLEMENTADO)
+
+Un teléfono **no** identifica a una persona: puede ser la línea de una empresa con varios oficios
+detrás. Caso real de esta planilla: el `541169241157` figura como **julio (plomero)** y como
+**dario juju (electricista)** — dos técnicos de la misma empresa compartiendo la línea.
+
+`buscarRolPorTelefono` devuelve el primero que encuentra, así que en un caso de electricidad
+Marcos saludaba "Gracias, Julio" cuando quien contestaba era Dario. Para el técnico eso es Marcos
+hablándole a otra persona, y le da lo mismo que el resto funcione.
+
+Daniel lo confirmó y está implementado: se identifica por la terna **teléfono + rubro del caso**.
+
+- `proveedoresPorTelefono(telefono)` (en `datos.js`, con las dos implementaciones) lista todos los
+  técnicos de esa línea con su rubro.
+- `buscarCasoAbiertoPorTecnico` y `buscarCasosRecientesPorTecnico` devuelven el `rubro` del caso.
+- `index.js` guarda ese rubro en `stProv.rubroActivo` y, cuando hay más de un técnico en la línea,
+  elige por rubro en vez de por el orden de la planilla. Las equivalencias entre formas de nombrar
+  un oficio están en `coincideRubroTecnico` ("electricidad" = "electricista" = "luz").
+- **Sin caso no hay rubro con qué desempatar.** Ahí se marca `datosEmisor.nombreIncierto` y Marcos
+  **no lo llama por su nombre**: elegir uno al azar entre varios es peor que no nombrarlo.
+
+Prueba: `node pruebas-tecnico-por-rubro.js` (15 casos, con Julio y Dario en la misma línea).
+
+### Pero el caso ya decidió con quién habla, y eso manda sobre el rubro
+
+> [!CAUTION]
+> **Cambiar de nombre a mitad de una conversación es peor que haber elegido cualquiera de los dos.**
+
+Visto en producción: el caso se abrió con *"Quién: a dario juju (Electricista)"* —lo abrió el propio
+Dario avisando— el trabajo era una **pérdida de agua**, y dos minutos después Marcos le escribió
+**"Gracias, Julio"**. La regla del rubro hizo exactamente lo que le pedimos (plomería → el plomero
+de esa línea es Julio) y quedó mal igual.
+
+Para el técnico, que le digan Dario en un mensaje y Julio en el siguiente es Marcos mostrándole que
+no sabe con quién está hablando. Y no es un caso raro: **un técnico hace trabajos de rubros
+distintos**, así que el rubro del caso nunca va a ser una identidad confiable.
+
+El orden queda:
+
+1. **Quién está anotado como técnico del caso** (`stProv.tecnicoDelCaso`) — el caso ya decidió una vez.
+2. El rubro, solo si el caso todavía no anotó a nadie.
+3. Sin nada, `nombreIncierto`: no se lo llama por su nombre.
+
+## Datos de cobro del proveedor (CBU / alias)
+
+Marcos toma el CBU o el alias cuando el técnico se lo manda por WhatsApp, para que el
+administrador tenga a quién pagarle sin salir a buscarlo. Columnas nuevas en `proveedores`
+(se crean solas): `cbu`, `alias_cbu`, `titular`, `cuit`, `cbu_actualizado`, `cbu_pendiente`,
+`alias_pendiente`, `cbu_pendiente_desde`.
+
+**Llegan por texto, por imagen o por PDF — nunca por audio.** Las tres vías están cubiertas:
+escrito en el chat, en una constancia de CBU (foto del homebanking o PDF), y **al pie de la propia
+factura**, que es la forma más común de todas. `marcos-docs.js` distingue una constancia bancaria
+de una factura: antes ese PDF se archivaba como si fuera un gasto del consorcio.
+
+**Se verifica antes de guardar.** El CBU trae dos dígitos verificadores; `cbu.js` los calcula.
+Con OCR de por medio esto importa más que al tipear: un 8 leído como 6 en una foto sacada de
+costado no lo ve nadie, y son 22 números seguidos. Si no verifica NO se guarda — se pide el alias,
+que es corto y se lee bien. Las pruebas cubren los 126 casos de un dígito cambiado, las 11
+transposiciones de dígitos vecinos y las confusiones típicas del OCR (8/6, 1/7, 5/6):
+`node pruebas-cbu.js` y `node pruebas-cbu-por-imagen.js`.
+
+El CBU que viene al pie de una factura solo se toma **si la manda el propio técnico**. Reenviada
+por un vecino o el encargado no se usa: puede ser vieja, reenviada, o de otro proveedor.
+
+> [!CAUTION]
+> **UN CAMBIO DE CBU NO SE APLICA SOLO.**
+>
+> Cambiar el CBU de un proveedor es el fraude más común que existe: alguien se mete en la
+> conversación, dice "cambié de banco, anotá este otro", y el pago del mes siguiente se va a otra
+> cuenta. Acá la identidad es apenas un número de teléfono.
+>
+> La primera carga se aplica. Un cambio posterior NO pisa lo que había: queda en `cbu_pendiente`,
+> **el anterior sigue siendo el vigente**, y se le avisa a la Administración para que lo apruebe
+> desde el panel (`/api/proveedor-cambio-cobro`). Si el cambio es legítimo, el proveedor cobra unos
+> días más tarde; si no lo es, no se pierde la plata. De los dos errores posibles, ese es el que se
+> puede deshacer.
+>
+> Prueba: `node pruebas-cambio-cbu.js`.
+
+**En una línea compartida no se elige al azar.** Si dos técnicos comparten el teléfono (Julio y
+Dario) y no se sabe cuál escribe, Marcos **pregunta a nombre de cuál anota los datos** en vez de
+escribirlos en una fila cualquiera: los datos de cobro de uno no son los del otro, y equivocarse
+manda el pago a otra persona.
+
+## La ventana de 24hs de Meta (por qué al técnico le llegaba SOLO la plantilla)
+
+> [!CAUTION]
+> **Con la ventana cerrada, Meta deja pasar ÚNICAMENTE plantillas aprobadas.** Texto libre, foto,
+> video, ficha de contacto y audio se rechazan con el código **131047**. Y la ventana **no la abre
+> la plantilla que mandamos nosotros**: la abre **el técnico cuando responde**.
+
+Marcos mandaba las cuatro cosas seguidas (plantilla → foto del reclamo → ficha de contacto →
+contacto de acceso), así que llegaba la plantilla sola y el resto rebotaba un segundo antes de que
+la ventana se abriera. En el log:
+
+```
+📷 Foto/video del vecino reenviado al técnico a dario juju (541169241157).
+📵 META RECHAZÓ LA ENTREGA a 5491169241157 [código 131047]: Re-engagement message
+```
+
+En las pruebas nunca se vio porque se hacían todas seguidas desde el mismo número: la ventana
+estaba siempre abierta.
+
+**Cómo quedó resuelto**:
+
+- `material-caso.js` — `materialDelVecinoEnCaso(idEvento, telVecino)`: recupera la foto/video del
+  historial del caso y del disco, no de RAM. Lo usan `index.js` y `agentes/marcos-ops.js`.
+- `index.js` — `entregarPendientesAlTecnico(...)`: se llama en **cada mensaje entrante del
+  proveedor**, que es el instante exacto en que Meta abre la ventana, y entrega lo que había
+  rebotado. Da igual si el técnico escribe "ok", un punto o aprieta el botón de la plantilla.
+- Las marcas de entregado viven en el **caso** (columnas `material_enviado_tecnico` y
+  `contacto_acceso_avisado` de `EVENTOS`), no en RAM, porque PM2 reinicia seguido. **Solo se marcan
+  si el envío salió de verdad**: marcar un envío fallido impide el reintento para siempre.
+- La plantilla avisa que hay material esperando (`Contestame por acá (un OK alcanza) y te paso la
+  foto del problema y el contacto para entrar.`), porque es el único canal abierto para decírselo.
+  La frase se arma según lo que realmente haya; si no hay nada, no se promete nada.
+- Prueba: `node pruebas-ventana-24hs.js`.
+
+**Meta permite tener varias plantillas**, pero una plantilla NO sirve para mandar la foto del
+reclamo: la imagen de una plantilla se sube al aprobarla y es fija. La foto de hoy solo sale como
+mensaje libre, o sea con la ventana abierta.
+
+### Un envío que Meta rechazó quedaba marcado como entregado
+
+> [!CAUTION]
+> **Meta contesta 200 al RECIBIR el pedido, no al entregar el mensaje.** El resultado real llega
+> minutos después, en un webhook aparte (`statuses`), y puede ser `failed` con el código 131047.
+
+Prueba del vecino, 9/9. Mandó audio + foto + la ficha de contacto de quien iba a recibir al técnico.
+Marcos abrió el CASO-1001, mandó la plantilla, y después la foto y el contacto de ingreso:
+
+```
+📷 Foto/video del vecino reenviado al técnico Dario (541169241157).
+📞 Contacto de acceso (Natalia Zeballos...) enviado al técnico Dario.
+```
+
+Las dos **rebotaron** con 131047 --la ventana estaba cerrada-- pero ya estaban marcadas como
+entregadas en el caso. Cuando el técnico contestó (el instante exacto en que la ventana se abre),
+`entregarPendientesAlTecnico` miró las marcas, leyó "ya entregado" y no reintentó nada. Él terminó
+escribiendo: *"puedo ir en 2 hs pero necesito foto y también si es posible un teléfono de quien me
+recibe"* — las dos cosas exactas que Marcos creía haberle mandado.
+
+El candado de "solo se marca si el envío salió" **estaba puesto y no alcanzaba**: `salio` significa
+"Meta aceptó el pedido", y el rechazo llega después. Faltaba la otra mitad.
+
+- El manejador de `statuses` ya no solo loguea: ante un rechazo por ventana cerrada busca al
+  proveedor por su teléfono y **borra las marcas de entrega de sus casos abiertos**
+  (`desmarcarEntregasAlTecnico`, en las dos bases).
+- Se borran las de **todos** sus casos abiertos, no solo la del mensaje que rebotó: el aviso de Meta
+  no dice a qué caso pertenecía, y si la ventana estaba cerrada para uno lo estaba para todos. El
+  costo de equivocarse es un envío repetido; el de no hacerlo, un técnico sin la foto.
+- Queda dicho en el log: `📎↩️ [CASO-x] lo que se le había mandado NO llegó. Se borran las marcas de
+  entrega: cuando conteste, se le manda de nuevo.`
+
+Prueba: `node pruebas-entrega-rechazada.js`.
+
+### "Le avisaremos cuando confirme" tres minutos después de que confirmó
+
+> [!CAUTION]
+> **Hay DOS ramas donde el técnico confirma la visita, y una solo lo escribía en el log.**
+
+En la misma prueba:
+
+```
+23:01  Dario: "puedo ir en 2 hs pero necesito foto y también un teléfono de quien me recibe"
+       🧭 → confirma_que_va (0.8)
+       🔧 Dario confirmó la visita del [CASO-1001] en san patricio casa.
+23:03  Vecino: "Hola a qué hora viene el técnico?"
+23:04  Marcos: "Estamos coordinando… Le avisaremos en cuanto tengamos la confirmación del horario."
+```
+
+En el log **no** aparece `📌 Confirmación del técnico registrada en [CASO-1001]`, que es la línea de
+la OTRA rama --la de `interpretarRespuestaTecnico`, que sí llama a `guardarConfirmacionTecnico`--.
+Corrió la del ruteo (`confirma_que_va`), que no escribía `tecnico_confirmado`.
+
+**No fue el modelo.** El camino del vecino ya sabe contestar esto: `confirmacionDelCaso` lee el caso
+y el prompt de `marcos-cara.js` tiene la instrucción escrita. Leyó la columna, estaba vacía, y Marcos
+dijo lo único que sabía. Para el vecino eso no es un olvido: es que le mienten mientras espera.
+
+- La rama del ruteo ahora también guarda la confirmación en el caso, con la hora leída del mensaje.
+- **Sin hora no se inventa ninguna**: se guarda vacía y el prompt ya dice *"confirmó la visita, el
+  horario todavía no lo precisó"*.
+- Un fallo al leer la hora **no** impide guardar la confirmación: "confirmó, sin horario" es mucho
+  mejor que "seguimos esperando".
+
+Prueba: `node pruebas-confirmacion-al-caso.js`, con un candado que recorre **todas** las líneas donde
+el log dice que el técnico confirmó y exige que cada una escriba en el caso.
+
+> Ojo con el pendiente que queda: la consulta de estado por número (`¿cómo va el CASO-1001?`) exige
+> que se escriba el código, y **un vecino nunca lo escribe**. El comentario del código dice que la
+> pregunta del horario "ya tiene su propio camino" — ese camino no existe. Hoy la salva el prompt
+> con los datos del caso; sigue sin haber una vía determinista.
+
+#### Guardar la confirmación no alcanza si otro bloque del prompt la contradice
+
+En la prueba siguiente la confirmación **sí** quedó escrita --`📌 Confirmación del técnico registrada
+en [CASO-1001] (en 2 hs)`-- y el vecino igual recibió *"estamos coordinando con el técnico"*.
+
+El bloque `instruccionConfirmacionTecnico` de `marcos-cara.js` dice lo correcto y hasta prohíbe
+decir que se está consultando. Pero abajo, `instruccionTecnicoDisponibilidad` decía *"podés
+informarle al vecino que se está contactando al servicio técnico de guardia para coordinar la
+visita"* — y ese sigue apareciendo mientras `contactar_tecnico` esté en true, o sea **en cada
+vuelta de un caso con técnico**. Dos imperativos opuestos en el mismo prompt, y gana el que está
+más abajo.
+
+Es exactamente el choque que ya había pasado con `instruccionGestionAcceso` (el vecino daba el
+dato de Natalia y le preguntaban igual quién abría), anotado tres líneas más arriba en ese mismo
+archivo. Con la visita confirmada, ese bloque ahora dice que informe lo confirmado y tiene
+prohibido hablar de coordinar.
+
+> Son reglas de prompt: **ninguna prueba automática las cubre.** Se verifican leyendo lo que Marcos
+> contesta de verdad. Y el patrón para buscar es siempre el mismo: un dato correcto, tapado por
+> otra instrucción del mismo prompt.
+
+#### "En 2 hs" envejece: a la hora ya falta una
+
+> [!CAUTION]
+> **Una duración guardada como texto y repetida después miente.** "En 2 horas" es una cuenta desde
+> el momento en que se dijo, no una hora del reloj.
+
+Planteado por Daniel:
+
+```
+00:00  Dario:  "en 2 hs llego"
+01:00  Vecino: "¿a qué hora viene el técnico?"
+01:00  Marcos: "en 2 hs"          ← falta UNA, no dos
+```
+
+Y a las 03:30 seguiría prometiendo dos horas para algo que ya venció.
+
+El dato para no equivocarse **ya estaba guardado**: `tecnico_eta` tiene lo que dijo y
+`tecnico_confirmado` **cuándo lo dijo**. `llegada-tecnico.js` reconstruye el momento real con los
+dos, así que esto no agregó ninguna columna.
+
+- Al vecino se le dice la **hora del reloj** ("llega a las 02:00"), que es lo único que no envejece
+  entre que Marcos escribe y él lee, más cuánto falta contado en ese instante.
+- **Si la hora ya pasó, se dice.** Prometer una llegada vencida es peor que admitir la demora: la
+  próxima vez que Marcos diga una hora, el vecino ya no le cree.
+- **Sin promesa no se inventa una.** `estimarPlazoMs` devuelve tres horas cuando no entiende nada
+  --para agendar un control está bien--, pero acá el resultado lo lee alguien esperando en su casa.
+
+**Y al escribirlo apareció uno peor, que ya estaba en producción**: `momentoPrometido` leía
+**"en 2 hs" como "a las 02:00"**. La última alternativa aceptaba un número pegado a `hs` sin mirar
+la preposición de adelante, y `hs` es como se escribe de verdad ("en 2 horas" caía bien, "en 2 hs"
+no). Dicho a medianoche coincide de casualidad; dicho a las **8 de la mañana**, el técnico que
+avisaba "en 2 hs" quedaba agendado para las **02:00 del día siguiente** — dieciocho horas de error,
+con el vecino esperando desde las 10. Lo que las distingue es la preposición: *a las* 2 es una
+hora, *en* 2 y *dentro de* 2 son un plazo.
+
+El mismo arreglo entra en el contacto de ingreso: "en 2 hs" dicho a las 20:30 es una visita a las
+22:30, cuando el encargado ya se fue. Mirando la hora de ahora se concluía que sí estaba, y el
+técnico se enteraba parado en la puerta.
+
+Prueba: `node pruebas-hora-llegada.js`.
+
+### Un reclamo no lo abre solo el vecino
+
+Marcos se mete en una relación que ya existe: el administrador y sus proveedores vienen
+trabajando por WhatsApp desde antes. Si el administrador deja de atender el teléfono, **Marcos
+tiene que hacer lo que él hacía**.
+
+- **Encargado, limpieza, seguridad y el propio administrador** ya podían abrir un caso: caen al
+  camino común de un reclamo.
+- **El proveedor** era el único que no podía, porque su rama del webhook corta antes. Ahora, si
+  avisa que lo convocaron y que va (`"me llamó el encargado de San Patricio 159, voy a pasar"`),
+  se abre el caso y **se le avisa a la Administración en ese momento** — que es la llamada que
+  antes recibía el administrador. Sin eso, el trabajo aparecía recién con la factura, días
+  después, y nadie sabía que se estaba haciendo.
+- Tiene que **nombrar el edificio** y que sea de su cartera. Si avisa sin decir adónde, se le
+  pregunta: es un dato que solo él tiene.
+- El caso queda como su caso activo, así la foto y la factura que mande después caen ahí.
+- Prueba: `node pruebas-aviso-proveedor.js`.
+
+### Toda factura del técnico deja un evento
+
+Antes hacía falta que contara qué hizo (20 caracteres) para que se abriera el caso. Sin eso la
+factura quedaba archivada y **no existía el evento**: el administrador veía un gasto suelto, sin
+conversación, sin el teléfono del técnico y sin poder preguntarle nada.
+
+Y ese es el caso **normal**, no la excepción: al técnico lo llama el encargado, hace el trabajo y
+manda la factura. Nunca hubo reclamo por este canal. El evento es lo único que le da contexto al
+gasto — es exactamente lo que el administrador tenía antes en su propio WhatsApp.
+
+El evento guarda la conversación completa (la pregunta de Marcos y lo que contestó el técnico), el
+número de factura, el monto y el teléfono del proveedor.
+
+### "El último caso" no es el que PostgreSQL devuelve último
+
+> [!CAUTION]
+> **`SELECT * FROM reportes` sin `ORDER BY` no promete ningún orden.** Y en PostgreSQL una fila
+> **actualizada se mueve al final del heap**, así que "la última fila" es la que se tocó hace
+> menos, no la más nueva.
+
+Caso real: Daniel tenía abiertos el **CASO-1001** (de días atrás, en `san patricio casa`) y el
+**CASO-1003** (de esa tarde, en `san patricio 270`). Mandó la foto y la factura del 1003, y Marcos:
+
+1. cerró el **1001** con un "✅ RECLAMO SOLUCIONADO" que hablaba de otra reparación,
+2. archivó la factura contra el **1001**,
+3. y al corregirlo le contestó con el contacto de ingreso del edificio del 1001.
+
+Los tres salen de `[...abiertos].reverse().find(...)`. El 1001 venía recibiendo líneas de chat todo
+el tiempo, y cada `UPDATE` lo empujaba al final del heap hasta quedar "último".
+
+`caso-reciente.js` (`elegirCasoMasReciente`) ordena explícito: **primero el número de caso**
+(`CASO-1003 > CASO-1001`, que es una secuencia nuestra) y, sin número, la fecha — leída con el
+formato argentino `27/08/2026, 19:38:21`, que `new Date()` interpreta al revés o no lee.
+
+> Ojo: el número se compara **como número**. Como texto, `"CASO-999" > "CASO-1003"`.
+
+Cuando hay más de un caso abierto, el log dice cuál eligió y por qué. Con dos casos abiertos, saber
+a cuál se le imputó todo es la diferencia entre encontrar esto en cinco minutos o en una semana.
+
+Prueba: `node pruebas-caso-reciente.js`, con un candado que prohíbe volver a decidir por el orden
+físico en cualquier función que lea `reportes`.
+
+### A qué caso se le imputa una factura
+
+> [!CAUTION]
+> **Un solo caso reciente no es una respuesta para siempre.** La regla vieja decía "si el técnico
+> tiene un único caso reciente, la factura es de ese caso". Para la PRIMERA factura está bien; para
+> la segunda es una adivinanza. Visto en el chat real: dos comprobantes distintos, con números
+> distintos, los dos *"asociados al CASO-1001"*, y el panel sumando los dos montos en el mismo
+> consorcio.
+
+Con un técnico que trabaja para **once administradores** eso está garantizado: manda seis
+comprobantes de obras distintas y los seis se pegan al mismo caso.
+
+- La señal es que **el caso ya tenga su factura** (`casoYaTieneFactura`). Si ya la tiene, la que
+  llega es de otro trabajo: se pregunta mostrando la lista, en vez de adivinar.
+- La factura ahora guarda **`id_evento`**. Antes el caso se le decía al técnico por WhatsApp
+  ("la dejé asociada al CASO-1001") y no quedaba escrito en ningún lado.
+- **La misma factura mandada dos veces no se duplica.** Se identifica por número de comprobante +
+  proveedor, ignorando los ceros de adelante (`0001-284` y `00001-284` son la misma). Sin número
+  no se bloquea: perder una factura es peor que tener dos.
+- Un caso **cerrado** recibe su factura igual — es el caso normal: el trabajo termina, el caso se
+  cierra, y el comprobante llega una semana después.
+- Prueba: `node pruebas-factura-a-que-caso.js`.
+
+### "1001 es el caso" no es "CASO 1001"
+
+> [!CAUTION]
+> **Nadie contesta un número de caso de una sola forma.**
+
+Marcos preguntó de qué obra era la factura. Daniel contestó **"1001 es el caso"** — el número
+primero — y la condición exigía la palabra `CASO` pegada adelante:
+
+```js
+textoFinal.match(/\bCASO[\s-]?0*(\d{2,})\b/i)
+```
+
+No matcheó ninguna de las tres vías: ni esta, ni la del edificio (el texto no nombra ninguno), ni
+la de la lista (pide **un** dígito, y 1001 tiene cuatro). La factura terminó abriendo el
+**CASO-1002** al lado del caso que él acababa de nombrar, en el mismo edificio, con el mismo
+técnico y el mismo rubro.
+
+Ahora se acepta en cualquier orden, y también el número pelado de 3 dígitos o más: a esa altura de
+la conversación Marcos ya preguntó de qué obra era, así que "1001" a secas no puede ser otra cosa.
+Lo que **no** se toma como caso es un monto, un número de factura ni una cantidad.
+
+### Cuando contesta citando, las palabras de Marcos entran como si fueran del técnico
+
+> [!CAUTION]
+> **Un mensaje citado llega PEGADO al texto del mensaje.** `index.js` armaba
+> `1001 es el caso [Cita el mensaje: "…recibida la factura…"]` y de ahí en adelante todas las
+> condiciones leían la palabra `factura` como si la hubiera escrito el técnico.
+
+En la prueba buena --la primera donde la factura llegó al caso correcto-- quedaron **dos filas**
+para un solo comprobante: la de 1:24:28 con el monto real (`$5500`, N° `00001-00000262`) y sin
+edificio, y una segunda a 1:25:35 con el edificio y sin monto, creada por la **respuesta** *"1001
+es el caso"*. El administrador ve dos gastos donde hay uno.
+
+No es una condición en particular: la cita puede traer cualquier palabra que Marcos haya escrito
+antes --"foto", "pago", "cerradura", el nombre de otro edificio-- así que **cualquiera** de las 69
+condiciones de la rama del proveedor puede dispararse con palabras que no son de quien escribe. Es
+el mismo defecto de fondo que los acentos: decidir por coincidencia de texto sobre un texto que no
+es el que la persona escribió.
+
+- `cita-mensaje.js` (`separarCita`) parte el mensaje en lo que él escribió y lo que citó.
+- **Las decisiones** (`textoFinal`, `txtLow`, `txtLowFactura`) leen solo lo suyo. Los tres `txtLow`
+  además pasaron a leer `textoFinal` y no `msgBody`: en un audio `msgBody` es `(Nota de voz)` y la
+  transcripción nunca llegaba a esas condiciones.
+- **El registro** (`msgBodyParaRegistro`) tampoco la lleva: de ahí salen `problema`, `rubro_tecnico`
+  y la nota del panel, donde se leía `Dijo: "1001 es el caso [Cita el mensaje: …]"`.
+- **La cita no se tira**: vuelve etiquetada en `messageText`, que es lo que lee el modelo — leer y
+  entender es justo lo que sabe hacer. El historial no se toca: el mensaje citado ya está ahí como
+  su propia burbuja.
+
+Prueba: `node pruebas-cita-mensaje.js`, con un candado que prohíbe volver a armar un texto de
+decisión desde `msgBody`.
+
+### Contestar el edificio no quiere decir que haga falta un caso nuevo
+
+Cuando el técnico contestaba con el edificio, el código **siempre** abría un evento nuevo. Nunca
+miraba si ese técnico ya tenía un caso ahí esperando su comprobante.
+
+Abrir el caso sigue siendo lo correcto en el caso **normal** —al técnico lo llamó el encargado,
+hizo el trabajo y mandó la factura, nunca hubo reclamo por este canal—, pero si su caso reciente
+en ese edificio **todavía no tiene factura**, la que llega es de ese trabajo.
+
+- Con **un solo** caso sin comprobante en ese edificio, la factura va ahí y no se abre nada.
+- Con **dos o más**, no se adivina: elegir mal reparte el gasto al azar entre dos consorcios.
+- La factura ahora guarda `id_evento` también por esta vía (`imputarFacturaSinEdificio`), en
+  Sheets y en PostgreSQL. Antes el caso se le decía al técnico por WhatsApp y no quedaba escrito.
+
+### "Marcos tiró la factura a la basura" — cómo distinguir qué pasó
+
+Cuando un técnico manda una factura y en el panel no aparece, hay tres cosas distintas que desde
+afuera se ven igual:
+
+1. **No la reconoció como factura** → no hay fila en ningún lado. El log lo dice ahora:
+   `🧾❔ NO se trató como factura un mensaje de …` con qué condición falló.
+2. **La reconoció pero no supo de qué edificio es** → la fila **está**, con estado `Sin imputar`.
+   No se perdió: Marcos le preguntó al técnico de qué obra era y espera respuesta.
+3. **Se guardó en otra pestaña.** `guardarFactura` buscaba `sheetsByTitle['facturas']`, que
+   distingue mayúsculas: con la pestaña escrita distinto no la encontraba y **creaba una segunda**.
+   Las facturas iban a la nueva y quien miraba la vieja las daba por perdidas.
+
+```bash
+node revisar-facturas.js            # solo lee: últimas facturas y estado de cada una
+pm2 logs marcos-ai --lines 300 --nostream | grep "🧾"
+```
+
+Las 33 búsquedas de pestaña por índice en `sheets.js` pasaron a `pestaña()`, que la encuentra
+escrita como esté. `pruebas-pestanias.js` ahora **prohíbe** el acceso por índice en `sheets.js`
+fuera de la propia `pestaña()`, así el problema no puede volver por otra función.
+
+### Una hoja de Google tiene 26 columnas, y `EVENTOS` necesita más de treinta
+
+> [!CAUTION]
+> **Cuando no entra una columna más, `addRow` DESCARTA EN SILENCIO todo lo que iba en ella.**
+> El dato se pasa completo, la función devuelve bien, el log dice que se guardó, y la celda queda
+> vacía.
+
+`setHeaderRow` se planta con *"Sheet is not large enough to fit N columns. Resize the sheet
+first."* — y los **doce** lugares de `sheets.js` que creaban columnas lo atrapaban con
+`.catch(() => {})`. Es el mismo error de siempre: **hacer algo y no verificar que haya quedado
+hecho.**
+
+Así se perdieron `tecnico`, `tel_tecnico` y `rubro_tecnico` en los cuatro primeros casos reales.
+`tel_tecnico` es el teléfono de quien está escribiendo: **no puede estar vacío**, y en la planilla
+estaba vacío en los cuatro. Lo que eso rompía:
+
+- El administrador veía casos **abiertos sin nadie a quien llamar**.
+- Con el rubro vacío quedaba muerto **todo lo que depende de él**, sin que nada avisara: la
+  separación de un reclamo nuevo (`coincideRubro`), cuál de los técnicos de una línea compartida
+  escribió, y a qué caso se le imputa una factura.
+
+Ahora todo pasa por `asegurarColumnas(sheet, necesarias, quien)`, que **agranda la hoja antes de
+escribir** y grita si no puede. Dos detalles que importan:
+
+- **Las columnas que ya están no se reordenan ni se tocan**: los datos de las filas viven por
+  POSICIÓN, no por nombre. El `new Set([...headers, ...necesarias])` de antes además **colapsaba
+  las columnas sin título en una sola**, y a partir de ahí cada columna quedaba con el nombre de
+  la de al lado. Se agrega solo al final.
+- **Un encabezado repetido rompe la pestaña entera** (`Duplicate header detected`): la librería se
+  planta y desde ahí no se puede leer ni escribir por nombre. Eso se arregla **a mano** en la
+  planilla — el código solo puede decirlo fuerte.
+
+```bash
+node revisar-columnas.js            # solo lee: si a alguna pestaña le falta lugar, lo dice
+node crear-columnas.js              # muestra qué columnas crearía, no toca nada
+node crear-columnas.js --aplicar    # las crea (solo agrega al final; no renombra ni reordena)
+```
+
+`asegurarColumnas` ya lo arregla solo, pero recién la próxima vez que Marcos escriba en esa
+pestaña. `crear-columnas.js` lo hace ahora, para dejar el terreno parejo antes de una prueba.
+**No rellena los casos viejos**: un caso guardado sin `tel_tecnico` porque la columna no existía
+ya perdió ese dato.
+
+La lista de qué necesita cada pestaña vive en `columnas-necesarias.js`, en un solo lugar, y una
+prueba verifica que ninguna pestaña donde el código crea columnas quede afuera de esa lista.
+
+Pruebas: `node pruebas-columnas.js`. Incluye un candado estructural: **ningún `setHeaderRow` puede
+volver a tragarse su error**, y solo se lo puede llamar desde `asegurarColumnas`.
+
+### Avisar que lo llamaron no es decir que va
+
+> *"Hola, me llamaron del edificio, hay una cámara que no funciona."*
+
+Eso es un aviso a medias: el administrador tiene que enterarse igual, pero nadie sabe todavía si
+el técnico va a ir, ni cuándo, ni si necesita que le abran. Antes se daba por confirmado y se
+agendaba un control contra una promesa que nunca existió.
+
+Daniel: *"si no digo que voy, que Marcos pregunte: ok gracias por avisarme, ¿vas a pasar? ¿cuándo?
+¿necesitás algo que gestione? Así no espera que el tipo le diga — que indague"*.
+
+- **`confirmaQueVa` se separó de `avisaQueVa`.** Convocado sin confirmar → el caso se abre igual,
+  con estado **`avisado`**, y Marcos pregunta las tres cosas. Confirmado → `en_proceso` como antes.
+- **El caso se abre en los dos casos**, y a propósito: si se esperara la confirmación para abrirlo,
+  un técnico que avisa y después no contesta nunca deja al administrador sin enterarse de nada —
+  que es justo el agujero que Marcos viene a tapar. **Daniel lo confirmó**: su pedido original era
+  no abrirlo hasta que el técnico dijera que iba, y al ver el costo de esperar decidió que se abra
+  igual. No revertir esto sin preguntarle.
+- **El paso 1 del seguimiento pregunta distinto según el estado**: a un caso `avisado` le pregunta
+  *"¿vas a poder pasar?"*, no *"¿pudiste pasar?"*. Reclamarle a alguien por un incumplimiento que
+  nunca prometió es peor que no preguntar nada.
+- **La respuesta se reconoce sin repetir nada.** "Sí, mañana a las 10" no trae verbo ni dirección
+  —la acaba de decir— y ahí `pareceRespuestaDeAgenda` la engancha con el caso pendiente, que se
+  busca **en la planilla** y no en RAM: PM2 reinicia seguido y una conversación a medias no puede
+  depender de que el proceso siga vivo.
+
+Prueba: `node pruebas-confirma-visita.js`.
+
+### "Mañana a las 10" es un momento, no una duración
+
+> [!CAUTION]
+> **`estimarPlazoMs` devolvía siempre un plazo contado desde ahora.** "Mañana" eran 20 horas,
+> dijera lo que dijera el técnico. Nunca miraba la hora que había prometido.
+
+- Avisa a las **8 de la mañana** que va mañana → el control caía a las **4 de la madrugada**, antes
+  incluso de la hora a la que había prometido ir.
+- Avisa a las **19** que va mañana → caía a las **15** del otro día, cinco horas tarde.
+
+`momentoPrometido(texto, ahora)` lee la hora del reloj cuando está dicha ("mañana a las 10", "a las
+18", "a la tarde") y la ancla a ese momento real. Los plazos relativos ("en 30 minutos", "en 2
+horas") siguen contándose desde ahora, que es lo correcto para ellos. `"voy mañana"` sin hora se
+controla **al final de la jornada**: tuvo todo el día, preguntarle a las 8 AM es preguntar antes de
+que empiece.
+
+Y hay un piso: **a nadie se le pregunta nada entre las 22 y las 8**. Un "¿pudiste pasar?" a las 3
+AM no lo contesta nadie, despierta a una persona y quema la confianza que Marcos necesita para
+existir. `enHorarioRazonable()` corre a la mañana siguiente cualquier control que caiga afuera, y
+se aplica también a los pasos 2 y 3 de la cadena.
+
+> La cuenta de horas se hace a mano con desfase fijo `-3` (Argentina no cambia de hora desde 2009)
+> y no con `toLocaleString`, por el mismo ICU reducido del VPS que obligó a escribir `fecha.js`.
+
+Prueba: `node pruebas-horario-seguimiento.js`.
+
+### Por qué Marcos preguntaba varias veces "¿pudiste pasar?"
+
+El seguimiento avanza en cadena: **paso 1** se le pregunta al técnico, **paso 2** al edificio,
+**paso 3** se busca suplente y se avisa a la Administración. Un barrido cada 5 minutos levanta los
+casos con `proximo_seguimiento` vencido.
+
+Al técnico le llegaba la misma pregunta repetida. Eran dos causas, y las dos son el mismo error de
+fondo: **hacer algo y no verificar que la marca de "ya está hecho" haya quedado**.
+
+1. **El barrido mandaba primero y agendaba después.** Si la planilla no se podía actualizar, el
+   control seguía vencido y a los cinco minutos se mandaba de nuevo. Para siempre. Ahora se
+   **reserva el próximo paso antes de mandar**: si no se puede agendar, no se manda. Un fallo
+   cuesta una vuelta perdida en lugar de una repetición sin fin.
+2. **Cada confirmación del técnico volvía a agendar el paso 1.** El técnico sigue escribiendo
+   después de resolver —manda la factura, saluda— y cualquiera de esos mensajes leído como
+   confirmación reiniciaba la cadena desde cero. `programarSeguimiento` ahora **no deja retroceder
+   el paso**, respeta un control ya agendado a futuro para el mismo paso, y **no agenda nada en un
+   caso resuelto o cerrado**.
+
+Prueba: `node pruebas-seguimiento-una-vez.js`.
+
+### Cuándo un mensaje es OTRO caso (y no la continuación del abierto)
+
+`guardarReporte` engancha cada mensaje al caso abierto del mismo vecino o del mismo edificio. Está
+bien mientras la conversación siga siendo sobre lo mismo (una foto, "¿ya viene?", un gracias).
+Pero **un reclamo nuevo no es la continuación de nada**, y con la regla vieja todo lo que dijera
+ese vecino caía adentro del caso abierto:
+
+```
+ℹ️ Técnico ya notificado del [CASO-1001], se omite el reenvío duplicado de la plantilla.
+📊 Evento [CASO-1001] unificado/actualizado en Sheets
+```
+
+Parece una decisión correcta y era el bug: el reclamo nuevo quedaba pegado al viejo, con un solo
+técnico asignado, y al técnico del caso nuevo no le llegaba la plantilla nunca. En las pruebas se
+notaba porque CASO-1001 no se cerraba y **cada prueba del mismo día caía adentro**.
+
+- Lo que distingue un reclamo nuevo es el **rubro**: una lámpara quemada no es una canilla que
+  pierde. `rubros.js` (`coincideRubro`) tiene las equivalencias, compartidas con `index.js`.
+- **Ante la duda no se separa**: si el mensaje no trae un problema propio, o si alguno de los dos
+  lados no tiene rubro cargado, se sigue enganchando como antes. Separar de más parte un caso en
+  dos y le muestra al administrador dos reclamos donde hay uno.
+- Prueba: `node pruebas-caso-nuevo-o-mismo.js`.
+
+### Quién decide de qué habla el técnico: el modelo, no las palabras
+
+> [!CAUTION]
+> **Hasta acá el modelo era el ÚLTIMO de la fila.** La rama del proveedor decidía con una cadena
+> de condiciones por coincidencia de texto —69 en `index.js`— y la primera que matcheaba cortaba.
+> El modelo (línea 3590) solo atendía lo que ninguna condición había reclamado.
+
+El caso que lo agotó, textual del chat:
+
+```
+Daniel: "La foto también es del caso"
+Marcos: "ya mismo me contacto con el vecino para pedirle la foto…"
+Daniel: "No... te acabo de mandar una foto, NO TE ESTOY PIDIENDO FOTOS DE NADA"
+Marcos: "ya mismo me contacto con el vecino para pedirle la foto…"
+```
+
+La condición buscaba la palabra `foto`. Las dos frases la contienen.
+
+Y no era un caso aislado. **En los cuatro bugs anteriores el modelo no se equivocó ni una vez:
+nunca se le preguntó.**
+
+| Se escribió | Se leyó como | Por qué |
+|---|---|---|
+| "1001 es el caso" | nada | pedía `CASO` pegado adelante |
+| "una cámara apagada" | consulta de pago | `/pag/` adentro de "aPAGada" |
+| "llamó el encargado" | nada | `\w` no incluye la "ó" |
+| "hay que ver la cámara" | pedido de datos | `ver` suelto |
+
+`ruteo-proveedor.js` da vuelta el orden: el modelo lee el mensaje **con el contexto** (qué le acaba
+de preguntar Marcos, si hay un caso abierto, si hay una factura esperando obra) y dice de qué se
+trata. Recién con eso se elige el ramal.
+
+- **Las condiciones de texto quedan escritas**, renombradas a `*PorTexto`. Son el respaldo: si el
+  ruteo está apagado, el modelo falla o tarda más de 6 segundos, se sigue **exactamente** como
+  antes. Sus pruebas siguen corriendo — es el piso al que cae Marcos sin IA.
+- **Se apaga sin tocar código**: `RUTEO_IA=off` en el `.env` y `pm2 restart marcos-ai`. Igual que
+  `LECTURA_PG`. Es la salida de emergencia de un domingo a la noche.
+- **Los desacuerdos quedan en el log** con las dos opiniones y la frase que los causó:
+  `🧭 "la foto también es del caso" → pide_datos_al_vecino: el texto decía SÍ, la IA dice no…`.
+  Sin eso, la única forma de saber si el cambio mejoró algo sería esperar a que un técnico se queje.
+
+**Lo que NO se rutea, y a propósito.** Donde equivocarse cuesta plata o una relación, un `if` no es
+pereza: es un cerrojo, y un modelo que obedece "casi siempre" no alcanza.
+
+- El cambio de CBU, que no se aplica solo.
+- El filtro de insultos y quejas hacia el técnico.
+- La ventana de 24hs de Meta.
+- Si el mensaje trae adjunto (`esFacturaODoc`): eso lo dice el tipo de archivo, no el texto.
+
+**Una intención que no está en el catálogo no activa nada**, y eso es deliberado: el mensaje cae al
+camino libre —donde Marcos lo lee y contesta— en vez de activar un ramal al azar.
+
+```bash
+node probar-ruteo.js        # solo lee: le pasa frases reales al modelo y muestra qué entendió
+pm2 logs marcos-ai --lines 300 --nostream | grep "🧭"
+```
+
+Pruebas: `node pruebas-ruteo-proveedor.js` (el mecanismo, sin llamar a Gemini) y
+`node probar-ruteo.js` (la clasificación de verdad, necesita la clave y corre en el VPS).
+
+### Un error suelto mataba a Marcos en mitad de una conversación
+
+> [!CAUTION]
+> **Una promesa que se rechaza sin `catch` TERMINA EL PROCESO.** Es el comportamiento de Node desde
+> la v15, y no hacía falta que el error fuera del motor: alcanzaba con uno del **portal del vecino**,
+> que corre adentro del mismo proceso.
+
+Daniel mandó *"ya resolví"* con una foto y la factura. En el log se ve la ráfaga entrando, la imagen
+bajándose… y de golpe las líneas de **arranque** del servidor:
+
+```
+🧾 Ráfaga de a dario juju con 2 adjuntos: se procesa uno por uno
+✅ Archivo descargado en: …/media_1077415228377407.jpeg
+📌 Confirmación del técnico registrada en [CASO-1001]
+⏰ Cron de reportes programado a las 08:00 y 20:00      ← esto es un ARRANQUE
+🚀 Servidor Marcos corriendo en puerto 3000
+```
+
+El proceso se murió a mitad de camino y PM2 lo levantó de nuevo. **La respuesta nunca salió y él no
+vio ningún error: vio a Marcos ignorándolo.** El contador de reinicios de PM2 iba en **41**.
+
+El disparador de esa vez fue un `ReferenceError: esc is not defined` en `portal-vecino.js` (ya
+corregido). Pero el arreglo de verdad no es ese: es que **ningún error suelto pueda tirar abajo una
+conversación en curso**.
+
+- **`unhandledRejection` → se loguea y NO se corta.** Una promesa rechazada suele ser una falla
+  aislada (una consulta que no anduvo, un envío que rebotó) y no deja el programa en mal estado.
+  Perder la conversación de un técnico por eso no vale la pena.
+- **`uncaughtException` → se loguea y SÍ se sale**, a propósito: puede dejar el programa a mitad de
+  una operación, y seguir con el estado roto puede mandarle a una persona real un mensaje
+  equivocado. Eso es peor que un reinicio. Lo que cambia es que **ahora queda escrito qué pasó** —
+  antes el proceso se moría y en el log no quedaba más que el arranque siguiente.
+
+### El esquema real de PostgreSQL no es el que dice `db-pg.js`
+
+En el mismo log, el mismo día:
+
+```
+column "id_evento" of relation "facturas" does not exist
+column "url" of relation "facturas" does not exist
+column "cbu" does not exist                                    (reservas amenities)
+new row for relation "facturas" violates check constraint "facturas_estado_chk"
+```
+
+Tres columnas que el código escribe y la base no tiene, más una **restricción que no está en
+`db-pg.js`** — o sea que alguien la creó **a mano en el servidor**. Eso rompe la regla de oro del
+repo y deja el esquema real distinto del que dice el código.
+
+`psql` directo no sirve para revisarlo: el usuario `root` del sistema **no existe como rol de
+PostgreSQL**. `revisar-columnas-pg.js` usa la misma conexión que Marcos y muestra las columnas
+reales de cada tabla y sus restricciones `CHECK`.
+
+```bash
+node revisar-columnas-pg.js              # todas las tablas
+node revisar-columnas-pg.js facturas     # una sola
+```
+
+#### Y una columna que falta hace fallar el statement ENTERO
+
+> [!CAUTION]
+> **Un `UPDATE` que nombra dos columnas y una no existe no escribe NINGUNA de las dos.** No falla a
+> medias: PostgreSQL rechaza el statement completo.
+
+Visto en la prueba del vecino con la ventana de 24hs cerrada, repetido en el log:
+
+```
+[PG] No se pudo copiar el borrado de las marcas de entrega de CASO-1001:
+     column "material_enviado_tecnico" of relation "reportes" does not exist
+```
+
+`contacto_acceso_avisado` **sí** estaba en `db-pg.js`; su gemela `material_enviado_tecnico`, no,
+aunque se crearon el mismo día y se borran juntas en un solo `UPDATE`. Así que el reintento de lo
+que Meta había rechazado --el arreglo que en esa misma prueba funcionó-- dependía de que Sheets
+contestara: **del lado que Marcos lee primero, las marcas quedaban puestas.**
+
+La misma revisión encontró `reportes.foto_url`: `portal-vecino.js` la nombra al abrir un reclamo
+desde el portal y no existía, con lo cual el `INSERT` fallaba entero y **el reclamo no quedaba
+registrado en PostgreSQL** — ni la foto ni el reclamo.
+
+`pruebas-columnas-pg.js` es el candado: lee el SQL escrito en los archivos y lo compara con lo que
+`db-pg.js` crea. No necesita la base prendida, así que corre antes de cada push.
+
+> [!CAUTION]
+> **Todo el esquema de `db-pg.js` vive adentro de un template literal de JavaScript.** Un acento
+> grave en un comentario SQL --escribir el nombre de un archivo entre acentos graves, como en el
+> resto de este documento-- **cierra la cadena y rompe el archivo entero**. Pasó al agregar estas
+> dos columnas: el verificador dijo "todo en orden", el push salió, y el error apareció recién en
+> el VPS con Marcos ya reiniciado (`SyntaxError: missing ) after argument list`).
+>
+> El verificador no lo agarró porque su lista de `node --check` estaba **escrita a mano** y
+> `db-pg.js` no estaba adentro. Ahora revisa **todos** los `.js` del proyecto, así un archivo
+> nuevo no depende de que alguien se acuerde de anotarlo.
+
+> Además avisa cuáles columnas vienen de `01-base-de-datos.sql`, que **alguien tiene que aplicar a
+> mano**. Esas existen en el VPS de hoy porque Daniel corrió el archivo, y no existirían en una
+> instalación nueva. De ahí salió la restricción `facturas_estado_chk` que aparece más arriba como
+> "alguien la creó a mano en el servidor".
+
+#### La tabla existe, Marcos la ve, y no puede escribirla
+
+> [!CAUTION]
+> **`CREATE TABLE IF NOT EXISTS` sobre una tabla creada por OTRO rol no da error: ve que ya está y
+> sigue de largo.** El problema aparece recién en el `INSERT`, y para entonces parece un bug del
+> código.
+
+En la prueba del timbre: `⚠️ No se pudo persistir toque en tabla timbres: permission denied for
+table timbres`. Marcos se conecta como `marcos`; esa tabla la había creado otro rol desde `psql`.
+
+**Esto no se puede arreglar desde el código**: cambiar el dueño de una tabla exige ser su dueño o
+superusuario. El `ALTER TABLE ... OWNER TO marcos` lo corre una persona, una sola vez.
+
+**Ya se corrió y quedó** — verificado el 11/09: las 29 tablas son de `marcos`, `timbres` incluida.
+El error del log era de antes del arreglo. Se anota porque el síntoma vuelve cada vez que alguien
+crea una tabla desde `psql` como `postgres`, y desde afuera parece un bug del código.
+
+```bash
+node revisar-permisos-pg.js     # solo lee: dueño de cada tabla y si Marcos puede escribirla
+```
+
+Cuando encuentra alguna, imprime el comando exacto para arreglarla.
+
+## El webhook le creía a cualquiera
+
+> [!CAUTION]
+> **`app.post('/webhook')` no verificaba nada.** Alcanzaba con conocer la URL para hacerle creer a
+> Marcos que escribió un técnico o un vecino.
+
+Y Marcos no solo contesta: **actúa**. Un POST inventado con el teléfono de Dario adentro alcanzaba
+para abrir un caso, mandarle un WhatsApp real a una persona, dejar un cambio de CBU pendiente de
+aprobación, o imputarle una factura a un consorcio. Desde adentro no se ve distinto de un mensaje
+legítimo, así que no hay línea de log que lo delate.
+
+Meta firma cada entrega con el **App Secret**: manda `X-Hub-Signature-256: sha256=<hex>`, que es el
+HMAC-SHA256 del cuerpo. Quien no tenga el secreto no puede producir esa firma. `firma-webhook.js` la
+verifica, y dos detalles deciden si esto funciona o estorba:
+
+- **Se firma el cuerpo CRUDO, byte por byte.** `JSON.stringify(req.body)` no sirve: reordena claves y
+  cambia el escapado, la firma sale distinta y se rechazarían mensajes buenos — la peor forma de
+  fallar, porque Marcos queda sordo y el log dice "firma inválida". Por eso `bodyParser.json()` ahora
+  lleva un `verify` que guarda el buffer original en `req.rawBody`.
+- **La comparación es de tiempo constante.** Un `===` sobre dos hex responde más rápido cuando
+  difieren en el primer carácter que en el último, y eso alcanza para adivinar la firma de a un byte.
+
+> [!CAUTION]
+> **Sin `META_APP_SECRET` en el `.env` NO se rechaza nada, y es a propósito.** Rechazar sin el
+> secreto dejaría a Marcos sordo en el instante del despliegue, antes de que nadie pueda agregar la
+> variable — el mismo precio que ya se pagó con el `db-pg.js` roto. El riesgo del otro lado es que
+> quede abierto para siempre porque nadie se enteró, así que el aviso sale en **cada** pedido:
+> `🔓 webhook de WhatsApp: META_APP_SECRET no está en el .env…`. Con la variable puesta la puerta se
+> cierra sola, sin tocar código.
+>
+> El valor sale del panel de la app de Meta y **no va escrito en ningún archivo del repo**.
+
+Prueba: `node pruebas-firma-webhook.js`. Incluye tres candados: que el `bodyParser` siga guardando el
+cuerpo crudo (sin eso la firma nunca puede verificar y quedaría abierto pareciendo cerrado), que el
+control vaya como **primer** manejador de la ruta, y que nadie vuelva a escribir la comparación por
+su cuenta en otro archivo — que es exactamente lo que pasó con `buscarPerfilEdificio`, donde arreglar
+una de las dos copias no cambió nada en producción.
+
+## Una app sin sesión no es una razón para sacar el control de acceso
+
+> [!CAUTION]
+> **`/api/pases-qr` quedó abierto a internet, y eso es la puerta de calle de un edificio.**
+
+El commit decía `fix: permitir acceso a /api/pases-qr sin sesion web de dashboard para EdificaApp` y
+eran cuatro líneas dentro de `requireAuth`:
+
+```js
+if (req.path === '/api/pases-qr' || req.path.startsWith('/api/pases-qr/')) {
+    return next();
+}
+```
+
+El pedido era razonable --una app móvil no tiene sesión de navegador-- y sacar el control es la
+forma más rápida de que funcione. Lo que quedó:
+
+| Endpoint | Qué podía hacer cualquiera |
+|---|---|
+| `POST /api/pases-qr` | **Crear** un pase para el edificio que quisiera: el edificio viene en el cuerpo y no se valida contra ningún permiso. Con `tipo_pase: "recurrente"` dura **seis meses**, y `valido_hasta` acepta cualquier fecha. |
+| `GET /api/pases-qr` | **Leer** los últimos 150 pases de TODOS los edificios, **con sus tokens**. Ni hacía falta crear uno: alcanzaba con usar los que ya funcionaban. De paso salían nombres de visitantes y departamentos. |
+| `POST /api/pases-qr/revocar` | **Revocar** pases ajenos, o sea dejar afuera a la persona de limpieza. |
+
+Y en `index.js` hay `Access-Control-Allow-Origin: *` sobre esa ruta, así que todo eso se podía hacer
+desde cualquier página web.
+
+**Cómo quedó**: la app manda `X-Edifica-Key` y el servidor la exige cuando no hay sesión del panel
+(`clave-app.js`). La sesión del navegador entra como siempre. El volcado sin `edificio` queda **solo**
+para una sesión: la clave de la app es compartida y no identifica a ningún cliente, así que a la app
+se le exige decir de qué edificio pregunta.
+
+> [!CAUTION]
+> **Sin `EDIFICA_API_KEY` configurada se RECHAZA, al revés que el webhook de Meta.** No es una
+> inconsistencia: es la misma pregunta con la respuesta al revés. En el webhook, fallar cerrado deja
+> a Marcos sordo y fallar abierto cuesta un mensaje falso. Acá, fallar abierto es la puerta de un
+> edificio abierta a internet y fallar cerrado cuesta que una app en desarrollo no funcione hasta
+> configurar la variable. **De los dos errores se elige el que se puede deshacer.**
+
+**Lo que esto NO resuelve, y hay que decirlo**: la clave es compartida y viaja dentro de la app, así
+que quien la extrae puede crear pases para **cualquier** edificio. Cierra la puerta a internet, no la
+cierra a alguien decidido. Lo correcto es que el vecino se autentique y solo pueda pedir pases de
+**su** unidad, y eso es el pendiente de "Auth real". Hasta entonces esto es un tapón, no una cerradura.
+
+Prueba: `node pruebas-clave-app.js`, con un candado que detecta si vuelve el `return next()` directo.
+
+> [!CAUTION]
+> **`POST /porteria/api/puerta/abrir` ABRE LA PUERTA con solo el nombre del edificio en el cuerpo, y
+> no tiene ninguna autenticación.** Ni hace falta un QR. Es del prototipo del timbre, que Daniel
+> decidió tener como laboratorio abierto a propósito hasta dar de alta el servicio, así que **no se
+> tocó**. Queda escrito acá porque es más directo que todo lo de arriba y no puede quedar prendido
+> cuando esto salga a la calle.
+
+## El timbre de un edificio sonaba en otro
+
+> [!CAUTION]
+> **`encontrarLlamadaActiva` decide en el teléfono de QUIÉN suena un timbre, y por lo tanto quién
+> puede abrirle a alguien parado en la vereda.** No es un dato feo en el panel: es un vecino
+> atendiendo a un desconocido que tocó el timbre de otro consorcio.
+
+Lo que había en `porteria.js`, de cuando corría un solo edificio de prueba:
+
+```js
+const edMatch = !edNorm || vEd === edNorm || vEd.includes(edNorm) || edNorm.includes(vEd)
+    || edNorm.includes('demo') || vEd.includes('demo')
+    || edNorm.includes('patricio') || vEd.includes('patricio');
+...
+if (_timbresActivos.size === 1) return _timbresActivos.values().next().value;
+```
+
+Tres agujeros, de menor a mayor:
+
+1. **`!edNorm` hacía comodín a la falta de dato.** Quien preguntaba sin decir de qué edificio era
+   matcheaba con cualquier llamada. Que falte un dato es la condición normal de un pedido mal
+   armado, no una autorización.
+2. **Dos nombres de edificio escritos a mano.** Cualquier consorcio con "patricio" en el nombre era
+   el mismo que cualquier otro — y el 159 y el 270 de la misma calle son dos consorcios distintos,
+   lo mismo que ya costó caro en `perfil-edificio.js`.
+3. **`size === 1` devolvía la única llamada a cualquiera.** Con un solo timbre sonando en TODO el
+   sistema, cualquier vecino de cualquier edificio que consultara recibía esa llamada.
+
+El tercero es el peor y el más invisible: **con un solo edificio de prueba, los tres dan el
+resultado correcto por casualidad.** El bug solo existe con dos edificios a la vez, que es
+exactamente lo que nunca se probó. Por eso `pruebas-porteria-edificio.js` levanta siempre dos.
+
+- `edificio-clave.js` (`mismoEdificio`) compara **normalizado y exacto**: tolerante con la forma
+  (`San Patrício 270` = `san patricio 270`), intolerante con el contenido (el 270 no es el 159).
+  **No es `compararEdificios`**, que acepta parciales a propósito para leer un WhatsApp.
+- El departamento también se compara exacto: el `includes` viejo hacía que pedir el `1` matcheara
+  con `1A`, `1B` y `11`.
+- **Una apertura de puerta sin edificio ya no se registra.** Quedaba bajo la clave `''` y se la
+  llevaba cualquier relé que sondeara también sin edificio.
+- **El pase QR le pasa al relé el edificio del PASE, no el del pedido.** El del cuerpo lo escribe
+  el tótem y no lo verifica nadie; el del pase quedó guardado cuando se lo emitió.
+
+Prueba: `node pruebas-porteria-edificio.js`, con un candado que prohíbe que vuelva cualquiera de
+las tres formas (nombre de edificio hardcodeado, `size === 1`, `includes` entre nombres).
+
+> [!CAUTION]
+> **Lo que esto NO arregla: el estado sigue viviendo en RAM.** `_timbresActivos` y
+> `_aperturasPuerta` son `Map` del proceso, así que un `pm2 restart` en el medio de un timbre pierde
+> la llamada, y **el diseño no puede correr en más de un proceso**.
+>
+> El arreglo NO es "mover el Map a PostgreSQL". `/api/timbre-check` lo sondea el celular de cada
+> vecino cada pocos segundos **haya o no haya alguien tocando**: una consulta a la base por cada
+> sondeo, multiplicada por los vecinos de cada edificio, es peor que el problema que resuelve. Lo
+> que corresponde es dejar de sondear (SSE o WebSocket) o mantener la RAM como caché alimentada por
+> la base. Es su propio trabajo, no un renglón.
+
+### Pedirle a un archivo una función que no exporta NO da error al cargar
+
+> [!CAUTION]
+> **`const { x } = require('./y')` con `y` que no exporta `x` deja `x` en `undefined`.**
+> Recién revienta cuando alguien lo llama — casi siempre adentro de un `try` que se come el error.
+
+`datos.js` **nunca exportó `buscarCasoPorCodigo`**, y **cinco** lugares de `index.js` se la pedían.
+Los cinco caían en su `catch` con *"buscarCasoPorCodigo is not a function"*. Desde afuera no se veía
+ningún error: se veía a Marcos preguntando la dirección que el técnico acababa de decir, porque el
+arreglo que evitaba eso **nunca llegó a correr ni una vez**.
+
+Nada lo agarraba: `node --check` no lo ve (la sintaxis es válida), las pruebas no llegan hasta ahí,
+y la sección "¿falta alguna función?" del verificador **usa una lista escrita a mano** — solo revisa
+los nombres que alguien se acordó de anotar.
+
+`herramientas-check-exports.js` lee los `require` de verdad y los compara con los `module.exports`
+de verdad. No los carga: `datos-pg.js` abre PostgreSQL al cargarse y los agentes crean el cliente de
+Gemini, así que un verificador que necesita la base prendida no se puede correr antes de un push.
+
+**Encontró ocho más apenas se escribió**, todos con el mismo síntoma silencioso:
+
+| Dónde | Qué pasaba |
+|---|---|
+| `getSheet` pedido a `datos.js` (4 lugares) | vive en `sheets.js`. Se corrigió el `require`. |
+| `procesarSiguienteEventoProveedor` (`index.js:4038`) | **no existe en ningún archivo**, y se llamaba adentro de un `setTimeout` **sin `try`** — una excepción ahí **mata el proceso entero**. No explotó porque los mensajes cortan antes con un `return`. |
+| `enviarEncuestaServicio` (3 lugares) | **no existe**, y las tres llamadas estaban en un `catch(e) {}` **vacío**: la encuesta de satisfacción al vecino **nunca se envió ni una vez**. |
+
+Las dos que no existen **no se inventaron**: adivinar qué tenían que hacer es peor que no tenerlas.
+Quedan dichas en el log, fuerte, para que sean una decisión y no un olvido.
+
+### No preguntarle la dirección que él acaba de decir
+
+Del chat real, con tres minutos de diferencia:
+
+```
+21:32  Marcos: "…Dirección: san patricio 270 … Quedó abierto como CASO-1001 en el panel."
+21:34  Daniel: "Tengo llave, en 2 horas estaría llegando"
+21:35  Marcos: "Perfecto, ¿a qué dirección vas?"
+21:36  Daniel: "…te acabo de decir que me llamaron de San Patricio 270. ¿Tenés memoria de pajarito?"
+```
+
+> [!CAUTION]
+> **Preguntar un dato que uno mismo acaba de escribir es lo que más rápido convence al técnico de
+> que del otro lado no lo están leyendo.**
+
+**No fue el ruteo**: el modelo clasificó *"Tengo llave, en 2 horas estaría llegando"* como
+`confirma_que_va` con confianza 1. El camino bueno —*"lo anoté en el CASO-1001 de San Patricio
+270"*— existía. Lo que falló fue **encontrar el caso**:
+
+```js
+suyos.find(c => !c.cerrado && /avisad|sin confirmar/i.test(String(c.estado || '')))
+```
+
+Exigir que el estado dijera "avisado" alcanzaba para no encontrarlo. Pero la pregunta que importa
+no es en qué estado está el caso: **es si ya sabemos de qué trabajo habla.** Y se sabía — el propio
+log lo demuestra, la línea `🔑 … del [CASO-1001]` salió de la sesión en memoria.
+
+Ahora hay tres fuentes, de la más precisa a la más general:
+
+1. **El caso que la conversación tiene abierto** (`eventoActivoId` de la cola). El código sale de la
+   memoria, pero **el caso se relee de la base**: la memoria dice de qué se está hablando, la base
+   dice la verdad. Si ya se cerró, no se reusa.
+2. El caso suyo que **espera confirmación**, como antes.
+3. Su **único** caso abierto, esté en el estado que esté.
+
+Con **dos o más** abiertos sí se pregunta: adivinar manda al técnico —y la factura— al consorcio
+equivocado. Preguntar molesta; elegir mal cuesta plata. Y cuando no se encuentra ninguno queda un
+`🔎` en el log diciendo qué había en memoria, para no volver a diagnosticar a ciegas.
+
+Prueba: `node pruebas-no-repreguntar.js`.
+
+### El contacto de ingreso salía antes de leer la respuesta
+
+`entregarPendientesAlTecnico` manda el contacto de quien abre en la **línea 1257**.
+`tieneAccesoPropio` —la función que pregunta si el técnico dijo que entra solo— se consultaba en la
+**línea 3249**. Dos mil líneas después.
+
+Daniel escribió *"Tengo llave. Y que no necesito nada, voy en 2hs"* y un segundo más tarde le llegó
+el contacto del encargado igual. La detección funcionaba perfecto —devuelve `true` con esa frase
+exacta— pero corría **después** de que el mensaje ya había salido.
+
+> **Marcos no dejó de entenderlo: nunca se lo preguntó a tiempo.** Es el mismo defecto de fondo que
+> el ruteo, en otra forma — la información estaba, el orden no.
+
+Ahora se pregunta sobre **ese** mensaje, antes de mandar, y se marca el ingreso como resuelto para
+que tampoco salga en el siguiente.
+
+### Las etiquetas de multimedia son para el panel, no para una persona
+
+Al administrador le llegó por WhatsApp, adentro del aviso de un caso:
+
+```
+🗣️ Textual: "[AUDIO:/archivos/administracion_general/edificio_general/audios/
+media_4465773590357338.ogg] Hola, ¿qué tal? Buenas noches. Me llamaron de San Patricio 270…"
+```
+
+Una ruta de archivo del servidor metida en la frase del técnico. La etiqueta hace falta —es lo que
+le permite al panel mostrar el reproductor y lo que deja recuperar la foto de un caso después de un
+reinicio— pero **lo que se guarda la lleva y lo que sale hacia una persona, no**.
+
+`etiquetas-media.js` (`soloTexto`) es el único lugar donde se saca, para que no haya dos versiones.
+
+### Una reserva de amenity también es un evento, pero NO es un caso
+
+Cuando un vecino reserva el SUM o la parrilla, el administrador tiene que verlo en la sección
+Eventos junto con todo lo demás. Pero esa sección se alimenta de `reportes`, que es la misma tabla
+donde viven los reclamos — y ahí adentro una fila de más no es inocente.
+
+> [!CAUTION]
+> **Un caso ABIERTO sin rubro se traga los reclamos de todo el edificio.**
+
+`sheets.js` engancha cada mensaje al caso abierto del mismo vecino o del mismo edificio, y solo lo
+separa si los **rubros** no coinciden. Una reserva no tiene rubro, y la regla dice —con razón— *"el
+caso viejo no tiene rubro: no se puede afirmar"* → **no separa**. Con la reserva abierta, el vecino
+que reservó la parrilla y después avisa *"se cortó la luz del pasillo"* tendría su reclamo pegado
+adentro de la reserva; y por el paso 3, que busca por **edificio**, le pasaría lo mismo a cualquier
+vecino de ese edificio.
+
+Dos cerrojos, a propósito:
+
+1. La reserva se guarda con **`estado: 'resuelto'`**. El estado del pago va en el texto y su verdad
+   vive en `reservas_amenities`: `estado` en la tabla de casos significa "hay trabajo pendiente", y
+   una reserva impaga no es un trabajo pendiente para un técnico.
+2. Va marcada con **`tipo: 'reserva'`**, y las búsquedas de "caso abierto" la ignoran por esa marca
+   — por si mañana alguien decide que una reserva impaga sí quede abierta.
+
+> [!CAUTION]
+> **`'RES-' + Date.now().toString().slice(-4)` se repite cada 10 SEGUNDOS.**
+
+Los últimos cuatro dígitos de un timestamp en milisegundos cierran el ciclo a los 10.000 ms, y
+`codigo_caso` es **UNIQUE** en PostgreSQL. Dos reservas con diez segundos de diferencia —una familia
+reservando la parrilla y el SUM— y la segunda no entra: el evento se pierde en silencio.
+
+Por eso `reserva-evento.js` **no escribe la fila a mano**: llama a `guardarReporte`, que ya asigna
+códigos correlativos (`CASO-${maxNum + 1}`), escribe en Sheets **y** en PostgreSQL, y crea las
+columnas que falten. Y la llamada va **después** del `INSERT` de la reserva y sin cortar el
+endpoint: si el historial falla se pierde una fila del panel —molesto—; si por eso se le devolviera
+un error al vecino, se perdería la reserva.
+
+Prueba: `node pruebas-reserva-evento.js`.
+
+### Una palabra suelta adentro de una expresión se come mensajes enteros
+
+> [!CAUTION]
+> **La rama del proveedor decide por coincidencia de texto, y la primera que matchea CORTA.**
+> Si un mensaje cae en la rama equivocada no abre caso, no registra el reclamo y no llega a
+> ningún otro camino: Marcos contesta otra cosa y listo.
+
+Caso real: Daniel escribió que había que ver **una cámara** en San Patricio 270 y Marcos le
+contestó **la lista de facturas pendientes de pago**. Dos condiciones distintas, el mismo defecto:
+
+| Estaba | Se come | Por qué duele acá |
+|---|---|---|
+| `/pag\|cobr\|abon/` | a**pag**ada, se a**pag**ó, a**pag**ón | una cámara que no anda es una cámara apagada, y "se apagó" es la mitad de lo que dice un electricista en un día |
+| `...\|cerradura\|ver/` | "hay que **ver**", "a **ver**", "**ver**dad", "vol**ver**" | *"hay que ver una cámara"* es un trabajo, no un pedido de datos |
+
+- `\b` adelante arregla el primero entero: en "apagada" el `pag` no arranca en límite de palabra.
+- Para el segundo lo que distingue un pedido es la **primera persona**: "necesito ver" es un
+  pedido, "hay que ver" es una descripción de trabajo. `cerradura` suelta también se fue: nombrar
+  una cerradura no es pedir nada, y es vocabulario diario de quien hace control de acceso.
+
+> Se pensó excluir además "cobre" (el metal) de `/cobr/`. Daniel lo corrigió: *"no decimos cable
+> de cobre casi nunca — cable es cable, no hay otro que no sea de cobre"*. El falso positivo era
+> imaginario y la exclusión costaba caro: **"¿ya cobre?" sin tilde** es como se escribe de verdad.
+
+Prueba: `node pruebas-consulta-pago.js`.
+
+### Un audio escribe los acentos, y ahí se cae medio código de decisión
+
+> [!CAUTION]
+> **Todo esto se escribió y se probó contra texto TIPEADO, que casi nunca lleva acentos.**
+> Con un audio, la transcripción escribe español correcto. Son dos agujeros distintos, los dos
+> invisibles al leer el código:
+>
+> 1. **`\w` en JavaScript no incluye las vocales acentuadas.** `llam\w*` se corta antes de la "ó"
+>    de "llamó", `estaf\w*` no llega a la de "estafó".
+> 2. **`\b` al final tampoco sirve.** Una palabra que TERMINA en vocal acentuada no tiene borde
+>    después: en "estafó", `estaf[…]+` se come la "ó" y detrás hay un espacio — dos caracteres
+>    no-palabra seguidos, o sea ningún borde — y la expresión **entera** falla.
+
+El segundo explica algo que si no se ve parece magia negra: **"jodió" sí se filtraba y "estafó"
+no.** En "jodió" el `+` puede retroceder a "jodi", y entre la "i" y la "ó" sí hay borde. Un acento
+de más o de menos decidía si el insulto llegaba al técnico.
+
+Dónde pegó, hasta ahora:
+
+| Dónde | Qué rompía |
+|---|---|
+| `avisaQueVa` en `index.js` | *"llamó el encargado de San Patricio 270"* —la forma más común de todas— no abría caso. El mensaje caía al camino genérico y Marcos contestaba sobre otra cosa. |
+| `INSULTOS` / `QUEJAS` / `CITA` en `agentes/marcos-ops.js` | "me estafó", "nos cagó", "ya te avisé dos veces" **pasaban el filtro y le llegaban al técnico**. El vecino nunca se entera de lo que le mandamos al proveedor: un roce social filtrado rompe una relación que él ni sabe que está en juego. |
+
+Los bordes de palabra pasaron a mirar los acentos: `(?<![a-záéíóúüñ])` adelante y
+`(?![a-záéíóúüñ])` atrás. `pruebas-filtro-terceros.js` prueba cada insulto y cada queja **en las
+dos formas**, con acento y sin él, y tiene un candado que **prohíbe que `\w` o `\b` vuelvan** a
+esas expresiones.
+
+Prueba: `node pruebas-filtro-terceros.js` y `node pruebas-confirma-visita.js`.
+
+### El oficio de la persona no es el rubro del trabajo
+
+> [!CAUTION]
+> **`especialidad` es el oficio de la PERSONA. El rubro es de qué se trata ESTE trabajo.**
+> Se mezclaban, y eso rompía justo lo que el rubro existe para resolver.
+
+Caso real: Dario está cargado como **Electricista**, avisó por una **pérdida de agua**, y el caso
+quedó marcado "Electricista" — el mismo rubro que su caso eléctrico abierto en ese edificio. Como
+los rubros coincidían, el aviso de plomería se metió **adentro** del caso de la luz.
+
+Y pasa siempre. Palabras de Daniel: *"yo en los edificios a veces hago electricidad, portería,
+control de acceso y CCTV"*. Un mismo técnico hace trabajos de rubros distintos; su ficha no dice
+cuál es el de hoy.
+
+- `rubroDelCaso(texto, especialidad)` — **manda lo que la persona contó**; la ficha es el respaldo
+  para cuando el texto no alcanza. Y `"Proveedor"` deja de escribirse como rubro: es un rol, no un
+  oficio, y `coincideRubro` lo comparaba contra oficios de verdad.
+- **Los mensajes de puro registro ya no reclasifican el caso.** La mayoría de los `guardarReporte`
+  de un proveedor son para dejar la conversación guardada (no traen problema propio), y sin embargo
+  mandaban su `rubro_tecnico` y le pisaban el rubro al caso: cualquier mensaje del electricista
+  marcaba "Electricista" un caso de plomería. Ahora el rubro **se completa si está vacío y no se
+  reescribe** — corregirlo es una decisión, no un efecto secundario.
+
+### Separar casos y elegir técnico son preguntas opuestas
+
+Las dos usaban `coincideRubro` y había que elegir cuál romper:
+
+| Pregunta | Función | Criterio | Por qué |
+|---|---|---|---|
+| ¿Es el mismo trabajo? (separar un reclamo nuevo) | `coincideRubro` | **estricto** | Cambiar el portero no es poner una cámara. Si se mezclan, dos trabajos distintos quedan en un solo caso con una sola factura. |
+| ¿Este técnico hace esto? (elegir a quién hablarle) | `atiendeRubro` | **amplio** | La ficha dice "Electricista" y el caso es de CCTV: es él igual. |
+
+`rubroDelTexto` distingue ahora **portería**, **control de acceso** y **CCTV** como rubros
+propios, y van **antes** que electricidad en la lista: "portero **eléctrico**" y "cerradura
+**electro**magnética" contienen la palabra que dispara electricidad, así que con el orden al revés
+se las llevaba todas puestas.
+
+> Esto es el respaldo, no la respuesta buena. Lo correcto es que la ficha del proveedor liste sus
+> rubros de verdad (`electricidad, portería, control de acceso, cctv`) — y eso ya funciona, porque
+> la comparación mira si un texto contiene al otro.
+
+**Daniel lo confirmó el 22/09** y es una decisión de producto, no un detalle de implementación:
+
+> *"en los edificios soy electricista primero y urgencias, CCTV urgencias y primero también; antes
+> hacía plomería y también era el plomero y reparador de bombas de agua como primero y de
+> urgencias… tengo colegas que son gasistas y electricistas y deben poder asignarse como tal"*.
+
+O sea: **un proveedor, varios rubros, y cada rubro con su propia prioridad**, decidida por el
+administrador al asignar. La tabla `proveedor_asignaciones` ya tiene esa forma (`cliente + edificio
++ proveedor + rubro + prioridad`, una fila por rubro): no hay nada que migrar.
+
+Lo que falta es del panel, y son dos lugares: **`#prov-rubro` y `#edit-prov-rubro` son `<select>`
+de opción única**, así que la ficha guarda un rubro solo. Mientras sigan así, el desplegable de la
+asignación muestra una opción sola y el resto de la cadena no sirve de nada — está todo bien hecho
+río abajo y seco en la fuente. Tienen que pasar a selección múltiple sobre `RUBROS_PROVEEDOR` y
+guardarse separados por comas.
+
+### Cuándo se manda la plantilla, y por qué a veces "no se mandó"
+
+La plantilla se manda **una vez por caso**, no una vez por técnico: un caso nuevo en el mismo
+edificio y con el mismo técnico **sí** dispara plantilla nueva. La marca es `notificado` +
+`eventoActivoId` en RAM, y `fueTecnicoNotificado(id_evento)` en la planilla para sobrevivir a los
+reinicios de PM2.
+
+> [!CAUTION]
+> **Si la plantilla falla, sale un mensaje libre y parece que todo anduvo.** Meta rechaza la
+> plantilla **entera** si un parámetro trae un salto de línea, un tabulador, más de cuatro espacios
+> seguidos, o viene vacío. Y varios de esos parámetros los escribe el modelo a partir de lo que
+> contó el vecino (`resumen_problema`): un salto de línea ahí adentro es cuestión de tiempo.
+>
+> Cuando pasa, sale el mensaje libre de respaldo — que **con la ventana de 24hs abierta llega**, o
+> sea que en una prueba no se nota. Con la ventana cerrada, que es el caso real, también rebota y
+> el técnico no se entera de nada.
+
+- `limpiarParametroPlantilla()` normaliza **todos** los parámetros dentro de
+  `enviarPlantillaWhatsApp`, no en cada llamador: cualquier plantilla nueva queda cubierta sola.
+- Cuando la plantilla falla y el mensaje libre sí sale, el log lo grita: *"LA PLANTILLA DEL
+  [CASO-x] NO SALIÓ … llegó SOLO porque la ventana está abierta"*. No es un éxito, es una bomba
+  de tiempo.
+- Prueba: `node pruebas-plantilla-meta.js`.
+
+### El 270 y el 159 de la misma calle son dos consorcios
+
+> [!CAUTION]
+> **`buscarPerfilEdificio` decide a qué dirección se manda un técnico y a quién se le pide que le
+> abra.** Equivocarse ahí no es un dato feo en el panel: es una persona parada en la puerta de
+> otro consorcio, con el teléfono de un encargado que no la espera.
+
+Caso real: Daniel avisó por una cámara en **San Patricio 270**, el panel mostraba 270, y Marcos le
+contestó *"la dirección correcta es San Patricio 159, para el ingreso comuníquese con Natalia
+Zeballos…"* — dirección y contacto de otro edificio.
+
+La regla vieja juntaba **todos los números** de nombre + dirección + alias en una sola bolsa y le
+alcanzaba con que **uno cualquiera** coincidiera:
+
+```js
+const numsR = (nombre + ' ' + direccion + ' ' + aliases).match(/\d+/g) || [];
+return numBuscado.some(n => numsR.includes(n));
+```
+
+Nunca miraba el nombre de la calle. Un `270` escrito en los alias de una fila avalaba la dirección
+`159` de esa misma fila. Y "Rivadavia 270" habría coincidido con "San Patricio 270".
+
+`perfil-edificio.js` (`elegirFilaEdificio`) juzga **cada campo por separado** y en orden de
+confianza: exacto → misma calle y misma altura → misma calle sin altura. **Una altura que se
+contradice nunca coincide**, y si lo mejor que hay son dos edificios de la misma calle sin altura
+con qué desempatar, **no se elige ninguno**: sin perfil, quien pregunta se queda con el nombre
+interno del edificio — vago, pero no falso.
+
+> Estaba escrito **dos veces, igual**, en `sheets.js` y en `datos-pg.js`. Y como `datos.js` lee
+> PostgreSQL primero, arreglar solo el de Sheets no habría cambiado nada en producción. Ahora la
+> decisión vive en un archivo y una prueba verifica que ninguna de las dos copias vuelva.
+
+Prueba: `node pruebas-perfil-edificio.js`.
+
+### Que alguien haya abierto una vez no quiere decir que abra siempre
+
+> [!CAUTION]
+> **Un favor puntual no es una regla del edificio.**
+
+En el CASO-1001 no había nadie para abrir y Natalia se ofreció **esa vez**. Marcos guardó su
+teléfono y desde ahí lo entregó como si fuera el contacto de ingreso del edificio: *"para el
+ingreso por favor comuníquese con Natalia Zeballos"*. Afirmado, sin matices, y encima en otro
+edificio.
+
+Daniel: *"se dio por esa vez nada más… no puede tomar como consideración que siempre abrirá
+Natalia. Debe usar los datos que hay en el edificio de accesos, pero si no hay, que hable con el
+administrador y que sugiera quizás a Natalia — pero lo dio por hecho"*.
+
+`contacto-ingreso.js` ordena de más firme a más flojo:
+
+| | De dónde | ¿Se afirma? |
+|---|---|---|
+| 1 | Encargado del edificio, si está activo | sí |
+| 2 | Suplente, si el encargado no está | sí |
+| 3 | Seguridad de la entrada | sí |
+| 4 | Lo aprendido sobre los accesos **de ese edificio** | sí |
+| 5 | Un contacto puntual de un caso anterior | **no — se sugiere** |
+
+- Lo del punto 5 **solo vale para el mismo edificio**: que alguien haya abierto en San Patricio 159
+  no dice nada sobre el 270.
+- Cuando lo mejor que hay es el punto 5, el mensaje al técnico dice que **fue por esa vez y que no
+  cuente con eso**, y se le pregunta a la Administración quién abre.
+- Sin nada, no se inventa: *"todavía no tengo confirmado quién te abre, ya lo estoy averiguando"*.
+
+**Y si el técnico ya dijo que entra solo, no se le explica quién le abre.** Marcos preguntó
+*"¿necesitás que gestione algo para entrar?"*, Daniel contestó *"no, tengo llave y acceso al
+sistema"* — y Marcos le mandó igual el contacto del encargado. Preguntar y después no leer la
+respuesta le enseña al técnico que a Marcos no vale la pena contestarle, y a partir de ahí deja de
+hacerlo. `tieneAccesoPropio()` lo detecta y marca el ingreso como resuelto en el caso.
+
+> Ojo con la negación: **"NO tengo llave" contiene "tengo llave"**. Ese error es el caro — deja al
+> técnico parado en la puerta sin que nadie le abra — así que ante cualquier negación de tener
+> algo se sale por lo seguro y se manda el contacto igual. Un mensaje de más no le hace daño a
+> nadie.
+
+### El nombre del encargado no es la fila entera de la planilla
+
+> [!CAUTION]
+> **La columna `encargado` guarda `nombre [estado | horario]`.** Lo escribe así el panel y lo
+> vuelve a desarmar para mostrarlo (`dashboard.js:5174`). `contacto-ingreso.js` no lo desarmaba.
+
+Lo que le llegó al técnico, tal cual, a la 1:20 de la madrugada:
+
+```
+te abre pachu [activo | L-V 08:02-12:00 · L-V 01:00-12:00 · Sáb 12:00-08:00] (12345667)
+Si al llegar no te abren, avisame y lo resuelvo.
+```
+
+Tres cosas mal en un solo mensaje, y las tres se arreglaron:
+
+1. **Eso no es un mensaje, es una fila de una planilla.** `datosDelEncargado()` separa el nombre
+   del estado y del horario; al técnico va el nombre y nada más.
+2. **`(12345667)` son ocho dígitos** — relleno que quedó en la ficha, entregado como el contacto
+   de ingreso. `telefonoUsable()` exige los 10 dígitos que tiene todo número argentino (área +
+   local). Con menos se baja al siguiente escalón, y si no hay ninguno se dice que se está
+   averiguando: mandar a alguien a discar un número que no existe lo deja parado en la puerta.
+3. **A las 2 de la mañana el encargado no está**, y el mensaje se contradecía solo: el propio
+   horario que Marcos acababa de mandar ya decía que no había nadie. Daniel: *"esos horarios no
+   sirven en este horario nocturno, así que es un mensaje que no va a funcionar; ya en el mensaje
+   de horario está lo imposible que alguien le abra"*.
+
+Sobre lo tercero, un detalle deliberado: **no se mira el horario cargado.** Con la estructura de
+bloques actual la ficha de ese edificio dice literalmente `L-V 01:00-12:00`, así que cualquier
+chequeo contra ella concluiría que el encargado **sí** está a la 1 de la mañana. Hasta que los
+bloques se reemplacen por calendario o texto libre, **el reloj es más confiable que el dato**.
+
+- El encargado y el suplente no se afirman de madrugada (22 a 8): se dice a qué hora llega, que a
+  esa hora no hay nadie, y que se está confirmando con la Administración.
+- **Seguridad sí se afirma de noche**: es, por definición, la opción de la noche.
+- La hora sale de lo que el técnico prometió (`tecnico_eta` → `momentoPrometido`); sin promesa, la
+  de ahora.
+- El reloj argentino (huso fijo −3, franja 8–22) vive en `fecha.js` y lo usan `seguimiento.js` y
+  `contacto-ingreso.js`. Estaba escrito dos veces.
+
+Prueba: `node pruebas-contacto-ingreso.js`.
+
+### Cómo se le habla al técnico: dirección y número de caso, siempre
+
+- **Dirección, nunca el nombre interno del edificio.** En la planilla los edificios tienen un alias
+  nuestro (`san patricio casa`) y aparte la dirección real. Al técnico le llegaban los dos, uno
+  atrás del otro, y no tiene forma de saber si son dos direcciones o una. `direccionParaTecnico()`
+  en `marcos-ops.js` resuelve la calle y la altura; el alias solo se usa si no hay dirección
+  cargada.
+- **El número de caso va en TODO mensaje al proveedor** (plantilla, foto/video del reclamo,
+  contacto de ingreso, lista de trabajos). Es lo único con que el técnico puede decir después
+  "esta factura es del CASO-1001": junta los trabajos de varios días —a veces de administradores
+  distintos— y los manda todos juntos.
+- Cuando llega una factura y no se sabe de qué trabajo es, la lista de casos recientes se muestra
+  **por dirección**, no por alias.
+- **Y la respuesta de la factura también**. La regla estaba escrita y tres mensajes se la
+  salteaban: al técnico le llegó *"La dejé asociada al CASO-1004 de **san patricio casa**"*, que
+  es un alias nuestro. Él estuvo en una calle y una altura. La dirección se resuelve una sola vez
+  (`dirFactura`) y `pruebas-quien-le-abre.js` prohíbe que vuelva a interpolarse `edificioFactura`
+  crudo en una respuesta al técnico.
+
+### Un relleno de ficha con la longitud justa pasa el control de teléfono
+
+> [!CAUTION]
+> **Contar dígitos no alcanza.** El relleno casi siempre tiene el largo correcto.
+
+Se había arreglado `pachu (12345667)` --ocho dígitos, muy corto-- exigiendo los 10 que tiene todo
+número argentino. El 20/09/2026, al técnico le llegó:
+
+```
+te abre chechuliso (11111111111)
+```
+
+Once unos. Pasa el piso de 10 sin despeinarse, y Marcos se lo afirmó con toda seguridad. Para el
+técnico es idéntico al caso anterior: disca, no existe, se queda en la puerta.
+
+Lo que distingue un relleno no es el largo: es que **nadie teclea un número real apretando siempre
+la misma tecla ni corriendo el dedo por el teclado**. `telefonoUsable()` rechaza las dos formas
+(la cuenta del teclado va en módulo 10, porque quien lo corre entero escribe `…7890`) más el techo
+de 15 dígitos de E.164.
+
+> Con dos dígitos distintos o menos se rechaza, así que `11 5555 1111` queda afuera aunque podría
+> ser real. Es deliberado y es el error barato: rechazar de más baja al escalón siguiente
+> --suplente, seguridad, o decir que se está averiguando-- y eso *le pregunta a una persona*.
+> Aceptar de más manda a alguien a llamar a la nada creyendo que tiene con quién, y nadie se
+> entera nunca.
+>
+> Los fixtures de `pruebas-contacto-ingreso.js` eran justamente `1111111111`, `2222222222`… o sea
+> que la prueba vieja medía con la misma forma que el bug.
+
+### "No necesito esa llave, necesito que alguien esté ahí" no es entrar solo
+
+> [!CAUTION]
+> **Un mensaje dice dos cosas y la regla leía la primera mitad.**
+
+```
+16:48  Dario:  "no necesito esa llave solo necesito que alguien esté ahí para abrirme"
+16:50  Marcos: "Perfecto que tengas acceso, entonces no te gestiono nada para entrar."
+```
+
+`tieneAccesoPropio` buscaba *"no necesito"* + una palabra de la lista (`llave`, `abr`, `acceso`…),
+y las dos mitades de esa frase las traen. Pero él no estaba diciendo que entra solo: estaba
+diciendo, con todas las letras, **lo único que sí necesitaba**. Dos minutos antes había escrito
+*"si no hay nadie no voy"*.
+
+`pideQueLeAbran()` va aparte y manda sobre todo lo demás, **incluido el `entraSolo` del ruteo por
+IA**: pedir que alguien esté es incompatible con entrar por su cuenta, lo diga el texto o lo diga
+el modelo. Mismo criterio que la negación de siempre — ante la duda se manda el contacto, porque
+el error caro es siempre el mismo.
+
+### El ruteo devuelve UNA intención, y el técnico dice dos cosas en un renglón
+
+> [!CAUTION]
+> **`seActiva` con el ruteo prendido devuelve `ruteo.intencion === intencion` y nada más.** La
+> intención que no salió elegida no activa su ramal, aunque el mensaje también la diga.
+
+```
+16:39  Dario:  "Llegaré en 2 hs para revisar el problema. Quien me abre?"
+17:04  Marcos → al vecino: "confirmó la visita, pero aún no precisó la hora exacta"
+```
+
+La precisó, en el mismo mensaje. El modelo eligió `pide_contacto_de_ingreso` --que es verdad, y es
+lo que esa rama atiende-- y con eso `confirma_que_va` quedó en false, así que nadie escribió
+`tecnico_eta`. Es el mismo defecto de fondo que ya está anotado más arriba con otro disfraz: **la
+información estaba, el orden no.**
+
+Para el vecino no es un detalle de implementación: está esperando en su casa y le dicen que no se
+sabe cuándo viene, veinticinco minutos después de que el técnico lo dijo.
+
+- La rama de "¿quién me abre?" ahora **anota la hora si el mensaje la trae**, sin rutear nada.
+  `guardarConfirmacionTecnico` completa y no pisa, así que guardar de más no cuesta.
+- **Sin hora no se inventa ninguna** (`if (eta)`): el vecino espera la que se le diga.
+- `entraSolo` ya estaba resuelto así --va aparte de la intención, a propósito--. Esto es lo mismo
+  para el horario, y probablemente haya más: **cada dato con consecuencia que hoy dependa de haber
+  ganado el ruteo es un candidato.**
+
+Prueba: `node pruebas-quien-le-abre.js`.
+
+### "Ya lo resolví" no cerraba nada, porque el cierre es del vecino
+
+> [!CAUTION]
+> **El cierre de un caso busca el caso por el EDIFICIO DEL VECINO.** Un proveedor no tiene ninguna
+> de esas tres fuentes, y con el edificio vacío `obtenerCasosAbiertosEdificio` devuelve **todos los
+> casos abiertos del sistema**.
+
+```js
+const edificioParaCierre = session.nombreEdificio || vecinosEnSheets?.[0]?.edificio || datosEmisor?.edificio || '';
+```
+
+Producción, 21/09. Dario mandó la factura del CASO-1004 con *"Ya resolvi"*. Eso **no** cerró nada y
+está bien: un comprobante adjunto manda sobre el texto que lo acompaña (regla puesta por un caso de
+Daniel — resuelve algo en el edificio de al lado y manda la factura, que no es del caso abierto).
+
+Lo que falló fue el mensaje siguiente, sin adjunto: *"Pero ya lo resolví que querés? Ya te dije q
+resolvi"*. La condición de texto **sí** matchea —verificado— y el cierre arrancó… con el edificio
+vacío. En vez de cerrar su caso le llegó la lista de todos los reclamos abiertos de todos los
+edificios pidiéndole que eligiera un número. El CASO-1004 siguió abierto, el seguimiento siguió
+corriendo, y al vecino se le preguntó si el técnico había pasado por un trabajo ya hecho.
+
+- **`caso-del-tecnico.js`** (`casoActivoDelTecnico`) elige por él, no por el edificio: el caso
+  activo de la conversación (releído de la base) → el que espera confirmación → su único caso
+  abierto. Con **dos o más** devuelve los candidatos y **no elige**.
+- La respuesta lista los trabajos **por dirección y con el número de caso**, como todo lo que se le
+  manda a un proveedor.
+- **`informa_resuelto` estaba en el catálogo del ruteo y no la leía nadie** — cero consumidores, el
+  mismo caso que `llego_y_no_le_abren`. Ahora atiende lo que la condición de texto no reconoce
+  ("ya está", "terminé con eso"), y **no cierra si hay adjunto o si el mensaje lo niega**.
+- La búsqueda estaba escrita **dos veces** en `index.js` y esta era la tercera. Ahora la rama de la
+  confirmación también llama al módulo. El candado mira la **regla de desempate**, no el acceso a
+  la tabla: leer los casos de un técnico sirve para tres preguntas distintas (de qué habla ahora /
+  a qué caso va esta factura, 30 días e incluye cerrados / a cuáles borrarles las marcas de
+  entrega, que son todos) y mezclarlas sería peor que duplicar.
+
+Prueba: `node pruebas-caso-del-tecnico.js`.
+
+### El contacto de ingreso se da si lo piden, no porque esté a mano
+
+El técnico escribió *"perdón, es del caso 1003, no del 1001"* y Marcos contestó *"para el CASO-1001
+en San Patricio 159, quien le abrirá es Natalia Zeballos"*. Ni siquiera con el caso bien elegido eso
+tendría sentido: **le ofreció el contacto de ingreso a alguien que no preguntó nada de eso**.
+
+El mecanismo está en el prompt de `generarRespuestaTecnicoLibre`: los datos de acceso van en **cada**
+llamada, y hay una regla en mayúsculas con 🚨 que ordena entregarlos. Ante un mensaje que el modelo
+no sabe clasificar, se agarra de lo más enfatizado que tiene.
+
+- El contacto de ingreso **solo si lo pide** o si dice que llegó y no le abren.
+- Una **corrección** se contesta reconociéndola y arreglando lo que señaló — sin agregar nada más.
+- Si ya dijo que tiene llave, no se le explica quién le abre.
+- Y el default de `accesoInfo` dejó de afirmar *"el acceso ya fue coordinado con X, que lo está
+  esperando"*: eso puede ser falso, y el técnico organiza su viaje con esa frase.
+
+> Esto son reglas de prompt, no código: **ninguna prueba automática las cubre**. Se verifican
+> leyendo lo que Marcos contesta de verdad.
+
+### Otros dos arreglos del mismo episodio
+
+- **Marcos le decía al técnico "el vecino no ha provisto detalles adicionales ni material
+  gráfico"** cuando el vecino había mandado foto, dos audios y una ficha de contacto.
+  `generarRespuestaTecnicoLibre` no recibía ningún dato sobre el reclamo y el modelo llenaba el
+  hueco. Ahora recibe el caso, el rubro y si hay material guardado, y tiene prohibido afirmar que
+  el vecino no mandó nada.
+- **Marcos le pedía el número de departamento a alguien que vive en una casa** (`san patricio
+  casa`), así que la ficha no se completaba nunca y volvía a preguntar en cada vuelta.
+  `marcos-cara.js` ya no pide departamento cuando el edificio es casa/PH o tiene una sola unidad
+  (`tipo` y `unidades` de la tab `edificios`, ahora expuestos en `buscarPerfilEdificio`).
+
+## El nombre del edificio está copiado en todos lados (por qué el apóstrofe "volvía solo")
+
+> [!CAUTION]
+> **No hay un id de edificio: el nombre ES la clave.** Está escrito como texto en `EDIFICIOS`, en
+> cada fila de `EVENTOS`, `facturas`, `vecinos`, `solicitudes`, `sugerencias`, `expensas`,
+> `proveedor_asignaciones`, y dentro de la lista separada por comas de `CLIENTES.edificios`.
+
+Dos cosas hacían que una corrección de nombre se deshiciera sola:
+
+1. **`EDIFICIOS` tiene el nombre en dos columnas** (`edificio` y `nombre`), que son alias del
+   mismo dato. El panel las lee en un orden (`edificio` primero, `mapEdificio`) y el motor de
+   Marcos en el otro (`nombre` primero, `listarEdificiosConocidos`). Mientras se escribía solo en
+   la primera que apareciera, cada edición dejaba la otra con el valor viejo y lo que se veía
+   dependía de quién miraba. Resuelto con `columnasDelCampo()` en `dashboard.js`: **se escribe en
+   TODAS las columnas que son ese campo**, en `/api/edificio`, en `guardarCamposEdificio()`
+   (Mi Edificio) y en `/api/aprobar-solicitud`.
+2. **Renombrar en `EDIFICIOS` y en ningún otro lado parte el edificio en dos.** Las filas viejas
+   seguían diciendo `san patricio 27'0 casa` y el panel las mostraba tal cual. Ahora al aprobar una
+   solicitud de cambio de nombre se renombran también todas las referencias en las otras pestañas.
+   La comparación es **exacta y normalizada**, no `compararEdificios` (que acepta coincidencias
+   parciales y se llevaría por delante al 159 al renombrar el 270).
+
+**Diagnóstico**: `node buscar-texto.js "27'0"` recorre todas las pestañas de Sheets y todas las
+tablas de PostgreSQL y dice en qué celda exacta está el texto. Mientras quede una copia sin
+corregir, el dato vuelve. Solo lee.
+
+Prueba: `node pruebas-renombrar-edificio.js`.
+
+> Ojo: un apóstrofe **al principio** de una celda de Google Sheets no es parte del texto, es la
+> marca de "esto es texto y no un número" y no se ve en la planilla. Uno en el **medio** (`27'0`)
+> sí es un carácter real.
+
+### Cuando un renombre no puede tocar una fila porque su gemela ya existe
+
+`renombrar-edificio.js` y `renombrar-proveedor.js` renombran fila por fila y, si una quedaría
+repetida con otra que ya existe, **se plantan y avisan** en vez de forzarla:
+
+```
+⚠️ proveedor_asignaciones.edificio: esta fila quedaría repetida con otra que ya dice
+   "san patricio casa". Se dejó como estaba.
+```
+
+Eso es lo correcto --borrar una de las dos es una decisión, no un efecto secundario de corregir un
+nombre-- pero deja la fila vieja apuntando a un edificio que no existe. `quitar-duplicados.js`
+cierra ese paso:
+
+```bash
+node quitar-duplicados.js proveedor_asignaciones edificio "nombre viejo" "nombre bueno"
+node quitar-duplicados.js proveedor_asignaciones edificio "nombre viejo" "nombre bueno" --aplicar
+```
+
+> [!CAUTION]
+> **Solo borra una fila si su gemela ya existe Y dice exactamente lo mismo en todo lo demás.**
+> Si la vieja trae algo propio --otra prioridad, otro teléfono, otro estado-- NO se borra: se
+> muestra la diferencia y se deja quieta. Perder ese dato es peor que tener una fila de más, y
+> decidirlo es de quien conoce el edificio.
+
+Tampoco borra una fila sin gemela: eso no es un duplicado sino un renombre pendiente, y lo dice.
+
+## Un nombre de edificio que no es ningún edificio
+
+> [!CAUTION]
+> **Un nombre que se usa en una asignación y no existe en `EDIFICIOS` no da error en ningún lado.**
+> Simplemente no encuentra nada, en silencio, y desde afuera se ve como que Marcos "no sabe" la
+> dirección o a quién llamar.
+
+Caso real: `consorcio propietario san patricio 159` estaba en **cuatro** asignaciones de proveedor,
+en el consejo y en la lista de edificios del cliente --y no existía como edificio--. Al mismo
+tiempo, el portal del vecino (`reservas_amenities`, `usuario_unidades`) usaba una tercera forma,
+`San Patricio 159`. Tres nombres, ninguno verificado contra `EDIFICIOS`.
+
+Lo que rompe cada uno:
+
+- `buscarPerfilEdificio` no encuentra la ficha → al técnico le llega el nombre interno en vez de la
+  dirección, o la dirección de otro consorcio.
+- El permiso del cliente apunta a un edificio que no existe: en el panel le falta uno.
+- La asignación `edificio + rubro` no matchea → Marcos no sabe a quién llamar.
+
+```bash
+node revisar-edificios.js        # solo lee: los edificios que hay, y los nombres que no son ninguno
+```
+
+Muestra cada edificio con su dirección (y avisa si las **dos** columnas del nombre --`edificio` y
+`nombre`, que son alias del mismo dato-- no coinciden entre sí), y después lista todo nombre usado
+en las otras pestañas y tablas que no corresponde a ninguno, con en cuántas filas está.
+
+Se corrigen con `renombrar-edificio.js`. **Antes de elegir el nombre bueno hay que mirar la
+dirección**: dos edificios de la misma calle con distinta altura son dos consorcios distintos, y
+unificarlos mandaría al técnico a la puerta equivocada.
+
+## De quién es cada edificio (por qué uno "desaparecía" de su administrador)
+
+La lista `edificios` de la tab `CLIENTES` y el nombre del edificio en `EDIFICIOS` son **dos textos
+escritos a mano en pestañas distintas**. El panel los comparaba con `Array.includes`, que exige que
+sean idénticos carácter por carácter: una mayúscula distinta y el edificio figuraba **"Sin
+asignar"** aunque en la planilla estuviera clarísimo al lado del administrador (y la ficha del
+cliente le contaba 2 edificios en vez de 3).
+
+- `clienteDelEdificio(clientes, nombre)` y `edificiosDeCliente(edificios, cliente)` en
+  `dashboard.js` comparan **normalizado** (mayúsculas, acentos, espacios) pero **exacto**.
+- **No se usa `compararEdificios`**: ese acepta coincidencias parciales, y con eso el 159 quedaría
+  asignado al cliente que tiene el 270 — un administrador viendo reclamos de un consorcio ajeno.
+- `/api/edificio-nuevo`: si el edificio **ya existe y no lo tiene nadie**, lo *asigna* en vez de
+  cortar con "ya existe" (antes no había ninguna pantalla para asignar uno suelto). Si ya lo tiene
+  otro administrador, dice quién y no lo mueve solo.
+
+Prueba: `node pruebas-cliente-edificio.js`.
+
+### Las dos bases: qué lee cada uno
+
+| Quién | De dónde lee |
+|---|---|
+| Panel (`dashboard.js`, `readTab`) | Google Sheets |
+| Motor de Marcos (`datos.js`) | PostgreSQL primero, Sheets de respaldo |
+| Permisos del cliente (`obtenerEdificiosPermitidosUsuario`, `expandirEdificiosPermitidos`) | **PostgreSQL**, aunque corran dentro del panel |
+
+Por eso **renombrar solo en Sheets no alcanza**: Marcos sigue llamando al edificio por el nombre
+viejo y al cliente le queda el permiso apuntando a un edificio que ya no se llama así. La
+aprobación de una solicitud de nombre ahora renombra en **los dos lados**.
+
+### Lo que sobra en PostgreSQL cuando se borra de la planilla
+
+> [!CAUTION]
+> **La sincronización solo AGREGA.** `importar-sheets-a-pg.js` no tiene ningún `DELETE` y
+> `copiarAPg` es "dispará y seguí": una fila borrada de la planilla **se queda para siempre del
+> lado de PostgreSQL**, que es justo el lado que lee Marcos.
+
+Dos casos vistos: un cerrajero de prueba llamado **"lalala"** que se borró de la planilla y Marcos
+sigue viendo, y **Dario asignado a un cliente al que ya no pertenece**. Marcos lee
+`proveedor_asignaciones` para elegir a quién llamar por `edificio + rubro`, así que una asignación
+fantasma manda al técnico equivocado o le muestra el reclamo de un consorcio ajeno.
+
+La dirección contraria duele distinto: una fila que está en la planilla y **no** en PostgreSQL es
+algo que el panel muestra y el motor no ve — el administrador lo carga, lo ve cargado, y Marcos
+actúa como si no existiera.
+
+```bash
+node revisar-sobrantes.js                        # solo lee: las 4 tablas de configuración
+node revisar-sobrantes.js proveedor_asignaciones # una sola
+```
+
+Compara `clientes`, `edificios`, `proveedores` y `proveedor_asignaciones` por el dato que
+identifica a la fila para una persona (usuario, nombre del edificio, nombre + teléfono), no por el
+`id` --cada base numera por su cuenta-- y los teléfonos por sus últimos 10 dígitos, porque el mismo
+número está escrito de cuatro formas entre las dos bases.
+
+**No borra nada, y es a propósito**: esto es configuración, no rastro de una prueba. `reset-test.js`
+tampoco la toca. Qué fila sobra se decide mirándola.
+
+> [!CAUTION]
+> **No arreglar esto reimportando.** `importar-sheets-a-pg.js` sincroniza `edificios` usando la
+> columna `edificio` como **clave**. Si en Sheets ya está el nombre nuevo y en PostgreSQL el
+> viejo, no actualiza la fila: **crea una segunda**. Para corregir datos ya desfasados está
+> `renombrar-edificio.js`, que cambia la fila que existe.
+
+**Herramientas**:
+
+```bash
+node buscar-texto.js "27'0"                                    # solo lee: dice en qué celda está
+node renombrar-edificio.js "nombre viejo" "nombre nuevo"        # muestra qué cambiaría
+node renombrar-edificio.js "nombre viejo" "nombre nuevo" --aplicar
+```
+
+### Importar duplicó una factura (y por qué la clave importa tanto)
+
+> [!CAUTION]
+> **`importar-sheets-a-pg.js` identificaba una factura por `fecha + proveedor + monto + edificio`.**
+> Los cuatro cambian. Había una factura en la planilla y la misma en PostgreSQL; el import dijo
+> *"1 nueva(s), 0 actualizada(s) — total en la tabla: 2"*. El mismo comprobante dos veces, y el
+> gasto contado dos veces en el consorcio.
+
+Alcanza con que uno de los cuatro difiera:
+
+- **`edificio` está VACÍO al llegar** (`Sin imputar`) y se completa cuando el técnico contesta de
+  qué obra era. Antes y después son dos claves distintas.
+- **`monto`** se guarda formateado de un lado (`$5500,00 ARS`) y crudo del otro.
+- **`fecha`** es una marca de tiempo al segundo.
+
+Lo que identifica a una factura es lo mismo que ya usa `guardarFactura` para no registrar dos veces
+el mismo comprobante: **número de comprobante + proveedor**. Sin número se cae a la clave vieja —
+peor, pero el criterio del proyecto es firme: **perder una factura es peor que tener dos**.
+
+Y faltaba algo más: el import **no traía `numero_factura`, `id_evento`, `nota_tecnico` ni
+`enviada_por`**, así que la factura llegaba al lado que lee Marcos sin su número y sin saber a qué
+trabajo pertenecía.
+
+> El `clave` de una pestaña ahora puede ser una **función de la fila**, no solo una lista fija, y se
+> calcula adentro del bucle. Calculada afuera, una factura sin número decidiría por todas las demás.
+
+Prueba: `node pruebas-importar-facturas.js`.
+
+### El signo de peso puesto dos veces
+
+En la planilla salió `Factura recibida del técnico dario. N° 00001-00000262 por **$$**5500,00 ARS`.
+El monto a veces viene con el signo adentro y a veces sin él, según de dónde lo haya leído el lector
+de documentos, y los cuatro lugares que lo mostraban le pegaban un `$` adelante sin mirar.
+`montoConSigno()` en `index.js` lo pone solo si falta. Es cosmético, pero lo lee el administrador en
+el aviso de un gasto — un importe escrito raro es justo donde uno mira dos veces.
+
+## El nombre del proveedor tampoco tiene id (y editarlo en el panel no llegaba a Marcos)
+
+> [!CAUTION]
+> **El panel escribe en Sheets y el motor de Marcos lee PostgreSQL.** `/api/proveedor-editar`
+> hacía solo `writeCell` sobre la planilla, y `buscarRolPorTelefono` sale de PostgreSQL --y solo
+> cae a Sheets si PostgreSQL da **error**, no si dice otra cosa. La edición era invisible para
+> Marcos, para siempre.
+
+Daniel editó "a dario juju" desde el panel porque Marcos, **al hablar**, decía *"a-dario-juju"* en
+voz alta. Guardó, el panel mostró el nombre nuevo, y Marcos siguió diciendo el viejo. Sus palabras:
+*"si cambian de técnico o lo edita, siempre lo llama por el primer nombre escrito"*. Es exactamente
+así, y por dos motivos del mismo tamaño:
+
+1. Los dos lados (arriba).
+2. **No hay un id de proveedor: el nombre ES la clave**, igual que con el edificio, y está copiado
+   como texto en cuatro lugares × dos bases.
+
+| Dónde | Qué se rompe si queda el nombre viejo |
+|---|---|
+| `proveedores.nombre` y `tecnicos.nombre` | cómo lo saluda y cómo lo nombra en voz |
+| `proveedor_asignaciones.proveedor` | **a quién se llama** por `edificio + rubro` |
+| `facturas.proveedor` | `buscarFacturasSinImputar` no encuentra sus facturas: cuando conteste "de qué obra es", no hay ninguna esperando |
+| `reportes.tecnico` / `EVENTOS.tecnico` | sus casos dejan de ser suyos al imputar una factura o al buscar su caso abierto |
+
+La de `facturas` es la que muerde primero y en silencio: la factura queda "Sin imputar" y la
+respuesta del técnico no la encuentra nunca.
+
+**Lo que NO se toca, a propósito**: las conversaciones ya ocurridas (`historial_chat`, `mensajes`,
+`mensajes_wa`, `chat_proveedor_json`). Eso es el registro de lo que se dijo y cuándo; reescribirlo
+sería falsear el historial. Va a seguir diciendo el nombre viejo, y está bien que así sea.
+
+```bash
+node renombrar-proveedor.js "a dario juju" "dario"             # solo muestra, no toca nada
+node renombrar-proveedor.js "a dario juju" "dario" --aplicar   # escribe, y después: pm2 restart marcos-ai
+```
+
+- La comparación es **exacta y normalizada**: "dario" no se lleva puesto a "dario gomez", que es
+  otra persona y probablemente de otro administrador.
+- La lista de columnas va **por tabla**, no por nombre de columna suelto: `nombre` es el nombre de
+  una PERSONA en casi todas las pestañas, y renombrar por columna tocaría vecinos que se llaman
+  igual.
+- `enviada_por` (`"a dario juju (proveedor)"`) se compara **entero** contra la parte del nombre, no
+  con "empieza con": corregir "dario" con esa regla tocaría también `"dario gomez (proveedor)"`.
+- Una fila que al renombrarse quedaría **repetida** (la misma asignación cargada dos veces con el
+  nombre escrito distinto) no se fuerza: se avisa y se deja como estaba. Borrar una de las dos es
+  una decisión, no un efecto secundario de corregir un nombre.
+
+> [!CAUTION]
+> **`/api/proveedor-editar` en `dashboard.js` sigue escribiendo SOLO en Sheets.** Mientras siga
+> así, cada edición de nombre desde el panel vuelve a desfasar las dos bases y hay que correr el
+> comando a mano. El arreglo es que ese endpoint llame a `renombrarProveedor()` de
+> `renombrar-proveedor.js` cuando el nombre cambió --**no** reimplementarlo: eso es lo que pasó con
+> `buscarPerfilEdificio`, que quedó escrito dos veces y arreglar una copia no cambió nada en
+> producción.
+
+Prueba: `node pruebas-renombrar-proveedor.js`.
+
+## Cuándo Marcos pide el número de unidad
+
+Lo decide el **conteo de unidades** de la tab `edificios`, no el nombre. `san patricio casa` se
+llama así --es un alias interno-- y **tiene 3 unidades**: ahí hay que preguntar. Adivinar por la
+palabra "casa" en el nombre daba exactamente al revés.
+
+- `unidades >= 2` → se pregunta. `unidades <= 1` → no se pregunta (no existe el dato).
+- Sin conteo cargado, decide `tipo` (casa/PH/dúplex/chalet → no se pregunta).
+- En una casa o PH con varias viviendas la unidad existe pero **no se llama "departamento"**
+  (suele ser "casa 2", "fondo", "PB"): Marcos pregunta por el "número de unidad".
+
+Prueba: `node pruebas-unidad-vecino.js`.
+
+## Una caída de PostgreSQL deja las dos bases distintas PARA SIEMPRE
+
+> [!CAUTION]
+> **`copiarAPg` dispara y sigue: la escritura que falla se pierde y nadie reintenta.**
+
+Es a propósito, y está bien que lo sea: un PostgreSQL caído no puede romper el camino de Sheets,
+que es el que le contesta a la persona. Lo que faltaba es lo que eso cuesta, que no estaba escrito
+en ningún lado.
+
+El CASO-1001 se cerró justo mientras PostgreSQL rechazaba la contraseña. `marcarCasoResueltoPorId`
+**sí** escribe en las dos bases, pero la copia se perdió: quedó una línea en el log y nada más. En
+la planilla figuraba `resuelto` y en PostgreSQL `nuevo`. Y como el motor **lee PostgreSQL primero**,
+para Marcos ese caso seguía abierto: se lo podía elegir como caso activo del técnico o imputarle
+una factura. CASO-1003 y CASO-1004 quedaron igual, con `en_proceso` de un lado y `nuevo` del otro.
+
+```bash
+node emparejar-casos.js                              # solo muestra
+node emparejar-casos.js --aplicar                    # cierra lo que la planilla ya dio por cerrado
+node emparejar-casos.js --aplicar --tambien-estados  # además, estados que difieren sin estar cerrados
+```
+
+**La reparación NO es simétrica, y ese es el punto:**
+
+| | Qué hace |
+|---|---|
+| Planilla **cerrada** + PostgreSQL abierta | Se cierra solo. Cerrar es siempre una acción explícita de alguien; que falte de un lado significa que no llegó del todo. |
+| PostgreSQL **cerrada** + planilla abierta | **No se reabre, con ninguna bandera.** Reabrir le mete a la Administración un reclamo ya resuelto y reinicia el seguimiento contra un técnico que ya pasó. |
+
+`--tambien-estados` es opt-in porque la dirección *planilla gana* vale **para una caída de
+PostgreSQL** —que es cuando se perdieron esas escrituras— y no es una ley general.
+
+La decisión vive en `casos-desfasados.js` (`loQueSePuedeAplicar`), separada de la herramienta, y se
+prueba con datos en vez de leyendo el código: un candado que mira texto se esquiva sin querer en
+cualquier refactor.
+
+> **Lo que esto NO resuelve**: limpia lo que dejó una caída, no evita la próxima. El arreglo de
+> verdad es que una copia fallida quede anotada y se reintente sola. Es su propio trabajo.
+
+Prueba: `node pruebas-casos-desfasados.js`.
+
+### Y un arreglo que solo funcionaba cuando PostgreSQL se caía
+
+`obtenerSeguimientosVencidos` de `datos-pg.js` **no mandaba `estado`**, y su gemela de `sheets.js`
+sí. El paso 1 lo usa para preguntarle a un caso `avisado` *"¿vas a poder pasar?"* en vez de
+*"¿pudiste pasar?"* —reclamarle a alguien por un incumplimiento que nunca prometió es peor que no
+preguntar nada—. Como PostgreSQL es de donde se lee primero, esa distinción **estaba muerta en
+producción**: solo andaba cuando PostgreSQL fallaba y el barrido tenía que usar el respaldo.
+
+## Un contador que cuenta antes de filtrar manda a buscar un problema que no existe
+
+> [!CAUTION]
+> **La línea del barrido se imprimía ANTES de descartar los casos ya escalados.**
+
+En el log, cada cinco minutos durante horas:
+
+```
+⏱️ 3 caso(s) con seguimiento vencido.
+```
+
+y nada más: ningún mensaje, ningún caso avanzando. Parecía un estancamiento. Se buscó la causa en
+el agendado, en las dos bases y en el techo de pedidos de Google — **tres hipótesis, las tres
+falsas**. Los tres casos estaban en **paso 9**, ya en manos del administrador, y el `continue` los
+descartaba correctamente. El sistema estaba al día; la línea mentía.
+
+Un contador que cuenta lo que está por descartar es peor que no tener contador: manda a buscar un
+problema que no existe y mientras tanto tapa los que sí. La regla queda: **el barrido habla solo
+cuando hace algo.**
+
+### Y las salidas mudas que hicieron falta para diagnosticarlo
+
+`programarSeguimiento` tenía **tres `return false` sin una línea de log** (sin `id_evento`, sin la
+pestaña `EVENTOS`, y sin encontrar la fila). Las otras cuatro salidas sí se anunciaban. Un caso que
+cae en una de esas tres se levanta en cada barrido y no avanza nunca, sin dejar rastro.
+
+El arreglo anterior —*reservar el próximo control antes de mandar*— evitó que al técnico le llegara
+la misma pregunta cien veces, pero cambió una **repetición infinita** por un **estancamiento
+infinito**. El mudo es peor.
+
+La tercera es la más probable y tiene motivo estructural: el barrido lee de PostgreSQL
+(`reportes.codigo_caso`) y el agendado escribe en Sheets (`EVENTOS.id_evento`).
+
+```bash
+node revisar-seguimientos.js     # solo lee: para cada vencido, qué camino va a tomar
+```
+
+Pruebas: `node pruebas-seguimiento-mudo.js` (prohíbe que cualquier `return false` de esa función
+vuelva a callarse, y corre el barrido de verdad para escuchar lo que dice).
+
+### `JSON.parse: unexpected character` no es un error de JSON: es el login
+
+> [!CAUTION]
+> **Una ruta de API NUNCA se redirige al login.** A `/api/...` la llama siempre el JavaScript de la
+> página, jamás el navegador navegando. Un `res.redirect` le devuelve los 34 bytes de HTML del
+> `Found. Redirecting to /admin/login`, y el `await r.json()` del otro lado informa:
+> `JSON.parse: unexpected character at line 1 column 1 of the JSON data`.
+
+Al publicar una tanda de expensas salía ese error. Se revisó el endpoint, PostgreSQL y las 13
+columnas de `expensas` --todo bien-- hasta que el registro de nginx lo dijo en una línea:
+
+```
+"POST /admin/api/expensa-tanda-publicar HTTP/2.0" 302 34
+```
+
+`requireAuth` sí tenía una rama que contesta `401` en JSON, **pero condicionada al encabezado
+`Accept`**, y un `fetch` con cuerpo JSON manda `Accept: */*` salvo que se lo pida explícitamente.
+Así que esa rama casi nunca corría. Lo confiable es la **ruta**: si empieza con `/api/`, la
+respuesta se lee con código y tiene que ser JSON.
+
+Es el tercer caso del mismo defecto en un día, después del contador de arriba y del genérico *"no se
+pudo leer el documento"* de las expensas: **una falla que miente sobre sí misma cuesta más que la
+falla.** El mensaje ahora dice qué pasó y qué hacer (*"Se venció la sesión del panel. Volvé a entrar
+y probá de nuevo."*).
+
+#### Y la causa de fondo: la sesión se borra en cada `pm2 restart`
+
+> [!CAUTION]
+> **`session()` sin `store` usa el `MemoryStore` de `express-session`: las sesiones viven en la RAM
+> del proceso.** Está así en el panel (`dashboard.js:196`) y en el portal
+> (`portal-vecino.js:16`). Cada despliegue deslogea a todo el mundo.
+
+La cookie del panel dura **12 horas** y el servidor se olvida en cada reinicio. Esa asimetría es lo
+que hace el síntoma tan raro: el navegador sigue mandando una cookie que cree válida, la página se
+ve normal, y el error aparece recién al apretar un botón. Un `store` en PostgreSQL
+(`connect-pg-simple`, la base ya está) lo resuelve — **suma una dependencia npm, que va en el mismo
+commit que el código que la usa**, y la tabla tiene que quedar a nombre del rol `marcos`
+(`node revisar-permisos-pg.js`). Queda pedido en `docs/para-antigravity.md` y
+`docs/portal-vecino-y-porteria.md`.
+
+Candado: `pruebas-clave-app.js` exige que `requireAuth` reconozca una ruta de API **por la ruta** y
+**antes** del redirect. Lee las líneas de código sin los comentarios — el comentario que explica
+esto nombra `res.redirect` y `/admin/login`, y una prueba que los confunda con el código mide el
+comentario en lugar de la función.
+
+## `\w` sin acentos, tercera vez — ahora en el verificador
+
+> [!CAUTION]
+> **Un falso positivo en un verificador es peor que no verificar: si grita por cosas que están
+> bien, se lo deja de mirar.** Su propio comentario lo decía.
+
+`herramientas-check-exports.js` buscaba los nombres exportados con `[A-Za-z_$][\w$]*`. Con
+`pestaña` leía `pesta`, no la encontraba, e informaba que **faltaba una función que estaba
+exportada**. Pasó a `\p{L}` con bandera `u`.
+
+Es el tercer caso del mismo defecto en este repo, después de `avisaQueVa` (*"llamó el encargado"* no
+abría caso) y el filtro de insultos (*"me estafó"* le llegaba al técnico).
+
+## `git add -A` en el VPS casi publica las credenciales
+
+> [!CAUTION]
+> **`.gitignore` tenía `.env` a secas, y en el servidor conviven `.env.save` y `.enov11`.**
+
+Un agente de otra conversación editó `dashboard.js` **directo en el VPS** —hizo lo que le pidieron,
+sin conocer las reglas de este repo—. La secuencia de rescate para recuperar ese cambio empezaba
+con `git add -A`, y el commit se llevó adentro:
+
+- `.env.save` (26 líneas) y `.enov11` (21) — las credenciales.
+- `almacenamiento/` — audios, fotos, PDFs y facturas de vecinos y proveedores reales.
+- `marcos_database.sqlite`.
+
+**No llegó a GitHub** porque se miró el `git status` antes de empujar. El repo se hace público cada
+vez que se usa el `curl`, así que ese push habría sido la filtración más grande del proyecto.
+
+Ahora `.gitignore` cubre `.env*`, `.enov*`, `almacenamiento/`, `*.sqlite`, `*.bak`, `*.roto` y
+`*.local`, con `!.env.ejemplo` para que la plantilla siga yendo al repo. Verificado con
+`git check-ignore`.
+
+Y para que no dependa de que alguien avise: **`docs/para-cualquier-agente.md`** — siete reglas
+cortas, pegables, para cualquier agente que llegue al repo desde otra conversación.
+
+## Modificaciones Recientes de Visualización, Multimedia y Chat
+
+### 1. Separación de Chats y Eliminación de Duplicados en Dashboard
+- `dashboard.js` (`separarConversacionesEvento`): Ahora procesa de forma estricta y prioritaria `chat_vecino_json` y `chat_proveedor_json` como fuentes independientes. Se eliminó la sobreescritura/concatenación con `historial_chat` que provocaba repetición de mensajes y cadenas concatenadas tipo Frankenstein.
+- `procesarLineaMultimediaChat`: Sanitización automática de residuos de etiquetas o rutas (`/archivos/...jpeg]`, corchetes huérfanos).
+
+### 2. Visor Multimedia HD y Soporte PDF / Facturas en Chat
+- **Imágenes / Fotos**: Los IDs numéricos de Meta (ej. `1388680856523978`) se reconocen como imágenes según contexto y tipo, evitando el fallback erróneo a notas de voz. Se renderiza tarjeta visual con miniatura, botón **"🔍 Ver HD"** y visor modal.
+- **Documentos / PDF**: Detección de etiquetas `[DOCUMENTO:...]` y `.pdf`. Genera tarjeta interactiva 📄 con nombre de archivo real (`filename`), N° de factura y monto reconocidos por OCR, botón **"⬇️ Descargar PDF / Comprobante"** y **"👁️ Ver Documento"**.
+
+### 3. Registro Integral de Envíos de Marcos a Proveedores (`chat_proveedor_json`)
+- Al despachar o actualizar un caso al técnico en `marcos-ops.js` e `index.js`, se persisten en el historial del proveedor:
+  1. Plantilla oficial de Meta WhatsApp de asignación inicial.
+  2. Retransmisión de fotos/videos del reclamo (`[IMAGEN:...] Foto del reclamo reenviada al técnico`).
+  3. Mensaje de contacto de ingreso (`📞 Contacto para el ingreso`).
+  4. Ficha de contacto compartida (`(Contacto compartido)`).
+  5. Confirmaciones de facturas y respuestas a consultas de estado/pago.
+
+### 4. Persistencia Dual Sheets / PostgreSQL
+- Sincronización de `tel_tecnico` y `rubro_tecnico` en `datos.js` y `datos-pg.js` al actualizar reportes y eventos.
+
+## Pendientes del PANEL (dashboard.js) — para quien trabaje ahí
+
+Son tres, y las tres tienen la misma forma: **el panel y el motor de Marcos escriben o leen el
+mismo dato con nombres distintos, o en una sola de las dos bases.** Ninguna da error; todas se ven
+desde afuera como que "Marcos no sabe" algo.
+
+> [!CAUTION]
+> **Las tres se resuelven LLAMANDO a algo que ya existe, no reimplementándolo.** Copiar la lógica
+> adentro del panel es exactamente lo que pasó con `buscarPerfilEdificio`, que quedó escrita dos
+> veces --en `sheets.js` y en `datos-pg.js`-- y arreglar una copia no cambió nada en producción
+> porque el motor leía la otra.
+
+### 1. La sección Facturas nunca muestra el caso
+
+`mapFactura` (dashboard.js ~539) **no devuelve el campo del caso**, ninguno. Por eso `item.codigo_caso`
+de la línea ~4791 viene siempre vacío y la insignia cae siempre en "Sin caso asignado", haya dato o
+no. Verificado: el dato **está** en las dos bases (`facturas.id_evento`).
+
+Y el mismo dato tiene dos nombres: el motor escribe `id_evento`, el alta manual del panel escribe
+`codigo_caso`. Hay que leer **los dos**, o la mitad de las facturas siguen sin caso.
+
+```js
+// en el objeto que devuelve mapFactura
+codigo_caso: pick(r, ['codigo_caso', 'id_evento', 'caso', 'id_caso']),
+```
+
+Nada más: la insignia ya está escrita y funciona apenas el campo llegue.
+
+### 2. Editar el nombre de un edificio no renombra sus referencias
+
+`/api/edificio` (dashboard.js ~12996) escribe el nombre nuevo en `EDIFICIOS` --en todas las columnas
+que son ese campo, eso está bien-- **y en ningún otro lado**. De ahí salieron cuatro asignaciones de
+proveedor diciendo `san patricio 27'0 casa` con el edificio ya renombrado a `San patricio 270`, más
+el consejo y la lista de edificios del cliente.
+
+La propagación existe pero está **adentro** de `/api/aprobar-solicitud` (~13756), cubre menos
+pestañas y **no toca PostgreSQL**, que es el lado que lee Marcos.
+
+`renombrar-edificio.js` ya hace las dos bases, todas las pestañas, la lista separada por comas del
+cliente, comparación exacta y aviso de fila duplicada sin forzarla. **Se exporta para esto**:
+
+```js
+const { renombrarEdificio } = require('./renombrar-edificio');
+// cuando cambió el nombre, después de escribir EDIFICIOS:
+const r = await renombrarEdificio({ viejo: nombreAnterior, nuevo: nombreNuevo, aplicar: true });
+// devolver r.cambios y r.fallidos en la respuesta: un renombrado a medias parece hecho y no lo está
+```
+
+Y el bloque inline de `/api/aprobar-solicitud` tendría que pasar a llamar a lo mismo, para que no
+queden dos criterios distintos de qué se renombra.
+
+### 3. Editar el nombre de un proveedor no llega a Marcos
+
+`/api/proveedor-editar` (dashboard.js ~14061) hace solo `writeCell` sobre la planilla, y
+`buscarRolPorTelefono` sale de PostgreSQL. La edición es invisible para Marcos, para siempre. Mismo
+patrón:
+
+```js
+const { renombrarProveedor } = require('./renombrar-proveedor');
+```
+
+### 4. Eliminar o desvincular un edificio limpia sus asignaciones y consejo en cascada
+
+Cuando se da de baja un edificio o se desvincula de un cliente, sus asignaciones en
+`proveedor_asignaciones`, miembros en `consejo` y la referencia en `clientes.edificios` deben
+limpiarse en las DOS bases (Sheets y PostgreSQL) para que Marcos no quede con asignaciones
+huérfanas que lo confunden al llamar proveedores.
+
+`eliminar-edificio.js` y el endpoint `POST /api/edificio-eliminar` resuelven este saneamiento en
+cascada:
+
+```bash
+node eliminar-edificio.js "san patricio 270"            # solo muestra
+node eliminar-edificio.js "san patricio 270" --aplicar  # ejecuta limpieza en Sheets y PG
+```
+
+### Cómo se verifica que quedó bien
+
+```bash
+node revisar-sobrantes.js     # lo que sobra o falta entre las dos bases
+node revisar-edificios.js     # nombres de edificio que no son ningún edificio
+```
+
+Después de cualquiera de los tres arreglos, esos dos tienen que seguir diciendo lo mismo o mejor.
 
 ## Pendientes
 
@@ -190,10 +2408,25 @@ Siguiendo el boceto de diseño (no la primera versión que armé, que era plana)
 - [x] Verificar que los eventos aparecen en el dashboard (fix de columnas)
 - [x] Rediseño visual completo (sidebar + paleta de marca + logo real)
 - [x] Sección Clientes (alta desde el dashboard, tab `clientes` en Sheets)
-- [ ] Expensas: nueva sección para que el cliente suba PDF/imagen/link mensual
+- [x] Visor interactivo de chats (Separación Vecino/Proveedor, imágenes HD, PDFs con descarga)
+- [x] Datos de cobro del proveedor (CBU/alias) con verificación y aprobación de cambios
+- [x] Expensas: nueva sección para que el cliente suba PDF/imagen/link mensual
 - [ ] Auth real: contraseñas hasheadas (bcrypt), activación por token, recuperación por email
 - [ ] Consumos / facturación por excedente: derivar uso de los logs de Marcos, definir precios
 - [ ] Notificaciones con contador real (hoy la campana es solo visual)
 - [ ] Impersonación ("Ver como cliente") para el dueño
+- [ ] Horario del encargado: reemplazar los bloques Lun-Vie + Sábado por calendario o texto libre
+      que interprete Marcos (hay edificios con limpieza 3 días a la semana en horarios raros)
+- [x] **Panel**: `mapFactura` no devuelve el caso (ver "Pendientes del PANEL", punto 1)
+- [x] **Panel**: renombrar un edificio desde la ficha no renombra sus referencias (punto 2)
+- [x] **Panel**: renombrar un proveedor no llega a PostgreSQL, o sea a Marcos (punto 3)
+- [x] Sacar un edificio de un cliente deja huérfanas sus asignaciones, su consejo y el permiso —
+      resuelto con `eliminar-edificio.js` y endpoint `/api/edificio-eliminar` con saneamiento en cascada
+- [x] **Panel**: la ficha del proveedor guarda VARIOS rubros, y la lista sale de `rubros.js`
+      (`RUBROS_CATALOGO`, 14) en vez de estar escrita a mano en `dashboard.js`. En móvil son
+      botones que se tocan: un `<select multiple>` necesita `Ctrl`/`Cmd`, que en un teléfono no existe.
+- [x] Casos cerrados de un solo lado por una caída de PostgreSQL — `emparejar-casos.js`
+- [ ] **Que una copia a PostgreSQL que falla no se pierda**: anotarla y reintentarla sola.
+      `emparejar-casos.js` limpia lo que dejó una caída; esto evitaría la próxima.
 - [ ] Twilio + chip Movistar: agregar `VAPI_API_KEY`, `TWILIO_*` al `.env`
 - [ ] Test end-to-end WhatsApp + llamadas

@@ -1,0 +1,707 @@
+/**
+ * DATOS — capa única de acceso a los datos de Marcos
+ *
+ * Expone exactamente las mismas funciones que sheets.js, con los mismos nombres, los mismos
+ * parámetros y los mismos valores de retorno. El motor cambia una sola línea por archivo
+ * (`require('./sheets')` → `require('./datos')`) y no se entera de nada más.
+ *
+ * ETAPA ACTUAL: ESCRITURA DUPLICADA.
+ *   - Google Sheets sigue siendo la fuente de verdad: todas las LECTURAS salen de ahí, y las
+ *     escrituras se hacen ahí primero. Lo que devuelve cada función es lo que devolvió Sheets.
+ *   - Además, cada escritura manda una copia a PostgreSQL para que la base se mantenga al día.
+ *
+ * La copia a PostgreSQL es deliberadamente incapaz de romper nada: va sin `await` en el camino
+ * de la respuesta y con su propio try/catch. Si Postgres está caído, Marcos atiende igual y
+ * Sheets conserva todo; cuando Postgres vuelve, el próximo import lo pone al día.
+ *
+ * PRÓXIMA ETAPA: pasar las lecturas a PostgreSQL una por una, empezando por las del camino
+ * caliente (perfil de edificio, vecino por teléfono, técnico asignado), que hoy son un viaje
+ * HTTP a Google de cientos de milisegundos cada una.
+ */
+
+const sheets = require('./sheets');
+const { fechaHoraAR, fechaAR } = require('./fecha');
+
+// ── Utilidades ──────────────────────────────────────────────────────────────
+
+const soloDigitos = t => String(t || '').replace(/\D/g, '');
+
+/**
+ * Ejecuta una copia a PostgreSQL sin que pueda afectar al flujo de Marcos: no se espera, no
+ * propaga excepciones y no interrumpe la respuesta al vecino.
+ */
+function copiarAPg(descripcion, fn) {
+    try {
+        Promise.resolve(fn()).catch(err =>
+            console.error(`[PG] No se pudo copiar ${descripcion}: ${err.message}`)
+        );
+    } catch (err) {
+        console.error(`[PG] No se pudo copiar ${descripcion}: ${err.message}`);
+    }
+}
+
+/**
+ * Inserta o actualiza una fila por su clave natural. La comparación normaliza mayúsculas y
+ * espacios para que "Julio " y "julio" sean la misma fila, igual que hace el import.
+ */
+async function upsert(tabla, clave, valores) {
+    const { pool } = require('./db-pg');
+    const columnas = Object.keys(valores);
+
+    const condicion = clave
+        .map((c, i) => `lower(trim(coalesce(${c}::text, ''))) = lower(trim(coalesce($${i + 1}::text, '')))`)
+        .join(' AND ');
+    const existente = await pool.query(
+        `SELECT id FROM ${tabla} WHERE ${condicion} LIMIT 1`,
+        clave.map(c => valores[c])
+    );
+
+    if (existente.rowCount) {
+        // Solo se pisan los campos que traen valor: un update parcial no tiene por qué borrar
+        // datos que ya estaban cargados (por ejemplo el nombre del vecino cuando solo se está
+        // actualizando su autorización de contacto).
+        const conValor = columnas.filter(c => {
+            const v = valores[c];
+            return v !== undefined && v !== null && String(v) !== '';
+        });
+        if (conValor.length === 0) return;
+        const sets = conValor.map((c, i) => `${c} = $${i + 1}`).join(', ');
+        await pool.query(
+            `UPDATE ${tabla} SET ${sets} WHERE id = $${conValor.length + 1}`,
+            [...conValor.map(c => valores[c]), existente.rows[0].id]
+        );
+    } else {
+        const marcadores = columnas.map((_, i) => `$${i + 1}`).join(', ');
+        await pool.query(
+            `INSERT INTO ${tabla} (${columnas.join(', ')}) VALUES (${marcadores})`,
+            columnas.map(c => valores[c])
+        );
+    }
+}
+
+// ── LECTURAS (PostgreSQL primero, Sheets de respaldo) ───────────────────────
+//
+// Cada lectura sale de PostgreSQL, que está en el mismo servidor: menos de 1ms contra los varios
+// cientos de milisegundos que tarda un viaje HTTP a Google. En una conversación Marcos hace seis u
+// ocho de estas búsquedas, así que es la mayor parte de lo que hoy tarda en contestar.
+//
+// Si PostgreSQL no encuentra nada, se le pregunta a Sheets igual. Eso hace el cambio reversible en
+// los hechos: mientras Sheets siga siendo la fuente de verdad, un dato que todavía no llegó a
+// PostgreSQL no rompe nada -- se responde más lento y se avisa en el log, pero se responde. El día
+// que los avisos dejen de aparecer, sabemos que la copia está completa.
+//
+// Con LECTURA_PG=off en el .env todo vuelve a salir de Sheets, sin tocar código.
+
+const LECTURA_PG = String(process.env.LECTURA_PG || 'on').toLowerCase() !== 'off';
+
+const vacio = v => v === null || v === undefined ||
+    (Array.isArray(v) && v.length === 0) ||
+    (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+
+/**
+ * Intenta leer de PostgreSQL y cae a Sheets si no hay dato o si algo falla.
+ * @param {string} nombre  Para poder identificar en el log qué lectura cayó al respaldo.
+ */
+async function leer(nombre, args, fnPg, fnSheets) {
+    if (LECTURA_PG) {
+        try {
+            const pg = require('./datos-pg');
+            const res = await pg[fnPg](...args);
+            if (!vacio(res)) return res;
+            console.log(`↩️ ${nombre}: sin dato en PostgreSQL, se consulta Sheets.`);
+        } catch (err) {
+            console.error(`↩️ ${nombre}: error leyendo de PostgreSQL (${err.message}). Se consulta Sheets.`);
+        }
+    }
+    return sheets[fnSheets](...args);
+}
+
+async function buscarVecinosPorTelefono(telefono) {
+    return leer('buscarVecinosPorTelefono', [telefono], 'buscarVecinosPorTelefono', 'buscarVecinosPorTelefono');
+}
+async function buscarVecinoPorTelefono(telefono) {
+    return leer('buscarVecinoPorTelefono', [telefono], 'buscarVecinoPorTelefono', 'buscarVecinoPorTelefono');
+}
+async function buscarPerfilEdificio(nombreEdificio) {
+    return leer('buscarPerfilEdificio', [nombreEdificio], 'buscarPerfilEdificio', 'buscarPerfilEdificio');
+}
+async function listarEdificiosConocidos() {
+    return leer('listarEdificiosConocidos', [], 'listarEdificiosConocidos', 'listarEdificiosConocidos');
+}
+
+/**
+ * Los edificios que este proveedor atiende legítimamente.
+ *
+ * Ojo con el significado de una lista VACÍA: quiere decir "no pude averiguar la cartera", no
+ * "este técnico no atiende ningún edificio". Quien la use no debe rechazar nada cuando viene
+ * vacía -- si la copia en PostgreSQL está incompleta o la planilla no responde, rechazar sería
+ * dejar de aceptar facturas legítimas sin que nadie se entere.
+ */
+async function edificiosDelProveedor(args) {
+    return leer('edificiosDelProveedor', [args], 'edificiosDelProveedor', 'edificiosDelProveedor');
+}
+// Los datos de cobro van SIEMPRE contra Sheets, que es la fuente de verdad: acá se decide a qué
+// cuenta se le paga a alguien, y leer una copia posiblemente atrasada no es una opción.
+async function buscarDatosBancariosProveedor(args) {
+    return sheets.buscarDatosBancariosProveedor(args);
+}
+async function guardarDatosBancariosProveedor(args) {
+    return sheets.guardarDatosBancariosProveedor(args);
+}
+async function registrarProveedorNoVerificado(args) {
+    return sheets.registrarProveedorNoVerificado(args);
+}
+async function resolverCambioBancario(args) {
+    return sheets.resolverCambioBancario(args);
+}
+async function proveedoresPorTelefono(telefono) {
+    return leer('proveedoresPorTelefono', [telefono], 'proveedoresPorTelefono', 'proveedoresPorTelefono');
+}
+async function buscarCasosRecientesPorTecnico(nombre, telefono, dias) {
+    return leer('buscarCasosRecientesPorTecnico', [nombre, telefono, dias], 'buscarCasosRecientesPorTecnico', 'buscarCasosRecientesPorTecnico');
+}
+
+/**
+ * Un caso por su código.
+ *
+ * > [!CAUTION]
+ * > **Esta función faltaba acá, y CINCO lugares de `index.js` la pedían de `require('./datos')`.**
+ *
+ * Los cinco caían en su `catch` con *"buscarCasoPorCodigo is not a function"* y seguían de largo,
+ * así que desde afuera no se veía un error: se veía a Marcos preguntando cosas que ya sabía. El
+ * arreglo de "no repreguntar la dirección" nunca llegó a correr ni una vez.
+ *
+ * Va solo a PostgreSQL y **no usa `leer()`**: `sheets.js` no tiene esta búsqueda, así que el
+ * respaldo no existe. Decirlo acá es mejor que que `leer()` reviente buscando una función que
+ * tampoco está del otro lado.
+ */
+async function buscarCasoPorCodigo(codigo) {
+    return require('./datos-pg').buscarCasoPorCodigo(codigo);
+}
+
+// Las facturas sin imputar y su corrección van directo a Sheets, que es la fuente de verdad de la
+// pestaña `facturas`: acá no se puede leer una copia posiblemente atrasada, porque lo que está en
+// juego es a qué consorcio se le carga un gasto.
+async function buscarFacturasSinImputar(args) {
+    return sheets.buscarFacturasSinImputar(args);
+}
+async function imputarFacturaSinEdificio(args) {
+    const tocadas = await sheets.imputarFacturaSinEdificio(args);
+    if (tocadas > 0) {
+        copiarAPg(`la imputación de facturas de ${args?.proveedor || 'proveedor'}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE facturas SET edificio = $1, estado = 'Pendiente',
+                        id_evento = COALESCE(NULLIF($3, ''), id_evento),
+                        codigo_caso = COALESCE(NULLIF($3, ''), codigo_caso, id_evento)
+                 WHERE lower(trim(coalesce(proveedor, ''))) = lower(trim($2))
+                   AND (lower(trim(coalesce(estado, ''))) = 'sin imputar'
+                        OR coalesce(trim(edificio), '') = ''
+                        OR lower(trim(edificio)) = 'no especificado')`,
+                [args.edificio, args.proveedor || '', args.idEvento || '']
+            );
+        });
+    }
+    return tocadas;
+}
+async function buscarPersonalDeTurno(args) {
+    return leer('buscarPersonalDeTurno', [args], 'buscarPersonalDeTurno', 'buscarPersonalDeTurno');
+}
+async function buscarMemoriaVecino(telefono) {
+    return leer('buscarMemoriaVecino', [telefono], 'buscarMemoriaVecino', 'buscarMemoriaVecino');
+}
+async function buscarAccesosEdificio(edificio) {
+    return leer('buscarAccesosEdificio', [edificio], 'buscarAccesosEdificio', 'buscarAccesosEdificio');
+}
+async function buscarAmenitiesEdificio(edificio) {
+    if (LECTURA_PG) {
+        try {
+            return await require('./datos-pg').buscarAmenitiesEdificio(edificio);
+        } catch (err) {
+            console.error(`↩️ buscarAmenitiesEdificio error: ${err.message}`);
+        }
+    }
+    return [];
+}
+
+// El rol nunca "no está": alguien desconocido es un vecino. Por eso su respaldo no se activa por
+// respuesta vacía sino solo ante un error: si Postgres dice "vecino", esa es la respuesta buena y
+// preguntarle a Sheets sería puro gasto.
+async function buscarRolPorTelefono(telefono) {
+    if (LECTURA_PG) {
+        try {
+            return await require('./datos-pg').buscarRolPorTelefono(telefono);
+        } catch (err) {
+            console.error(`↩️ buscarRolPorTelefono: error leyendo de PostgreSQL (${err.message}). Se consulta Sheets.`);
+        }
+    }
+    return sheets.buscarRolPorTelefono(telefono);
+}
+
+async function buscarTecnicoAsignado(args) {
+    return leer('buscarTecnicoAsignado', [args], 'buscarTecnicoAsignado', 'buscarTecnicoAsignado');
+}
+async function buscarTecnicoSuplente(args) {
+    return leer('buscarTecnicoSuplente', [args], 'buscarTecnicoSuplente', 'buscarTecnicoSuplente');
+}
+async function buscarCliente(nombreAdmin) {
+    return leer('buscarCliente', [nombreAdmin], 'buscarCliente', 'buscarCliente');
+}
+
+/**
+ * Si al técnico ya se le mandó la plantilla de este caso.
+ *
+ * Acá el respaldo va al revés que en el resto y por un motivo concreto: un `false` de PostgreSQL
+ * NO significa "no se le mandó", puede significar "este caso todavía no está en PostgreSQL"
+ * -- los casos anteriores a la escritura duplicada no están. Y confundir esas dos cosas hace que
+ * al técnico le llegue la plantilla de Meta por segunda vez, que es justo el bug que costó
+ * arreglar. Así que solo un `true` se toma como respuesta final; ante un `false` se le pregunta
+ * igual a Sheets. El error posible queda del lado de no molestar al técnico de más.
+ */
+async function fueTecnicoNotificado(id_evento) {
+    if (LECTURA_PG) {
+        try {
+            const yaEnPg = await require('./datos-pg').fueTecnicoNotificado(id_evento);
+            if (yaEnPg) return true;
+        } catch (err) {
+            console.error(`↩️ fueTecnicoNotificado: error leyendo de PostgreSQL (${err.message}). Se consulta Sheets.`);
+        }
+    }
+    return sheets.fueTecnicoNotificado(id_evento);
+}
+
+async function buscarFacturasProveedor(args) {
+    return leer('buscarFacturasProveedor', [args], 'buscarFacturasProveedor', 'buscarFacturasProveedor');
+}
+async function obtenerCasosAbiertosEdificio(nombreEdificio) {
+    return leer('obtenerCasosAbiertosEdificio', [nombreEdificio], 'obtenerCasosAbiertosEdificio', 'obtenerCasosAbiertosEdificio');
+}
+async function obtenerEventosPendientesAdmin() {
+    return leer('obtenerEventosPendientesAdmin', [], 'obtenerEventosPendientesAdmin', 'obtenerEventosPendientesAdmin');
+}
+
+/**
+ * Los controles de caso vencidos.
+ *
+ * Sin respaldo a Sheets a propósito, al revés que las demás lecturas. Esta la llama el barrido cada
+ * 5 minutos: si cayera a Sheets cada vez que no hay nada vencido -- que es casi siempre-- gastaría
+ * 288 lecturas diarias de la cuota de Google para no encontrar nada, compitiendo por ese cupo con
+ * la atención de los vecinos. Una lista vacía acá es una respuesta legítima, no un dato faltante.
+ */
+async function obtenerSeguimientosVencidos() {
+    if (LECTURA_PG) {
+        try {
+            return await require('./datos-pg').obtenerSeguimientosVencidos();
+        } catch (err) {
+            console.error(`↩️ obtenerSeguimientosVencidos: error leyendo de PostgreSQL (${err.message}). Se consulta Sheets.`);
+        }
+    }
+    return sheets.obtenerSeguimientosVencidos();
+}
+
+// ── ESCRITURAS (Sheets manda, PostgreSQL recibe copia) ──────────────────────
+
+async function guardarReporte(datos) {
+    const res = await sheets.guardarReporte(datos);
+
+    // El código [CASO-XXXX] lo asigna Sheets, así que la copia se hace recién con el resultado.
+    if (res?.id_evento) {
+        copiarAPg(`el reporte ${res.id_evento}`, () => upsert('reportes', ['codigo_caso'], {
+            codigo_caso:    res.id_evento,
+            fecha:          datos.fechaInicio || fechaHoraAR(),
+            edificio:       datos.edificio || '',
+            vecino:         datos.vecino || '',
+            telefono:       soloDigitos(datos.telefono),
+            depto:          datos.depto || '',
+            mensaje:        datos.problema || '',
+            problema:       datos.problema || '',
+            tipo:           datos.tipo || 'whatsapp',
+            urgencia:       datos.urgencia || '',
+            estado:         datos.estado || 'nuevo',
+            notas:          datos.notas_ia || datos.notas || '',
+            notas_ia:       datos.notas_ia || '',
+            tecnico:        datos.tecnico || '',
+            tel_tecnico:    datos.tel_tecnico ? soloDigitos(datos.tel_tecnico) : '',
+            rubro_tecnico:  datos.rubro_tecnico || '',
+            acceso:         datos.acceso || '',
+            audio_url:      datos.audio_url || '',
+            transcripcion:  datos.transcripcion || '',
+            historial_chat: Array.isArray(datos.historial_chat)
+                ? JSON.stringify(datos.historial_chat)
+                : (datos.historial_chat || ''),
+            chat_vecino_json: Array.isArray(datos.chat_vecino)
+                ? JSON.stringify(datos.chat_vecino)
+                : (datos.chat_vecino || ''),
+            chat_proveedor_json: Array.isArray(datos.chat_proveedor)
+                ? JSON.stringify(datos.chat_proveedor)
+                : (datos.chat_proveedor || ''),
+        }));
+    }
+    return res;
+}
+
+async function guardarFactura(datos) {
+    const res = await sheets.guardarFactura(datos);
+    // Si ya estaba registrada no se copia de nuevo a PostgreSQL: duplicaría el gasto del otro lado.
+    if (res?.duplicada) return res;
+    copiarAPg(`la factura de ${datos?.proveedor || 'proveedor'}`, () => upsert(
+        'facturas',
+        ['fecha', 'proveedor', 'monto', 'edificio'],
+        {
+            fecha:          fechaHoraAR(),
+            proveedor:      datos.proveedor || 'Desconocido',
+            monto:          datos.monto || '0',
+            concepto:       datos.concepto || '',
+            edificio:       datos.edificio || 'No especificado',
+            url_archivo:    datos.url_archivo || '',
+            numero_factura: datos.numero_factura || '',
+            estado:         datos.estado || 'Pendiente',
+            nota_tecnico:   datos.nota_tecnico || '',
+            enviada_por:    datos.enviada_por || '',
+            id_evento:      datos.id_evento || datos.codigo_caso || '',
+            codigo_caso:    datos.codigo_caso || datos.id_evento || '',
+        }
+    ));
+    return res;
+}
+
+async function guardarMemoriaVecino(datos) {
+    const res = await sheets.guardarMemoriaVecino(datos);
+    copiarAPg(`la memoria de ${datos?.nombre || 'vecino'}`, () => upsert('memoria', ['telefono'], {
+        telefono:              soloDigitos(datos.telefono),
+        nombre:                datos.nombre || '',
+        fecha_ultimo_contacto: fechaHoraAR(),
+        resumen_historial:     datos.resumenHistorial || '',
+        notas_trato:           datos.notasTrato || '',
+    }));
+    return res;
+}
+
+async function agregarVecinoNuevo(datos) {
+    const res = await sheets.agregarVecinoNuevo(datos);
+    copiarAPg(`el vecino ${datos?.nombre || ''}`, () => upsert('vecinos', ['telefono', 'edificio'], {
+        telefono:     soloDigitos(datos.telefono),
+        nombre:       datos.nombre || '',
+        edificio:     datos.edificio || '',
+        departamento: datos.departamento || '',
+        notas:        'Registro automático por bot',
+    }));
+    return res;
+}
+
+async function guardarAutorizacionContacto(datos) {
+    const res = await sheets.guardarAutorizacionContacto(datos);
+    const tel = soloDigitos(datos?.telefono);
+    if (tel) {
+        // Sin `edificio` en la clave: la autorización es de la persona, y el mismo teléfono puede
+        // figurar en más de un edificio. Se marca en todas sus filas.
+        copiarAPg(`la autorización de contacto de ${tel}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE vecinos
+                    SET autoriza_contacto = COALESCE($2, autoriza_contacto),
+                        contacto_acceso   = COALESCE(NULLIF($3, ''), contacto_acceso)
+                  WHERE regexp_replace(coalesce(telefono, ''), '\\D', '', 'g') = $1`,
+                [tel, datos.autoriza !== false, datos.contactoAcceso || '']
+            );
+        });
+    }
+    return res;
+}
+
+async function marcarTecnicoNotificado(id_evento) {
+    const res = await sheets.marcarTecnicoNotificado(id_evento);
+    if (id_evento) {
+        copiarAPg(`la marca de notificación de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET tecnico_notificado = $2 WHERE codigo_caso = $1`,
+                [id_evento, fechaHoraAR()]
+            );
+        });
+    }
+    return res;
+}
+
+async function fueAdminNotificado(id_evento) {
+    return sheets.fueAdminNotificado(id_evento);
+}
+
+async function marcarAdminNotificado(id_evento, motivo = '') {
+    const res = await sheets.marcarAdminNotificado(id_evento, motivo);
+    if (id_evento) {
+        copiarAPg(`la marca de escalación al administrador de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET admin_notificado = $2 WHERE codigo_caso = $1`,
+                [id_evento, `${fechaHoraAR()}${motivo ? ` — ${motivo}` : ''}`]
+            );
+        });
+    }
+    return res;
+}
+
+async function fueContactoAccesoAvisado(id_evento) {
+    return sheets.fueContactoAccesoAvisado(id_evento);
+}
+
+async function marcarContactoAccesoAvisado(id_evento) {
+    const res = await sheets.marcarContactoAccesoAvisado(id_evento);
+    if (id_evento) {
+        copiarAPg(`la marca de contacto de acceso avisado de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET contacto_acceso_avisado = $2 WHERE codigo_caso = $1`,
+                [id_evento, fechaHoraAR()]
+            );
+        });
+    }
+    return res;
+}
+
+/**
+ * Borra las marcas de entrega cuando Meta avisó que el mensaje NO llegó, para que el próximo
+ * mensaje del técnico dispare el reintento. Ver la nota en `sheets.js`.
+ */
+async function desmarcarEntregasAlTecnico(id_evento) {
+    const res = await sheets.desmarcarEntregasAlTecnico(id_evento);
+    if (id_evento) {
+        copiarAPg(`el borrado de las marcas de entrega de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET material_enviado_tecnico = NULL, contacto_acceso_avisado = NULL
+                 WHERE codigo_caso = $1`,
+                [id_evento]
+            );
+        });
+    }
+    return res;
+}
+
+/**
+ * Anota que Meta rechazó un envío a este caso, con la hora.
+ *
+ * Va junto con `desmarcarEntregasAlTecnico` y no en su lugar: borrar la marca sirve cuando el aviso
+ * de Meta llega después de escribirla, y esta fecha cubre el caso contrario --que es el que se vio
+ * en producción--. El detalle de la carrera está en `entregaSigueValida`, en `sheets.js`.
+ */
+async function marcarEntregaRebotada(id_evento, rebotado = true) {
+    const res = await sheets.marcarEntregaRebotada(id_evento, rebotado);
+    if (id_evento) {
+        copiarAPg(`el rebote de entrega de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET entrega_rebotada = $2 WHERE codigo_caso = $1`,
+                [id_evento, rebotado ? fechaHoraAR() : null]
+            );
+        });
+    }
+    return res;
+}
+
+/**
+ * Mueve la última factura de un proveedor al caso que él corrigió, en las dos bases.
+ * El por qué está en `reimputarUltimaFacturaAlCaso`, en `sheets.js`.
+ */
+async function reimputarUltimaFacturaAlCaso(datos) {
+    const res = await sheets.reimputarUltimaFacturaAlCaso(datos);
+    if (res?.numero) {
+        copiarAPg(`el cambio de caso de la factura ${res.numero}`, async () => {
+            const { pool } = require('./db-pg');
+            // Se identifica por número de comprobante + proveedor, igual que la deduplicación: es
+            // lo único estable de una factura entre las dos bases.
+            // `codigo_caso` va también porque es el nombre con que el panel lee el caso de una
+            // factura: el motor escribe `id_evento` y el alta manual del panel `codigo_caso`.
+            // Escribir uno solo deja la corrección invisible de un lado.
+            await pool.query(
+                `UPDATE facturas SET id_evento = $1, codigo_caso = $1,
+                        edificio = COALESCE(NULLIF($2,''), edificio)
+                 WHERE numero_factura = $3
+                   AND lower(trim(coalesce(proveedor,''))) = lower(trim($4))`,
+                [res.hacia, res.edificio || '', res.numero, String(datos?.proveedor || '')]
+            );
+        });
+    }
+    return res;
+}
+
+async function fueMaterialEnviadoATecnico(id_evento) {
+    return sheets.fueMaterialEnviadoATecnico(id_evento);
+}
+
+async function marcarMaterialEnviadoATecnico(id_evento) {
+    const res = await sheets.marcarMaterialEnviadoATecnico(id_evento);
+    if (id_evento) {
+        copiarAPg(`la marca de material enviado al técnico de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET material_enviado_tecnico = $2 WHERE codigo_caso = $1`,
+                [id_evento, fechaHoraAR()]
+            );
+        });
+    }
+    return res;
+}
+
+async function marcarCasoResueltoPorId(idEvento) {
+    const res = await sheets.marcarCasoResueltoPorId(idEvento);
+    if (res?.id_evento) {
+        copiarAPg(`el cierre de ${res.id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET estado = 'resuelto' WHERE codigo_caso = $1`,
+                [res.id_evento]
+            );
+        });
+    }
+    return res;
+}
+
+async function guardarLlamada(datos) {
+    const res = await sheets.guardarLlamada(datos);
+    copiarAPg(`la llamada de ${datos?.telefono || ''}`, async () => {
+        const { pool } = require('./db-pg');
+        await pool.query(
+            `INSERT INTO llamadas (fecha, duracion, telefono, vecino, edificio, resumen,
+                                   transcripcion, urgencia, estado, mensaje_enviado)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            [
+                fechaHoraAR(),
+                datos.duracion || '',
+                soloDigitos(datos.telefono),
+                datos.vecino || '',
+                datos.edificio || '',
+                datos.resumen || '',
+                datos.transcripcion || '',
+                datos.urgencia || '',
+                datos.estado || '',
+                datos.mensajeEnviado || '',
+            ]
+        );
+    });
+    return res;
+}
+
+async function guardarAccesoEdificio(datos) {
+    const res = await sheets.guardarAccesoEdificio(datos);
+    if (datos?.edificio && datos?.lugar) {
+        copiarAPg(`el acceso "${datos.lugar}"`, () => upsert('accesos', ['edificio', 'lugar'], {
+            edificio:    datos.edificio,
+            lugar:       String(datos.lugar).toLowerCase().trim(),
+            ubicacion:   datos.ubicacion || '',
+            quien_abre:  datos.quienAbre || '',
+            telefono:    datos.telefono || '',
+            tipo_acceso: datos.tipoAcceso || '',
+            notas:       datos.notas || '',
+            origen:      datos.origen || '',
+            fecha:       fechaHoraAR(),
+        }));
+    }
+    return res;
+}
+
+async function guardarConfirmacionTecnico(datos) {
+    const res = await sheets.guardarConfirmacionTecnico(datos);
+    if (datos?.id_evento) {
+        copiarAPg(`la confirmación del técnico de ${datos.id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET tecnico_confirmado = $2, tecnico_eta = COALESCE(NULLIF($3,''), tecnico_eta) WHERE codigo_caso = $1`,
+                [datos.id_evento, fechaHoraAR(), datos.eta || '']
+            );
+        });
+    }
+    return res;
+}
+
+async function programarSeguimiento(datos) {
+    const res = await sheets.programarSeguimiento(datos);
+    if (datos?.id_evento) {
+        copiarAPg(`el seguimiento de ${datos.id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET proximo_seguimiento = $2, seguimiento_paso = $3 WHERE codigo_caso = $1`,
+                [datos.id_evento, new Date(datos.cuando).toISOString(), String(datos.paso ?? 1)]
+            );
+        });
+    }
+    return res;
+}
+
+async function cancelarSeguimiento(id_evento) {
+    const res = await sheets.cancelarSeguimiento(id_evento);
+    if (id_evento) {
+        copiarAPg(`la baja del seguimiento de ${id_evento}`, async () => {
+            const { pool } = require('./db-pg');
+            await pool.query(
+                `UPDATE reportes SET proximo_seguimiento = NULL, seguimiento_paso = NULL WHERE codigo_caso = $1`,
+                [id_evento]
+            );
+        });
+    }
+    return res;
+}
+
+async function quitarAccesoEdificio(datos) {
+    const resSheets = await sheets.quitarAccesoEdificio(datos).catch(() => false);
+    let resPg = false;
+    try {
+        const pg = require('./db-pg');
+        resPg = await pg.quitarAccesoEdificio(datos).catch(() => false);
+    } catch(e) {}
+    return resSheets || resPg;
+}
+
+module.exports = {
+    ...sheets,
+    guardarReporte,
+    guardarFactura,
+    casoYaTieneFactura: (id) => sheets.casoYaTieneFactura(id),
+    guardarMemoriaVecino,
+    agregarVecinoNuevo,
+    guardarAutorizacionContacto,
+    marcarTecnicoNotificado,
+    marcarAdminNotificado,
+    fueAdminNotificado,
+    marcarContactoAccesoAvisado,
+    fueContactoAccesoAvisado,
+    marcarMaterialEnviadoATecnico,
+    desmarcarEntregasAlTecnico,
+    marcarEntregaRebotada,
+    fueMaterialEnviadoATecnico,
+    marcarCasoResueltoPorId,
+    guardarLlamada,
+    guardarAccesoEdificio,
+    quitarAccesoEdificio,
+    guardarConfirmacionTecnico,
+    programarSeguimiento,
+    cancelarSeguimiento,
+    buscarVecinosPorTelefono,
+    buscarVecinoPorTelefono,
+    buscarPerfilEdificio,
+    listarEdificiosConocidos,
+    edificiosDelProveedor,
+    buscarCasosRecientesPorTecnico,
+    buscarCasoPorCodigo,
+    proveedoresPorTelefono,
+    buscarDatosBancariosProveedor,
+    guardarDatosBancariosProveedor,
+    resolverCambioBancario,
+    registrarProveedorNoVerificado,
+    buscarFacturasSinImputar,
+    imputarFacturaSinEdificio,
+    reimputarUltimaFacturaAlCaso,
+    buscarPersonalDeTurno,
+    buscarMemoriaVecino,
+    buscarRolPorTelefono,
+    buscarAccesosEdificio,
+    buscarAmenitiesEdificio,
+    buscarTecnicoAsignado,
+    buscarTecnicoSuplente,
+    buscarCliente,
+    fueTecnicoNotificado,
+    buscarFacturasProveedor,
+    obtenerCasosAbiertosEdificio,
+    obtenerEventosPendientesAdmin,
+    obtenerSeguimientosVencidos,
+};

@@ -1,0 +1,1839 @@
+/**
+ * porteria.js — Portería Virtual & Timbre Inteligente Web (Marcos IA)
+ * -------------------------------------------------------------------
+ * Permite a visitantes, repartidores de delivery y encomiendas tocar el timbre
+ * digital desde la puerta del edificio escaneando un código QR en su celular.
+ * Notifica al vecino en tiempo real a su WhatsApp y emite chime sonoro.
+ * -------------------------------------------------------------------
+ */
+
+'use strict';
+
+const express = require('express');
+const router = express.Router();
+const path = require('path');
+const { claveEdificio, mismoEdificio, claveUnidad } = require('./edificio-clave');
+
+let datosPg = null;
+try {
+  datosPg = require('./datos-pg');
+} catch (_) {}
+
+let marcosOps = null;
+try {
+  marcosOps = require('./agentes/marcos-ops');
+} catch (_) {}
+
+let renderTotemHtml = null;
+try {
+  const totemModule = require('./frente-portero/porteria-totem');
+  renderTotemHtml = totemModule.renderTotemHtml;
+} catch (errTotem) {
+  console.warn('porteria-totem no cargado:', errTotem.message);
+}
+
+// Helper para escapar HTML de forma segura
+function esc(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// -------------------------------------------------------------------
+// 1. SELECTOR GENERAL DE EDIFICIOS
+// -------------------------------------------------------------------
+router.get('/', async (req, res) => {
+  const edificioQuery = req.query.edificio;
+  if (edificioQuery) {
+    return res.redirect('/porteria/' + encodeURIComponent(edificioQuery));
+  }
+
+  let edificios = [];
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `SELECT DISTINCT edificio AS nombre FROM vecinos WHERE estado != 'eliminado' AND edificio IS NOT NULL AND edificio != ''
+                 UNION
+                 SELECT DISTINCT nombre FROM edificios
+                 ORDER BY nombre ASC`;
+      const result = await pool.query(q);
+      if (result && result.rows) {
+        edificios = result.rows.map(r => r.nombre).filter(Boolean);
+      }
+    }
+  } catch (_) {}
+
+  if (!edificios.length) {
+    edificios = ['San Patricio 159', 'San Patricio 270', 'Consorcio Demo'];
+  }
+
+  res.send(`<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0F326A">
+<title>Marcos IA · Portería Virtual</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0F326A;background:linear-gradient(165deg,#0A1F44 0%,#0F326A 45%,#1B4D9B 100%);color:#fff;font-family:'Hanken Grotesk',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:#fff;color:#16233B;border-radius:24px;padding:32px 24px;width:100%;max-width:440px;box-shadow:0 25px 60px rgba(0,0,0,.35)}
+.ed-btn{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#F8FAFD;border:1.5px solid #E2E8F0;border-radius:14px;color:#0F172A;font-weight:700;font-size:15px;text-decoration:none;transition:all .15s ease;margin-bottom:10px}
+.ed-btn:hover{background:#EBF3FC;border-color:#2E6FC0;color:#1E5FB4;transform:translateY(-1px)}
+</style>
+</head>
+<body>
+<div class="card">
+  <div style="text-align:center;margin-bottom:24px">
+    <div style="width:58px;height:58px;border-radius:18px;background:linear-gradient(135deg,#0F326A,#2E6FC0);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:28px;margin-bottom:12px;box-shadow:0 8px 20px rgba(15,50,106,.25)">
+      🔔
+    </div>
+    <h1 style="font-size:22px;font-weight:800;color:#0F326A;margin-bottom:4px">Portería Virtual</h1>
+    <p style="font-size:13.5px;color:#64748B">Seleccioná tu edificio para tocar timbre</p>
+  </div>
+
+  <div style="display:flex;flex-direction:column">
+    ${edificios.map(e => `
+      <a href="/porteria/${encodeURIComponent(e)}" class="ed-btn">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:18px">🏢</span>
+          <span>${esc(e)}</span>
+        </div>
+        <i class="ph ph-arrow-right" style="font-size:18px;color:#64748B"></i>
+      </a>
+    `).join('')}
+  </div>
+
+  <div style="margin-top:20px;text-align:center;font-size:12px;color:#64748B">
+    Desarrollado con <strong>Marcos IA</strong> · Portería Digital 24/7
+  </div>
+</div>
+</body>
+</html>`);
+});
+
+// -------------------------------------------------------------------
+// 1.1 CARTEL IMPRIMIBLE CON CÓDIGO QR PARA LA ENTRADA
+// -------------------------------------------------------------------
+
+// -------------------------------------------------------------------
+// 1.0 VISUALIZADOR PÚBLICO DE PASE QR (PARA INVITADO / DELIVERY / PROVEEDOR)
+// -------------------------------------------------------------------
+router.get('/pase/:token', async (req, res) => {
+  try {
+    const rawToken = String(req.params.token || '').trim().toUpperCase();
+    const { pool } = require('./db-pg');
+    let pase = null;
+
+    if (pool) {
+      const q = `SELECT * FROM pases_qr WHERE UPPER(token) = UPPER($1) LIMIT 1`;
+      const r = await pool.query(q, [rawToken]);
+      if (r && r.rows && r.rows.length > 0) {
+        pase = r.rows[0];
+      }
+    }
+
+    if (!pase) {
+      return res.status(404).send(`<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pase no encontrado</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+body{font-family:'Hanken Grotesk',sans-serif;background:#0F172A;color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center}
+.card{background:#1E293B;border:1px solid #334155;border-radius:24px;padding:36px 24px;max-width:420px;width:100%}
+</style>
+</head>
+<body>
+<div class="card">
+  <div style="font-size:48px;margin-bottom:12px">🚫</div>
+  <h2 style="font-size:22px;font-weight:900;margin-bottom:8px">Pase no encontrado o revocado</h2>
+  <p style="color:#94A3B8;font-size:14px;line-height:1.5">El código <strong>${esc(rawToken)}</strong> no existe en el sistema o fue cancelado por el propietario.</p>
+</div>
+</body>
+</html>`);
+    }
+
+    const now = new Date();
+    let estadoReal = pase.estado || 'activo';
+    if (pase.valido_hasta && new Date(pase.valido_hasta) < now) {
+      estadoReal = 'vencido';
+    }
+    const esActivo = estadoReal === 'activo';
+    const qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=' + encodeURIComponent(pase.token);
+
+    // Formatear fechas
+    const fDesde = pase.valido_desde ? new Date(pase.valido_desde).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : 'Inmediata';
+    const fHasta = pase.valido_hasta ? new Date(pase.valido_hasta).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : (pase.tipo_pase === 'recurrente' ? 'Días autorizados' : 'Sin vencimiento');
+
+    res.send(`<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0F326A">
+<title>Pase de Acceso · ${esc(pase.edificio)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hanken Grotesk',sans-serif;background:#070D1E;background:linear-gradient(165deg,#070D1E 0%,#0F326A 50%,#1B4D9B 100%);color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.pass-card{background:#ffffff;color:#0F172A;border-radius:28px;padding:26px 22px;width:100%;max-width:420px;box-shadow:0 25px 60px rgba(0,0,0,.5);text-align:center;position:relative}
+.badge-status{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.05em}
+.status-active{background:#DCFCE7;color:#15803D;border:1px solid #86EFAC}
+.status-expired{background:#FEE2E2;color:#DC2626;border:1px solid #FCA5A5}
+.qr-frame{background:#ffffff;border:2.5px dashed #0F326A;border-radius:22px;padding:16px;display:inline-block;margin:16px 0;box-shadow:0 8px 24px rgba(15,50,106,.1)}
+.qr-frame img{width:220px;height:220px;display:block}
+.token-badge{background:#F1F5F9;border:1px solid #CBD5E1;border-radius:12px;padding:6px 14px;font-family:monospace;font-size:18px;font-weight:900;letter-spacing:2px;color:#0F326A;display:inline-block;margin-bottom:14px}
+.info-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #F1F5F9;font-size:13px;text-align:left}
+.info-label{color:#64748B;font-weight:600}
+.info-val{color:#0F172A;font-weight:800}
+</style>
+</head>
+<body>
+
+<div class="pass-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <span class="badge-status ${esActivo ? 'status-active' : 'status-expired'}">
+      ${esActivo ? '● Pase Habilitado' : '✕ Pase Vencido / No Válido'}
+    </span>
+    <span style="font-size:11.5px;font-weight:800;color:#64748B;background:#F8FAFD;padding:3px 8px;border-radius:8px">
+      ${esc(pase.motivo || 'Acceso')}
+    </span>
+  </div>
+
+  <h1 style="font-size:22px;font-weight:900;color:#0F326A;margin-bottom:2px">${esc(pase.edificio)}</h1>
+  <p style="font-size:14px;font-weight:700;color:#475569;margin-bottom:12px">
+    ${pase.departamento ? 'Unidad / Depto ' + esc(pase.departamento) : 'Acceso al Consorcio'}
+  </p>
+
+  <div class="qr-frame">
+    <img src="${qrImg}" alt="QR de Acceso">
+  </div>
+
+  <div class="token-badge">${esc(pase.token)}</div>
+
+  <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:16px;padding:12px 14px;margin-bottom:16px">
+    <div class="info-row">
+      <span class="info-label">Invitado / Destinatario:</span>
+      <span class="info-val">${esc(pase.nombre_invitado)}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Válido desde:</span>
+      <span class="info-val">${fDesde}</span>
+    </div>
+    <div class="info-row" style="border-bottom:none">
+      <span class="info-label">Válido hasta:</span>
+      <span class="info-val">${fHasta}</span>
+    </div>
+    ${pase.tipo_pase === 'recurrente' && pase.hora_desde ? `
+      <div class="info-row" style="border-top:1px solid #F1F5F9;border-bottom:none">
+        <span class="info-label">Horario recurrente:</span>
+        <span class="info-val">${esc(pase.hora_desde)} a ${esc(pase.hora_hasta)} hs</span>
+      </div>
+    ` : ''}
+  </div>
+
+  <div style="font-size:12.5px;color:#334155;line-height:1.4;margin-bottom:14px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:10px 12px">
+    📷 <strong>Instrucciones al llegar:</strong> Mostrá este código QR frente a la cámara del tótem de entrada para destrabar la puerta de acceso.
+  </div>
+
+  <div style="font-size:11px;color:#94A3B8">
+    Emitido mediante <strong>EDIFICA & Marcos IA</strong> · Seguridad Conectada
+  </div>
+</div>
+
+</body>
+</html>`);
+  } catch (e) {
+    res.status(500).send('Error interno cargando el pase.');
+  }
+});
+
+router.get('/:edificio/qr', (req, res) => {
+  const nombreEdificio = req.params.edificio || 'Consorcio';
+  const urlPorteria = 'https://marcos.bienargentinos.com/porteria/' + encodeURIComponent(nombreEdificio);
+  const qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=' + encodeURIComponent(urlPorteria);
+
+  res.send(`<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cartel QR Portería · ${esc(nombreEdificio)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hanken Grotesk',sans-serif;background:#F1F5F9;color:#0F172A;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+.poster{background:#ffffff;border:3px solid #0F326A;border-radius:24px;width:100%;max-width:480px;padding:36px 28px;text-align:center;box-shadow:0 15px 40px rgba(15,50,106,.15);position:relative}
+.badge-header{background:#0F326A;color:#ffffff;padding:8px 18px;border-radius:999px;font-size:13px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;display:inline-block;margin-bottom:16px}
+.qr-box{background:#ffffff;padding:16px;border:2px solid #E2E8F0;border-radius:20px;display:inline-block;margin:18px 0;box-shadow:0 4px 16px rgba(0,0,0,.06)}
+.qr-box img{width:240px;height:240px;display:block}
+.btn-print{margin-top:20px;padding:12px 28px;border:none;border-radius:12px;background:#0F326A;color:#fff;font-size:15px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:8px;box-shadow:0 4px 14px rgba(15,50,106,.3)}
+@media print{
+  body{background:#fff;padding:0}
+  .poster{border:2px solid #000;box-shadow:none;max-width:100%;border-radius:0}
+  .btn-print{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="poster">
+  <div class="badge-header">🔔 Portería Digital Inteligente</div>
+  <h1 style="font-size:26px;font-weight:900;color:#0F326A;margin-bottom:4px">${esc(nombreEdificio)}</h1>
+  <p style="font-size:15px;color:#64748B;font-weight:600">Escaneá el código QR con tu celular para tocar timbre</p>
+
+  <div class="qr-box">
+    <img src="${qrImg}" alt="Código QR de Portería">
+  </div>
+
+  <div style="font-size:13.5px;color:#334155;line-height:1.5;margin-bottom:16px">
+    <strong>¿Sos repartidor, visita o servicio?</strong><br>
+    Abrí la cámara de tu celular, apuntá al QR y elegí el depto.
+  </div>
+
+  <div style="display:flex;justify-content:center;gap:12px;font-size:20px;margin-bottom:10px">
+    🛵 📦 🚪 🔔 ⚡
+  </div>
+
+  <div style="font-size:11px;color:#94A3B8">
+    Tecnología <strong>Marcos IA</strong> · Consorcio Conectado 24/7
+  </div>
+</div>
+
+<button class="btn-print" onclick="window.print()">
+  <span>🖨️ Imprimir Cartel para la Puerta</span>
+</button>
+
+</body>
+</html>`);
+});
+
+// -------------------------------------------------------------------
+// 1.2 TOTEM KIOSCO HIPCAM (PANTALLA TÁCTIL EN PORTERÍA / ESP32 + TABLET)
+// -------------------------------------------------------------------
+router.get('/:edificio/totem', async (req, res) => {
+  const nombreEdificio = req.params.edificio || 'Consorcio';
+  if (renderTotemHtml) {
+    return res.send(renderTotemHtml(nombreEdificio));
+  }
+  res.redirect('/porteria/' + encodeURIComponent(nombreEdificio));
+});
+
+router.get('/totem/:edificio', async (req, res) => {
+  const nombreEdificio = req.params.edificio || 'Consorcio';
+  if (renderTotemHtml) {
+    return res.send(renderTotemHtml(nombreEdificio));
+  }
+  res.redirect('/porteria/' + encodeURIComponent(nombreEdificio));
+});
+
+// -------------------------------------------------------------------
+// 2. TIMBRE DIGITAL DEL EDIFICIO (INTERCOMUNICADOR MOBILE)
+// -------------------------------------------------------------------
+router.get('/:edificio', async (req, res) => {
+  const nombreEdificio = req.params.edificio || 'Consorcio';
+
+  let vecinos = [];
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `SELECT * FROM vecinos WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) AND estado != 'eliminado' ORDER BY departamento ASC, nombre ASC`;
+      const result = await pool.query(q, [nombreEdificio, '%' + nombreEdificio + '%']);
+      if (result && result.rows && result.rows.length > 0) {
+        vecinos = result.rows;
+      }
+    }
+  } catch (_) {}
+
+  // Si no hay vecinos cargados todavía, generar grilla estándar por defecto
+  let unidades = [];
+  if (vecinos.length > 0) {
+    unidades = vecinos.map(v => ({
+      depto: v.departamento || v.unidad || 'UF',
+      nombre: v.nombre || 'Vecino',
+      telefono: v.telefono || '',
+      id: v.id || 0
+    }));
+  } else {
+    const pisos = ['PB', '1°', '2°', '3°', '4°', '5°', '6°', '7°', '8°'];
+    const letras = ['A', 'B'];
+    pisos.forEach(p => {
+      letras.forEach(l => {
+        unidades.push({ depto: p + ' ' + l, nombre: 'Unidad ' + p + ' ' + l, telefono: '', id: 0 });
+      });
+    });
+  }
+
+  res.send(`<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0F326A">
+<title>Timbre Digital · ${esc(nombreEdificio)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#F0F4F9;color:#16233B;font-family:'Hanken Grotesk',sans-serif;min-height:100vh;padding:16px;display:flex;flex-direction:column;align-items:center}
+.container{width:100%;max-width:440px;background:#fff;border-radius:24px;border:1px solid #E2E8F0;box-shadow:0 10px 30px rgba(15,50,106,.08);overflow:hidden;margin-bottom:20px}
+.header{background:linear-gradient(135deg,#0F326A,#1E5FB4);color:#fff;padding:24px 20px;text-align:center}
+.inp-search{width:100%;height:46px;border:1.5px solid #CBD5E1;border-radius:12px;padding:0 14px 0 40px;font-size:14.5px;color:#0F172A;outline:none;background:#fff}
+.inp-search:focus{border-color:#1E5FB4;box-shadow:0 0 0 3px rgba(30,95,180,.12)}
+.grid-deptos{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:16px;max-height:480px;overflow-y:auto}
+.btn-depto{background:#F8FAFD;border:1.5px solid #E2E8F0;border-radius:14px;padding:14px 12px;text-align:left;cursor:pointer;transition:all .15s ease;display:flex;flex-direction:column;gap:3px}
+.btn-depto:active{transform:scale(.97);background:#EBF3FC;border-color:#1E5FB4}
+.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);display:none;align-items:flex-end;justify-content:center;z-index:999;padding:0}
+@media(min-width:480px){.modal-overlay{align-items:center;padding:20px}}
+.modal-sheet{background:#fff;border-radius:24px 24px 0 0;width:100%;max-width:440px;padding:26px 22px;animation:slideUp .25s ease both}
+@media(min-width:480px){.modal-sheet{border-radius:24px}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.chip-visita{padding:8px 12px;border-radius:10px;border:1.5px solid #CBD5E1;background:#F8FAFD;color:#475569;font-size:13px;font-weight:700;cursor:pointer;flex:1;text-align:center;transition:all .1s}
+.chip-visita.active{border-color:#1E5FB4;background:#EBF3FC;color:#1E5FB4}
+.btn-ring{width:100%;height:54px;border:none;border-radius:14px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-size:17px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 4px 14px rgba(22,163,74,.35)}
+.btn-ring:active{transform:scale(.98)}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Cabecera -->
+  <div class="header">
+    <div style="width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.15);display:inline-flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:8px">
+      🔔
+    </div>
+    <h1 style="font-size:20px;font-weight:800;letter-spacing:-.02em;margin-bottom:2px">${esc(nombreEdificio)}</h1>
+    <p style="font-size:12.5px;opacity:.85;margin-bottom:12px">Portería Virtual & Intercomunicador</p>
+    <a href="/porteria/${encodeURIComponent(nombreEdificio)}/qr" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.2);color:#fff;padding:5px 14px;border-radius:999px;font-size:12px;font-weight:800;text-decoration:none;border:1px solid rgba(255,255,255,.3)">
+      <span>🖨️ Ver / Imprimir Cartel QR</span>
+    </a>
+  </div>
+
+  <!-- Buscador de Depto -->
+  <div style="padding:14px 16px 4px;position:relative">
+    <i class="ph ph-magnifying-glass" style="position:absolute;left:28px;top:28px;font-size:18px;color:#94A3B8"></i>
+    <input id="search-inp" class="inp-search" type="text" placeholder="Buscar por depto o nombre..." oninput="filtrarDeptos()">
+  </div>
+
+  <!-- Grilla de Deptos -->
+  <div id="grid-deptos" class="grid-deptos">
+    ${unidades.map(u => `
+      <button class="btn-depto item-depto" onclick="abrirTimbre('${esc(u.depto)}', '${esc(u.nombre)}', '${esc(u.telefono)}')">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:15px;font-weight:800;color:#0F326A">${esc(u.depto)}</span>
+          <span style="font-size:16px">🔔</span>
+        </div>
+        <div style="font-size:12px;color:#64748B;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${esc(u.nombre)}
+        </div>
+      </button>
+    `).join('')}
+  </div>
+</div>
+
+<!-- Modal Llamada de Timbre -->
+<div id="modal-ring" class="modal-overlay">
+  <div class="modal-sheet">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:42px;height:42px;border-radius:12px;background:#EBF3FC;color:#1E5FB4;display:flex;align-items:center;justify-content:center;font-size:22px">
+          🔔
+        </div>
+        <div>
+          <div style="font-size:17px;font-weight:800;color:#0F326A" id="modal-depto-title">4° B</div>
+          <div style="font-size:12px;color:#64748B" id="modal-vecino-subtitle">Juan Pérez</div>
+        </div>
+      </div>
+      <button onclick="cerrarTimbre()" style="width:34px;height:34px;border-radius:50%;border:none;background:#F1F5F9;color:#64748B;cursor:pointer;font-size:16px">✕</button>
+    </div>
+
+    <!-- Vista previa de cámara para captura de seguridad -->
+    <div style="margin-bottom:14px;position:relative;border-radius:14px;overflow:hidden;background:#0F172A;aspect-ratio:4/3;max-height:170px;display:flex;align-items:center;justify-content:center">
+      <video id="video-frente-cam" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video>
+      <div id="video-frente-overlay" style="position:absolute;bottom:6px;left:8px;display:flex;align-items:center;gap:5px;background:rgba(0,0,0,.6);color:#fff;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">
+        <span style="width:7px;height:7px;border-radius:50%;background:#22C55E;animation:pulseRing 1.5s infinite"></span>
+        <span>Cámara en Vivo</span>
+      </div>
+      <div id="video-frente-nocam" style="display:none;color:#94A3B8;font-size:12px;padding:12px;text-align:center">
+        📷 Cámara no detectada o sin permisos
+      </div>
+    </div>
+
+    <div style="margin-bottom:14px">
+      <label style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;display:block;margin-bottom:6px">¿Quién está en la puerta?</label>
+      <div style="display:flex;gap:8px">
+        <div class="chip-visita active" onclick="seleccionarTipo('🛵 Delivery', this)">🛵 Delivery</div>
+        <div class="chip-visita" onclick="seleccionarTipo('👤 Visita', this)">👤 Visita</div>
+        <div class="chip-visita" onclick="seleccionarTipo('📦 Encomienda', this)">📦 Encomienda</div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:18px">
+      <label style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;display:block;margin-bottom:6px">Tu Nombre o Empresa (opcional)</label>
+      <input id="visita-nombre-inp" type="text" placeholder="Ej: PedidosYa, Correo, Lucas..." style="width:100%;height:44px;border:1.5px solid #CBD5E1;border-radius:12px;padding:0 12px;font-size:14px;outline:none">
+    </div>
+
+    <button id="btn-tocar" class="btn-ring" onclick="ejecutarTimbre()">
+      <i class="ph ph-bell-ringing-fill" style="font-size:22px"></i>
+      <span>TOCAR TIMBRE</span>
+    </button>
+
+    <div id="ring-feedback" style="display:none;margin-top:14px;padding:12px;border-radius:12px;background:#DCFCE7;border:1px solid #86EFAC;color:#15803D;text-align:center;font-size:13.5px;font-weight:700">
+      🔔 ¡Timbre sonando! Le enviamos el aviso a su celular.
+    </div>
+  </div>
+</div>
+
+<script>
+var _deptoActivo = '';
+var _nombreActivo = '';
+var _telActivo = '';
+var _tipoVisita = '🛵 Delivery';
+var _edificio = '${esc(nombreEdificio)}';
+var _camaraFrenteStream = null;
+var _urlParams = new URLSearchParams(window.location.search);
+var _qrId = _urlParams.get('qr') || _urlParams.get('qr_id') || _urlParams.get('link') || _urlParams.get('link_id') || '';
+var _compartidoPor = _urlParams.get('por') || _urlParams.get('compartido_por') || _urlParams.get('ref') || _urlParams.get('c') || '';
+
+function filtrarDeptos(){
+  var q = document.getElementById('search-inp').value.toLowerCase().trim();
+  var items = document.querySelectorAll('.item-depto');
+  items.forEach(function(el){
+    var txt = el.textContent.toLowerCase();
+    el.style.display = txt.indexOf(q) !== -1 ? 'flex' : 'none';
+  });
+}
+
+async function iniciarCamaraFrente(){
+  try {
+    if (!_camaraFrenteStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      _camaraFrenteStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+        audio: true
+      });
+      var v = document.getElementById('video-frente-cam');
+      if (v) {
+        v.srcObject = _camaraFrenteStream;
+      }
+    }
+  } catch(e) {
+    console.warn('Cámara frente:', e.message);
+    var noCam = document.getElementById('video-frente-nocam');
+    if (noCam) noCam.style.display = 'block';
+  }
+}
+
+function abrirTimbre(depto, nombre, tel){
+  _deptoActivo = depto;
+  _nombreActivo = nombre;
+  _telActivo = tel;
+  document.getElementById('modal-depto-title').textContent = 'Departamento ' + depto;
+  document.getElementById('modal-vecino-subtitle').textContent = nombre || 'Unidad funcional';
+  document.getElementById('ring-feedback').style.display = 'none';
+  document.getElementById('btn-tocar').style.display = 'flex';
+  document.getElementById('modal-ring').style.display = 'flex';
+  iniciarCamaraFrente();
+}
+
+function cerrarTimbre(){
+  document.getElementById('modal-ring').style.display = 'none';
+}
+
+function seleccionarTipo(tipo, el){
+  _tipoVisita = tipo;
+  document.querySelectorAll('.chip-visita').forEach(function(c){ c.classList.remove('active'); });
+  el.classList.add('active');
+}
+
+// Reproducir sonido digital de timbre realista con Web Audio API
+function sonarChime(){
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var osc1 = ctx.createOscillator();
+    var gain = ctx.createGain();
+
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(659.25, ctx.currentTime); // E5
+    osc1.frequency.setValueAtTime(523.25, ctx.currentTime + 0.3); // C5
+
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.2);
+
+    osc1.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc1.start();
+    osc1.stop(ctx.currentTime + 1.2);
+  } catch(_) {}
+}
+
+async function ejecutarTimbre(){
+  var btn = document.getElementById('btn-tocar');
+  var fb = document.getElementById('ring-feedback');
+  var nombreVisita = document.getElementById('visita-nombre-inp').value.trim();
+
+  sonarChime();
+
+  // Capturar foto snapshot del frame de cámara
+  var fotoSnapshot = '';
+  try {
+    var v = document.getElementById('video-frente-cam');
+    if (v && v.videoWidth) {
+      var cvs = document.createElement('canvas');
+      cvs.width = 320;
+      cvs.height = 240;
+      var ctx = cvs.getContext('2d');
+      ctx.drawImage(v, 0, 0, 320, 240);
+      fotoSnapshot = cvs.toDataURL('image/jpeg', 0.65);
+    }
+  } catch(_) {}
+
+  btn.disabled = true;
+  btn.innerHTML = '<span style="animation:spin 1s infinite">⏳</span><span>Llamando...</span>';
+
+  try {
+    var res = await fetch('/porteria/api/tocar-timbre', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        edificio: _edificio,
+        departamento: _deptoActivo,
+        tipoVisita: _tipoVisita,
+        nombreVisita: nombreVisita,
+        fotoVisitante: fotoSnapshot,
+        qrId: _qrId,
+        compartidoPor: _compartidoPor
+      })
+    });
+    var data = await res.json();
+
+    btn.style.display = 'none';
+    fb.style.display = 'block';
+    fb.innerHTML = '<div style="font-size:14.5px;font-weight:800;margin-bottom:4px">✓ ¡Llamando al vecino!</div>' +
+      '<div style="font-size:12.5px;color:#166534;margin-bottom:10px">Le sonó el timbre en su celular con tu foto en vivo.</div>' +
+      '<div id="timer-auto-reset" style="font-size:11.5px;color:#4B5563;margin-bottom:12px">⏱️ Esta pantalla se restablecerá en <strong id="secs-reset">35</strong>s para otra entrega.</div>' +
+      '<button onclick="restablecerPorteria()" style="width:100%;height:40px;border:1px solid #CBD5E1;border-radius:10px;background:#fff;color:#0F326A;font-weight:700;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">' +
+        '<span>🔄 Llamar a otro depto ahora</span>' +
+      '</button>';
+    
+    setTimeout(function(){
+      sonarChime();
+    }, 400);
+
+    // Cuenta regresiva para restablecer pantalla automáticamente
+    var _secsRestantes = 35;
+    clearInterval(_autoResetInterval);
+    _autoResetInterval = setInterval(function(){
+      _secsRestantes--;
+      var elSecs = document.getElementById('secs-reset');
+      if (elSecs) elSecs.textContent = _secsRestantes;
+      if (_secsRestantes <= 0) {
+        clearInterval(_autoResetInterval);
+        restablecerPorteria();
+      }
+    }, 1000);
+
+    // Escuchar si el vecino responde por texto, inicia llamada o corta
+    clearInterval(_checkInterval);
+    _checkInterval = setInterval(async function(){
+      try {
+        var sRes = await fetch('/porteria/api/timbre-visita-status?callId=' + encodeURIComponent(data.callId || '') + '&edificio=' + encodeURIComponent(_edificio) + '&depto=' + encodeURIComponent(_deptoActivo));
+        var sData = await sRes.json();
+        if (sData) {
+          if (sData.estado === 'cortado' && sData.quienCorto === 'vecino') {
+            clearInterval(_checkInterval);
+            clearInterval(_autoResetInterval);
+            clearInterval(_sigInterval);
+            if (_visitaPeerConn) { _visitaPeerConn.close(); _visitaPeerConn = null; }
+            if (_camaraFrenteStream) { _camaraFrenteStream.getTracks().forEach(function(t){ t.stop(); }); _camaraFrenteStream = null; }
+            _visitaLocalStream = null;
+            fb.style.background = '#FEE2E2';
+            fb.style.color = '#991B1B';
+            fb.style.borderColor = '#FCA5A5';
+            fb.innerHTML = '<div style="padding:14px 10px;text-align:center">' +
+              '<div style="font-size:32px;margin-bottom:8px">📴</div>' +
+              '<div style="font-size:16px;font-weight:900;color:#991B1B;margin-bottom:4px">El vecino cortó la llamada</div>' +
+              '<p style="font-size:12.5px;color:#7F1D1D;margin-bottom:14px">La comunicación finalizó y los micrófonos se apagaron.</p>' +
+              '<button onclick="restablecerPorteria()" style="width:100%;height:44px;border:none;border-radius:12px;background:#0F326A;color:#fff;font-weight:800;font-size:14px;cursor:pointer">✅ Entendido / Cerrar</button>' +
+            '</div>';
+            sonarChime();
+            setTimeout(restablecerPorteria, 5000);
+          } else if (sData.estado === 'atendido' && sData.respuesta) {
+            clearInterval(_checkInterval);
+            clearInterval(_autoResetInterval);
+            fb.style.background = '#DCFCE7';
+            fb.style.color = '#15803D';
+            fb.style.borderColor = '#86EFAC';
+            fb.innerHTML = '<div style="padding:14px 10px;text-align:center">' +
+              '<div style="width:52px;height:52px;border-radius:50%;background:#16A34A;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:10px;box-shadow:0 4px 12px rgba(22,163,74,.35)">💬</div>' +
+              '<div style="font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#15803D;margin-bottom:6px">Mensaje del Vecino (' + (_deptoActivo || '1° A') + '):</div>' +
+              '<div style="font-size:22px;font-weight:900;color:#0F172A;background:#ffffff;border:2px solid #86EFAC;border-radius:14px;padding:16px 14px;margin-bottom:16px;line-height:1.35;word-break:break-word;box-shadow:0 2px 8px rgba(0,0,0,.04)">"' + String(sData.respuesta) + '"</div>' +
+              '<button onclick="restablecerPorteria()" style="width:100%;height:46px;border:none;border-radius:12px;background:#15803D;color:#fff;font-weight:800;font-size:15px;cursor:pointer;box-shadow:0 4px 14px rgba(21,128,61,.3);display:flex;align-items:center;justify-content:center;gap:6px">' +
+                '<span>✅ Entendido / Cerrar</span>' +
+              '</button>' +
+            '</div>';
+            sonarChime();
+          } else if (sData.estado === 'voz_iniciada') {
+            clearInterval(_checkInterval);
+            clearInterval(_autoResetInterval);
+            fb.style.background = '#EBF3FC';
+            fb.style.color = '#1E5FB4';
+            fb.style.borderColor = '#93C5FD';
+            fb.innerHTML = '<div style="font-size:15px;font-weight:800;margin-bottom:6px">🎙️ ¡Llamada en Vivo Conectada!</div><p style="font-size:12.5px;margin-bottom:10px">El vecino te está viendo y escuchando por su celular.</p><button onclick="finalizarLlamadaVisita()" style="padding:8px 16px;border:none;border-radius:10px;background:#DC2626;color:#fff;font-weight:800;font-size:13px;cursor:pointer;box-shadow:0 4px 12px rgba(220,38,38,.4)">🔴 Finalizar llamada</button>';
+            sonarChime();
+            iniciarVozVisita();
+          }
+        }
+      } catch(_) {}
+    }, 1000);
+
+  } catch(err){
+    btn.disabled = false;
+    btn.innerHTML = '🔔 TOCAR TIMBRE';
+    fb.style.display = 'block';
+    fb.style.background = '#FEF3C7';
+    fb.style.color = '#92400E';
+    fb.style.borderColor = '#FCD34D';
+    fb.innerHTML = '🔔 Timbre tocado en la puerta.';
+  }
+}
+
+var _visitaPeerConn = null;
+var _visitaLocalStream = null;
+var _checkInterval = null;
+var _autoResetInterval = null;
+var _sigInterval = null;
+
+function restablecerPorteria() {
+  clearInterval(_checkInterval);
+  clearInterval(_autoResetInterval);
+  clearInterval(_sigInterval);
+
+  if (_visitaPeerConn) {
+    _visitaPeerConn.close();
+    _visitaPeerConn = null;
+  }
+  if (_camaraFrenteStream) {
+    _camaraFrenteStream.getTracks().forEach(function(t){ t.stop(); });
+    _camaraFrenteStream = null;
+  }
+  if (_visitaLocalStream) {
+    _visitaLocalStream.getTracks().forEach(function(t){ t.stop(); });
+    _visitaLocalStream = null;
+  }
+
+  var btn = document.getElementById('btn-tocar');
+  var fb = document.getElementById('ring-feedback');
+  if (btn) {
+    btn.disabled = false;
+    btn.style.display = 'flex';
+    btn.innerHTML = '<i class="ph ph-bell-ringing-fill" style="font-size:22px"></i><span>TOCAR TIMBRE</span>';
+  }
+  if (fb) {
+    fb.style.display = 'none';
+  }
+  cerrarTimbre();
+}
+
+async function iniciarVozVisita() {
+  try {
+    if (!_camaraFrenteStream) {
+      _camaraFrenteStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+      }).catch(function(){
+        return navigator.mediaDevices.getUserMedia({ audio: true });
+      });
+    }
+    _visitaLocalStream = _camaraFrenteStream;
+    _visitaPeerConn = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    _visitaLocalStream.getTracks().forEach(function(track){
+      _visitaPeerConn.addTrack(track, _visitaLocalStream);
+    });
+
+    _visitaPeerConn.ontrack = function(event){
+      var remoteAudio = document.getElementById('audio-webrtc-visita');
+      if (remoteAudio && event.streams[0]) {
+        remoteAudio.srcObject = event.streams[0];
+        remoteAudio.play().catch(function(e){ console.warn('Audio play:', e); });
+      }
+    };
+
+    _visitaPeerConn.onicecandidate = function(event){
+      if (event.candidate) {
+        fetch('/porteria/api/webrtc-signal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ edificio: _edificio, depto: _deptoActivo, from: 'visita', signal: { type: 'candidate', candidate: event.candidate } })
+        });
+      }
+    };
+
+    // Polling de oferta de vecino y señales de corte (hangup)
+    var lastSince = Date.now() - 6000;
+    var _offerProcesada = false;
+    var _pendingCandidates = [];
+
+    _sigInterval = setInterval(async function(){
+      if (!_visitaPeerConn) { clearInterval(_sigInterval); return; }
+      try {
+        var sRes = await fetch('/porteria/api/webrtc-signal?edificio=' + encodeURIComponent(_edificio) + '&depto=' + encodeURIComponent(_deptoActivo) + '&forRole=visita&since=' + lastSince);
+        var sData = await sRes.json();
+        if (sData && sData.signals && sData.signals.length) {
+          for (var i = 0; i < sData.signals.length; i++) {
+            var sigObj = sData.signals[i].signal;
+            lastSince = Math.max(lastSince, sData.signals[i].timestamp);
+            if (sigObj.type === 'hangup' || sigObj.type === 'corte') {
+              clearInterval(_sigInterval);
+              if (_visitaPeerConn) { _visitaPeerConn.close(); _visitaPeerConn = null; }
+              if (_camaraFrenteStream) { _camaraFrenteStream.getTracks().forEach(function(t){ t.stop(); }); _camaraFrenteStream = null; }
+              _visitaLocalStream = null;
+              var fb = document.getElementById('ring-feedback');
+              if (fb) {
+                fb.style.background = '#FEE2E2';
+                fb.style.color = '#991B1B';
+                fb.style.borderColor = '#FCA5A5';
+                fb.innerHTML = '<div style="padding:14px 10px;text-align:center">' +
+                  '<div style="font-size:32px;margin-bottom:8px">📴</div>' +
+                  '<div style="font-size:16px;font-weight:900;color:#991B1B;margin-bottom:4px">El vecino cortó la llamada</div>' +
+                  '<p style="font-size:12.5px;color:#7F1D1D;margin-bottom:14px">La comunicación finalizó y los micrófonos se apagaron.</p>' +
+                  '<button onclick="restablecerPorteria()" style="width:100%;height:44px;border:none;border-radius:12px;background:#0F326A;color:#fff;font-weight:800;font-size:14px;cursor:pointer">✅ Entendido / Cerrar</button>' +
+                '</div>';
+              }
+              sonarChime();
+              setTimeout(restablecerPorteria, 5000);
+              return;
+            } else if (sigObj.type === 'offer' && !_offerProcesada) {
+              _offerProcesada = true;
+              await _visitaPeerConn.setRemoteDescription(new RTCSessionDescription(sigObj.sdp));
+              var answer = await _visitaPeerConn.createAnswer();
+              await _visitaPeerConn.setLocalDescription(answer);
+              await fetch('/porteria/api/webrtc-signal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ edificio: _edificio, depto: _deptoActivo, from: 'visita', signal: { type: 'answer', sdp: answer } })
+              });
+              // Procesar candidatos acumulados
+              while (_pendingCandidates.length > 0) {
+                var cand = _pendingCandidates.shift();
+                await _visitaPeerConn.addIceCandidate(new RTCIceCandidate(cand)).catch(function(){});
+              }
+            } else if (sigObj.type === 'candidate' && sigObj.candidate) {
+              if (_visitaPeerConn.remoteDescription && _visitaPeerConn.remoteDescription.type) {
+                await _visitaPeerConn.addIceCandidate(new RTCIceCandidate(sigObj.candidate)).catch(function(){});
+              } else {
+                _pendingCandidates.push(sigObj.candidate);
+              }
+            }
+          }
+        }
+      } catch(_) {}
+    }, 800);
+
+  } catch(err) {
+    console.warn('Voz visita:', err.message);
+  }
+}
+
+function finalizarLlamadaVisita() {
+  fetch('/porteria/api/timbre-cortar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ edificio: _edificio, depto: _deptoActivo, from: 'visita' })
+  }).catch(function(){});
+
+  if (_visitaPeerConn) {
+    _visitaPeerConn.close();
+    _visitaPeerConn = null;
+  }
+  if (_camaraFrenteStream) {
+    _camaraFrenteStream.getTracks().forEach(function(t){ t.stop(); });
+    _camaraFrenteStream = null;
+  }
+  _visitaLocalStream = null;
+
+  var fb = document.getElementById('ring-feedback');
+  if (fb) {
+    fb.style.background = '#FEE2E2';
+    fb.style.color = '#991B1B';
+    fb.style.borderColor = '#FCA5A5';
+    fb.innerHTML = '<div style="padding:12px 8px;text-align:center">' +
+      '<div style="font-size:28px;margin-bottom:6px">📴</div>' +
+      '<div style="font-size:15px;font-weight:900;color:#991B1B;margin-bottom:4px">Llamada finalizada</div>' +
+      '<p style="font-size:12px;color:#7F1D1D;margin-bottom:12px">El micrófono se cerró correctamente.</p>' +
+      '<button onclick="restablecerPorteria()" style="padding:8px 18px;border:none;border-radius:10px;background:#0F326A;color:#fff;font-weight:800;font-size:13px;cursor:pointer">Volver al inicio</button>' +
+    '</div>';
+  }
+  setTimeout(restablecerPorteria, 4000);
+}
+</script>
+
+<audio id="audio-webrtc-visita" autoplay playsinline style="display:none"></audio>
+</body>
+</html>`);
+});
+
+// Cola en memoria de llamadas de timbre activas (TTL 45 seg)
+const _timbresActivos = new Map();
+
+function limpiarTimbresViejos() {
+  const ahora = Date.now();
+  for (const [k, v] of _timbresActivos.entries()) {
+    if (ahora - v.timestamp > 60000) {
+      _timbresActivos.delete(k);
+    }
+  }
+}
+
+// -------------------------------------------------------------------
+// 3. ENDPOINTS ACCIÓN DE TIMBRE, VOZ WEBRTC Y RESPUESTAS EN VIVO
+// -------------------------------------------------------------------
+router.post('/api/tocar-timbre', async (req, res) => {
+  try {
+    const {
+      edificio,
+      departamento,
+      unidad,
+      tipoVisita,
+      nombreVisita,
+      fotoVisitante,
+      qrId,
+      linkId,
+      compartidoPor
+    } = req.body || {};
+    let vecino = null;
+
+    limpiarTimbresViejos();
+
+    // Guardar en cola de llamadas activas con canal de señales WebRTC y foto de seguridad
+    const callId = 'ring_' + Date.now();
+    // La clave se arma con los MISMOS normalizadores con que después se busca. Con `toLowerCase`
+    // a secas, tocar el timbre del `4°B` y del `4 B` dejaba dos llamadas vivas para una sola
+    // puerta, y el vecino atendía una mientras la otra seguía sonando.
+    const ringKey = claveEdificio(edificio) + ':' + claveUnidad(departamento || unidad);
+    const ringData = {
+      id: callId,
+      edificio: edificio || '',
+      departamento: departamento || unidad || '',
+      tipoVisita: tipoVisita || '🛵 Delivery',
+      nombreVisita: nombreVisita || '',
+      fotoVisitante: fotoVisitante || '',
+      timestamp: Date.now(),
+      estado: 'llamando',
+      respuesta: '',
+      signals: []
+    };
+    _timbresActivos.set(ringKey, ringData);
+
+    // Persistir cada toque en la tabla timbres de PostgreSQL (auditoría, trazabilidad de QR y origen)
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        const ip = (req.headers['x-forwarded-for']
+          ? String(req.headers['x-forwarded-for']).split(',')[0].trim()
+          : (req.socket ? req.socket.remoteAddress : req.ip)) || '';
+        const userAgent = String(req.headers['user-agent'] || '');
+        const qrReal = String(qrId || linkId || req.query.qr || req.query.link || req.query.qr_id || '').trim();
+        const compartidoReal = String(compartidoPor || req.query.compartidoPor || req.query.ref || req.query.c || req.query.por || '').trim();
+        const deptoFinal = String(departamento || unidad || '').trim();
+
+        // Registrar en eventos_acceso
+        const { registrarEventoAcceso } = require('./db-pg');
+        if (typeof registrarEventoAcceso === 'function') {
+          const esSos = String(tipoVisita || '').toLowerCase().includes('emergencia') || String(tipoVisita || '').toLowerCase().includes('sos');
+          registrarEventoAcceso({
+            edificio: edificio || '',
+            departamento: deptoFinal,
+            tipo_acceso: esSos ? 'SOS' : 'Timbre Atendido',
+            resultado: 'exitoso',
+            detalle: 'Timbre tocado por ' + (nombreVisita || 'Visita') + ' (' + (tipoVisita || 'General') + ')',
+            foto_seguridad: fotoVisitante || null,
+            qr_id: qrReal || null,
+            ip,
+            user_agent: userAgent,
+            metadata: { callId }
+          }).catch(function(){});
+        }
+
+        await pool.query(`
+          INSERT INTO timbres (
+            fecha, edificio, departamento, unidad, tipo_visita, nombre_visita,
+            qr_id, compartido_por, ip, user_agent, foto_visitante, call_id, estado, metadata
+          ) VALUES (
+            NOW(), $1, $2, $3, $4, $5,
+            $6, $7, $8, $9, $10, $11, 'llamando', $12
+          )
+        `, [
+          edificio || '',
+          deptoFinal,
+          deptoFinal,
+          tipoVisita || '🛵 Delivery',
+          nombreVisita || '',
+          qrReal || null,
+          compartidoReal || null,
+          ip || null,
+          userAgent || null,
+          fotoVisitante || null,
+          callId,
+          JSON.stringify({
+            referer: req.headers['referer'] || '',
+            origin: req.headers['origin'] || ''
+          })
+        ]);
+      }
+    } catch (errDb) {
+      console.warn('⚠️ No se pudo persistir toque en tabla timbres:', errDb.message);
+    }
+
+    // Buscar el vecino en PostgreSQL
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        const q = `SELECT * FROM vecinos WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) AND (LOWER(departamento) = LOWER($3) OR LOWER(unidad) = LOWER($3) OR LOWER(departamento) LIKE LOWER($4)) AND estado != 'eliminado' LIMIT 1`;
+        const result = await pool.query(q, [edificio, '%' + edificio + '%', departamento, '%' + departamento.replace(/[^a-z0-9]/gi, '') + '%']);
+        if (result && result.rows && result.rows.length > 0) {
+          vecino = result.rows[0];
+        }
+      }
+    } catch (_) {}
+
+    // Si el vecino no está en el padrón, se busca en los números de PRUEBA del .env.
+    //
+    // > [!CAUTION]
+    // > **Antes esto era `departamento.includes('1')` con un número escrito en el código.**
+    // > Ese `includes` matchea 1°A, 1°B, 11°C, 21°D -- cualquier unidad que tenga un uno. En un
+    // > edificio real, TODOS esos timbres le habrían llegado al mismo teléfono. Y como el número
+    // > estaba en el código, cambiarlo obligaba a tocar el repo y desplegar.
+    //
+    // Ahora sale del .env, se compara la unidad EXACTA, y queda dicho en el log que es de prueba:
+    //
+    //     TIMBRE_PRUEBA=1A:5491150542005:Daniel Morales,1B:5491112345678:Vecino de prueba
+    //
+    // El nombre es opcional. Esto es un andamio para probar sin cargar el padrón: en cuanto el
+    // vecino esté en la tabla `vecinos`, gana el padrón y esto no se usa nunca más.
+    const deptoNorm = String(departamento || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
+    let dePrueba = null;
+    for (const entrada of String(process.env.TIMBRE_PRUEBA || '').split(',')) {
+        const [unidad, telPrueba, nombrePrueba] = entrada.split(':').map(x => String(x || '').trim());
+        if (!unidad || !telPrueba) continue;
+        if (unidad.toLowerCase().replace(/[^a-z0-9]/gi, '') !== deptoNorm) continue;
+        dePrueba = { telefono: telPrueba, nombre: nombrePrueba || ('Vecino del ' + departamento) };
+        break;
+    }
+
+    const tel = (vecino && vecino.telefono) ? vecino.telefono : (dePrueba ? dePrueba.telefono : null);
+    const nombre = (vecino && vecino.nombre) ? vecino.nombre
+                 : (dePrueba ? dePrueba.nombre : ('Vecino del ' + departamento));
+
+    if (!vecino && dePrueba) {
+        console.log(`🔔🧪 ${departamento} de ${edificio} no está en el padrón: se usa el número de PRUEBA de TIMBRE_PRUEBA (${tel}). Cargalo en el padrón para que esto deje de hacer falta.`);
+    } else if (!vecino) {
+        console.log(`🔔❓ ${departamento} de ${edificio} no está en el padrón y no tiene número de prueba: NO se manda WhatsApp. El timbre suena solo en la app, y solo si está abierta.`);
+    }
+
+    // Si tiene teléfono WhatsApp, enviar mensaje inmediato
+    if (tel && marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
+      try {
+        const textoAviso = `🔔 *¡TIMBRE EN TU EDIFICIO!* 🔔\n\nHola ${nombre}, hay una visita en la puerta de *${edificio}* tocando el timbre para tu departamento (*${departamento}*).\n\n🛵 *Tipo:* ${tipoVisita || 'Visita'}${nombreVisita ? `\n👤 *Identificación:* ${nombreVisita}` : ''}\n⏰ *Hora:* ${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs\n\n👉 *Atender o hablar en vivo:* https://marcos.bienargentinos.com/vecino`;
+        const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_ID;
+        const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
+        await marcosOps.enviarWhatsApp(tel, textoAviso, phoneId, token);
+      } catch (errWa) {
+        console.warn('Error enviando WhatsApp de timbre:', errWa.message);
+      }
+    }
+
+    res.json({
+      ok: true,
+      mensaje: 'Timbre registrado con éxito',
+      callId: callId,
+      vecino: nombre
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+/**
+ * La llamada de timbre activa que corresponde a quien pregunta.
+ *
+ * > [!CAUTION]
+ * > **Acá se decide en el teléfono de quién suena un timbre, y por lo tanto quién puede abrirle la
+ * > puerta a quien está en la vereda.** Un match de más no es un dato feo en el panel: es un vecino
+ * > atendiendo a un desconocido que toca el timbre de otro consorcio.
+ *
+ * La versión vieja tenía tres agujeros, y los tres venían de la misma época en que había un solo
+ * edificio de prueba andando:
+ *
+ * ```js
+ * const edMatch = !edNorm || vEd === edNorm || vEd.includes(edNorm) || edNorm.includes(vEd)
+ *     || edNorm.includes('demo') || vEd.includes('demo')
+ *     || edNorm.includes('patricio') || vEd.includes('patricio');
+ * ...
+ * if (_timbresActivos.size === 1) return _timbresActivos.values().next().value;
+ * ```
+ *
+ * 1. **`!edNorm` hacía comodín a la falta de dato.** Quien preguntaba sin decir de qué edificio era
+ *    matcheaba con cualquier llamada. Preguntar sin decir el edificio es la condición normal de un
+ *    pedido mal armado, no una autorización.
+ * 2. **Dos nombres de edificio escritos a mano** (`'demo'`, `'patricio'`). Cualquier consorcio con
+ *    "patricio" en el nombre era el mismo que cualquier otro — y San Patricio 159 y San Patricio
+ *    270 son dos consorcios distintos, lo mismo que ya costó caro en `perfil-edificio.js`.
+ * 3. **`size === 1` devolvía la única llamada a cualquiera.** Con un solo timbre sonando en TODO el
+ *    sistema, cualquier vecino de cualquier edificio que consultara recibía esa llamada. Es el peor
+ *    de los tres y el más invisible: con un solo edificio de prueba nunca se nota.
+ *
+ * El `includes` del departamento tenía el mismo defecto en chico: pedir el `1` matcheaba con `1A`,
+ * `1B` y `11`.
+ *
+ * Ahora el edificio **tiene que coincidir, exacto y normalizado** (`mismoEdificio`), y sin edificio
+ * no hay match. El `callId` sigue siendo el camino preciso —es único por llamada— pero si además
+ * viene el edificio, tiene que ser el suyo.
+ */
+function encontrarLlamadaActiva(callId, edificio, depto) {
+  if (callId) {
+    for (const v of _timbresActivos.values()) {
+      if (v.id !== callId) continue;
+      // Un `callId` es `ring_<timestamp>`, o sea adivinable. Si además dicen de qué edificio
+      // preguntan, se verifica: cuesta nada y cierra el único atajo que quedaba.
+      if (edificio && !mismoEdificio(v.edificio, edificio)) return null;
+      return v;
+    }
+    return null;
+  }
+
+  if (!claveEdificio(edificio)) return null;
+  const depNorm = claveUnidad(depto);
+
+  for (const v of _timbresActivos.values()) {
+    if (!mismoEdificio(v.edificio, edificio)) continue;
+    if (depNorm && claveUnidad(v.departamento) !== depNorm) continue;
+    return v;
+  }
+
+  // > [!CAUTION]
+  // > **El `size === 1` que se sacó podía ser lo único que hacía andar una instalación.** Tapaba
+  // > cualquier diferencia de cómo escribe el edificio el tótem y cómo lo pregunta la app del
+  // > vecino: con una sola llamada viva, el nombre daba igual. Sacándolo, si los dos lados no
+  // > dicen lo mismo el timbre deja de sonar --que es correcto, pero desde afuera se ve idéntico
+  // > a "se rompió el timbre".
+  //
+  // Por eso se dice, pero SOLO cuando hay timbres sonando y ninguno era: un timbre que no suena
+  // porque no hay nadie tocando es la condición normal y llenaría el log, ya que `/timbre-check`
+  // lo sondea cada celular cada pocos segundos.
+  if (_timbresActivos.size) {
+    console.warn(
+      `🔔❔ Nadie recibió esta consulta de timbre. Se preguntó por edificio "${edificio}"` +
+      (depto ? ` depto "${depto}"` : ' (sin depto)') +
+      `, y los timbres sonando ahora son: ` +
+      [..._timbresActivos.values()].map(v => `"${v.edificio}" depto "${v.departamento}"`).join(' | ') +
+      '. Si alguno es el mismo edificio escrito distinto, el nombre está desfasado entre el tótem y la app del vecino.'
+    );
+  }
+  return null;
+}
+
+// Endpoint para que la Web App del vecino verifique llamadas entrantes en su celular
+router.get('/api/timbre-check', (req, res) => {
+  limpiarTimbresViejos();
+  const { edificio, depto, callId } = req.query || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
+
+  if (llamada && (llamada.estado === 'llamando' || llamada.estado === 'voz_iniciada')) {
+    return res.json({ ok: true, timbreActivo: true, llamada });
+  }
+  res.json({ ok: true, timbreActivo: false });
+});
+
+// Endpoint para que el vecino conteste a la visita (texto o iniciar llamada de voz)
+router.post('/api/timbre-responder', (req, res) => {
+  const { edificio, depto, respuesta, modoVoz, callId } = req.body || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
+  if (llamada) {
+    if (modoVoz) {
+      llamada.estado = 'voz_iniciada';
+      llamada.respuesta = '🎙️ Llamada de voz iniciada';
+      try {
+        const { pool } = require('./db-pg');
+        if (pool) {
+          pool.query(`UPDATE timbres SET estado = $1, respuesta = $2 WHERE call_id = $3`, ['voz_iniciada', llamada.respuesta, llamada.id]).catch(()=>{});
+        }
+      } catch(_) {}
+      return res.json({ ok: true, modoVoz: true, callId: llamada.id });
+    }
+    llamada.estado = 'atendido';
+    llamada.respuesta = respuesta || '¡Ya bajo!';
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        pool.query(`UPDATE timbres SET estado = $1, respuesta = $2 WHERE call_id = $3`, ['atendido', llamada.respuesta, llamada.id]).catch(()=>{});
+      }
+    } catch(_) {}
+    return res.json({ ok: true, mensaje: 'Respuesta enviada a la puerta', respuesta: llamada.respuesta });
+  }
+  res.json({ ok: true });
+});
+
+// Endpoint para cortar la llamada y desconectar micrófonos en ambos extremos
+router.post('/api/timbre-cortar', (req, res) => {
+  const { edificio, depto, from, callId } = req.body || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
+  if (llamada) {
+    llamada.estado = 'cortado';
+    llamada.quienCorto = from || 'desconocido';
+    if (!llamada.signals) llamada.signals = [];
+    llamada.signals.push({ from: from || 'anon', signal: { type: 'hangup', quienCorto: from }, timestamp: Date.now() });
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        pool.query(`UPDATE timbres SET estado = $1, respuesta = COALESCE(respuesta, $2) WHERE call_id = $3`, ['cortado', 'Cortado por ' + (from || 'desconocido'), llamada.id]).catch(()=>{});
+      }
+    } catch(_) {}
+    return res.json({ ok: true, mensaje: 'Llamada cortada correctamente', quienCorto: from });
+  }
+  res.json({ ok: true, mensaje: 'Sin llamada activa' });
+});
+
+// Endpoint para intercambiar señalización WebRTC (SDP / ICE candidates)
+router.post('/api/webrtc-signal', (req, res) => {
+  const { edificio, depto, from, signal, callId } = req.body || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
+  if (llamada) {
+    if (!llamada.signals) llamada.signals = [];
+    llamada.signals.push({ from: from || 'anon', signal, timestamp: Date.now() });
+    return res.json({ ok: true });
+  }
+  res.status(404).json({ ok: false, error: 'Llamada no encontrada' });
+});
+
+// Endpoint para obtener señales WebRTC pendientes para el otro extremo
+router.get('/api/webrtc-signal', (req, res) => {
+  const { edificio, depto, forRole, since, callId } = req.query || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
+  if (llamada && llamada.signals) {
+    const sinceTime = Number(since || 0);
+    const nuevas = llamada.signals.filter(s => s.from !== forRole && s.timestamp > sinceTime);
+    return res.json({ ok: true, signals: nuevas, estado: llamada.estado });
+  }
+  res.json({ ok: true, signals: [], estado: 'finalizado' });
+});
+
+// Endpoint para que el visitante en la calle vea el estado
+router.get('/api/timbre-visita-status', (req, res) => {
+  const { callId, edificio, depto } = req.query || {};
+  const llamada = encontrarLlamadaActiva(callId, edificio, depto);
+  if (llamada) {
+    return res.json({ ok: true, estado: llamada.estado, respuesta: llamada.respuesta });
+  }
+  res.json({ ok: true, estado: 'finalizado' });
+});
+
+// -------------------------------------------------------------------
+// 3.1 CONTROL DE PUERTAS & VALIDACIÓN QR (MÓDULO ESP32 + RELÉ)
+// -------------------------------------------------------------------
+// Cola en memoria de aperturas de puerta pendientes para el relé ESP32
+const _aperturasPuerta = new Map(); // key: edificioNorm -> { id, edificio, timestamp, motivo, consumido }
+
+/**
+ * Deja una apertura pendiente para que la plaquita ESP32 de ESE edificio la levante.
+ *
+ * > [!CAUTION]
+ * > **Una apertura sin edificio es una apertura para todos.** La clave del Map era
+ * > `(edificio||'').toLowerCase().trim()`, así que un pedido sin edificio quedaba guardado bajo la
+ * > clave `''` — y cualquier ESP32 que sondeara también sin edificio se la llevaba. Con un solo
+ * > edificio andando eso abre la puerta correcta de casualidad.
+ *
+ * Sin edificio no se registra nada y se dice fuerte. Es el mismo criterio que en el resto del
+ * archivo: la falta de un dato no es un comodín.
+ */
+function registrarAperturaPuerta(edificio, motivo, depto) {
+  const edNorm = claveEdificio(edificio);
+  if (!edNorm) {
+    console.warn('🚪❌ Se pidió abrir una puerta SIN decir de qué edificio. No se registra: una apertura sin edificio la puede consumir el relé de cualquier otro. Motivo recibido:', motivo || '(sin motivo)');
+    return null;
+  }
+  const apertura = {
+    id: 'door_' + Date.now(),
+    edificio: edificio || '',
+    motivo: motivo || 'Apertura de puerta',
+    depto: depto || '',
+    timestamp: Date.now(),
+    consumido: false
+  };
+  _aperturasPuerta.set(edNorm, apertura);
+  return apertura;
+}
+
+/**
+ * Busca al vecino titular de una unidad dentro de un edificio para avisarle por WhatsApp.
+ * Usa comparación canónica exacta (edificio-clave) para no avisar al vecino equivocado.
+ * Si la unidad no está en la tabla `vecinos`, recurre a TIMBRE_PRUEBA del .env.
+ */
+async function buscarVecinoEnPadron(edificio, departamento) {
+  if (!edificio || !departamento) return null;
+  let vecino = null;
+
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `SELECT * FROM vecinos WHERE estado != 'eliminado' AND (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))`;
+      const result = await pool.query(q, [edificio, '%' + claveEdificio(edificio) + '%']);
+      if (result && result.rows && result.rows.length > 0) {
+        const uBuscada = claveUnidad(departamento);
+        vecino = result.rows.find(v => {
+          if (!mismoEdificio(v.edificio, edificio)) return false;
+          const u1 = claveUnidad(v.departamento || '');
+          const u2 = claveUnidad(v.unidad || '');
+          return (u1 && u1 === uBuscada) || (u2 && u2 === uBuscada);
+        }) || null;
+      }
+    }
+  } catch (errDb) {
+    console.warn('⚠️ Error al buscar vecino en padrón:', errDb.message);
+  }
+
+  if (vecino) {
+    return {
+      telefono: vecino.telefono || null,
+      nombre: vecino.nombre || ('Vecino del ' + departamento),
+      departamento: vecino.departamento || departamento,
+      edificio: vecino.edificio || edificio,
+      esDePrueba: false
+    };
+  }
+
+  // Fallback con TIMBRE_PRUEBA del .env
+  const deptoNorm = claveUnidad(departamento);
+  for (const entrada of String(process.env.TIMBRE_PRUEBA || '').split(',')) {
+    const [unidad, telPrueba, nombrePrueba] = entrada.split(':').map(x => String(x || '').trim());
+    if (!unidad || !telPrueba) continue;
+    if (claveUnidad(unidad) !== deptoNorm) continue;
+    return {
+      telefono: telPrueba,
+      nombre: nombrePrueba || ('Vecino del ' + departamento),
+      departamento,
+      edificio,
+      esDePrueba: true
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Notifica al vecino cuando un invitado o visitante valida su pase QR en el tótem de entrada.
+ */
+async function notificarIngresoQRWhatsApp(pase) {
+  if (!pase || !pase.departamento || !pase.edificio) return;
+  try {
+    const vecino = await buscarVecinoEnPadron(pase.edificio, pase.departamento);
+    const tel = vecino ? vecino.telefono : null;
+    const nombre = vecino ? vecino.nombre : ('Vecino del ' + pase.departamento);
+
+    if (tel && marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
+      const horaStr = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      const cantUsosStr = (pase.usos_permitidos && pase.usos_permitidos > 1)
+        ? `\n🔢 *Uso:* ${pase.usos_actuales || 1} de ${pase.usos_permitidos}`
+        : '';
+      const textoAviso = `🚪 *¡INGRESO CON PASE QR!* 🚪\n\n` +
+        `Hola ${nombre}, acaba de ingresar a *${pase.edificio}*:\n\n` +
+        `👤 *Invitado:* ${pase.nombre_invitado || 'Visita'}\n` +
+        `📋 *Motivo:* ${pase.motivo || 'Acceso con pase QR'}\n` +
+        `🏠 *Destino:* Depto ${pase.departamento}\n` +
+        `⏰ *Hora:* ${horaStr} hs${cantUsosStr}\n\n` +
+        `_Registro de seguridad automático de Marcos Portería._`;
+
+      const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_ID;
+      const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
+
+      await marcosOps.enviarWhatsApp(tel, textoAviso, phoneId, token);
+      console.log(`📱 Notificación WhatsApp enviada a ${tel} por ingreso de ${pase.nombre_invitado} (${pase.edificio} - Depto ${pase.departamento})`);
+    } else if (!tel) {
+      console.log(`📱 Acceso QR: No hay teléfono registrado para avisar al depto ${pase.departamento} de ${pase.edificio}`);
+    }
+  } catch (errWa) {
+    console.warn('⚠️ Error enviando WhatsApp de ingreso QR:', errWa.message);
+  }
+}
+
+// Endpoint para validar código QR escaneado por la cámara del tótem
+router.post('/api/validar-qr', async (req, res) => {
+  try {
+    const { token, codigo, qr, codigo_qr, edificio, fotoSeguridad, foto_seguridad, foto } = req.body || {};
+    const rawQr = String(qr || token || codigo || codigo_qr || '').trim();
+    const fotoFinal = foto || fotoSeguridad || foto_seguridad || null;
+
+    if (!rawQr) {
+      return res.status(400).json({ ok: false, valido: false, mensaje: 'Código QR no provisto' });
+    }
+
+    const { pool, validarConsumirPaseQR, registrarEventoAcceso } = require('./db-pg');
+    let validacion = null;
+
+    // > [!CAUTION]
+    // > **Con la base disponible decide la base, siempre.** `validarConsumirPaseQR` es lo único
+    // > que puede saber si un pase fue revocado, si ya se usó o si hoy no es uno de sus días: eso
+    // > son hechos POSTERIORES a la emisión y no pueden viajar adentro del QR. Una firma válida
+    // > nunca contradice a la base — si no, revocar a alguien dejaría de servir de nada.
+    //
+    // Sin base se cae al pase firmado, que verifica autenticidad y vencimiento sin consultar nada.
+    // Lo que había antes acá era:
+    //
+    //     const esMarcosQr = rawQr.startsWith('MARCOS-') || rawQr.startsWith('PASS-') || ...
+    //
+    // o sea que con PostgreSQL caído --que en Argentina pasa seguido, junto con la luz-- escribir
+    // a mano `PASS-loquesea` abría la puerta de calle.
+    if (pool && typeof validarConsumirPaseQR === 'function') {
+      validacion = await validarConsumirPaseQR(rawQr, edificio);
+    } else {
+      const { verificarPaseFirmado } = require('./qr-firmado');
+      const off = verificarPaseFirmado(rawQr, edificio);
+      validacion = {
+        valido: off.valido,
+        resultado: off.resultado,
+        mensaje: off.mensaje,
+        // Se arma un `pase` con lo que venía adentro del QR para que el resto del endpoint
+        // --la auditoría, el aviso al vecino, a qué relé abrir-- siga leyendo lo mismo de siempre.
+        pase: off.datos
+          ? { edificio: off.datos.edificio, departamento: off.datos.unidad, nombre_invitado: '', token: rawQr, offline: true }
+          : null,
+      };
+      console.warn(
+        `📴 PostgreSQL no está disponible: el pase se validó por firma, sin base. ` +
+        `${off.valido ? 'VÁLIDO' : 'RECHAZADO'} — ${off.mensaje}. ` +
+        `Sin base no se puede saber si fue revocado: por eso los pases que se usen offline tienen que vencer corto.`
+      );
+    }
+
+    const ip = (req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : (req.socket ? req.socket.remoteAddress : req.ip)) || '';
+    const userAgent = String(req.headers['user-agent'] || '');
+
+    // Registrar en eventos_acceso siempre para auditoría
+    if (pool && typeof registrarEventoAcceso === 'function') {
+      try {
+        await registrarEventoAcceso({
+          edificio: (validacion.pase && validacion.pase.edificio) || edificio || 'Consorcio',
+          departamento: (validacion.pase && validacion.pase.departamento) || '',
+          tipo_acceso: 'QR',
+          resultado: validacion.resultado || (validacion.valido ? 'exitoso' : 'rechazado_invalido'),
+          detalle: validacion.mensaje + (validacion.pase ? (' (Invitado: ' + validacion.pase.nombre_invitado + ')') : ''),
+          foto_seguridad: fotoFinal,
+          qr_id: rawQr,
+          ip,
+          user_agent: userAgent,
+          metadata: { pase: validacion.pase || null }
+        });
+      } catch (errEv) {
+        console.warn('⚠️ No se pudo registrar evento de acceso QR:', errEv.message);
+      }
+    }
+
+    if (validacion.valido) {
+      // > [!CAUTION]
+      // > **El edificio que manda quien escanea no es el edificio del pase.** Acá se usaba el del
+      // > cuerpo del pedido, que lo escribe el tótem y no lo verifica nadie. El del pase es el que
+      // > quedó guardado cuando se lo emitió: es el único de los dos que dice de qué puerta es.
+      const edificioDelPase = (validacion.pase && validacion.pase.edificio) || edificio;
+      registrarAperturaPuerta(edificioDelPase, 'Pase QR: ' + rawQr.substring(0, 16), (validacion.pase && validacion.pase.departamento) || 'QR');
+
+      // Notificar al vecino por WhatsApp de forma asíncrona sin demorar la respuesta de la puerta
+      if (validacion.pase) {
+        notificarIngresoQRWhatsApp(validacion.pase).catch(errWa => {
+          console.warn('⚠️ Error notificando ingreso QR por WhatsApp:', errWa.message);
+        });
+      }
+
+      return res.json({
+        ok: true,
+        valido: true,
+        mensaje: validacion.mensaje || 'Pase QR válido. ¡Bienvenido!',
+        pase: validacion.pase || null,
+        codigo: rawQr.substring(0, 12),
+        timestamp: Date.now()
+      });
+    }
+
+    return res.status(403).json({
+      ok: false,
+      valido: false,
+      resultado: validacion.resultado,
+      mensaje: validacion.mensaje || 'Código QR no reconocido o vencido.',
+      pase: validacion.pase || null
+    });
+  } catch (errQr) {
+    res.status(500).json({ ok: false, error: errQr.message });
+  }
+});
+
+/**
+ * EL VECINO ABRE LA PUERTA DESDE SU CELULAR.
+ *
+ * Es lo que más se usa de un portero eléctrico y hasta ahora no existía: el vecino solo podía
+ * contestar con texto o hablar. La política --quién puede, en qué modo, con o sin timbre sonando--
+ * vive en `apertura-remota.js`, con sus pruebas.
+ *
+ * > [!CAUTION]
+ * > **No usa `getVecinoSession` de `portal-vecino.js`**, que devuelve un vecino de prueba cuando no
+ * > hay sesión. Acá eso significaría que cualquiera abre la puerta. Usa `sesionVecinoEstricta`, que
+ * > devuelve `null` y punto.
+ *
+ * El edificio y la unidad salen de SUS unidades, no del cuerpo del pedido: si vinieran del cuerpo
+ * sin verificar, un vecino del 159 podría abrir el 270.
+ *
+ * Y no abre la puerta: **deja la apertura pendiente para la placa con relé que está adentro del
+ * edificio**. El tótem de la vereda no tiene por qué poder abrir nada — sus cables están al alcance
+ * de un destornillador.
+ */
+const _ultimaAperturaVecino = new Map(); // clave edificio:unidad -> timestamp
+const ESPERA_ENTRE_APERTURAS_MS = 5000;
+
+router.post('/api/puerta/abrir-vecino', async (req, res) => {
+  try {
+    const { sesionVecinoEstricta, modoDelEdificio, puedeAbrir } = require('./apertura-remota');
+    const { edificio, depto, departamento, callId } = req.body || {};
+
+    const vecino = sesionVecinoEstricta(req);
+    if (!vecino) {
+      console.warn('🚪🔒 Alguien pidió abrir la puerta sin sesión de vecino. Rechazado.');
+      return res.status(401).json({ ok: false, abierto: false, mensaje: 'Iniciá sesión para abrir la puerta' });
+    }
+
+    // El modo lo decide el edificio. Si no se puede leer el perfil, queda el default
+    // (`con_llamada`): un edificio del que no sabemos nada no autorizó la apertura sin timbre.
+    let perfil = null;
+    try {
+      const { buscarPerfilEdificio } = require('./datos');
+      perfil = await buscarPerfilEdificio(edificio || vecino.edificio);
+    } catch (e) {
+      console.warn('🚪 No se pudo leer la configuración del edificio, se usa el modo por defecto:', e.message);
+    }
+    const modo = modoDelEdificio(perfil);
+
+    const llamada = encontrarLlamadaActiva(callId, edificio || vecino.edificio, depto || departamento || vecino.departamento);
+    const fallo = puedeAbrir({
+      vecino, modo, llamada,
+      edificioPedido: edificio || '',
+      unidadPedida: depto || departamento || '',
+    });
+
+    if (!fallo.permitido) {
+      console.warn(`🚪🔒 ${vecino.nombre || vecino.usuario_id} no pudo abrir: ${fallo.motivo} (modo ${modo}).`);
+      return res.status(403).json({ ok: false, abierto: false, mensaje: fallo.motivo, modo });
+    }
+
+    // Un freno contra el apretado repetido. No es el control de acceso --ese ya pasó-- sino que
+    // evita veinte aperturas seguidas por un botón que rebota o un dedo nervioso.
+    const clave = `${fallo.edificio}:${fallo.unidad}`.toLowerCase();
+    const ahora = Date.now();
+    const ultima = _ultimaAperturaVecino.get(clave) || 0;
+    if (ahora - ultima < ESPERA_ENTRE_APERTURAS_MS) {
+      return res.status(429).json({ ok: false, abierto: false, mensaje: 'La puerta ya se abrió recién' });
+    }
+    _ultimaAperturaVecino.set(clave, ahora);
+
+    const motivo = `${fallo.motivo}: ${vecino.nombre || 'vecino'} (${fallo.unidad || 's/u'})`;
+    const apertura = registrarAperturaPuerta(fallo.edificio, motivo, fallo.unidad);
+
+    // Una apertura por llamada: si ya abrió, el botón de ese timbre se apaga.
+    if (llamada) llamada.abrioLaPuerta = true;
+
+    // QUEDA ESCRITO QUIÉN ABRIÓ. Es lo que protege al vecino y a vos: cuando alguien pregunte
+    // quién dejó entrar a alguien un martes a las 3 de la mañana, la respuesta tiene que existir.
+    try {
+      const { pool, registrarEventoAcceso } = require('./db-pg');
+      if (pool && typeof registrarEventoAcceso === 'function') {
+        await registrarEventoAcceso({
+          edificio: fallo.edificio,
+          departamento: fallo.unidad,
+          tipo_acceso: 'Apertura remota',
+          resultado: 'exitoso',
+          detalle: motivo + ` [modo ${modo}]`,
+          qr_id: null,
+          ip: (req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : (req.socket ? req.socket.remoteAddress : req.ip)) || '',
+          user_agent: String(req.headers['user-agent'] || ''),
+          metadata: { usuario_id: vecino.usuario_id, modo, callId: llamada ? llamada.id : null }
+        });
+      }
+    } catch (e) { console.warn('⚠️ No se pudo registrar la apertura remota:', e.message); }
+
+    console.log(`🚪✅ ${vecino.nombre || vecino.usuario_id} abrió la puerta de ${fallo.edificio} (${fallo.unidad || 's/u'}) — modo ${modo}.`);
+    return res.json({ ok: true, abierto: true, mensaje: 'Puerta abierta', modo, apertura });
+
+  } catch (err) {
+    console.error('Error en la apertura remota del vecino:', err.message);
+    res.status(500).json({ ok: false, abierto: false, error: err.message });
+  }
+});
+
+/** Para las pruebas: el freno entre aperturas es de RAM y hay que poder limpiarlo. */
+router.__limpiarFrenoAperturas = () => _ultimaAperturaVecino.clear();
+
+// Endpoint para disparar apertura de puerta (desde tótem, vecino o conserje)
+router.post('/api/puerta/abrir', (req, res) => {
+  try {
+    const { edificio, motivo, depto } = req.body || {};
+    const apertura = registrarAperturaPuerta(edificio, motivo || 'Apertura manual', depto);
+    res.json({
+      ok: true,
+      mensaje: 'Apertura de puerta enviada al relé',
+      apertura
+    });
+  } catch (errDoor) {
+    res.status(500).json({ ok: false, error: errDoor.message });
+  }
+});
+
+// Endpoint sondeado por la placa ESP32 con relé en el edificio
+// GET /porteria/api/puerta/status?edificio=...
+router.get('/api/puerta/status', (req, res) => {
+  const { edificio } = req.query || {};
+  const edNorm = claveEdificio(edificio);
+  // Un relé que no dice de qué edificio es no puede recibir la apertura de ninguno. Antes sondear
+  // sin `edificio` leía la clave `''`, que es donde caían las aperturas sin edificio.
+  if (!edNorm) return res.json({ abrir: false });
+  const apertura = _aperturasPuerta.get(edNorm);
+
+  const ahora = Date.now();
+  // Válido durante 10 segundos desde el disparo
+  if (apertura && !apertura.consumido && (ahora - apertura.timestamp < 10000)) {
+    apertura.consumido = true;
+    return res.json({
+      abrir: true,
+      segundosActivacion: 3,
+      id: apertura.id,
+      motivo: apertura.motivo,
+      timestamp: apertura.timestamp
+    });
+  }
+
+  res.json({ abrir: false });
+});
+
+// -------------------------------------------------------------------
+// 3.5 GESTIÓN DE PASES QR (PARA EDIFICA / DASH / CONSERJERÍA)
+// -------------------------------------------------------------------
+
+// Crear un nuevo Pase QR (temporal o recurrente)
+router.post(['/api/pases-qr', '/api/pases-qr/crear'], async (req, res) => {
+  try {
+    const {
+      origen = 'edifica',
+      edificio,
+      departamento = '',
+      nombre_invitado,
+      motivo = 'Visita',
+      validez = '24h',
+      valido_hasta: customValidoHasta,
+      tipo_pase = 'temporal',
+      dias_semana = [],
+      hora_desde = null,
+      hora_hasta = null,
+      creado_por = '',
+      usos_permitidos = 1
+    } = req.body || {};
+
+    if (!edificio || !nombre_invitado) {
+      return res.status(400).json({ ok: false, error: 'Edificio y nombre del invitado son requeridos' });
+    }
+
+    const crypto = require('crypto');
+    const token = 'PASS-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+
+    const now = new Date();
+    let validoHasta = null;
+
+    if (customValidoHasta) {
+      validoHasta = new Date(customValidoHasta);
+    } else if (tipo_pase === 'recurrente') {
+      const f6 = new Date(now);
+      f6.setMonth(f6.getMonth() + 6);
+      validoHasta = f6;
+    } else {
+      const msMap = {
+        '2h': 2 * 3600 * 1000,
+        '4h': 4 * 3600 * 1000,
+        '12h': 12 * 3600 * 1000,
+        '24h': 24 * 3600 * 1000,
+        '7d': 7 * 24 * 3600 * 1000,
+        'todo_el_dia': 24 * 3600 * 1000
+      };
+      const extraMs = msMap[validez] || (24 * 3600 * 1000);
+      validoHasta = new Date(now.getTime() + extraMs);
+    }
+
+    const cantUsos = (tipo_pase === 'recurrente') ? (Number(usos_permitidos) || 999) : (Number(usos_permitidos) || 1);
+
+    const { crearPaseQR } = require('./db-pg');
+    const nuevoPase = await crearPaseQR({
+      token,
+      origen,
+      edificio,
+      departamento,
+      creado_por_nombre: creado_por || (req.session && req.session.user ? req.session.user : 'Edifica / Vecino'),
+      nombre_invitado,
+      motivo,
+      tipo_pase,
+      valido_desde: now,
+      valido_hasta: validoHasta,
+      dias_semana: Array.isArray(dias_semana) ? dias_semana : [],
+      hora_desde,
+      hora_hasta,
+      usos_permitidos: cantUsos
+    });
+
+    res.json({
+      ok: true,
+      pase: nuevoPase,
+      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(token)}`,
+      linkAcceso: `https://marcos.bienargentinos.com/porteria/pase/${token}`
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// Listar pases del edificio
+router.get('/api/pases-qr', async (req, res) => {
+  try {
+    const { edificio, depto } = req.query || {};
+    if (!edificio) {
+      return res.status(400).json({ ok: false, error: 'falta_edificio', mensaje: 'Debe indicar el edificio para listar pases' });
+    }
+    const { listarPasesEdificio } = require('./db-pg');
+    const pases = await listarPasesEdificio(edificio, depto || null);
+    res.json({ ok: true, pases });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// Revocar un pase QR
+router.post('/api/pases-qr/revocar', async (req, res) => {
+  try {
+    const { id, token, edificio } = req.body || {};
+    const { revocarPaseQR } = require('./db-pg');
+    const revocado = await revocarPaseQR(id || token, edificio || null);
+    if (!revocado) return res.status(404).json({ ok: false, error: 'Pase no encontrado' });
+    res.json({ ok: true, pase: revocado });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// -------------------------------------------------------------------
+// 4. GENERADOR DE CARTEL QR IMPRIMIBLE (A4 / PUERTA)
+// -------------------------------------------------------------------
+router.get('/cartel/:edificio', (req, res) => {
+  const nombreEdificio = req.params.edificio || 'Consorcio';
+  const qrUrl = 'https://marcos.bienargentinos.com/porteria/' + encodeURIComponent(nombreEdificio);
+
+  res.send(`<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<title>Cartel Portería QR · ${esc(nombreEdificio)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#475569;color:#0F172A;font-family:'Hanken Grotesk',sans-serif;padding:30px 15px;display:flex;flex-direction:column;align-items:center}
+.poster{width:100%;max-width:560px;background:#fff;border-radius:24px;padding:44px 36px;box-shadow:0 25px 60px rgba(0,0,0,.35);text-align:center;position:relative}
+.badge-top{display:inline-flex;align-items:center;gap:8px;padding:6px 16px;border-radius:999px;background:#EBF3FC;color:#1E5FB4;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px}
+.qr-frame{background:#F8FAFD;border:3px solid #0F326A;border-radius:20px;padding:20px;display:inline-block;margin:20px 0;box-shadow:0 8px 24px rgba(15,50,106,.12)}
+.btn-print{position:fixed;bottom:24px;right:24px;padding:12px 22px;border-radius:12px;background:#0F326A;color:#fff;font-weight:800;font-size:15px;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 8px 25px rgba(15,50,106,.4);z-index:99}
+@media print{
+  body{background:#fff;padding:0}
+  .poster{box-shadow:none;border:none;max-width:100%;padding:20px}
+  .btn-print{display:none}
+}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+
+<button class="btn-print" onclick="window.print()">
+  <i class="ph ph-printer" style="font-size:20px"></i>
+  <span>Imprimir Cartel A4</span>
+</button>
+
+<div class="poster">
+  <div class="badge-top">
+    <i class="ph ph-bell-ringing-fill"></i>
+    <span>Portería Virtual 24/7</span>
+  </div>
+
+  <h1 style="font-size:32px;font-weight:900;color:#0F326A;line-height:1.15;margin-bottom:6px">
+    ${esc(nombreEdificio)}
+  </h1>
+  <p style="font-size:16px;color:#64748B;font-weight:600">
+    Timbre inteligente para visitas y repartidores
+  </p>
+
+  <div class="qr-frame">
+    <div id="qrcode"></div>
+  </div>
+
+  <div style="font-size:18px;font-weight:800;color:#0F172A;margin-bottom:16px">
+    📱 Escaneá con la cámara de tu celular
+  </div>
+
+  <div style="display:flex;justify-content:center;gap:12px;margin-bottom:28px">
+    <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;color:#475569">
+      🛵 Deliveries
+    </div>
+    <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;color:#475569">
+      👤 Visitas
+    </div>
+    <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;color:#475569">
+      📦 Encomiendas
+    </div>
+  </div>
+
+  <div style="border-top:1.5px dashed #CBD5E1;padding-top:18px;display:flex;align-items:center;justify-content:center;gap:10px">
+    <img src="/admin/assets/logo.png" alt="Marcos IA" style="width:26px;height:26px;border-radius:6px" onerror="this.style.display='none'">
+    <div style="font-size:13px;color:#64748B;font-weight:700">
+      Tecnología <strong>Marcos IA</strong> para Consorcios
+    </div>
+  </div>
+</div>
+
+<script>
+new QRCode(document.getElementById("qrcode"), {
+  text: "${qrUrl}",
+  width: 220,
+  height: 220,
+  colorDark : "#0F326A",
+  colorLight : "#F8FAFD",
+  correctLevel : QRCode.CorrectLevel.H
+});
+</script>
+
+</body>
+</html>`);
+});
+
+module.exports = router;
+
+// Para `pruebas-porteria-edificio.js`: a quién le corresponde una llamada y de qué edificio es una
+// apertura se verifican sin levantar el servidor ni tocar PostgreSQL. Un router de Express es una
+// función, así que colgarle esto no cambia en nada cómo lo monta `index.js`.
+module.exports._paraPruebas = {
+  encontrarLlamadaActiva,
+  registrarAperturaPuerta,
+  buscarVecinoEnPadron,
+  notificarIngresoQRWhatsApp,
+  _timbresActivos,
+  _aperturasPuerta
+};

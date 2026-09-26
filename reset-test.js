@@ -1,0 +1,137 @@
+// El .env se busca al lado de este archivo y no en el directorio desde donde se ejecuta:
+// `node /ruta/larga/script.js` desde otra carpeta no encontraba ninguna variable y el script
+// reventaba con un error que no decía nada ('path must be a string, received undefined').
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+const { GoogleSpreadsheet } = require('google-spreadsheet');
+const { JWT } = require('google-auth-library');
+const path = require('path');
+
+const SHEET_ID = process.env.GOOGLE_SHEET_ID;
+const CREDENTIALS_FILE = path.join(__dirname, process.env.GOOGLE_CREDENTIALS_FILE);
+
+async function main() {
+    const creds = require(CREDENTIALS_FILE);
+    const auth = new JWT({
+        email: creds.client_email,
+        key: creds.private_key,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+    const doc = new GoogleSpreadsheet(SHEET_ID, auth);
+    await doc.loadInfo();
+    console.log(`Conectado a: "${doc.title}"`);
+
+    // Solo el rastro que deja una conversación de prueba: quién habló, qué pasó y qué recordó
+    // Marcos. Nada más entra acá.
+    //
+    // NUNCA agregar CLIENTES, EDIFICIOS, proveedores ni proveedor_asignaciones: eso es
+    // configuración, no dato de prueba. `clientes` guarda usuario/contraseña/email de cada
+    // administrador y es de donde sale el mail al que Marcos avisa una urgencia; vaciarla rompe
+    // el login del dashboard y deja la notificación sin destinatario.
+    //
+    // Las pestañas van por nombre y no por posición: con `sheetsByIndex[0]` alcanzaba con que
+    // alguien reordenara la planilla para vaciar la hoja equivocada.
+    // Se busca la pestaña sin importar cómo esté escrita. `sheetsByTitle['facturas']` distingue
+    // mayúsculas, y acá eso no da error: la pestaña "no se encuentra", se saltea, y el reset
+    // termina diciendo "Listo" con los datos viejos adentro. Un reset a medias es peor que
+    // ninguno, porque parece limpio y no lo está.
+    const buscarTab = (nombre) => {
+        const directa = doc.sheetsByTitle[nombre];
+        if (directa) return directa;
+        const b = String(nombre).toLowerCase().trim();
+        const t = Object.keys(doc.sheetsByTitle || {}).find(x => String(x).toLowerCase().trim() === b);
+        return t ? doc.sheetsByTitle[t] : null;
+    };
+
+    const nombresTabs = [
+        'VECINOS',
+        'EVENTOS',
+        'memoria',
+        // Las facturas de prueba tienen que irse con el resto: si quedan, el técnico pregunta por un
+        // pago y Marcos le contesta con los comprobantes de todas las corridas anteriores.
+        'facturas',
+    ];
+    const tabs = nombresTabs.map(n => {
+        const s = buscarTab(n);
+        if (!s) console.log(`⚠️ No existe ninguna pestaña "${n}": NO se vació.`);
+        return s;
+    });
+
+    for (const sheet of tabs) {
+        if (!sheet) continue;
+        const rows = await sheet.getRows();
+        console.log(`"${sheet.title}": ${rows.length} filas encontradas. Vaciando...`);
+        await sheet.clearRows();
+        console.log(`✅ "${sheet.title}" vaciada (headers intactos).`);
+    }
+
+    await limpiarPostgres();
+    limpiarArchivos();
+    console.log('🎉 Listo.');
+}
+
+/**
+ * Los archivos que subieron el vecino y el técnico durante la prueba.
+ *
+ * Borrar la fila de la factura y dejar el PDF en disco es media limpieza: el panel sigue
+ * ofreciendo el comprobante de una prueba que ya no existe, y el disco del VPS se llena de
+ * corridas viejas. Se vacía `almacenamiento/` por dentro pero no se borra la carpeta, para no
+ * tener que recrearla ni tocar permisos.
+ */
+function limpiarArchivos() {
+    const fs = require('fs');
+    const base = path.join(__dirname, 'almacenamiento');
+    if (!fs.existsSync(base)) {
+        console.log('ℹ️ No hay carpeta "almacenamiento": nada que borrar.');
+        return;
+    }
+    let borradas = 0;
+    for (const entrada of fs.readdirSync(base)) {
+        try {
+            fs.rmSync(path.join(base, entrada), { recursive: true, force: true });
+            borradas++;
+        } catch (e) {
+            console.log(`⚠️ No se pudo borrar "almacenamiento/${entrada}": ${e.message}`);
+        }
+    }
+    console.log(`✅ Multimedia: ${borradas} carpeta(s) de "almacenamiento" borradas (audios, imágenes y facturas de la prueba).`);
+}
+
+/**
+ * El otro lado del reset.
+ *
+ * Vaciar solo Sheets deja el test sucio de una forma difícil de ver: el caso desaparece de la
+ * planilla pero las burbujas siguen en `mensajes` y el panel las muestra mezcladas con la prueba
+ * nueva. Peor todavía, si la fila del evento sobrevive con sus marcas puestas
+ * (`tecnico_notificado`, `contacto_acceso_avisado`), Marcos arranca creyendo que ya le avisó al
+ * técnico y no manda ni la plantilla ni el contacto -- y parece que se rompió algo cuando en
+ * realidad está haciendo lo correcto sobre datos viejos.
+ *
+ * Va acá adentro y no como comandos sueltos justamente para que no pueda quedar a medias.
+ */
+async function limpiarPostgres() {
+    // Solo rastro de conversación. NUNCA clientes, edificios, proveedores ni asignaciones: eso es
+    // configuración, y borrarla rompe el login del dashboard y deja los casos sin técnico.
+    const TABLAS = ['mensajes', 'mensajes_wa', 'reportes', 'vecinos', 'memoria', 'accesos', 'audios_tts', 'facturas'];
+
+    let pool;
+    try {
+        ({ pool } = require('./db-pg'));
+    } catch (e) {
+        console.log(`⚠️ No se pudo abrir PostgreSQL (${e.message}). Se limpió solo Sheets.`);
+        return;
+    }
+
+    for (const tabla of TABLAS) {
+        try {
+            const res = await pool.query(`DELETE FROM ${tabla}`);
+            console.log(`✅ PostgreSQL "${tabla}": ${res.rowCount} fila(s) borradas.`);
+        } catch (e) {
+            // Una tabla que todavía no existe no es un error: el esquema se crea al arrancar.
+            const noExiste = /does not exist/i.test(e.message);
+            console.log(`${noExiste ? 'ℹ️' : '⚠️'} PostgreSQL "${tabla}": ${noExiste ? 'no existe todavía, se salta.' : e.message}`);
+        }
+    }
+    await pool.end().catch(() => {});
+}
+
+main().catch(e => { console.error('❌ Error:', e.message); process.exit(1); });

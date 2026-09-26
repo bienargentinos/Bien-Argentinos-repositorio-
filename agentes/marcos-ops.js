@@ -2,19 +2,257 @@ const { GoogleGenAI } = require('@google/genai');
 const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
+const { rubroDelCaso } = require('../rubros');
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-/**
- * MARCOS-OPS
- * Contacta encargados y técnicos.
- * Gestiona estados de la orden de trabajo [CASO-XXXX].
- * Reenvía imágenes y videos relevantes del vecino al técnico.
- * Cancela temporizadores cuando el técnico confirma o solicita datos.
- */
-
 if (!global.colasProveedores) global.colasProveedores = new Map();
 if (!global.timersEscalacionProveedores) global.timersEscalacionProveedores = new Map();
+
+// ── FILTRO DE LO QUE SALE HACIA AFUERA ───────────────────────────────────────
+// Todo lo que se le manda a un técnico o a un encargado pasa por acá antes de salir.
+//
+// El problema real que resuelve: `resumen_problema` lo redacta una IA a partir de la conversación,
+// y cuando el vecino contestaba de mala manera ("otra vez lo mismo", "no vienen nunca", un insulto
+// suelto), esa IA copiaba sus palabras y terminaban impresas en la orden de trabajo del técnico.
+// El vecino no se entera de lo que le mandamos al proveedor, así que un roce social filtrado
+// destruye una relación que él ni sabe que está en juego -- y el administrador de consorcio, con
+// razón, lo cobraría como una falla del servicio.
+//
+// Instruir a la IA no alcanza: los modelos obedecen casi siempre, y "casi siempre" no sirve cuando
+// el costo de una sola fuga es perder un cliente. Esto es el segundo cerrojo, determinístico.
+
+// > [!CAUTION]
+// > **`\w` en JavaScript NO incluye las vocales acentuadas.**
+// > Estas expresiones usaban `\w` para las terminaciones, así que `estaf\w*` no matcheaba
+// > "estafó", ni `cag\w+` a "cagó", ni `jod\w+` a "jodió". Los insultos y quejas en pasado se
+// > colaban enteros por el filtro.
+// >
+// > Empezó a importar cuando Daniel mandó un AUDIO: la transcripción escribe español correcto,
+// > con acentos, mientras que lo tipeado a mano casi nunca los lleva. Todo esto se había escrito
+// > y probado contra texto tipeado.
+// >
+// > **Y `\b` al final del paréntesis es la mitad del mismo problema, más difícil de ver:**
+// > una palabra que TERMINA en vocal acentuada no tiene límite de palabra después. En "estafó",
+// > `estaf[…]+` se come la "ó" y detrás hay un espacio -- dos caracteres no-palabra seguidos, o
+// > sea ningún borde -- y la expresión entera falla. Por eso "jodió" SÍ matcheaba y "estafó" no:
+// > en "jodió" el `+` puede retroceder a "jodi", y entre la "i" y la "ó" sí hay borde. Un acento
+// > de más o de menos decidía si un insulto llegaba al técnico.
+// >
+// > Se reemplazan los dos bordes por miradas que sí conocen los acentos.
+
+// Los dos bordes de palabra, conscientes de los acentos. `\b` no sirve acá (ver arriba).
+const ANTES = '(?<![a-záéíóúüñ])';
+const DESPUES = '(?![a-záéíóúüñ])';
+
+const INSULTOS = new RegExp(`${ANTES}(pelotud[a-záéíóúüñ]*|bolud[a-záéíóúüñ]*|forr[a-záéíóúüñ]+|hij[a-záéíóúüñ]+\\s+de\\s+put[a-záéíóúüñ]+|put[a-záéíóúüñ]+|mierd[a-záéíóúüñ]*|cag[a-záéíóúüñ]+|jod[a-záéíóúüñ]+|carajo|choto[a-záéíóúüñ]*|pajer[a-záéíóúüñ]*|in[úu]til(es)?|verg[üu]enza|estaf[a-záéíóúüñ]+|chorr[a-záéíóúüñ]+|ladr[oó]n[a-záéíóúüñ]*|ladrones|incompetent[a-záéíóúüñ]*|desastr[a-záéíóúüñ]*|inservible[a-záéíóúüñ]*|verg[a-záéíóúüñ]+)${DESPUES}`, 'i');
+
+// Frases con las que alguien se queja del SERVICIO. No describen una falla técnica: describen una
+// relación. El técnico no tiene nada que hacer con esto.
+const QUEJAS = new RegExp(`${ANTES}(otra vez|una vez m[aá]s|siempre lo mismo|de nuevo lo mismo|nunca vien[a-záéíóúüñ]+|no vien[a-záéíóúüñ]+ nunca|nadie (me |nos )?(soluciona|responde|atiende|contesta|hace nada)|hace\\s+\\S+\\s+(d[ií]as?|semanas?|meses?|horas?)\\s+que|ya (te|les|le|lo) (dije|avis[eé]|reclam[eé])|no sirv[a-záéíóúüñ]+ para nada|(estoy|estamos|me tienen|nos tienen)\\s+(cansad[a-záéíóúüñ]+|hart[a-záéíóúüñ]+|podrid[a-záéíóúüñ]+)|no se puede vivir|es (una|un) (falta de respeto|tomada de pelo))${DESPUES}`, 'i');
+
+// Marcas de que la oración está reproduciendo lo que dijo alguien, en vez de describir la falla.
+const CITA = new RegExp(`["“”«»]|${ANTES}(vecin[a-záéíóúüñ]+|propietari[a-záéíóúüñ]+|inquilin[a-záéíóúüñ]+|se[ñn]or[a-záéíóúüñ]*|se[ñn]ora|encargad[a-záéíóúüñ]+)\\s+(dice|dijo|coment[oó]|manifiesta|manifest[oó]|expresa|expres[oó]|se queja|reclama|insiste|aclara|remarca)${DESPUES}|${ANTES}textual(es|mente)?${DESPUES}`, 'i');
+
+/**
+ * Deja el texto en condiciones de ser leído por un tercero.
+ *
+ * Trabaja por ORACIONES COMPLETAS, no palabra por palabra: si una oración tiene un insulto, una
+ * queja sobre el servicio o está citando a alguien, se descarta entera. Recortar palabras sueltas
+ * dejaba restos como "el plomero es un." -- peor que no filtrar, porque el técnico completa el
+ * insulto solo y encima queda escrito por nosotros.
+ *
+ * Devuelve '' si no sobrevive nada utilizable, para que el llamador use un genérico.
+ */
+function limpiarParaTerceros(texto) {
+    if (!texto) return '';
+
+    // Las etiquetas de multimedia se sacan con la lista compartida (`etiquetas-media.js`), no con
+    // una copia local: llegó a estar escrita tres veces el mismo día.
+    const oraciones = require('../etiquetas-media').soloTexto(texto)
+        .replace(/\s+/g, ' ')
+        .split(/(?<=[.;!?])\s+|\n+/)
+        .map(o => o.trim())
+        .filter(Boolean);
+
+    const limpias = [];
+    for (let o of oraciones) {
+        if (INSULTOS.test(o) || QUEJAS.test(o) || CITA.test(o)) continue;
+
+        // Gritos: una orden de trabajo no lleva mayúsculas sostenidas ni signos repetidos.
+        const letras = o.replace(/[^a-zA-ZáéíóúñÁÉÍÓÚÑ]/g, '');
+        const mayus = o.replace(/[^A-ZÁÉÍÓÚÑ]/g, '');
+        if (letras.length > 0 && mayus.length / letras.length > 0.6) {
+            o = o.charAt(0) + o.slice(1).toLowerCase();
+        }
+        o = o.replace(/[!¡]+/g, '.').replace(/\?{2,}/g, '?').replace(/\.{2,}/g, '.');
+
+        if (o.replace(/[^a-záéíóúñ]/gi, '').length < 8) continue;
+        limpias.push(o.trim());
+    }
+
+    let t = limpias.join(' ').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:])/g, '$1').trim();
+    if (t.replace(/[^a-záéíóúñ]/gi, '').length < 12) return '';
+    if (t.length > 300) t = t.slice(0, 297).replace(/\s+\S*$/, '') + '...';
+    if (!/[.?]$/.test(t)) t += '.';
+
+    return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/**
+ * Descripción del requerimiento lista para mandar afuera, con un genérico por rubro cuando lo que
+ * venía no era utilizable.
+ */
+function requerimientoParaTerceros(decisionCaso) {
+    const limpio = limpiarParaTerceros(decisionCaso?.resumen_problema);
+    if (limpio) return limpio;
+
+    const rubro = decisionCaso?.tipo_problema;
+    const generico = (rubro && rubro !== 'otro')
+        ? `Requerimiento de ${rubro} en el edificio — a verificar en el lugar`
+        : 'Requerimiento técnico a verificar en el lugar';
+    console.log(`🧹 El resumen del caso no era apto para enviar afuera. Se usa el genérico: "${generico}"`);
+    return generico;
+}
+
+/**
+ * Reescribe en neutro lo que dijo el vecino, para poder reenviárselo al técnico.
+ *
+ * No alcanza con filtrar y listo: cuando el vecino contesta molesto suele decir igual cosas
+ * operativamente importantes ("es el hall, no mi departamento", "ya me fui, recibe otra persona").
+ * Borrar la oración entera por el tono le saca al técnico un dato que necesita; dejarla como está
+ * le manda el enojo. Así que se reescribe el contenido y se descarta la forma.
+ *
+ * El resultado igual pasa por el filtro determinístico: el modelo es quien entiende el sentido,
+ * pero no es quien decide si algo es publicable.
+ */
+async function redactarNovedadParaTecnico({ textoVecino, nombreVecino, direccion }) {
+    const limpioDirecto = limpiarParaTerceros(textoVecino);
+
+    try {
+        const prompt = `Sos el asistente de una administración de consorcios. Un vecino le escribió a la administración y hay que pasarle al técnico SOLO la información útil para su visita.
+
+Mensaje del vecino (${nombreVecino || 'vecino'} — ${direccion || 'edificio'}):
+"""
+${textoVecino}
+"""
+
+Devolvé SOLO el texto a reenviar al técnico, sin comillas ni encabezados, siguiendo estas reglas:
+- Reescribilo en tercera persona y en tono neutro de parte administrativa.
+- Conservá TODO dato operativo: ubicación exacta del problema, si el vecino va a estar o no, quién recibe, qué ya envió, horarios, accesos.
+- ELIMINÁ por completo el enojo, los reproches, las ironías, los insultos y las quejas sobre el servicio o sobre el técnico. El técnico NUNCA debe percibir que el vecino estaba molesto.
+- No cites ni parafrasees sus palabras textuales. No menciones su estado de ánimo.
+- Máximo 2 oraciones. Si no hay ningún dato útil para la visita, devolvé exactamente: SIN_DATOS`;
+
+        const resp = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+
+        const texto = String(resp?.text || '').trim();
+        if (texto && !/SIN_DATOS/i.test(texto)) {
+            const seguro = limpiarParaTerceros(texto);
+            if (seguro) return seguro;
+        }
+        if (/SIN_DATOS/i.test(texto)) {
+            console.log('🧹 La novedad del vecino no tenía datos útiles para el técnico: no se reenvía.');
+            return '';
+        }
+    } catch (err) {
+        console.error('Error redactando la novedad para el técnico:', err.message);
+    }
+
+    // Si el modelo falló, el filtro determinístico es el piso: peor es no avisarle nada al técnico,
+    // pero mucho peor es mandarle el texto crudo.
+    return limpioDirecto;
+}
+
+/**
+ * Qué dijo realmente el técnico: ¿confirmó la visita? ¿dio un horario?
+ *
+ * Sin esto, Marcos recibía "Ok, confirmo, llego en 2 horas" y no le quedaba registro de nada: le
+ * seguía mandando recordatorios pidiéndole la confirmación que ya había dado, y cuando el vecino
+ * preguntaba a qué hora venía el técnico contestaba "estoy consultando" -- teniendo la respuesta
+ * hacía rato. Para el vecino eso es una mentira, y para el técnico es que no le prestan atención.
+ *
+ * Primero se resuelven por texto las respuestas de los botones de la plantilla, que son fijas y no
+ * merecen una llamada al modelo. Solo el texto libre pasa por la IA.
+ */
+const BOTON_CONFIRMA = /^\s*(recibido\s*\/?\s*en camino|en camino|recibido|voy en camino)\s*$/i;
+const BOTON_RECHAZA  = /^\s*(no puedo|no disponible|rechazar|no voy)\s*$/i;
+
+async function interpretarRespuestaTecnico({ mensaje }) {
+    const texto = String(mensaje || '').trim();
+    if (!texto) return { confirma: false, rechaza: false, eta: '' };
+
+    if (BOTON_CONFIRMA.test(texto)) return { confirma: true, rechaza: false, eta: '' };
+    if (BOTON_RECHAZA.test(texto))  return { confirma: false, rechaza: true, eta: '' };
+
+    try {
+        const prompt = `Un técnico de mantenimiento le respondió a la administración de un consorcio sobre una visita.
+
+Mensaje del técnico:
+"""
+${texto}
+"""
+
+Devolvé SOLO un objeto JSON (sin markdown ni backticks):
+{"confirma": true|false, "rechaza": true|false, "eta": "el horario o plazo que dio, tal como lo dijo, o cadena vacía"}
+
+- "confirma": true si acepta ir, dice que va, que está en camino o que ya llegó.
+- "rechaza": true si dice que no puede ir, que no está disponible o que lo derive a otro.
+- "eta": el plazo u horario que menciona ("en 2 horas", "hoy a la tarde", "mañana temprano"). Vacío si no dijo ninguno.
+- Si solo hace una pregunta y no se compromete, los dos van en false.`;
+
+        const resp = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+        const crudo = String(resp?.text || '').replace(/```json|```/g, '').trim();
+        const d = JSON.parse(crudo);
+        return {
+            confirma: !!d.confirma && !d.rechaza,
+            rechaza:  !!d.rechaza,
+            eta:      String(d.eta || '').trim(),
+        };
+    } catch (err) {
+        console.error('Error interpretando la respuesta del técnico:', err.message);
+        return { confirma: false, rechaza: false, eta: '' };
+    }
+}
+
+/**
+ * Cómo se le describe al técnico DÓNDE tiene que ir.
+ *
+ * El departamento del vecino ubica a la persona, no al problema. Un vecino del 1A que reporta la
+ * puerta del hall no tiene nada roto en su casa: mandarle al técnico "Depto 1A" lo hace tocar el
+ * timbre equivocado, y al vecino le llega una orden de trabajo que no reconoce como suya ("no sé
+ * para qué ponés departamento uno"). En áreas comunes se nombra el sector, no la unidad.
+ */
+/**
+ * La dirección con la que se le habla a un técnico. NUNCA el nombre interno del edificio.
+ *
+ * En la planilla los edificios tienen un nombre que es un alias nuestro para reconocerlos
+ * ("san patricio casa"), y aparte la dirección real. Al técnico le llegaban los dos, uno atrás
+ * del otro, y no tiene forma de saber si son dos direcciones o una: sale a la calle sin saber a
+ * cuál de las dos ir. El alias no le sirve para nada -- él necesita saber dónde tocar el timbre.
+ */
+async function direccionParaTecnico(nombreEdificio) {
+    if (!nombreEdificio) return 'el edificio';
+    try {
+        const { buscarPerfilEdificio } = require('../datos');
+        const perfil = await buscarPerfilEdificio(nombreEdificio);
+        const dir = String(perfil?.direccion || '').trim();
+        if (dir) return dir;
+    } catch (e) {
+        console.error('No se pudo resolver la dirección del edificio:', e.message);
+    }
+    // Sin dirección cargada, el alias es lo único que hay. Es peor no decir nada.
+    return nombreEdificio;
+}
+
+function ubicacionParaTecnico({ vecino, decisionCaso }) {
+    const depto = vecino?.departamento || vecino?.depto || '';
+    if (decisionCaso?.area === 'comun') return 'Área común del edificio';
+    return depto ? `Depto ${depto}` : '';
+}
 
 async function gestionarOperaciones({
     vecino,
@@ -28,7 +266,6 @@ async function gestionarOperaciones({
     const mensajesEnviados = [];
     const idCasoFinal = id_evento || `CASO-${Date.now().toString().slice(-4)}`;
 
-    // ── 1. CONTACTAR ENCARGADO si está de turno y hay que avisarle ──
     if (decisionCaso.contactar_encargado && personalDeTurno?.telefono) {
         const mensajeEncargado = await generarMensajeEncargado({ vecino, decisionCaso, personalDeTurno, id_evento: idCasoFinal });
         await enviarWhatsApp(personalDeTurno.telefono, mensajeEncargado, phoneNumberId, accessToken);
@@ -36,7 +273,6 @@ async function gestionarOperaciones({
         console.log(`👷 Encargado ${personalDeTurno.nombre} notificado de ${idCasoFinal}.`);
     }
 
-    // ── 2. CONTACTAR TÉCNICO con sistema de Cola de Espera y plantilla ──
     if (decisionCaso.contactar_tecnico && tecnicoAsignado?.telefono) {
         const resQueue = await notificarProveedorConCola({
             vecino,
@@ -48,36 +284,39 @@ async function gestionarOperaciones({
             id_evento: idCasoFinal
         });
 
-        if (resQueue.encolado) {
-            mensajesEnviados.push({ destinatario: tecnicoAsignado.nombre, rol: 'tecnico', mensaje: `Notificación encolada (${idCasoFinal})` });
+        if (resQueue.yaNotificado) {
+            // Mismo caso ya notificado antes -- no repetimos plantilla, no reprogramamos
+            // escalación de nuevo, ni volvemos a pedirle al encargado que coordine el acceso.
+            mensajesEnviados.push({ destinatario: tecnicoAsignado.nombre, rol: 'tecnico', mensaje: `Ya notificado previamente (${idCasoFinal}), sin reenvío` });
         } else {
-            mensajesEnviados.push({ destinatario: tecnicoAsignado.nombre, rol: 'tecnico', mensaje: `Notificación enviada (${idCasoFinal})` });
-            console.log(`🔧 Técnico ${tecnicoAsignado.nombre} notificado del [${idCasoFinal}].`);
-        }
+            if (resQueue.encolado) {
+                mensajesEnviados.push({ destinatario: tecnicoAsignado.nombre, rol: 'tecnico', mensaje: `Notificación encolada (${idCasoFinal})` });
+            } else {
+                mensajesEnviados.push({ destinatario: tecnicoAsignado.nombre, rol: 'tecnico', mensaje: `Notificación enviada (${idCasoFinal})` });
+                console.log(`🔧 Técnico ${tecnicoAsignado.nombre} notificado del [${idCasoFinal}].`);
+            }
 
-        // Programar temporizador de escalación si no responde en 20 min
-        programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, phoneNumberId, accessToken, paso: 1, id_evento: idCasoFinal });
+            programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, paso: 1, id_evento: idCasoFinal });
 
-        // ── 3. COORDINACIÓN DE ACCESO ──
-        if (tecnicoAsignado.acceso &&
-            !tecnicoAsignado.acceso.toLowerCase().includes('qr') &&
-            !tecnicoAsignado.acceso.toLowerCase().includes('llave') &&
-            personalDeTurno?.telefono) {
+            if (tecnicoAsignado.acceso &&
+                !tecnicoAsignado.acceso.toLowerCase().includes('qr') &&
+                !tecnicoAsignado.acceso.toLowerCase().includes('llave') &&
+                personalDeTurno?.telefono) {
 
-            const mensajeAcceso = `🔑 *MARCOS — COORDINACIÓN DE ACCESO [${idCasoFinal}]*\n\n` +
-                `${personalDeTurno.nombre}, el técnico ${tecnicoAsignado.nombre} necesita acceso al edificio ` +
-                `para el [${idCasoFinal}] en depto ${vecino?.departamento || 'a confirmar'}.\n` +
-                `¿Podés coordinar la apertura cuando llegue? Avisame si hay inconvenientes.`;
+                const mensajeAcceso = `🔑 *MARCOS — COORDINACIÓN DE ACCESO [${idCasoFinal}]*\n\n` +
+                    `${personalDeTurno.nombre}, el técnico ${tecnicoAsignado.nombre} necesita acceso al edificio ` +
+                    `para el [${idCasoFinal}] en depto ${vecino?.departamento || 'a confirmar'}.\n` +
+                    `¿Podés coordinar la apertura cuando llegue? Avisame si hay inconvenientes.`;
 
-            await enviarWhatsApp(personalDeTurno.telefono, mensajeAcceso, phoneNumberId, accessToken);
-            mensajesEnviados.push({ destinatario: personalDeTurno.nombre, rol: 'coordinacion_acceso', mensaje: mensajeAcceso });
+                await enviarWhatsApp(personalDeTurno.telefono, mensajeAcceso, phoneNumberId, accessToken);
+                mensajesEnviados.push({ destinatario: personalDeTurno.nombre, rol: 'coordinacion_acceso', mensaje: mensajeAcceso });
+            }
         }
     }
 
     return mensajesEnviados;
 }
 
-// ── COLA DE PROVEEDORES & CONVERSACIÓN ACTIVA ──
 async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, id_evento }) {
     const telTech = String(tecnicoAsignado.telefono).replace(/\D/g, '');
     if (!global.colasProveedores.has(telTech)) {
@@ -90,37 +329,111 @@ async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado
 
     const estadoProv = global.colasProveedores.get(telTech);
 
-    // Si ya le enviamos notificación de este mismo caso recientemente, no reenviar compulsivamente
-    if (estadoProv.eventoActivoId === id_evento && estadoProv.notificado) {
-        console.log(`ℹ️ Proveedor ${tecnicoAsignado.nombre} ya fue notificado previamente del [${id_evento}].`);
+    // Si ya notificamos al técnico este MISMO caso, no le reenviamos la plantilla formal de
+    // Meta de nuevo. Cada mensaje del vecino que reafirma el mismo reclamo (ej. "sí, estoy yo"
+    // confirmando que va a estar para recibirlo) hace que Marcos-Caso vuelva a marcar
+    // contactar_tecnico=true, y sin este chequeo el técnico recibía la plantilla completa
+    // duplicada por cada mensaje nuevo del vecino en el mismo caso.
+    if (estadoProv.notificado && estadoProv.eventoActivoId === id_evento) {
+        console.log(`ℹ️ Técnico ya notificado del [${id_evento}], se omite el reenvío duplicado de la plantilla.`);
+        return { encolado: false, yaNotificado: true };
+    }
+
+    // Respaldo por si el proceso se reinició (pm2 restart) entre el primer aviso y este mensaje:
+    // la bandera en RAM (estadoProv) se pierde en cada reinicio, así que además chequeamos en
+    // Sheets si este mismo caso ya tiene la plantilla marcada como enviada.
+    const { fueTecnicoNotificado, marcarTecnicoNotificado } = require('../datos');
+    if (await fueTecnicoNotificado(id_evento)) {
+        console.log(`ℹ️ [Sheets] Técnico ya notificado del [${id_evento}] (detectado tras reinicio), se omite el reenvío duplicado.`);
+        estadoProv.eventoActivoId = id_evento;
+        estadoProv.notificado = true;
         return { encolado: false, yaNotificado: true };
     }
 
     estadoProv.eventoActivoId = id_evento;
     estadoProv.edificioActivo = vecino?.edificio;
-    estadoProv.notificado = true;
     estadoProv.ultimoMensajeTimestamp = Date.now();
 
-    await ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, phoneNumberId, accessToken, id_evento });
+    const llegoElAviso = await ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, id_evento });
+
+    // La marca de "ya notificado" SOLO se pone si el aviso llegó de verdad.
+    //
+    // Antes se ponía siempre, hubiera salido o no. Y como esa marca es lo que impide el reenvío
+    // duplicado, un aviso que nunca llegó dejaba el caso marcado para siempre: el técnico no se
+    // enteraba nunca y Marcos no reintentaba jamás. En el log se veía "Técnico ya notificado del
+    // [CASO-1001], se omite el reenvío", que parece una decisión correcta y era el bug.
+    //
+    // Y encima la plantilla es lo único que abre la ventana de 24hs de Meta: si no sale, todo lo
+    // que venga después --la foto del reclamo, la ficha de contacto, el contacto de acceso--
+    // también rebota. Un solo fallo silencioso dejaba al técnico completamente aislado.
+    estadoProv.notificado = Boolean(llegoElAviso);
+    if (llegoElAviso) {
+        await marcarTecnicoNotificado(id_evento);
+    }
     return { encolado: false };
 }
 
-async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, phoneNumberId, accessToken, id_evento }) {
-    const { buscarPerfilEdificio } = require('../sheets');
+async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, id_evento }) {
+    const { buscarPerfilEdificio } = require('../datos');
     const perfilEdif = await buscarPerfilEdificio(vecino?.edificio);
     const direccionExacta = perfilEdif?.direccion || vecino?.direccion || vecino?.edificio || 'Consorcio';
 
-    const textoProblemaConCaso = `[${id_evento}] ${decisionCaso.resumen_problema || 'Requerimiento técnico'}`;
+    const rawNombre = (vecino?.nombre && vecino?.nombre !== 'Vecino' && vecino?.nombre !== 'Desconocido') ? vecino.nombre : 'Vecino';
+    const rawDepto = vecino?.departamento || vecino?.depto || '';
+    const ubicacionStr = ubicacionParaTecnico({ vecino, decisionCaso });
+    const deptoStr = ubicacionStr ? `(${ubicacionStr})` : '';
+    const vecinoConDepto = `${rawNombre} ${deptoStr}`.trim();
+
+    const textoProblemaConCaso = `[${id_evento}] ${requerimientoParaTerceros(decisionCaso)}`;
+
+    // Nota: esto va como parámetro dinámico dentro de la plantilla de Meta "notificacion_servicio_consorcio".
+    // Nunca debe leerse como una tarea que el técnico tiene que gestionar por su cuenta -- el acceso lo
+    // coordina Marcos (en representación de la Administración/edificio) directamente con el vecino, no el técnico.
+    const accesoFinal = personalDeTurno
+        ? `Encargado ${personalDeTurno.nombre} (${personalDeTurno.horario})`
+        : `Ya coordinado por Marcos con ${vecinoConDepto} — lo va a estar esperando`;
+
+    // ── POR QUÉ ESTA PLANTILLA LLEGA SOLA ────────────────────────────────────────────────────
+    //
+    // Con la ventana de 24hs de Meta cerrada, la plantilla es lo ÚNICO que pasa. La foto del
+    // reclamo y el teléfono de quien le abre la puerta son mensajes libres y se rechazan con el
+    // código 131047. Y la ventana no la abre esta plantilla: la abre el técnico cuando contesta.
+    //
+    // Así que si hay material esperando, se lo decimos acá adentro, que es el único canal que
+    // tenemos abierto. Con que conteste cualquier cosa --un "ok", un punto, el botón de la
+    // plantilla-- alcanza: `entregarPendientesAlTecnico` (en index.js) le manda todo apenas entra
+    // ese mensaje. Sin este aviso, el técnico no tiene forma de saber que falta algo.
+    let hayPendientesParaEl = '';
+    try {
+        const { materialDelVecinoEnCaso } = require('../material-caso');
+        const material = await materialDelVecinoEnCaso(id_evento, vecino?.telefono);
+        // El objeto `vecino` que llega acá no siempre trae el contacto de acceso (depende de por
+        // dónde entró el caso), así que si no viene se lee del legajo, que es donde queda guardado.
+        let contacto = String(vecino?.contactoAcceso || '').trim();
+        if (!contacto && vecino?.telefono) {
+            const { buscarVecinoPorTelefono } = require('../datos');
+            const ficha = await buscarVecinoPorTelefono(vecino.telefono);
+            contacto = String(ficha?.contactoAcceso || '').trim();
+        }
+        if (material?.filePath && contacto) hayPendientesParaEl = 'Contestame por acá (un OK alcanza) y te paso la foto del problema y el contacto para entrar.';
+        else if (material?.filePath)        hayPendientesParaEl = 'Contestame por acá (un OK alcanza) y te paso la foto del problema.';
+        else if (contacto)                  hayPendientesParaEl = 'Contestame por acá (un OK alcanza) y te paso el contacto para entrar.';
+    } catch (e) {
+        console.error('No se pudo mirar si había material esperando para el técnico:', e.message);
+    }
+
+    // Meta rechaza los parámetros con saltos de línea: va todo en un renglón.
+    const accesoParaPlantilla = `${tecnicoAsignado.acceso || accesoFinal}${hayPendientesParaEl ? ` · ${hayPendientesParaEl}` : ''}`;
 
     const componentesPlantilla = [
         {
             type: 'body',
             parameters: [
                 { type: 'text', text: tecnicoAsignado.nombre || 'Técnico' },
-                { type: 'text', text: `${direccionExacta}${vecino?.departamento ? ' (Depto ' + vecino.departamento + ')' : ''}` },
-                { type: 'text', text: textoProblemaConCaso },
+                { type: 'text', text: direccionExacta },
+                { type: 'text', text: `${vecinoConDepto} — ${textoProblemaConCaso}` },
                 { type: 'text', text: (decisionCaso.urgencia || 'media').toUpperCase() },
-                { type: 'text', text: tecnicoAsignado.acceso || 'Coordinar ingreso con administración' }
+                { type: 'text', text: accesoParaPlantilla }
             ]
         }
     ];
@@ -145,25 +458,112 @@ async function ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoA
         );
     }
 
+    // Si las dos plantillas fallaron, queda el mensaje libre. Pero ojo: el mensaje libre SOLO
+    // funciona dentro de la ventana de 24hs, y a un técnico que hace días que no escribe Meta se
+    // lo rechaza. O sea que cuando la plantilla falla, lo más probable es que no llegue NADA.
+    let llegoAlgo = plantillaEnviada;
     if (!plantillaEnviada) {
         const mensajeTecnico = await generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id_evento });
-        await enviarWhatsApp(tecnicoAsignado.telefono, mensajeTecnico, phoneNumberId, accessToken);
+        llegoAlgo = await enviarWhatsApp(tecnicoAsignado.telefono, mensajeTecnico, phoneNumberId, accessToken);
+
+        if (llegoAlgo) {
+            // ESTO NO ES UN ÉXITO: es una bomba de tiempo.
+            //
+            // La plantilla falló y salió el mensaje libre. Con la ventana de 24hs abierta --una
+            // prueba, o un técnico que escribió hace un rato-- el mensaje libre llega y parece que
+            // todo anduvo. Con la ventana cerrada, que es el caso real, también rebota y el técnico
+            // no se entera de nada.
+            //
+            // El motivo del rechazo de Meta está en el log unas líneas más arriba.
+            console.warn(
+                `⚠️ LA PLANTILLA DEL [${id_evento}] NO SALIÓ, y el aviso a ${tecnicoAsignado.nombre} viajó como mensaje libre. ` +
+                `Llegó SOLO porque la ventana de 24hs está abierta. Con la ventana cerrada no habría llegado nada. ` +
+                `El motivo del rechazo de Meta está más arriba en el log -- hay que arreglarlo, no dejarlo así.`
+            );
+        }
     }
+
+    if (!llegoAlgo) {
+        console.error(
+            `🚨 AL TÉCNICO ${tecnicoAsignado.nombre} (${tecnicoAsignado.telefono}) NO LE LLEGÓ EL AVISO DEL [${id_evento}]: ` +
+            `fallaron la plantilla en es_AR, la plantilla en es y el mensaje libre. El motivo de cada una está más arriba. ` +
+            `El caso NO se marca como notificado, así que se va a reintentar.`
+        );
+    }
+
+    const resumenNotifProveedor = `Marcos (a Proveedor): [Plantilla WhatsApp] Hola ${tecnicoAsignado.nombre || 'Técnico'}, tenés una nueva solicitud de servicio en ${direccionExacta} para ${vecinoConDepto} — ${textoProblemaConCaso}. Urgencia: ${(decisionCaso.urgencia || 'media').toUpperCase()}. Acceso: ${accesoParaPlantilla}.`;
+
+    try {
+        const { guardarReporte } = require('../sheets');
+        await guardarReporte({
+            id_evento,
+            edificio: vecino?.edificio || direccionExacta,
+            tecnico: tecnicoAsignado.nombre || '',
+            tel_tecnico: tecnicoAsignado.telefono || '',
+            // `tipo_problema` cae en 'otro' cuando el modelo no pudo decidir, y "otro" NO es un
+            // oficio: escrito como rubro, `coincideRubro` lo compara contra oficios de verdad y
+            // decide mal en las dos direcciones -- separa un reclamo que es el mismo, y junta dos
+            // casos distintos solo porque los dos quedaron en "otro". Es el mismo problema que
+            // "Proveedor", que ya se sacó del lado del técnico.
+            //
+            // Y el orden importa: manda lo que el vecino CONTÓ, no el oficio de quien va a ir. El
+            // rubro es del trabajo, no de la persona.
+            rubro_tecnico: rubroDelCaso(decisionCaso?.resumen_problema || decisionCaso?.problema || '',
+                                        tecnicoAsignado.especialidad || decisionCaso.tipo_problema || ''),
+            historial_chat: JSON.stringify([resumenNotifProveedor])
+        });
+    } catch (e) {
+        console.error('Error registrando mensaje inicial a técnico en Sheets:', e.message);
+    }
+
+    try {
+        const { guardarMensaje } = require('../db-pg');
+        await guardarMensaje({
+            eventoId: id_evento,
+            edificio: vecino?.edificio || direccionExacta,
+            telefono: tecnicoAsignado.telefono,
+            remitente: 'marcos',
+            mensaje: resumenNotifProveedor,
+            tipoCanal: 'whatsapp'
+        });
+    } catch (e) {
+        console.error('Error registrando mensaje inicial a técnico en PostgreSQL:', e.message);
+    }
+
+    return llegoAlgo;
 }
 
-// ── CANCELAR ESCALACIÓN CUANDO EL PROVEEDOR RESPONDE ──
+/**
+ * Frena el aviso de "el técnico no contestó" cuando el técnico sí contestó.
+ *
+ * La comparación va por los últimos 8 dígitos y no por el número entero. El mismo teléfono llega
+ * escrito distinto según de dónde salga: la asignación lo tiene como `541169241157` y el webhook de
+ * Meta lo manda como `5491169241157`, con el 9 de celular. La clave del temporizador se arma con el
+ * primero y la cancelación llegaba con el segundo, así que el `includes` no daba nunca: el técnico
+ * confirmaba, el temporizador seguía corriendo igual y a los 20 minutos le entraba a la
+ * Administración un mail diciendo que nadie había contestado.
+ *
+ * @returns {number} Cuántos temporizadores se frenaron. Cero significa que no se canceló nada, y el
+ *   llamador no debería decir que sí.
+ */
 function cancelarEscalacionProveedor(telefonoProveedor) {
     const telClean = String(telefonoProveedor).replace(/\D/g, '');
+    if (!telClean) return 0;
+    const cola = telClean.slice(-8);
+
+    let cancelados = 0;
     for (const [key, timer] of global.timersEscalacionProveedores.entries()) {
-        if (key.includes(telClean)) {
+        const telDeLaClave = String(key).split('_').pop().replace(/\D/g, '');
+        if (telDeLaClave && telDeLaClave.slice(-8) === cola) {
             clearTimeout(timer);
             global.timersEscalacionProveedores.delete(key);
+            cancelados++;
             console.log(`🛑 Escalación cancelada para el técnico (${telClean}) por respuesta activa.`);
         }
     }
+    return cancelados;
 }
 
-// ── REENVÍO DE FOTOS / VIDEOS VALIDADOS AL PROVEEDOR ──
 async function retransmitirMediaAlProveedor({ tecnicoTelefono, filePath, mimeType, id_evento, edificio, caption, phoneNumberId, accessToken }) {
     try {
         if (!tecnicoTelefono || !filePath || !fs.existsSync(filePath)) return false;
@@ -172,7 +572,8 @@ async function retransmitirMediaAlProveedor({ tecnicoTelefono, filePath, mimeTyp
         const mediaId = await subirMediaWhatsApp(filePath, mimeType, phoneNumberId, accessToken);
         if (!mediaId) return false;
 
-        const LeyendaMedia = `📷 *ADJUNTO DE VECINO [${id_evento}]*\nEdificio: ${edificio || 'Consorcio'}\n${caption || ''}`;
+        // La dirección de la calle, no el nombre interno del edificio: ver `direccionParaTecnico`.
+        const LeyendaMedia = `📷 *ADJUNTO DE VECINO [${id_evento}]*\nDirección: ${await direccionParaTecnico(edificio)}\n${caption || ''}`;
 
         if (mimeType.startsWith('image/')) {
             return await enviarImagenWhatsApp(tecnicoTelefono, mediaId, LeyendaMedia, phoneNumberId, accessToken);
@@ -190,31 +591,118 @@ async function retransmitirMediaAlProveedor({ tecnicoTelefono, filePath, mimeTyp
 
 async function generarMensajeEncargado({ vecino, decisionCaso, personalDeTurno, id_evento }) {
     const emojiUrgencia = decisionCaso.urgencia === 'alta' ? '🚨' : '📋';
+    const nombreVecinoBase = (vecino?.nombre && vecino?.nombre !== 'Vecino' && vecino?.nombre !== 'Desconocido') ? vecino.nombre : 'Vecino';
+    const deptoStr = vecino?.departamento ? `(${vecino.departamento})` : '';
+    const vecinoConDepto = `${nombreVecinoBase} ${deptoStr}`.trim();
+
     return `${emojiUrgencia} *MARCOS — AVISO INTERNO [${id_evento}]*\n\n` +
         `Hola ${personalDeTurno.nombre}, te cuento que acabo de recibir un reclamo:\n\n` +
         `📍 *Edificio:* ${vecino?.edificio || 'No especificado'}\n` +
-        `🏠 *Depto:* ${vecino?.departamento || 'Por confirmar'}\n` +
-        `⚠️ *Problema:* [${id_evento}] ${decisionCaso.resumen_problema}\n` +
+        `👤 *Solicitante:* ${vecinoConDepto}\n` +
+        `⚠️ *Problema:* [${id_evento}] ${requerimientoParaTerceros(decisionCaso)}\n` +
         `🚦 *Urgencia:* ${decisionCaso.urgencia.toUpperCase()}\n\n` +
         `¿Podés revisar? Avisame cuando puedas.`;
 }
 
 async function generarMensajeTecnico({ vecino, decisionCaso, tecnicoAsignado, id_evento }) {
-    const { buscarPerfilEdificio } = require('../sheets');
+    const { buscarPerfilEdificio } = require('../datos');
     const perfilEdif = await buscarPerfilEdificio(vecino?.edificio);
     const direccionExacta = perfilEdif?.direccion || vecino?.direccion || vecino?.edificio || 'Consorcio';
-    const nombreVecinoLimpio = (vecino?.nombre && vecino?.nombre !== 'Vecino' && vecino?.nombre !== 'Desconocido') ? vecino.nombre : 'A confirmar';
+    
+    const nombreVecinoBase = (vecino?.nombre && vecino?.nombre !== 'Vecino' && vecino?.nombre !== 'Desconocido') ? vecino.nombre : 'Vecino a confirmar';
+    const ubicacionStr = ubicacionParaTecnico({ vecino, decisionCaso });
+    const deptoStr = ubicacionStr ? `(${ubicacionStr})` : '';
+    const vecinoConDepto = `${nombreVecinoBase} ${deptoStr}`.trim();
 
     const emojiUrgencia = decisionCaso.urgencia === 'alta' ? '🚨' : '🛠️';
     return `${emojiUrgencia} *MARCOS — ORDEN DE TRABAJO [${id_evento}]*\n\n` +
         `Hola ${tecnicoAsignado.nombre}, te mando los detalles de una nueva asistencia:\n\n` +
         `📍 *Dirección:* ${direccionExacta}\n` +
-        `🏠 *Depto:* ${vecino?.departamento || 'A confirmar'}\n` +
-        `👤 *Vecino:* ${nombreVecinoLimpio}\n` +
-        `⚠️ *Problema:* ${decisionCaso.resumen_problema}\n` +
+        `👤 *Solicitante:* ${vecinoConDepto}\n` +
+        `⚠️ *Sector y Requerimiento:* ${requerimientoParaTerceros(decisionCaso)}\n` +
         `🚦 *Urgencia:* ${decisionCaso.urgencia.toUpperCase()}\n` +
-        `🔑 *Acceso:* ${tecnicoAsignado.acceso || 'Consultar con encargado'}\n\n` +
+        `🔑 *Acceso:* ${tecnicoAsignado.acceso || `Ya coordinado por Marcos con ${vecinoConDepto} — lo va a estar esperando`}\n\n` +
         `Por favor confirmame si podés pasar. ¡Gracias!`;
+}
+
+/**
+ * Reenvía una ficha de contacto tal como la mandó el vecino, como tarjeta de WhatsApp.
+ *
+ * Desglosar el contacto en texto obliga a elegir UN número, y una ficha puede tener dos (el
+ * celular y el fijo, el personal y el del trabajo). Al elegir uno se pierde el otro y el técnico
+ * recibe un dato incompleto sin saberlo. Reenviando la tarjeta pasa lo mismo que cuando una
+ * persona reenvía un contacto: llegan todos los números, con su nombre, y se puede guardar de un
+ * toque.
+ *
+ * @param {Array} contactos Las fichas crudas tal como llegaron en el webhook de Meta.
+ */
+/**
+ * Meta NO acepta para enviar el mismo objeto que manda al recibir: la ficha entrante trae campos
+ * que el envío rechaza, y exige `formatted_name`. Reenviar el crudo hacía que la API devolviera un
+ * error y la tarjeta no llegara nunca -- el técnico veía solo el texto.
+ * Por eso se arma una ficha nueva y mínima con lo único que hace falta.
+ */
+function fichaParaEnviar(c) {
+    const nombre = c?.name?.formatted_name
+        || [c?.name?.first_name, c?.name?.last_name].filter(Boolean).join(' ')
+        || 'Contacto';
+
+    const telefonos = (c?.phones || [])
+        .map(p => {
+            const numero = String(p?.phone || p?.wa_id || '').trim();
+            if (!numero) return null;
+            const t = { phone: numero, type: p?.type || 'CELL' };
+            // wa_id hace que WhatsApp muestre el botón de "Enviar mensaje" en la tarjeta.
+            if (p?.wa_id) t.wa_id = String(p.wa_id).replace(/\D/g, '');
+            return t;
+        })
+        .filter(Boolean);
+
+    if (telefonos.length === 0) return null;
+
+    return {
+        name: {
+            formatted_name: nombre,           // obligatorio para Meta
+            first_name: c?.name?.first_name || nombre,
+            ...(c?.name?.last_name ? { last_name: c.name.last_name } : {}),
+        },
+        phones: telefonos,
+    };
+}
+
+async function enviarContactoWhatsApp(to, contactos, phoneNumberId, accessToken) {
+    if (!Array.isArray(contactos) || contactos.length === 0) return false;
+
+    const limpias = contactos.map(fichaParaEnviar).filter(Boolean);
+    if (limpias.length === 0) {
+        console.log('👤 La ficha de contacto no tenía ningún teléfono utilizable: no se reenvía.');
+        return false;
+    }
+
+    try {
+        await axios.post(
+            `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+            {
+                messaging_product: 'whatsapp',
+                recipient_type: 'individual',
+                to: normalizarTelefonoWhatsApp(to),
+                type: 'contacts',
+                contacts: limpias,
+            },
+            { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+        );
+        console.log(`👤 Ficha de contacto reenviada a ${to}.`);
+        return true;
+    } catch (err) {
+        // Si Meta rechaza la tarjeta, el llamador todavía puede mandar el texto: perder el dato
+        // por completo sería peor que mandarlo desglosado.
+        // Se registra la respuesta completa de Meta: si rechaza la tarjeta, el motivo exacto es lo
+        // único que permite corregir el formato sin adivinar.
+        const detalle = err.response?.data?.error;
+        console.error('Error reenviando la ficha de contacto:',
+            detalle ? `${detalle.message} (código ${detalle.code}${detalle.error_data?.details ? ' — ' + detalle.error_data.details : ''})` : err.message);
+        return false;
+    }
 }
 
 function normalizarTelefonoWhatsApp(telefono) {
@@ -224,36 +712,125 @@ function normalizarTelefonoWhatsApp(telefono) {
     if (num.length === 10) num = '549' + num;
     else if (num.length === 12 && num.startsWith('54') && !num.startsWith('549')) num = '549' + num.substring(2);
     else if (num.length === 11 && num.startsWith('1115')) num = '54911' + num.substring(4);
+    // "54" + área (2 dígitos) + "15" (viejo prefijo de móvil) + local (8 dígitos) = 14 dígitos.
+    // Ej: 54111550542005 -> 5491150542005. Sin esto, el mismo abonado normaliza
+    // distinto según llegue con o sin el "15", y termina con dos sesiones separadas.
+    else if (num.length === 14 && num.startsWith('54') && num.substring(4, 6) === '15') {
+        num = num.substring(0, 2) + '9' + num.substring(2, 4) + num.substring(6);
+    }
     else if (!num.startsWith('54')) num = '549' + num;
     return num;
+}
+
+/**
+ * Explica en castellano por qué Meta rechazó un envío, y a quién.
+ *
+ * POR QUÉ HACE FALTA: los envíos se hacían con `await` y sin mirar el resultado, y justo
+ * después se escribía en el log "foto reenviada al técnico". Con Meta rechazando todo, el log
+ * decía que salió bien y el técnico no recibía nada. Un mensaje que no llega tiene que verse
+ * como lo que es.
+ *
+ * El caso más común de lejos es la VENTANA DE 24 HORAS: fuera de ella, Meta solo deja mandar
+ * plantillas aprobadas, y rechaza cualquier mensaje libre -- texto, foto, contacto, audio. Le
+ * pasa siempre al técnico que hace días que no escribe.
+ */
+function motivoMeta(codigo, detalle = '') {
+    if (codigo === 131047 || /24 hours|re-?engagement/i.test(detalle)) {
+        return 'Pasaron más de 24hs desde el último mensaje de esa persona. ' +
+               'Meta solo permite PLANTILLAS fuera de esa ventana: este mensaje NO llegó.';
+    }
+    if (codigo === 131026) return 'Ese número no tiene WhatsApp o no puede recibir mensajes.';
+    if (codigo === 131051) return 'Tipo de mensaje no soportado para ese destinatario.';
+    if (codigo === 131049) return 'Meta decidió no entregarlo para cuidar la experiencia del usuario (límite de marketing).';
+    if (codigo === 130472) return 'El usuario está en un experimento de Meta que bloquea este envío.';
+    if (codigo === 190 || codigo === 102) return 'El token de acceso venció o es inválido. Hay que renovarlo en Meta.';
+    if (codigo === 100) return 'Parámetro inválido (número mal formado, o media_id vencido).';
+    if (codigo === 132000 || codigo === 132001) return 'La plantilla no existe o no está aprobada con ese nombre/idioma.';
+    if (codigo === 132015) return 'La plantilla está pausada por mala calidad.';
+    if (codigo === 133010) return 'El número de la empresa no está registrado en la Cloud API.';
+    if (codigo === 80007 || codigo === 4) return 'Se superó el límite de envíos por hora. Hay que esperar.';
+    return '';
+}
+
+function explicarErrorMeta(que, para, error) {
+    const datos = error?.response?.data?.error || null;
+    const codigo = datos?.code;
+    const detalle = datos?.message || error?.message || 'sin detalle';
+    const porQue = motivoMeta(codigo, detalle);
+
+    console.error(`❌ NO SE PUDO ENVIAR ${que} a ${para}${codigo ? ` [código ${codigo}]` : ''}: ${detalle}${porQue ? ' → ' + porQue : ''}`);
 }
 
 async function enviarWhatsApp(to, text, phoneNumberId, accessToken) {
     try {
         const telefonoDestino = normalizarTelefonoWhatsApp(to);
+        const textoLimpio = (typeof text === 'object' && text !== null) 
+            ? (text.body || text.texto || text.respuesta || JSON.stringify(text)) 
+            : String(text || '');
         const res = await axios({
             method: 'POST',
             url: `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`,
             data: {
                 messaging_product: 'whatsapp',
                 to: telefonoDestino,
-                text: { body: text },
+                text: { body: textoLimpio },
             },
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
             },
         });
+
+        // Meta devuelve el id del mensaje que acabamos de mandar, y se descartaba. Ese id es el que
+        // llega cuando el otro CITA este mensaje: sin guardarlo, una respuesta citando algo que dijo
+        // Marcos llegaba sin texto ("Sin texto guardado") y no se sabía de qué hablaba. Es
+        // exactamente lo que hace el proveedor cuando busca la factura que mandó, la cita y escribe
+        // "¿esto me pagaron?".
+        const idEnviado = res?.data?.messages?.[0]?.id;
+        if (idEnviado) {
+            require('../db-pg').guardarTextoMensajeWa(idEnviado, textoLimpio);
+        }
         return true;
     } catch (error) {
-        console.error('Error enviando WhatsApp:', error.response?.data || error.message);
+        explicarErrorMeta('un mensaje de texto', to, error);
         return false;
     }
 }
 
+/**
+ * Deja un texto en condiciones de viajar como parámetro de una plantilla de Meta.
+ *
+ * Meta RECHAZA LA PLANTILLA ENTERA si un parámetro trae un salto de línea, un tabulador o más de
+ * cuatro espacios seguidos. No manda una parte: no manda nada.
+ *
+ * Y varios de estos parámetros los escribe el modelo a partir de lo que contó el vecino
+ * (`resumen_problema`), así que un salto de línea ahí adentro es cuestión de tiempo. Cuando pasa,
+ * la plantilla falla, sale el mensaje libre de respaldo, y como en las pruebas la ventana de 24hs
+ * está abierta el mensaje libre SÍ llega: parece que todo anduvo. Pero con la ventana cerrada --el
+ * caso real, un técnico que hace días que no escribe-- el mensaje libre también rebota y el
+ * técnico no se entera de nada.
+ */
+function limpiarParametroPlantilla(txt) {
+    return String(txt ?? '')
+        .replace(/[\r\n\t]+/g, ' ')
+        .replace(/\s{4,}/g, '   ')
+        .trim()
+        .slice(0, 900) || '-';   // un parámetro vacío también invalida la plantilla
+}
+
 async function enviarPlantillaWhatsApp(to, templateName, languageCode, components, phoneNumberId, accessToken) {
+    // Se limpia acá y no en cada llamador: cualquier plantilla que se agregue mañana queda cubierta
+    // sin que nadie tenga que acordarse.
+    components = (components || []).map(c => ({
+        ...c,
+        parameters: (c.parameters || []).map(p =>
+            p && p.type === 'text' ? { ...p, text: limpiarParametroPlantilla(p.text) } : p
+        ),
+    }));
+
     try {
         const telefonoDestino = normalizarTelefonoWhatsApp(to);
+        console.log(`📤 Enviando Plantilla Meta '${templateName}' (${languageCode}) a ${telefonoDestino}...`);
         const res = await axios({
             method: 'POST',
             url: `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`,
@@ -272,9 +849,10 @@ async function enviarPlantillaWhatsApp(to, templateName, languageCode, component
                 'Content-Type': 'application/json',
             },
         });
+        console.log(`✅ Plantilla '${templateName}' enviada con éxito a ${telefonoDestino}. Message ID:`, res.data?.messages?.[0]?.id);
         return true;
     } catch (error) {
-        console.error(`⚠️ Error enviando plantilla '${templateName}':`, error.response?.data || error.message);
+        explicarErrorMeta(`la plantilla '${templateName}' (${languageCode})`, to, error);
         return false;
     }
 }
@@ -321,7 +899,7 @@ async function enviarAudioWhatsApp(to, mediaId, phoneNumberId, accessToken) {
         });
         return true;
     } catch (error) {
-        console.error('Error enviando Nota de Voz WhatsApp:', error.response?.data || error.message);
+        explicarErrorMeta('una nota de voz', to, error);
         return false;
     }
 }
@@ -349,7 +927,7 @@ async function enviarDocumentoWhatsApp(to, mediaId, filename, caption, phoneNumb
         });
         return true;
     } catch (error) {
-        console.error('Error enviando Documento:', error.response?.data || error.message);
+        explicarErrorMeta('un documento', to, error);
         return false;
     }
 }
@@ -376,7 +954,7 @@ async function enviarImagenWhatsApp(to, mediaId, caption, phoneNumberId, accessT
         });
         return true;
     } catch (error) {
-        console.error('Error enviando Imagen:', error.response?.data || error.message);
+        explicarErrorMeta('una imagen', to, error);
         return false;
     }
 }
@@ -403,12 +981,12 @@ async function enviarVideoWhatsApp(to, mediaId, caption, phoneNumberId, accessTo
         });
         return true;
     } catch (error) {
-        console.error('Error enviando Video:', error.response?.data || error.message);
+        explicarErrorMeta('un video', to, error);
         return false;
     }
 }
 
-function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, phoneNumberId, accessToken, paso = 1, id_evento }) {
+function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, paso = 1, id_evento }) {
     const key = `${vecino?.edificio || 'edif'}_${tecnicoAsignado?.telefono || 'tech'}`;
     
     if (global.timersEscalacionProveedores.has(key)) {
@@ -428,9 +1006,33 @@ function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, p
             return;
         }
 
+        // Última verificación antes de molestar a nadie: preguntarle al CASO, no a la memoria.
+        //
+        // Las dos comprobaciones de arriba dependen de estructuras en RAM que se pierden con cada
+        // reinicio de PM2 y que además se indexan por teléfono, con los problemas de normalización
+        // que eso trae. El caso, en cambio, sabe si el técnico confirmó y si ya está resuelto. Sin
+        // este chequeo, la Administración recibió un mail de "el técnico no contestó" cuando el
+        // técnico había confirmado, ido, arreglado y facturado.
+        try {
+            const { buscarCasoPorCodigo } = require('../datos-pg');
+            const caso = await buscarCasoPorCodigo(id_evento);
+            if (caso?.cerrado) {
+                console.log(`✅ [${id_evento}] ya está resuelto: no se escala.`);
+                return;
+            }
+            if (caso?.confirmado) {
+                console.log(`✅ El técnico ya había confirmado [${id_evento}]: no se escala.`);
+                return;
+            }
+        } catch (e) {
+            // Si no se puede consultar el caso se sigue con la escalación: dejar un caso urgente sin
+            // avisar es peor que un aviso de más.
+            console.error(`No se pudo verificar el estado de [${id_evento}] antes de escalar:`, e.message);
+        }
+
         console.log(`⚠️ TIMEOUT 20 MIN: Técnico ${tecnicoAsignado.nombre} no confirmó [${id_evento}]. Escalando...`);
 
-        const { buscarTecnicoSuplente } = require('../sheets');
+        const { buscarTecnicoSuplente } = require('../datos');
         const { notificarEscalacionAlAdmin } = require('./marcos-admin');
 
         if (paso === 1) {
@@ -441,19 +1043,23 @@ function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, p
             });
 
             if (suplente) {
-                await ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado: suplente, phoneNumberId, accessToken, id_evento });
-                programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado: suplente, phoneNumberId, accessToken, paso: 2, id_evento });
+                await ejecutarEnvioNotificacionTecnico({ vecino, decisionCaso, tecnicoAsignado: suplente, personalDeTurno, phoneNumberId, accessToken, id_evento });
+                programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado: suplente, personalDeTurno, phoneNumberId, accessToken, paso: 2, id_evento });
                 return;
             }
         }
 
         if (paso <= 2) {
+            // La dirección de la calle, y la unidad SOLO si la sabemos: "(Depto 1A)" por defecto
+            // le inventaba un departamento a un vecino que vive en una casa.
+            const dirInsistencia = await direccionParaTecnico(vecino?.edificio);
+            const unidadInsistencia = vecino?.departamento ? ` (Depto ${vecino.departamento})` : '';
             const msgInsistencia = `⚠️ *MARCOS — RECORDATORIO URGENTE DE SERVICIO [${id_evento}]*\n\n` +
-                `Hola ${tecnicoAsignado.nombre}, aguardamos tu confirmación para el [${id_evento}] en ${vecino?.edificio || 'el consorcio'} (Depto ${vecino?.departamento || '1A'}).\n` +
+                `Hola ${tecnicoAsignado.nombre}, aguardamos tu confirmación para el [${id_evento}] en ${dirInsistencia}${unidadInsistencia}.\n` +
                 `¿Podrás asistir hoy o derivamos a otro servicio? Agradecemos tu respuesta.`;
 
             await enviarWhatsApp(tecnicoAsignado.telefono, msgInsistencia, phoneNumberId, accessToken);
-            programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, phoneNumberId, accessToken, paso: 3, id_evento });
+            programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, personalDeTurno, phoneNumberId, accessToken, paso: 3, id_evento });
             return;
         }
 
@@ -466,13 +1072,21 @@ function programarEscalacionProveedor({ vecino, decisionCaso, tecnicoAsignado, p
 module.exports = {
     gestionarOperaciones,
     enviarWhatsApp,
+    motivoMeta,
     enviarPlantillaWhatsApp,
+    limpiarParametroPlantilla,
     subirMediaWhatsApp,
     enviarAudioWhatsApp,
     enviarDocumentoWhatsApp,
     enviarImagenWhatsApp,
     enviarVideoWhatsApp,
     normalizarTelefonoWhatsApp,
+    enviarContactoWhatsApp,
+    ubicacionParaTecnico,
+    direccionParaTecnico,
+    interpretarRespuestaTecnico,
+    redactarNovedadParaTecnico,
+    requerimientoParaTerceros,
     programarEscalacionProveedor,
     cancelarEscalacionProveedor,
     retransmitirMediaAlProveedor

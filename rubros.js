@@ -1,0 +1,260 @@
+// Equivalencias entre las mil formas de nombrar un oficio.
+//
+// Vive en su propio archivo porque lo necesitan tres lados: `index.js` (para saber cuál de los
+// técnicos que comparten una línea telefónica está escribiendo), `sheets.js` (para saber si un
+// reclamo nuevo es la continuación de un caso abierto o es otro caso) y la derivación de casos.
+// Tenerlo copiado en cada uno garantizaba que un rubro se leyera distinto según quién preguntara.
+
+// ── LAS FAMILIAS, Y LA LISTA QUE SE LE OFRECE A UNA PERSONA ─────────────────────────────────
+//
+// > [!CAUTION]
+// > **El panel tenía su propia lista de rubros y el motor la suya, y nada las obligaba a
+// > coincidir.** Se separaron, como se separa todo lo que está escrito dos veces en este
+// > proyecto.
+//
+// `dashboard.js` ofrecía `['Plomero', 'Gasista', 'Electricista', 'Ascensores', 'Cerrajero',
+// 'Pintor', 'Limpieza', 'Seguridad', 'Otro']` — **sin CCTV, sin portería y sin control de
+// acceso**, que son tres rubros que el motor distingue desde hace rato y a propósito.
+//
+// Lo que eso rompía es justo el caso de Daniel: *"soy electricista primero y urgencias, CCTV
+// urgencias y primero también"*. Para un trabajo de cámaras tenía que elegir "Otro" o
+// "Electricista", y con el rubro cargado así se pierde la precisión que el rubro existe para
+// dar: separar un reclamo nuevo del abierto, y elegir a quién llamar por `edificio + rubro`.
+//
+// Ahora la lista vive acá, al lado de las familias, y el panel la importa. `pruebas-rubros.js`
+// exige que **toda familia tenga su entrada en la lista**: agregar una familia nueva al motor y
+// olvidarse del panel deja la prueba en rojo.
+const FAMILIAS = [
+    ['electr', 'luz', 'tablero', 'iluminacion'],
+    ['plom', 'agua', 'cloaca', 'cania', 'caño'],
+    ['gas', 'calder', 'termotanque'],
+    ['cerraj', 'llav'],
+    // Las de corriente débil van SEPARADAS de electricidad y separadas entre sí. Son trabajos
+    // distintos aunque los haga el mismo electricista: cambiar un portero no es poner una
+    // cámara ni configurar tarjetas de acceso.
+    ['porter', 'citofon', 'frente de calle'],
+    ['cctv', 'camara', 'cámara', 'videovigilancia', 'dvr', 'nvr'],
+    // `portón` va acá y no en cerrajería: el portón de entrada es del consorcio y lo abre un
+    // motor con control remoto o teclado, no una llave. La cerradura de la puerta de un
+    // departamento sí es cerrajería, y es del propietario — esa distinción es la que confundía en
+    // el portal del vecino, donde el chip decía "Cerrajería" para un problema del edificio.
+    //
+    // Estaba en ninguna familia: `rubroDelTexto('no abre el portón de entrada')` devolvía nada, y
+    // un caso sin rubro no se puede separar de otro ni sirve para elegir a quién llamar.
+    ['control de acceso', 'tarjeta', 'huella', 'molinete', 'cerradura magn', 'pestillo magn',
+     'porton', 'portón'],
+    ['alban', 'albañ', 'mamposter', 'pared'],
+    ['ascensor', 'montacarga'],
+    ['refriger', 'aire', 'split'],
+];
+
+/**
+ * Lo que el administrador puede elegir al cargar un proveedor. Se guardan **varios, separados por
+ * comas**: una persona hace más de un oficio, y cada uno se asigna a un edificio con su propia
+ * prioridad.
+ *
+ * Los cuatro últimos no tienen familia y está bien: son oficios que nadie nombra de dos formas
+ * distintas, así que no hace falta desambiguarlos. Las familias existen para las que sí.
+ *
+ * Los nombres se mantienen **como ya estaban escritos** en los datos de producción (`Plomero`,
+ * `Electricista`…): cambiarlos rompería las fichas cargadas, y `atiendeRubro` compara por
+ * contenido, así que `CCTV` encuentra su familia igual.
+ */
+const RUBROS_CATALOGO = [
+    'Electricista',
+    'Plomero',
+    'Gasista',
+    'Cerrajero',
+    'Portería',
+    'CCTV',
+    'Control de acceso',
+    'Albañilería',
+    'Ascensores',
+    'Refrigeración',
+    'Pintor',
+    'Limpieza',
+    'Seguridad',
+    'Otro',
+];
+
+/**
+ * Si dos formas de nombrar un oficio son el mismo oficio.
+ *
+ * "electricista", "electricidad" y "luz" son lo mismo. "plomería" y "electricidad" no.
+ * Con cualquiera de los dos vacío devuelve false: no se puede afirmar que coincidan.
+ */
+function coincideRubro(a, b) {
+    const x = String(a || '').toLowerCase().trim();
+    const y = String(b || '').toLowerCase().trim();
+    if (!x || !y) return false;
+    if (x.includes(y) || y.includes(x)) return true;
+
+    return FAMILIAS.some(f => f.some(t => x.includes(t)) && f.some(t => y.includes(t)));
+}
+
+// Un electricista de edificios no hace solo electricidad: hace portería, control de acceso y
+// CCTV. Son todos trabajos de corriente débil, y en la práctica los cubre la misma persona.
+const CORRIENTE_DEBIL = ['electr', 'luz', 'tablero', 'porter', 'citofon', 'cctv', 'camara', 'cámara', 'videovigilancia', 'control de acceso', 'tarjeta', 'huella', 'molinete', 'cerradura magn'];
+
+/**
+ * Si un técnico con ESE oficio atiende ESE tipo de trabajo.
+ *
+ * Es una pregunta distinta de `coincideRubro`, y por eso es otra función.
+ *
+ * - `coincideRubro` responde **"¿es el mismo trabajo?"** y se usa para separar un reclamo nuevo
+ *   de un caso abierto. Ahí conviene ser estricto: cambiar el portero eléctrico no es lo mismo
+ *   que poner una cámara, aunque las dos las haga el mismo electricista. Si se mezclan, dos
+ *   trabajos distintos terminan adentro de un solo caso con una sola factura.
+ * - `atiendeRubro` responde **"¿este es el que hace esto?"** y se usa para elegir cuál de los
+ *   técnicos que comparten una línea telefónica está escribiendo. Ahí hay que ser amplio: la
+ *   ficha de Dario dice "Electricista" y el caso es de CCTV, y es él igual.
+ *
+ * Con una sola función había que elegir cuál de las dos romper. Con el criterio estricto, un caso
+ * de portería no encontraba al electricista de la línea compartida; con el amplio, un reclamo de
+ * cámaras se metía adentro del caso de la luz que ya estaba abierto.
+ *
+ * Ojo: esto es un respaldo, no la respuesta buena. Lo correcto es que la ficha del proveedor
+ * liste sus rubros de verdad (`electricidad, portería, control de acceso, cctv`), y eso ya
+ * funciona porque la comparación mira si un texto contiene al otro.
+ */
+function atiendeRubro(especialidad, rubroDelTrabajo) {
+    const oficio = String(especialidad || '').toLowerCase().trim();
+    const trabajo = String(rubroDelTrabajo || '').toLowerCase().trim();
+    if (!oficio || !trabajo) return false;
+    if (coincideRubro(oficio, trabajo)) return true;
+    return CORRIENTE_DEBIL.some(t => oficio.includes(t)) && CORRIENTE_DEBIL.some(t => trabajo.includes(t));
+}
+
+/**
+ * Qué oficio hace falta, deducido de lo que la persona contó.
+ *
+ * POR QUÉ HACE FALTA. El rubro del caso es lo que decide si un reclamo nuevo es otro caso o la
+ * continuación del abierto, y cuál de los técnicos de una línea compartida está escribiendo. Pero
+ * hasta ahora salía solo de la ficha del proveedor o del técnico ya asignado, y en la planilla real
+ * eso viene vacío seguido: los cuatro primeros casos quedaron TODOS "sin rubro", así que toda la
+ * lógica que depende de él estaba muerta sin que nada avisara.
+ *
+ * Lo que sí está siempre es lo que la persona dijo: "un problema eléctrico en las luminarias de la
+ * cochera" no deja lugar a dudas. Esto NO reemplaza al rubro cargado -- se usa solo cuando no hay
+ * ninguno.
+ *
+ * Devuelve '' cuando el texto no alcanza para decidir. Preferible vacío que inventado: un rubro
+ * equivocado separa casos que son el mismo, o manda el aviso al gremio que no es.
+ */
+function rubroDelTexto(texto) {
+    const t = String(texto || '').toLowerCase();
+    if (!t.trim()) return '';
+
+    // El orden importa: lo más específico primero. "luz de la cochera" es electricidad aunque
+    // diga cochera, y "pérdida de gas" es gas aunque diga caño.
+    const pistas = [
+        ['gas',           /\bgas\b|garrafa|calefactor|calefaccion|calefacción|caldera|termotanque|estufa/],
+        // ── CORRIENTE DÉBIL: VAN ANTES QUE ELECTRICIDAD ─────────────────────────────────────
+        //
+        // Un electricista de edificios hace las cuatro cosas --electricidad, portería, control de
+        // acceso y CCTV-- pero son trabajos distintos, y el reclamo de la cámara tiene que poder
+        // distinguirse del de la luz aunque los atienda la misma persona.
+        //
+        // El orden acá no es un detalle: "portero ELÉCTRICO" y "cerradura ELECTROmagnética"
+        // contienen la palabra que dispara electricidad. Si electricidad va primero se las lleva
+        // todas puestas y no queda ninguna diferencia que mirar.
+        // > [!CAUTION]
+        // > **Un corte de luz declarado es ELECTRICIDAD aunque haya arrastrado a otra cosa.**
+        //
+        // Caso real de Daniel: *"no hay luz en el hall de entrada y la puerta magnética está
+        // abierta"*. Son dos frases, pero un solo trabajo: sin corriente el electroimán suelta, y
+        // apenas vuelve la luz la puerta traba sola. Mandar a alguien de control de acceso es
+        // mandarlo a mirar un aparato que no tiene nada roto.
+        //
+        // Va **antes** que el bloque de corriente débil, al revés que todo lo demás de acá abajo,
+        // y por eso lleva su propia advertencia: lo que decide no es qué aparato se nombra sino
+        // que **se declaró una falta de corriente por su cuenta**. `"puerta magnética sin luz"` no
+        // entra --ahí el "sin luz" describe al aparato, no al lugar-- y sigue siendo control de
+        // acceso, que es lo correcto.
+        //
+        // La frontera es fina y un `if` no la va a ganar siempre: esto es el respaldo. Cuando el
+        // ruteo por IA está prendido, el modelo lee las dos frases juntas y decide mejor.
+        ['electricidad',      /no hay (?:luz|corriente|electricidad)|se cort[oó] la (?:luz|corriente)|corte de (?:luz|corriente)|sin corriente en/],
+
+        ['cctv',              /cctv|c[aá]mara|videovigilancia|video vigilancia|\bdvr\b|\bnvr\b|grabador de video/],
+        // El `port[oó]n` lleva una exclusión y no es capricho: más abajo `herrería` tiene
+        // "portón de hierro", y como esta línea va antes se lo llevaría puesto. Un portón que no
+        // abre es casi siempre el motor, el control remoto o el teclado --control de acceso--;
+        // uno "de hierro" que hay que soldar es del herrero.
+        //
+        // Antes `portón` no estaba en NINGUNA pista: "no abre el portón de entrada" devolvía
+        // rubro vacío, y un caso sin rubro no se puede separar de otro ni sirve para elegir a
+        // quién llamar por `edificio + rubro`.
+        // > [!CAUTION]
+        // > **Lo que abre no siempre se llama "cerradura".** Acá estaban enumerados los sustantivos
+        // > que van ANTES de "magnética" --`cerradura`, `pestillo`, `tarjeta`-- y faltaba
+        // > **`puerta magnética`**, que es como lo dice la gente.
+        //
+        // Caso real de Daniel: *"puerta magnética sin luz"*. La palabra `luz` disparaba
+        // **electricidad** y el reclamo quedaba marcado con el oficio equivocado. Eso rompe las dos
+        // cosas para las que existe el rubro: a quién se llama (`edificio + rubro` puede tener un
+        // electricista para la luz y otra persona para el control de acceso) y si un reclamo nuevo
+        // es otro caso o el mismo.
+        //
+        // Es la quinta lista escrita a mano de este repo, y el arreglo es el de siempre: **no
+        // agregar la palabra que faltó, sino dejar de enumerar.** Cualquier cosa que cierra + `magn`
+        // es un dispositivo de control de acceso, se llame como se llame. `tarjeta magn` queda
+        // aparte porque una tarjeta no cierra nada: se presenta.
+        ['control de acceso', /control de acceso|tarjeta magn|tarjeta de acceso|llavero de proximidad|\btag\b|huella|biom[eé]tric|molinete|(?:cerradura|pestillo|puerta|traba|chapa|cierre|contacto)\s*(?:electro)?magn|electroim[aá]n|port[oó]n(?!\s+de\s+hierro)/],
+        ['portería',          /portero el[eé]ctrico|porter[oó]n el[eé]ctrico|citofon|frente de calle|tel[eé]fono del portero|no anda el portero/],
+
+        ['electricidad',  /electric|el[eé]ctric|luminaria|l[aá]mpara|lampara|tablero|disyuntor|t[eé]rmica|cortocircuito|\bluz\b|\bluces\b|iluminaci[oó]n|enchufe|instalaci[oó]n el[eé]ctrica/],
+        ['plomería',      /plomer|ca[nñ]o|cañer|canier|p[eé]rdida de agua|perdida de agua|filtraci[oó]n|filtracion|cloaca|desag[uü]e|inodoro|canilla|bomba de agua|tanque de agua|destap/],
+        // El orden de las palabras no puede decidir el rubro: estaban escritas solo como
+        // `no cierra la puerta`, y **"la puerta no cierra bien" devolvía rubro vacío** --que es
+        // como se dice de verdad--. Un caso sin rubro no se puede separar de otro ni sirve para
+        // elegir a quién llamar, así que la frase más común caía al peor de los resultados.
+        ['cerrajería',    /cerrajer|cerradura|\bllave\b|\bllaves\b|porter[oó]n|(?:no (?:cierra|abre) la puerta|la puerta no (?:cierra|abre)|puerta que no (?:cierra|abre))|traba/],
+        ['ascensores',    /ascensor|montacarga|elevador/],
+        ['refrigeración', /aire acondicionado|\bsplit\b|refrigeraci[oó]n|climatizaci[oó]n/],
+        ['jardinería',    /jardin|jard[ií]n|c[eé]sped|cesped|poda|podar|planta|parque|riego/],
+        ['albañilería',   /alba[nñ]il|mamposter|revoque|pared|humedad|grieta|rajadura|techo|membrana|filtraci[oó]n de techo/],
+        ['pintura',       /pintur|pintar|pintor/],
+        ['herrería',      /herrer|reja|port[oó]n de hierro|soldar|soldadura/],
+        ['vidriería',     /vidrier|vidrio|ventanal|cristal/],
+        ['limpieza',      /limpieza|basura|residuos|contenedor|desinfecci[oó]n|fumigaci[oó]n/],
+    ];
+
+    for (const [rubro, patron] of pistas) {
+        if (patron.test(t)) return rubro;
+    }
+    return '';
+}
+
+/**
+ * El rubro de UN CASO, que no es lo mismo que el oficio de quien escribe.
+ *
+ * > **`especialidad` es el oficio de la PERSONA. El rubro es de qué se trata ESTE trabajo.**
+ *
+ * Se mezclaban, y eso rompía justo lo que el rubro existe para resolver. Caso real: Dario está
+ * cargado como "Electricista", avisa que lo llamaron por una PÉRDIDA DE AGUA, y el caso quedaba
+ * marcado "Electricista" -- el mismo rubro que el caso eléctrico que tenía abierto en ese
+ * edificio. Como los rubros coincidían, el aviso de plomería se pegó adentro del caso de la luz.
+ *
+ * Y pasa siempre: a un electricista lo llaman para un portero eléctrico, para un tablero o para
+ * una bomba, y el encargado le reporta cosas que no tienen nada que ver con lo que dice su ficha.
+ * Un mismo técnico hace trabajos de rubros distintos; su oficio no dice cuál es el de hoy.
+ *
+ * Por eso manda lo que la persona contó. La ficha queda de respaldo, para cuando el texto no
+ * alcanza para decidir.
+ *
+ * Y "Proveedor" NO es un rubro: es un rol. Se escribía como rubro cuando la ficha venía vacía, y
+ * con eso `coincideRubro` comparaba contra una palabra que no es ningún oficio.
+ */
+function rubroDelCaso(texto, especialidad = '') {
+    const delTexto = rubroDelTexto(texto);
+    if (delTexto) return delTexto;
+
+    const ficha = String(especialidad || '').trim();
+    if (!ficha) return '';
+    // Roles y comodines: no dicen qué oficio hace falta.
+    if (/^(proveedor|proveedora|t[eé]cnico|t[eé]cnica|general|generales|otro|otros|varios|sin rubro)$/i.test(ficha)) return '';
+    return ficha;
+}
+
+module.exports = { coincideRubro, atiendeRubro, rubroDelTexto, rubroDelCaso, FAMILIAS, RUBROS_CATALOGO };

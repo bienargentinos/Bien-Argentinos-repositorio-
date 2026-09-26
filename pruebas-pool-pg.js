@@ -1,0 +1,147 @@
+// Una conexión ociosa que se cae NO puede matar a Marcos.
+//
+//   node pruebas-pool-pg.js
+//
+// > [!CAUTION]
+// > **`pg` emite `'error'` en el Pool cuando una conexión que estaba quieta se cae sola**, y un
+// > evento `'error'` sin oyente en un EventEmitter de Node **se tira como excepción**. No pasa por
+// > ningún `try`: no hay ninguna consulta en curso.
+//
+// De ahí en adelante manda el `uncaughtException` de `index.js`, que loguea y SALE a propósito. Así
+// que un PostgreSQL que se reinicia --o un firewall que se olvida de una conexión quieta-- reiniciaba
+// a Marcos en mitad de una conversación. Es el episodio que ya está en CLAUDE.md con otro
+// disparador.
+//
+// Cómo apareció: el CI en rojo con `read ECONNRESET` en `pruebas-perfil-vecino.js`, que no necesita
+// la base. La prueba imprimía la mitad de sus líneas y desaparecía sin decir por qué. Local pasaba,
+// porque ahí el error es `ECONNREFUSED` al conectar y ese sí cae adentro del `try` de la consulta.
+//
+// Esta prueba no lee el código: emite en el pool de verdad el mismo evento que emite `pg`, y mira
+// si el proceso sobrevive. Un candado que busque `pool.on('error')` como texto lo pasaría cualquier
+// línea comentada.
+
+const net = require('net');
+
+let fallos = 0;
+function afirmar(titulo, cond) {
+    const ok = !!cond;
+    if (!ok) fallos++;
+    console.log(`  ${ok ? '✅' : '❌'} ${titulo}`);
+}
+
+// Un PostgreSQL que acepta la conexión y la corta de una. Es lo que hace un servidor que se
+// reinicia, y lo que hacía el runner del CI.
+function servidorQueCorta() {
+    return new Promise((resolve) => {
+        const srv = net.createServer((socket) => socket.destroy());
+        srv.listen(0, '127.0.0.1', () => resolve({ srv, puerto: srv.address().port }));
+    });
+}
+
+const esperar = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function main() {
+    const { srv, puerto } = await servidorQueCorta();
+
+    // El pool de `db-pg.js` sale de `credenciales.urlPostgres()`, que lee esta variable. Apuntándolo
+    // al servidor falso se prueba EL pool de verdad, no uno de juguete escrito acá.
+    // SIN usuario ni contraseña en la URL, aunque sean inventados: `pruebas-credenciales.js`
+    // prohíbe que aparezca una URL de PostgreSQL con credencial adentro en CUALQUIER archivo del
+    // repo, y tiene razón --así se filtró la contraseña de verdad--. Una de mentira en una prueba
+    // le enseña al candado a tolerar la forma, y la próxima pasa igual.
+    process.env.DATABASE_URL = `postgresql://127.0.0.1:${puerto}/nada`;
+
+    console.log('\n── EL POOL TIENE QUIÉN LE ESCUCHE LOS ERRORES ──');
+    const { pool } = require('./db-pg');
+    afirmar('hay un oyente de "error" en el pool', pool.listenerCount('error') > 0);
+
+    console.log('\n── EL EVENTO QUE MATABA EL PROCESO ──');
+    // Así se reproduce de verdad. `pg` hace exactamente esto cuando un cliente ocioso se cae:
+    // `pool.emit('error', err, client)`. Y un `emit('error')` sin oyente en un EventEmitter de Node
+    // TIRA el error de forma sincrónica, así que sin el arreglo este `try` no alcanza para nada --el
+    // proceso se muere acá mismo y la prueba no imprime una línea más--.
+    //
+    // No se simula con un socket cortado: eso falla al CONECTAR, y `pg` manda esa falla a la promesa
+    // de la consulta, donde sí hay un `catch`. El caso que importa es el otro, y es el que se veía
+    // en el CI: un `read ECONNRESET` volcado como objeto, sin ninguna línea de nadie atrapándolo.
+    let sobrevivio = false;
+    try {
+        const err = new Error('read ECONNRESET');
+        err.code = 'ECONNRESET';
+        pool.emit('error', err, null);
+        sobrevivio = true;
+    } catch (e) {
+        // Con el oyente puesto no se llega acá nunca.
+    }
+    afirmar('un error del pool no tira el proceso', sobrevivio);
+
+    // Y el pool sigue usable: descartó ese cliente, no se rompió.
+    let contesta = false;
+    try {
+        await pool.query('SELECT 1');
+    } catch (e) {
+        contesta = true; // falla de nuevo --no hay base-- pero CONTESTA en vez de matar el proceso
+    }
+    afirmar('la consulta siguiente contesta', contesta);
+
+    console.log('\n── Y CADA CLIENTE TAMBIÉN TIENE QUIÉN LO ESCUCHE ──');
+    // El oyente del pool cubre a los clientes OCIOSOS. Uno que todavía se está conectando emite
+    // `'error'` en sí mismo, y ahí el del pool no llega. Es el que mataba al CI: un
+    // `read ECONNRESET` con `at TCP.onStreamRead` y ningún stack de JavaScript, o sea un evento de
+    // socket sin oyente y no una promesa rechazada.
+    afirmar('el pool engancha un oyente en cada cliente que conecta',
+        pool.listenerCount('connect') > 0);
+
+    let sobrevivioCliente = false;
+    try {
+        // Se simula lo que hace `pg`: entregar un cliente por el evento `connect` y que ese cliente
+        // emita su propio error. Sin el oyente, este emit tira y el proceso se va.
+        const { EventEmitter } = require('events');
+        const clienteFalso = new EventEmitter();
+        pool.emit('connect', clienteFalso);
+        const err = new Error('read ECONNRESET');
+        err.code = 'ECONNRESET';
+        clienteFalso.emit('error', err);
+        sobrevivioCliente = true;
+    } catch (e) {
+        // Con el oyente puesto no se llega acá.
+    }
+    afirmar('el error de un cliente no tira el proceso', sobrevivioCliente);
+
+    console.log('\n── SIN DATABASE_URL NO SE CONECTA A NINGUNA PARTE ──');
+    {
+        // CANDADO. `new Pool({ connectionString: '' })` no falla: `pg` toma la cadena vacía como
+        // "no me dijeron nada" y se va a los valores por defecto de libpq --`localhost:5432`, con
+        // el usuario del sistema--. O sea que sin la variable, Marcos le habla a CUALQUIER
+        // PostgreSQL que haya en la máquina. Eso es adivinar a qué base escribir, y es peor que no
+        // escribir: en un servidor con otra base levantada las consultas se van a donde no es y
+        // nadie se entera.
+        //
+        // Se prueba en un proceso aparte porque este ya cargó `db-pg.js` con la variable puesta.
+        const { execFileSync } = require('child_process');
+        const env = { ...process.env };
+        delete env.DATABASE_URL;
+        const salida = execFileSync(process.execPath, ['-e', `
+            const { pool } = require('./db-pg');
+            console.log(JSON.stringify({
+                esDeMentira: pool.sinBase === true,
+                tieneOpciones: !!(pool.options && pool.options.host),
+            }));
+        `], { cwd: __dirname, env, encoding: 'utf8' });
+
+        const r = JSON.parse(salida.trim().split('\n').filter(l => l.startsWith('{')).pop());
+        afirmar('sin la variable el pool no es uno de verdad', r.esDeMentira);
+        afirmar('y no tiene ningún host al que salir', !r.tieneOpciones);
+    }
+
+    srv.close();
+    await pool.end().catch(() => {});
+
+    console.log(`\n${fallos === 0 ? '✅ Todo bien' : `❌ ${fallos} fallo(s)`}\n`);
+    process.exit(fallos === 0 ? 0 : 1);
+}
+
+main().catch(e => {
+    console.log(`\n❌ La prueba misma se cayó: ${e && e.message}\n`);
+    process.exit(1);
+});

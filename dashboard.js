@@ -20,14 +20,70 @@
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
-let google = null;
-try {
-    google = require('googleapis').google;
-} catch (e) {
-    console.log('⚠️ googleapis no disponible en dashboard, continuando...');
-}
+const fs = require('fs');
+const multer = require('multer');
+const { google } = require('googleapis');
 
 const router = express.Router();
+
+const storageFacturas = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = path.join(__dirname, 'almacenamiento', 'facturas');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname);
+    const name = 'media_' + Date.now() + ext;
+    cb(null, name);
+  }
+});
+const uploadMulter = multer({
+  storage: storageFacturas,
+  limits: { fileSize: 20 * 1024 * 1024 }
+});
+
+const storageAvatars = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = path.join(__dirname, 'almacenamiento', 'avatars');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const cleanUser = String(req.session && req.session.user ? req.session.user : 'user').replace(/[^a-zA-Z0-9_]/g, '');
+    const name = 'avatar_' + cleanUser + '_' + Date.now() + ext;
+    cb(null, name);
+  }
+});
+const uploadAvatarMulter = multer({
+  storage: storageAvatars,
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+const storageExpensas = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = path.join(__dirname, 'almacenamiento', 'expensas');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase() || '.pdf';
+    const rand = Math.random().toString(36).substring(2, 8);
+    const name = 'expensa_' + Date.now() + '_' + rand + ext;
+    cb(null, name);
+  }
+});
+const uploadExpensasMulter = multer({
+  storage: storageExpensas,
+  limits: { fileSize: 30 * 1024 * 1024 }
+});
 
 // Logo de marca (design/assets/logo.png). Servido cacheable, sin sesion.
 router.use('/assets', express.static(path.join(__dirname, 'design', 'assets'), {
@@ -39,8 +95,12 @@ const LOGO_URL = '/admin/assets/logo.png';
  * CONFIGURACION
  * =================================================================== */
 
-const ADMIN_USER = process.env.DASHBOARD_USER || 'admin';
-const ADMIN_PASS = process.env.DASHBOARD_PASS || 'marcos2024';
+// > [!CAUTION]
+// > **La contraseña del panel estaba escrita acá como valor por defecto**, y es la misma que la
+// > de PostgreSQL. El repositorio se hace público cada vez que se usa el `curl` de CLAUDE.md.
+// > Ahora sale del `.env` y **sin ella no entra nadie**: ver `credenciales.js`.
+const { credencialesPanel } = require('./credenciales');
+const ADMIN_USER = credencialesPanel().usuario;
 
 // Usuarios de administradores de consorcio via .env (fallback historico).
 // Formato: CONSORCIO_USERS={"usuario1":"pass1:Edificio A,Edificio B"}
@@ -58,8 +118,10 @@ try {
   }
 } catch (_) {}
 
-const SESSION_SECRET =
-  process.env.DASHBOARD_SECRET || 'marcos-secret-cambiar-en-produccion-2024';
+// Este secreto FIRMA las cookies de sesión: quien lo conoce se fabrica una que diga
+// `{authed:true, role:'dueno'}` y entra sin contraseña. Estaba escrito acá, en un repositorio que
+// se hace público. Sin la variable se genera uno al azar por arranque — ver `credenciales.js`.
+const SESSION_SECRET = require('./credenciales').secretoDeSesion();
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const CREDENTIALS_FILE =
   process.env.GOOGLE_CREDENTIALS_FILE ||
@@ -78,15 +140,77 @@ const TAB_ASIGNACIONES = process.env.SHEET_TAB_ASIGNACIONES || 'proveedor_asigna
 const TAB_COLABORADORES = process.env.SHEET_TAB_COLABORADORES || 'colaboradores';
 const TAB_CONFIG_PLANES = process.env.SHEET_TAB_CONFIG_PLANES || 'configuracion_planes';
 const TAB_CONSEJO = process.env.SHEET_TAB_CONSEJO || 'consejo';
+const TAB_VECINOS = process.env.SHEET_TAB_VECINOS || 'vecinos';
 const TAB_SUSCRIPCIONES_PLANES = process.env.SHEET_TAB_SUSCRIPCIONES_PLANES || 'suscripciones_planes';
 const TAB_SUSCRIPCIONES_BANCO = process.env.SHEET_TAB_SUSCRIPCIONES_BANCO || 'suscripciones_banco';
+
+function desarmarNotacionCientifica(val) {
+  if (!val) return '';
+  let str = String(val).trim();
+  if (/^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(str)) {
+    try {
+      const num = Number(str);
+      if (!isNaN(num) && isFinite(num)) {
+        str = BigInt(Math.round(num)).toString();
+      }
+    } catch (_) {}
+  }
+  return str;
+}
+
+function normalizarTelefonoParaGuardar(tel) {
+  if (!tel) return '';
+  let s = desarmarNotacionCientifica(tel);
+  s = s.replace(/[\s\-\(\)]/g, '');
+  if (/^54\d{8,13}$/.test(s)) {
+    s = '+' + s;
+  } else if (/^15\d{8}$/.test(s)) {
+    s = '+54911' + s.slice(2);
+  } else if (/^11\d{8}$/.test(s)) {
+    s = '+54911' + s.slice(2);
+  }
+  return s;
+}
+
+function mapVecino(r) {
+  const rawTel = r.telefono || r.tel || '';
+  const cleanTel = desarmarNotacionCientifica(rawTel);
+  return {
+    _row: r._row,
+    nombre: r.nombre || '',
+    edificio: r.edificio || '',
+    unidad: r.unidad || r.departamento || r.depto || '',
+    departamento: r.departamento || r.unidad || r.depto || '',
+    telefono: cleanTel,
+    email: r.email || r.mail || '',
+    notas: r.notas || r.observaciones || '',
+    estado: r.estado || 'activo',
+  };
+}
 
 /* ===================================================================
  * SESSION
  * =================================================================== */
 
+let sessionStore = null;
+try {
+  const { pool } = require('./db-pg');
+  if (pool && !pool.sinBase) {
+    const pgSession = require('connect-pg-simple')(session);
+    sessionStore = new pgSession({
+      pool,
+      tableName: 'sesiones_panel',
+      createTableIfMissing: true,
+      pruneSessionInterval: 60 * 15, // Cada 15 minutos limpia expiradas
+    });
+  }
+} catch (errStore) {
+  console.warn('⚠️ No se pudo inicializar store de sesiones en PostgreSQL, usando MemoryStore fallback:', errStore.message);
+}
+
 router.use(
   session({
+    store: sessionStore || undefined,
     name: 'marcos.sid',
     secret: SESSION_SECRET,
     resave: false,
@@ -188,7 +312,8 @@ function pick(obj, keys, fallback = '') {
 function mapEvento(r) {
   const tipoRaw = String(pick(r, ['tipo', 'canal', 'tipo_mensaje', 'medio'])).toLowerCase();
   let tipo = 'texto';
-  if (/audio|voz|nota/.test(tipoRaw)) tipo = 'audio';
+  if (/trabajo_externo|externo/i.test(tipoRaw)) tipo = 'trabajo_externo';
+  else if (/audio|voz|nota/.test(tipoRaw)) tipo = 'audio';
   else if (/llamad|call|telefono|voice/.test(tipoRaw)) tipo = 'llamada';
   else if (/imagen|foto|image/.test(tipoRaw)) tipo = 'imagen';
 
@@ -231,8 +356,10 @@ function mapEvento(r) {
     tecnico: pick(r, ['tecnico', 'proveedor', 'tecnico_nombre', 'nombre_tecnico', 'proveedor_nombre', 'nombre_proveedor']),
     tel_tecnico: pick(r, ['tel_tecnico', 'telefono_tecnico', 'celular_tecnico', 'tecnico_telefono', 'proveedor_telefono', 'tel_proveedor', 'telefono_proveedor']),
     rubro_tecnico: pick(r, ['rubro_tecnico', 'rubro_proveedor', 'especialidad_tecnico', 'especialidad_proveedor', 'rubro', 'especialidad']),
-    historial_chat_vecino: pick(r, ['historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
-    historial_chat_proveedor: pick(r, ['historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
+    chat_vecino_json: pick(r, ['chat_vecino_json', 'historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
+    chat_proveedor_json: pick(r, ['chat_proveedor_json', 'historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
+    historial_chat_vecino: pick(r, ['chat_vecino_json', 'historial_chat_vecino', 'chat_vecino', 'conversacion_vecino', 'historial_vecino']),
+    historial_chat_proveedor: pick(r, ['chat_proveedor_json', 'historial_chat_proveedor', 'historial_proveedor', 'chat_proveedor', 'conversacion_proveedor', 'historial_tecnico', 'chat_tecnico']),
     feedback: pick(r, ['feedback', 'nota_admin', 'aprendizaje', 'comentario_admin']),
     historial_chat: pick(r, ['historial_chat', 'historial', 'chat_log', 'conversacion']),
   };
@@ -273,6 +400,7 @@ function mapCliente(r) {
     pass: pick(r, ['contrasena', 'password', 'pass', 'clave']),
     email: pick(r, ['email', 'correo', 'mail']),
     wsp: pick(r, ['whatsapp', 'wsp', 'telefono_wsp', 'telefono']),
+    avatar: pick(r, ['avatar', 'foto', 'foto_perfil', 'imagen_perfil', 'avatar_url', 'img']),
     notif_email: String(pick(r, ['notif_email'], 'si')).toLowerCase() !== 'no',
     notif_wsp: String(pick(r, ['notif_wsp'], 'no')).toLowerCase() === 'si',
     edificios: pick(r, ['edificios', 'edificio'])
@@ -282,6 +410,49 @@ function mapCliente(r) {
     activo: String(pick(r, ['activo'], 'si')).toLowerCase() !== 'no',
     ultimo_acceso: pick(r, ['ultimo_acceso']),
   };
+}
+
+/**
+ * De qué cliente es un edificio, según la lista `edificios` de la tab CLIENTES.
+ *
+ * POR QUÉ NO ALCANZA CON `.includes(nombre)`. La lista del cliente y el nombre del edificio son
+ * dos textos escritos a mano en pestañas distintas, y `Array.includes` exige que sean idénticos
+ * carácter por carácter. Una mayúscula, un espacio de más o un acento distinto y el panel muestra
+ * "Sin asignar" un edificio que en la planilla figura clarísimo al lado del administrador.
+ *
+ * Pasó con "san patricio 270": Alejandra lo tenía asignado en CLIENTES y el panel lo mostraba
+ * suelto, sin forma de arreglarlo desde la pantalla.
+ *
+ * La comparación es EXACTA después de normalizar (mayúsculas, acentos, espacios). No se usa
+ * `compararEdificios`, que acepta coincidencias parciales: con eso "san patricio 159" quedaría
+ * asignado al cliente que tiene el 270, y eso es mostrarle a un administrador los reclamos de
+ * un consorcio ajeno.
+ */
+/**
+ * Misma normalización que la función `marcos_norm` de PostgreSQL, para poder decidir del lado de
+ * Node exactamente igual que decide la base.
+ */
+function normEdificio(txt) {
+  return String(txt || '')
+    .replace(/[ÁÉÍÓÚÜÑáéíóúüñ]/g, c => 'AEIOUUNaeiouun'['ÁÉÍÓÚÜÑáéíóúüñ'.indexOf(c)])
+    .toLowerCase()
+    .trim();
+}
+
+function clienteDelEdificio(clientes, nombreEdificio) {
+  const n = normEdificio(nombreEdificio);
+  if (!n) return null;
+  return (clientes || []).find((c) =>
+    (c.edificios || []).some((e) => normEdificio(e) === n)
+  ) || null;
+}
+
+// Los edificios de un cliente, con la misma comparación normalizada de `clienteDelEdificio`.
+// Sin esto, la ficha del administrador le mostraba 2 edificios cuando tenía 3: el que estaba
+// escrito con una mayúscula distinta simplemente no aparecía.
+function edificiosDeCliente(edificios, cliente) {
+  const suyos = new Set((cliente?.edificios || []).map(normEdificio).filter(Boolean));
+  return (edificios || []).filter((e) => suyos.has(normEdificio(e.nombre)));
 }
 
 function mapColaborador(r) {
@@ -410,6 +581,7 @@ function mapFactura(r) {
     estado: pick(r, ['estado'], 'Pendiente'),
     tipo: esFoto ? 'Foto' : 'Factura',
     moneda,
+    codigo_caso: pick(r, ['codigo_caso', 'id_evento', 'caso', 'id_caso']),
   };
 }
 
@@ -423,6 +595,10 @@ function mapExpensa(r) {
     nombre: pick(r, ['nombre', 'archivo']),
     url: pick(r, ['url', 'link']),
     estado: pick(r, ['estado'], 'publicada'),
+    departamento: pick(r, ['departamento', 'depto', 'unidad']) || '',
+    monto: pick(r, ['monto', 'total']) || '',
+    vencimiento: pick(r, ['vencimiento', 'fecha_vencimiento', 'vto']) || '',
+    monto_origen: pick(r, ['monto_origen', 'origen_monto']) || '',
   };
 }
 
@@ -476,7 +652,8 @@ function mapConsejo(r) {
 }
 
 // Rubros sugeridos (el cliente puede escribir otro).
-const RUBROS_PROVEEDOR = ['Plomero', 'Gasista', 'Electricista', 'Ascensores', 'Cerrajero', 'Pintor', 'Limpieza', 'Seguridad', 'Otro'];
+// La lista la manda el motor: ver `rubros.js`. Tener una propia acá es como se separaron.
+const RUBROS_PROVEEDOR = require('./rubros').RUBROS_CATALOGO;
 const PRIORIDADES = [
   { key: 'primera', label: '1ra opción', bg: '#E7F4EC', fg: '#1B7A43' },
   { key: 'segunda', label: '2da opción', bg: '#EAF1FB', fg: '#2C55A8' },
@@ -485,28 +662,204 @@ const PRIORIDADES = [
   { key: 'segunda_urgencia', label: '2da Opción + Urgencias', bg: '#FEF3C7', fg: '#92400E' },
 ];
 
-// Serializa/parsea el horario del encargado. Guardado como JSON en la celda
-// encargado_horario para poder rearmar los selectores; el bot puede leerlo.
-function parseHorarioEnc(str) {
-  if (!str) return { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
-  try {
-    const o = JSON.parse(str);
-    return {
-      lv1: Array.isArray(o.lv1) ? o.lv1 : ['', ''],
-      lv2: Array.isArray(o.lv2) ? o.lv2 : ['', ''],
-      sab: Array.isArray(o.sab) ? o.sab : ['', ''],
-    };
-  } catch (_) {
-    return { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
-  }
+// Serializa/parsea el horario del personal (encargados, suplentes, limpieza, seguridad).
+// Soporta días específicos, combinaciones cruzadas y multi-turnos (cortados o descansos).
+const DIAS_KEYS = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+const DIAS_NOMBRES = { lun: 'Lun', mar: 'Mar', mie: 'Mié', jue: 'Jue', vie: 'Vie', sab: 'Sáb', dom: 'Dom' };
+
+function padHora(t) {
+  if (!t) return '';
+  const s = String(t).trim().replace(/hs?$/i, '');
+  const m = s.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return s;
+  const h = m[1].padStart(2, '0');
+  const min = m[2] ? m[2].padStart(2, '0') : '00';
+  return h + ':' + min;
 }
+
+function parseHorarioFlexible(str) {
+  if (!str || str === 'Sin horario' || str === '—' || str === 'Sin horario cargado') return [];
+  if (typeof str === 'object' && str !== null) {
+    if (Array.isArray(str)) return str;
+    if (str.lv1 || str.lv2 || str.sab) {
+      const arr = [];
+      if (str.lv1 && str.lv1[0] && str.lv1[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv1[0]), hasta: padHora(str.lv1[1]) });
+      if (str.lv2 && str.lv2[0] && str.lv2[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv2[0]), hasta: padHora(str.lv2[1]) });
+      if (str.sab && str.sab[0] && str.sab[1]) arr.push({ dias: ['sab'], desde: padHora(str.sab[0]), hasta: padHora(str.sab[1]) });
+      return arr;
+    }
+  }
+  const s = String(str).trim();
+  if (s.startsWith('{') || s.startsWith('[')) {
+    try {
+      const obj = JSON.parse(s);
+      return parseHorarioFlexible(obj);
+    } catch (_) {}
+  }
+  const partes = s.split(/[·;\n]+/).map(p => p.trim()).filter(Boolean);
+  const turnos = [];
+  for (const parte of partes) {
+    let dias = [];
+    const pLow = parte.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ');
+
+    if (/todos\s+los\s+dias|toda\s+la\s+semana|diario/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+    } else if (/l-v|lun\s*(?:a|al)\s*vie|lunes\s*(?:a|al)\s*viernes/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    } else if (/l-s|lun\s*(?:a|al)\s*sab|lunes\s*(?:a|al)\s*sabado/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab'];
+    } else if (/sab\s*y\s*dom|fines\s*de\s*semana/.test(pLow)) {
+      dias = ['sab', 'dom'];
+    } else {
+      if (/\blun(?:es)?\b/.test(pLow)) dias.push('lun');
+      if (/\bmar(?:tes)?\b/.test(pLow)) dias.push('mar');
+      if (/\bmie(?:rcoles)?\b/.test(pLow)) dias.push('mie');
+      if (/\bjue(?:ves)?\b/.test(pLow)) dias.push('jue');
+      if (/\bvie(?:rnes)?\b/.test(pLow)) dias.push('vie');
+      if (/\bsab(?:ado)?\b/.test(pLow)) dias.push('sab');
+      if (/\bdom(?:ingo)?\b/.test(pLow)) dias.push('dom');
+    }
+    if (dias.length === 0) {
+      if (/\bsab(?:ado)?\b/.test(pLow)) dias = ['sab'];
+      else if (/\bdom(?:ingo)?\b/.test(pLow)) dias = ['dom'];
+      else dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    }
+    const regexHoras = /(\d{1,2}(?::\d{2})?)\s*(?:hs?)?\s*(?:-|–|—|a|hasta)\s*(\d{1,2}(?::\d{2})?)\s*(?:hs?)?/gi;
+    let match;
+    let encontroHora = false;
+    while ((match = regexHoras.exec(parte)) !== null) {
+      encontroHora = true;
+      const d = padHora(match[1]);
+      const h = padHora(match[2]);
+      if (d && h) {
+        turnos.push({ dias: Array.from(new Set(dias)), desde: d, hasta: h });
+      }
+    }
+    if (!encontroHora) {
+      const mSingle = parte.match(/(\d{1,2}:\d{2})/g);
+      if (mSingle && mSingle.length >= 2) {
+        turnos.push({ dias: Array.from(new Set(dias)), desde: padHora(mSingle[0]), hasta: padHora(mSingle[1]) });
+      }
+    }
+  }
+  return turnos;
+}
+
+function formatearDias(dias) {
+  if (!dias || !dias.length) return 'Lun a Vie';
+  const orden = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  const ordenados = orden.filter(d => dias.includes(d));
+  if (ordenados.length === 7) return 'Todos los días';
+  if (ordenados.length === 6 && !ordenados.includes('dom')) return 'Lun a Sáb';
+  if (ordenados.length === 5 && !ordenados.includes('sab') && !ordenados.includes('dom')) return 'Lun a Vie';
+  if (ordenados.length === 2 && ordenados.includes('sab') && ordenados.includes('dom')) return 'Sáb y Dom';
+  const nombres = ordenados.map(d => DIAS_NOMBRES[d] || d);
+  if (nombres.length === 1) return nombres[0];
+  if (nombres.length === 2) return nombres[0] + ' y ' + nombres[1];
+  return nombres.slice(0, -1).join(', ') + ' y ' + nombres[nombres.length - 1];
+}
+
+function formatearHorarioTurnos(turnos) {
+  if (!turnos || !turnos.length) return 'Sin horario';
+  const validos = turnos.filter(t => t && t.desde && t.hasta && t.dias && t.dias.length > 0);
+  if (!validos.length) return 'Sin horario';
+  return validos.map(t => {
+    const dStr = formatearDias(t.dias);
+    return dStr + ' ' + t.desde + '–' + t.hasta;
+  }).join(' · ');
+}
+
+function parseHorarioEnc(str) {
+  const turnos = parseHorarioFlexible(str);
+  const res = { lv1: ['', ''], lv2: ['', ''], sab: ['', ''], turnos: turnos };
+  for (const t of turnos) {
+    const esSab = t.dias.length === 1 && t.dias[0] === 'sab';
+    const esLv = t.dias.some(d => ['lun','mar','mie','jue','vie'].includes(d));
+    if (esSab && !res.sab[0]) {
+      res.sab = [t.desde, t.hasta];
+    } else if (esLv) {
+      if (!res.lv1[0]) res.lv1 = [t.desde, t.hasta];
+      else if (!res.lv2[0]) res.lv2 = [t.desde, t.hasta];
+    }
+  }
+  return res;
+}
+
 function horarioTexto(str) {
-  const h = parseHorarioEnc(str);
-  const seg = [];
-  if (h.lv1[0] && h.lv1[1]) seg.push(`Lun a Vie ${h.lv1[0]}-${h.lv1[1]}`);
-  if (h.lv2[0] && h.lv2[1]) seg.push(`Lun a Vie ${h.lv2[0]}-${h.lv2[1]}`);
-  if (h.sab[0] && h.sab[1]) seg.push(`Sáb ${h.sab[0]}-${h.sab[1]}`);
-  return seg.join(' · ') || 'Sin horario cargado';
+  const turnos = parseHorarioFlexible(str);
+  return formatearHorarioTurnos(turnos);
+}
+
+function splitStaffItems(rawStr) {
+  if (!rawStr) return [];
+  const s = String(rawStr).trim();
+  const items = [];
+  let current = '';
+  let inBracket = false;
+  let inParen = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '[') inBracket = true;
+    else if (c === ']') inBracket = false;
+    else if (c === '(') inParen = true;
+    else if (c === ')') inParen = false;
+    if ((c === ',' || c === ';' || c === '\n' || c === '\r') && !inBracket && !inParen) {
+      if (current.trim()) items.push(current.trim());
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  if (current.trim()) items.push(current.trim());
+  return items;
+}
+
+function parseStaffList(namesStr, telsStr) {
+  if (!namesStr && !telsStr) return [];
+  const rawNames = splitStaffItems(namesStr);
+  const rawTels = splitStaffItems(telsStr);
+  const res = [];
+
+  for (let i = 0; i < rawNames.length; i++) {
+    let str = rawNames[i];
+    let tel = rawTels[i] || (rawTels.length === 1 ? rawTels[0] : '—');
+    let estado = 'activo';
+    let horario = '';
+
+    const matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
+    if (matchMeta) {
+      if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
+      if (matchMeta[2]) horario = matchMeta[2].trim();
+      str = str.replace(/\[[^\]]*\]/g, '').trim();
+    }
+
+    const matchTel = str.match(/\(([^)]+)\)/);
+    if (matchTel && (!tel || tel === '—')) {
+      tel = matchTel[1].trim();
+      str = str.replace(/\([^)]+\)/g, '').trim();
+    }
+
+    if (/^[\-+0-9\s()]+$/.test(str) && str.replace(/[^0-9]/g, '').length >= 7) {
+      if (!tel || tel === '—') {
+        tel = str;
+        str = '';
+      }
+    }
+
+    str = str.replace(/\[|\]/g, '').trim();
+
+    if (str || tel !== '—') {
+      res.push({
+        nombre: str || 'Personal',
+        tel: tel || '—',
+        estado: estado || 'activo',
+        horario: horario || 'Sin horario'
+      });
+    }
+  }
+  return res;
 }
 
 /* ===================================================================
@@ -657,10 +1010,63 @@ function dibujarConsumoHtml(nombre, plan, eventos, opts = {}) {
  * AUTH / ROLES / PREVIEW
  * =================================================================== */
 
+const haySesionDelPanel = (req) => Boolean(req.session && req.session.authed);
+
+// LA APP DE EDIFICA ENTRA CON UNA CLAVE, NO SIN CONTROL.
+//
+// > [!CAUTION]
+// > **Acá había cuatro líneas que dejaban pasar `/api/pases-qr` sin ninguna autenticación**, para
+// > que funcionara desde EdificaApp, que no tiene sesión de navegador. Con eso, cualquiera en
+// > internet podía crear un pase de acceso para el edificio que quisiera (el edificio viene en el
+// > cuerpo del pedido), leer los últimos 150 pases de TODOS los edificios con sus tokens, y revocar
+// > pases ajenos. Con `Access-Control-Allow-Origin: *` encima, desde cualquier página web.
+//
+// El detalle de por qué la clave se compara así, y por qué sin la variable configurada se RECHAZA
+// --al revés que el webhook de Meta--, está en `clave-app.js`.
+const { exigirSesionOClaveDeApp } = require('./clave-app');
+const claveDeEdifica = exigirSesionOClaveDeApp({
+  clave: process.env.EDIFICA_API_KEY,
+  haySesion: haySesionDelPanel,
+  nombre: 'pases QR',
+});
+
 function requireAuth(req, res, next) {
+  // Los pases de acceso los puede pedir la app, pero con su clave.
+  if (req.path === '/api/pases-qr' || req.path.startsWith('/api/pases-qr/')) {
+    return claveDeEdifica(req, res, next);
+  }
   if (req.session && req.session.authed) return next();
-  if (req.headers.accept && req.headers.accept.includes('application/json')) {
-    return res.status(401).json({ error: 'No autenticado' });
+
+  // > [!CAUTION]
+  // > **Una ruta de API NUNCA se redirige al login.**
+  //
+  // A `/api/...` la llama siempre el JavaScript de la página, jamás el navegador navegando. Un
+  // `res.redirect` le devuelve los 34 bytes de HTML del "Found. Redirecting to /admin/login", y
+  // el `await r.json()` del otro lado revienta con:
+  //
+  //     JSON.parse: unexpected character at line 1 column 1 of the JSON data
+  //
+  // Eso no dice nada de lo que pasó --que la sesión venció-- y manda a buscar el problema al
+  // código que se acaba de escribir. Paso de verdad al publicar una tanda de expensas: el
+  // registro de nginx mostraba `302 34` y el diagnostico costo media hora de mirar el endpoint,
+  // la base y las columnas, que estaban todos bien.
+  //
+  // El `Accept: application/json` no alcanza como señal: un `fetch` con cuerpo JSON manda
+  // `Accept: * / *` salvo que se lo pida explícitamente, así que la rama del 401 casi nunca
+  // corría. Lo que sí es confiable es la ruta: si empieza con `/api/`, la respuesta se lee con
+  // código, y tiene que ser JSON.
+  //
+  // > Y ojo con la causa de fondo: la sesión vive en memoria, así que **cada `pm2 restart` las
+  // > borra todas**. Con el panel abierto en una pestaña, un despliegue deja al administrador
+  // > con una sesión que el servidor ya no conoce. Por eso el mensaje dice qué hacer.
+  const esLlamadaDeCodigo = req.path.startsWith('/api/') ||
+    (req.headers.accept && req.headers.accept.includes('application/json'));
+
+  if (esLlamadaDeCodigo) {
+    return res.status(401).json({
+      error: 'Se venció la sesión del panel. Volvé a entrar y probá de nuevo.',
+      sesion_vencida: true,
+    });
   }
   return res.redirect('/admin/login');
 }
@@ -688,11 +1094,52 @@ function esDueno(req) {
 // Edificios visibles para la vista actual. null = todos (dueño).
 function edificiosPermitidos(req) {
   if (esDueno(req)) return null;
-  if (enPreview(req)) return req.session.previewEdificios || [];
+  if (enPreview(req)) {
+    const propios = req.session.previewEdificios || [];
+    const activo = req.session.previewEdificioActivo;
+    if (activo && propios.some(p => normEdificio(p) === normEdificio(activo))) return [activo];
+    return propios;
+  }
   const propios = req.session.edificios || [];
   const activo = req.session.edificioActivo;
-  if (activo && propios.includes(activo)) return [activo];
+  if (activo && propios.some(p => normEdificio(p) === normEdificio(activo))) return [activo];
   return propios;
+}
+
+// A QUÉ EDIFICIO SE ESCRIBE CUANDO EL CLIENTE PUBLICA ALGO
+//
+// > [!CAUTION]
+// > **Con varios edificios y ninguno elegido en el selector, `permitidos[0]` es una moneda al
+// > aire.** No es "el edificio del cliente": es el primero de la lista, que sale del orden en que
+// > quedaron cargados.
+//
+// Daniel lo encontró subiendo expensas con el selector en **"Todos los edificios"** (tenía 3).
+// Las cuatro liquidaciones se archivaron bajo San Patricio 159 --el primero de la lista-- y en la
+// pantalla no aparecían, porque el listado sí filtra por el edificio elegido. Que hayan caído en
+// el edificio correcto fue **casualidad del orden**.
+//
+// Y el costo de la casualidad al revés es alto: una expensa es un documento con el monto que
+// tiene que pagar una persona. Archivada en el consorcio equivocado, **la ven los vecinos de otro
+// edificio**, con nombre de unidad y todo.
+//
+// `edificiosPermitidos` ya devuelve un solo edificio cuando hay uno elegido en el selector, así
+// que "uno solo" es la única situación donde no hay nada que adivinar. Es el mismo criterio que el
+// resto del proyecto: con dos o más candidatos **se pregunta**, no se elige. Preguntar molesta una
+// vez; elegir mal lo descubre un vecino.
+function edificioParaEscribir(req) {
+  const permitidos = edificiosPermitidos(req) || [];
+  if (permitidos.length === 1) return { edificio: permitidos[0], motivo: '' };
+  if (!permitidos.length) {
+    return {
+      edificio: '',
+      motivo: 'Tu cuenta todavía no tiene ningún edificio asignado. Pedile a la Administración que te asigne uno.',
+    };
+  }
+  return {
+    edificio: '',
+    motivo: 'Elegí primero a qué edificio corresponde, en el selector de arriba. Con varios edificios ' +
+            'no puedo saber cuál es, y si me equivoco lo termina viendo el vecino de otro consorcio.',
+  };
 }
 
 // Todos los edificios de la cuenta (sin estrechar por edificioActivo).
@@ -722,6 +1169,8 @@ function bloquearSiPreview(req, res) {
   return false;
 }
 
+router.use(require('./rutas-accesos')({ esDueno, edificiosPermitidos, bloquearSiPreview }));
+
 /* ===================================================================
  * CATEGORIAS / CANAL / ESTADO (identicos al prototipo)
  * =================================================================== */
@@ -732,9 +1181,11 @@ const CATEGORIAS_EVENTO = {
   seguridad: { label: 'Seguridad', icon: '📹', bg: '#EDEEFB' },
   mensaje: { label: 'Aviso', icon: '💬', bg: '#EAF1FB' },
   mantenimiento: { label: 'Mantenimiento', icon: '🧰', bg: '#FBF3DE' },
+  trabajo_externo: { label: 'Trabajo externo', icon: '🧾', bg: '#FEF3C7' },
 };
 
 function clasificarEvento(e) {
+  if (e.tipo === 'trabajo_externo' || /trabajo_externo|externo/i.test(e.tipo || '')) return 'trabajo_externo';
   const txt = `${e.mensaje || ''} ${e.notas || ''}`.toLowerCase();
   if (/reserva|sum\b|quincho|salon|cumplea/.test(txt)) return 'reserva';
   if (/camara|cámara|seguridad|cerradura|robo|alarma|magnetica|magnética/.test(txt)) return 'seguridad';
@@ -833,9 +1284,15 @@ function truncate(s, n) {
 function modalAltaEdificioHtml(eyebrow, clienteUsuario, planesList) {
   const list = (planesList && planesList.length) ? planesList : [
     { nombre: 'Plan Base', precio: '15000' },
-    { nombre: 'Plan Plus', precio: '35000' }
+    { nombre: 'Plan Plus', precio: '35000' },
+    { nombre: 'Plan Plus (Corporativo 5)', precio: '35000', edificios: '5' },
+    { nombre: 'Plan Premium (Corporativo 20)', precio: '60000', edificios: '20' }
   ];
-  const optionsHtml = list.map((p) => `<option value="${esc(p.nombre)}">${esc(p.nombre)}${Number(p.precio) > 0 ? ' ($' + Number(p.precio).toLocaleString('es-AR') + '/mes)' : ''}</option>`).join('');
+  const optionsHtml = list.map((p) => {
+    const isCorp = Number(p.edificios) > 1 || String(p.nombre).toLowerCase().includes('corporativo');
+    const labelExtra = isCorp ? ` · Paquete (${p.edificios || 5} edificios)` : (Number(p.precio) > 0 ? ' ($' + Number(p.precio).toLocaleString('es-AR') + '/mes)' : '');
+    return `<option value="${esc(p.nombre)}">${esc(p.nombre)}${labelExtra}</option>`;
+  }).join('');
 
   const campo = (id, labelTxt, placeholder, extra) => `
     <div${extra || ''}>
@@ -844,12 +1301,12 @@ function modalAltaEdificioHtml(eyebrow, clienteUsuario, planesList) {
     </div>`;
   return `
       <div id="modal-edificio" class="modal-overlay" onclick="cerrarModal('modal-edificio')">
-        <div class="modal-box" style="width:560px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="width:560px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">${esc(eyebrow)}</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Alta de consorcio</div>
           </div>
-          <div style="padding:20px 24px;max-height:60vh;overflow-y:auto">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             ${campo('ed-nombre', 'Nombre del consorcio', 'Ej: Av. Corrientes 3000', ' style="margin-bottom:14px"')}
             <div style="display:flex;gap:12px;margin-bottom:14px">
               ${campo('ed-direccion', 'Dirección', 'Calle y número (legal)', ' style="flex:1.5"')}
@@ -879,7 +1336,7 @@ function modalAltaEdificioHtml(eyebrow, clienteUsuario, planesList) {
               ${optionsHtml}
             </select>
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-edificio')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="crearEdificio(this${clienteUsuario ? `,'${escJs(clienteUsuario)}'` : ''})" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Agregar edificio</button>
           </div>
@@ -905,8 +1362,20 @@ function modalPlanesAcHtml(planesList, propiosEdificios) {
     const servList = (p.servicios || '').split(/,|\n/).map((s) => s.trim()).filter(Boolean);
     const servHtml = servList.map((s) => `<div style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#334259;margin-bottom:5px"><span style="color:#22C55E">✓</span> ${esc(s)}</div>`).join('');
 
+    const pNorm = normEdificio(p.nombre);
+    const yaTienePlan = (propiosEdificios || []).some((x) => {
+      const xNorm = normEdificio(x.plan);
+      if (!xNorm) return false;
+      return xNorm.includes(pNorm);
+    });
+
+    let btnTextCorp = `🏢 Solicitar Paquete Corporativo (${p.edificios} Edificios)`;
+    if (esCorporativo && yaTienePlan) {
+      btnTextCorp = `⚙️ Gestionar / Adherir Edificios (${p.edificios} Cupos)`;
+    }
+
     const botonSolicitudHtml = esCorporativo
-      ? `<button onclick="abrirSolicitudCorporativa('${escJs(p.nombre)}', ${Number(p.edificios) || 5}, '${edificiosJsonStr}')" style="width:100%;height:40px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">🏢 Solicitar Paquete Corporativo (${p.edificios} Edificios)</button>`
+      ? `<button onclick="abrirSolicitudCorporativa('${escJs(p.nombre)}', ${Number(p.edificios) || 5}, '${edificiosJsonStr}')" style="width:100%;height:40px;border:none;border-radius:10px;background:${yaTienePlan ? 'linear-gradient(180deg,#1E5FB4,#17408B)' : 'linear-gradient(180deg,#2E6FC0,#1E5FB4)'};color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">${esc(btnTextCorp)}</button>`
       : `<button onclick="solicitarPlanCat('${escJs(p.nombre)}', 'este')" style="width:100%;height:40px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">Solicitar para este edificio</button>`;
 
     return `
@@ -1025,6 +1494,7 @@ a{color:inherit;text-decoration:none}
 .ev-resuelto:hover { background: #DCFCE7 !important; }
 .ev-nuevo { border-left: 4px solid #2E6FC0 !important; }
 .ev-normal { border-left: 4px solid transparent !important; }
+.ev-id-badge { font-size: 11px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: #EEF2F6; color: #334155; font-family: monospace; letter-spacing: -.01em; border: 1px solid #CBD5E1; display: inline-block; }
 /* toast */
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#16233B;color:#fff;padding:12px 18px;border-radius:12px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);opacity:0;transition:.25s;z-index:90;font-weight:600;pointer-events:none}
 .toast.show{opacity:1;bottom:28px}
@@ -1039,45 +1509,92 @@ a{color:inherit;text-decoration:none}
 .drawer-panel{display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:#F6F8FB;overflow-y:auto;z-index:61}
 .drawer-panel.open{display:block;animation:mSlideR .28s cubic-bezier(.2,.8,.2,1) both}
 /* modales */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;align-items:center;justify-content:center;padding:20px}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;align-items:center;justify-content:center;padding:20px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
 .modal-overlay.open{display:flex;animation:mFade .2s ease both}
-.modal-box{width:440px;max-width:100%;background:#fff;border-radius:18px;overflow:hidden;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5)}
+.modal-box{width:440px;max-width:100%;max-height:calc(100vh - 40px);background:#fff;border-radius:18px;overflow:hidden;display:flex;flex-direction:column;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5);margin:auto}
 /* inputs (style-focus del prototipo) */
 .inp{width:100%;height:46px;border:1.5px solid #DDE3EE;border-radius:11px;padding:0 14px;font-size:15px;color:#16233B;outline:none;background:#F8FAFD}
 .inp:focus{border-color:#2E6FC0;background:#fff;box-shadow:0 0 0 4px rgba(46,111,192,.1)}
 textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-height:1.5}
-/* Responsive Mobile Adjustments & Mobile Navigation Bar */
+/* chips seleccionables para rubros (mobile & touch friendly) */
+.chips-rubros-wrap{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
+.chip-rubro{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;border:1.5px solid #CBD5E1;background:#F8FAFC;color:#334155;font-size:13px;font-weight:600;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;transition:all .15s ease}
+.chip-rubro:hover{border-color:#94A3B8;background:#F1F5F9}
+.chip-rubro.chip-active{border-color:#1E5FB4;background:#EBF3FC;color:#1E5FB4;font-weight:700;box-shadow:0 1px 3px rgba(30,95,180,.18)}
+.chip-rubro .chip-icon{font-size:14px}
+.chip-rubro .chip-check{display:none;font-size:11px;font-weight:800;background:#1E5FB4;color:#fff;width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;line-height:1}
+.chip-rubro.chip-active .chip-check{display:inline-flex}
 .mobile-bottom-nav {
   display: none;
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 62px;
+  height: 64px;
   background: #ffffff;
   border-top: 1px solid #E4E9F1;
   z-index: 55;
   box-shadow: 0 -4px 20px rgba(16, 35, 59, 0.12);
-  justify-content: space-around;
+  justify-content: flex-start;
   align-items: center;
-  padding: 0 4px;
+  padding: 0 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.mobile-bottom-nav::-webkit-scrollbar {
+  display: none;
 }
 .mobile-bottom-nav a {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  flex: 1;
+  flex: 0 0 72px;
+  min-width: 68px;
   height: 100%;
   color: #64748B;
   font-size: 11px;
   font-weight: 700;
   text-decoration: none;
-  gap: 3px;
+  gap: 2px;
   transition: color 0.15s ease;
+  position: relative;
+  text-align: center;
+  padding: 4px 2px;
+  box-sizing: border-box;
 }
 .mobile-bottom-nav a .nav-icon {
   font-size: 19px;
+  line-height: 1;
+  position: relative;
+  display: inline-block;
+}
+.mobile-bottom-nav a .nav-label {
+  display: block;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+.mobile-bottom-nav a .nav-badge {
+  position: absolute;
+  top: -4px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #E5484D;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
 }
 .mobile-bottom-nav a.active {
@@ -1093,6 +1610,43 @@ textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-
 }
 .dark-theme .mobile-bottom-nav a.active {
   color: #38BDF8 !important;
+}
+
+/* Sidebar scrollbar suave y soporte para zoom / pantallas compactas */
+.sidebar-nav {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+.sidebar-nav::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.7);
+}
+
+@media (max-height: 800px) {
+  .sidebar-nav {
+    padding: 10px 8px 18px !important;
+    gap: 2px !important;
+  }
+  .sidebar-nav a {
+    padding: 7px 10px !important;
+    font-size: 13.5px !important;
+  }
+  .sidebar-help-card {
+    padding: 10px 12px !important;
+    margin: 6px 2px 0 !important;
+  }
 }
 
 @media (max-width: 980px) {
@@ -1122,74 +1676,379 @@ textarea.inp{height:auto;min-height:70px;padding:11px 14px;resize:vertical;line-
   header { height: 58px !important; }
   .login-shell { padding: 20px 12px !important; display: flex !important; align-items: center !important; justify-content: center !important; }
   form[action="/admin/login"] { width: 100% !important; max-width: 100% !important; padding: 20px 16px !important; }
+  .drawer-panel { width: 100% !important; max-width: 100vw !important; border-radius: 0 !important; }
+  .drawer-overlay.open { padding: 0 !important; }
+  button, .inp, select, a.hv-selbtn { min-height: 40px; }
+}
+
+.staff-dia-btn {
+  height: 32px;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid #DCE4F0;
+  background: #F8FAFD;
+  color: #64748B;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s ease;
+}
+.staff-dia-btn:hover {
+  border-color: #2E6FC0;
+  color: #2E6FC0;
+}
+.staff-dia-btn.active {
+  border: 1.5px solid #2E6FC0 !important;
+  background: #2E6FC0 !important;
+  color: #FFFFFF !important;
+  font-weight: 800 !important;
 }
 
 /* Modo Oscuro / Dark Theme (High-Contrast & Ultra-Legible) */
-html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; color:#F1F5F9 !important; }
-.dark-theme header { background:#151F38 !important; border-bottom-color:#2A3A5E !important; }
-.dark-theme header span, .dark-theme header div { color:#F1F5F9 !important; }
-.dark-theme header button.hv-selbtn { background:#1C2B4E !important; border-color:#2A3A5E !important; color:#F1F5F9 !important; }
-.dark-theme header button.hv-selbtn span { color:#F1F5F9 !important; }
-
-/* Menú Sidebar */
-.dark-theme nav.sidebar-nav { background:#151F38 !important; border-right-color:#2A3A5E !important; }
-.dark-theme nav.sidebar-nav a { color:#94A3B8 !important; }
-.dark-theme nav.sidebar-nav a span { color:#94A3B8 !important; }
-.dark-theme nav.sidebar-nav a.active { background:#2E6FC0 !important; color:#FFFFFF !important; }
-.dark-theme nav.sidebar-nav a.active span { color:#FFFFFF !important; }
-.dark-theme nav.sidebar-nav a:hover { background:#1E2C4F !important; color:#FFFFFF !important; }
-.dark-theme nav.sidebar-nav a:hover span { color:#FFFFFF !important; }
-
-/* Modales, Popups & Drawers */
-.dark-theme .modal-box { background:#151F38 !important; border:1px solid #2A3A5E !important; color:#F1F5F9 !important; box-shadow:0 25px 60px -15px rgba(0,0,0,.7) !important; }
-.dark-theme .modal-box h1, .dark-theme .modal-box h2, .dark-theme .modal-box h3 { color:#FFFFFF !important; }
-.dark-theme .modal-box div[style*="border-bottom"] { border-bottom-color:#2A3A5E !important; }
-
-/* Menús Pop-up (Dropdowns) */
-.dark-theme .menu-pop { background:#151F38 !important; border:1px solid #2A3A5E !important; color:#F1F5F9 !important; box-shadow:0 16px 40px -10px rgba(0,0,0,.6) !important; }
-.dark-theme .menu-pop div { color:#F1F5F9 !important; border-bottom-color:#2A3A5E !important; }
-.dark-theme .menu-pop button { color:#CBD5E1 !important; background:none !important; }
-.dark-theme .menu-pop button:hover { background:#1E2C4F !important; color:#FFFFFF !important; }
-.dark-theme .menu-pop button.hv-red { color:#F87171 !important; }
-
-/* Universal: Elementos con Fondo Claro en Modo Oscuro (a, button, div, span, card) */
-.dark-theme .hv-card,
-.dark-theme .hv-white,
-.dark-theme .hv-soft,
-.dark-theme .hv-softb,
-.dark-theme .hv-selbtn,
-.dark-theme .hv-blue,
-.dark-theme .hv-bluedash,
-.dark-theme [style*="background:#fff"],
-.dark-theme [style*="background: #fff"],
-.dark-theme [style*="background:#FFF"],
-.dark-theme [style*="background: #FFF"],
-.dark-theme [style*="background:#ffffff"],
-.dark-theme [style*="background: #ffffff"],
-.dark-theme [style*="background:white"],
-.dark-theme [style*="background: white"],
-.dark-theme [style*="background:rgb(255, 255, 255)"],
-.dark-theme [style*="background: rgb(255, 255, 255)"],
-.dark-theme [style*="background-color:#fff"],
-.dark-theme [style*="background-color: #fff"],
-.dark-theme [style*="background-color:#ffffff"],
-.dark-theme [style*="background-color: #ffffff"],
-.dark-theme [style*="background-color:white"],
-.dark-theme [style*="background-color: white"],
-.dark-theme [style*="background-color:rgb(255, 255, 255)"],
-.dark-theme [style*="background-color: rgb(255, 255, 255)"] {
+html.dark-theme, body.dark-theme {
+  background: #0B132B !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme header {
+  background: #111C38 !important;
+  border-bottom-color: #2A3A5E !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .sidebar-nav {
+  background: #111C38 !important;
+  border-right-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme .mobile-bottom-nav {
+  background: #111C38 !important;
+  border-top-color: #2A3A5E !important;
+}
+.dark-theme .modal-box {
   background: #151F38 !important;
+  border: 1px solid #2A3A5E !important;
+  color: #F1F5F9 !important;
+  box-shadow: 0 16px 40px -12px rgba(0,0,0,.6) !important;
+}
+.dark-theme .modal-box > div {
   border-color: #2A3A5E !important;
 }
+.dark-theme .menu-pop {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+  box-shadow: 0 16px 40px -12px rgba(0,0,0,.6) !important;
+}
+.dark-theme .menu-pop > div {
+  border-color: #2A3A5E !important;
+}
+.dark-theme .menu-pop a,
+.dark-theme .menu-pop button {
+  color: #F1F5F9 !important;
+}
+.dark-theme .menu-pop a:hover,
+.dark-theme .menu-pop button:hover {
+  background: #1C2B4E !important;
+  color: #FFFFFF !important;
+}
+.dark-theme div[style*="background:#fff"],
+.dark-theme div[style*="background: #fff"],
+.dark-theme div[style*="background:#FFFFFF"],
+.dark-theme div[style*="background: #FFFFFF"],
+.dark-theme section[style*="background:#fff"],
+.dark-theme section[style*="background: #fff"],
+.dark-theme .hv-card,
+.dark-theme .hv-selbtn {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme div[style*="background:#F8FAFD"],
+.dark-theme div[style*="background: #F8FAFD"],
+.dark-theme div[style*="background:#F1F5FB"],
+.dark-theme div[style*="background: #F1F5FB"],
+.dark-theme div[style*="background:#F7F9FC"],
+.dark-theme div[style*="background: #F7F9FC"],
+.dark-theme div[style*="background:#EEF2F8"],
+.dark-theme div[style*="background: #EEF2F8"],
+.dark-theme div[style*="background:#F1F4F9"],
+.dark-theme div[style*="background: #F1F4F9"],
+.dark-theme div[style*="background:#EAF1FB"],
+.dark-theme div[style*="background: #EAF1FB"],
+.dark-theme div[style*="background:#EBF3FC"],
+.dark-theme div[style*="background: #EBF3FC"],
+.dark-theme div[style*="background:#F0F4FA"],
+.dark-theme div[style*="background: #F0F4FA"],
+.dark-theme div[style*="background:#FFF7ED"],
+.dark-theme div[style*="background: #FFF7ED"],
+.dark-theme div[style*="background:#FFEDD5"],
+.dark-theme div[style*="background: #FFEDD5"] {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme button[style*="background:#fff"],
+.dark-theme button[style*="background: #fff"],
+.dark-theme button[style*="background:#FFFFFF"],
+.dark-theme button[style*="background: #FFFFFF"],
+.dark-theme a[style*="background:#fff"],
+.dark-theme a[style*="background: #fff"],
+.dark-theme a[style*="background:#FFFFFF"],
+.dark-theme a[style*="background: #FFFFFF"],
+.dark-theme button.hv-soft,
+.dark-theme a.hv-soft,
+.dark-theme button.hv-white,
+.dark-theme a.hv-white {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme .staff-dia-btn {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #94A3B8 !important;
+}
+.dark-theme .staff-dia-btn:hover {
+  border-color: #60A5FA !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .staff-dia-btn.active {
+  background: #2563EB !important;
+  border-color: #60A5FA !important;
+  color: #FFFFFF !important;
+}
+.dark-theme span[style*="color:#0F326A"],
+.dark-theme span[style*="color: #0F326A"],
+.dark-theme div[style*="color:#0F326A"],
+.dark-theme div[style*="color: #0F326A"],
+.dark-theme label[style*="color:#0F326A"],
+.dark-theme label[style*="color: #0F326A"],
+.dark-theme span[style*="color:#0F172A"],
+.dark-theme span[style*="color: #0F172A"],
+.dark-theme div[style*="color:#0F172A"],
+.dark-theme div[style*="color: #0F172A"],
+.dark-theme label[style*="color:#0F172A"],
+.dark-theme label[style*="color: #0F172A"],
+.dark-theme span[style*="color:#17408B"],
+.dark-theme span[style*="color: #17408B"],
+.dark-theme div[style*="color:#17408B"],
+.dark-theme div[style*="color: #17408B"],
+.dark-theme span[style*="color:#1E3A6B"],
+.dark-theme span[style*="color: #1E3A6B"],
+.dark-theme div[style*="color:#1E3A6B"],
+.dark-theme div[style*="color: #1E3A6B"],
+.dark-theme span[style*="color:#1E3A8A"],
+.dark-theme span[style*="color: #1E3A8A"],
+.dark-theme div[style*="color:#1E3A8A"],
+.dark-theme div[style*="color: #1E3A8A"],
+.dark-theme span[style*="color:#1E40AF"],
+.dark-theme span[style*="color: #1E40AF"],
+.dark-theme div[style*="color:#1E40AF"],
+.dark-theme div[style*="color: #1E40AF"],
+.dark-theme span[style*="color:#0F2554"],
+.dark-theme span[style*="color: #0F2554"],
+.dark-theme div[style*="color:#0F2554"],
+.dark-theme div[style*="color: #0F2554"],
+.dark-theme span[style*="color:#16233B"],
+.dark-theme span[style*="color: #16233B"],
+.dark-theme div[style*="color:#16233B"],
+.dark-theme div[style*="color: #16233B"],
+.dark-theme label[style*="color:#16233B"],
+.dark-theme label[style*="color: #16233B"],
+.dark-theme p[style*="color:#16233B"],
+.dark-theme p[style*="color: #16233B"],
+.dark-theme span[style*="color:#334259"],
+.dark-theme span[style*="color: #334259"],
+.dark-theme div[style*="color:#334259"],
+.dark-theme div[style*="color: #334259"],
+.dark-theme label[style*="color:#334259"],
+.dark-theme label[style*="color: #334259"],
+.dark-theme h1, .dark-theme h2, .dark-theme h3, .dark-theme h4 {
+  color: #FFFFFF !important;
+}
+.dark-theme span[style*="color:#475569"],
+.dark-theme span[style*="color: #475569"],
+.dark-theme span[style*="color:#64748B"],
+.dark-theme span[style*="color: #64748B"],
+.dark-theme div[style*="color:#475569"],
+.dark-theme div[style*="color: #475569"],
+.dark-theme div[style*="color:#64748B"],
+.dark-theme div[style*="color: #64748B"],
+.dark-theme label[style*="color:#475569"],
+.dark-theme label[style*="color: #475569"],
+.dark-theme label[style*="color:#64748B"],
+.dark-theme label[style*="color: #64748B"] {
+  color: #CBD5E1 !important;
+}
+.dark-theme span[style*="color:#8595AD"],
+.dark-theme span[style*="color: #8595AD"],
+.dark-theme span[style*="color:#9AA7BD"],
+.dark-theme span[style*="color: #9AA7BD"],
+.dark-theme div[style*="color:#8595AD"],
+.dark-theme div[style*="color: #8595AD"],
+.dark-theme div[style*="color:#9AA7BD"],
+.dark-theme div[style*="color: #9AA7BD"],
+.dark-theme label[style*="color:#8595AD"],
+.dark-theme label[style*="color: #8595AD"],
+.dark-theme label[style*="color:#9AA7BD"],
+.dark-theme label[style*="color: #9AA7BD"] {
+  color: #94A3B8 !important;
+}
 
-.dark-theme [style*="background:#F7F9FC"],
-.dark-theme [style*="background: #F7F9FC"],
-.dark-theme [style*="background:#F8FAFD"],
-.dark-theme [style*="background: #F8FAFD"],
-.dark-theme [style*="background:#F1F5FB"],
-.dark-theme [style*="background: #F1F5FB"],
-.dark-theme [style*="background:#EEF2F8"],
-.dark-theme [style*="background: #EEF2F8"],
+/* Archivo de Comprobantes / Facturas y Fotos - Dark Theme High Contrast */
+.dark-theme .factura-card-metric {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+  box-shadow: none !important;
+}
+.dark-theme .factura-card-metric .metric-title {
+  color: #94A3B8 !important;
+}
+.dark-theme .factura-card-metric .metric-value {
+  color: #F8FAFC !important;
+}
+.dark-theme #tot-pendiente {
+  color: #F59E0B !important;
+}
+.dark-theme #facturas-titulo-edificio,
+.dark-theme .factura-grupo-titulo {
+  color: #F8FAFC !important;
+}
+.dark-theme .row-item-hover {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+  box-shadow: none !important;
+}
+.dark-theme .row-item-hover:hover {
+  background: #1E2C4F !important;
+  border-color: #2E6FC0 !important;
+}
+.dark-theme .factura-concepto-title,
+.dark-theme .factura-proveedor-title,
+.dark-theme .factura-monto-title {
+  color: #F8FAFC !important;
+}
+.dark-theme .factura-meta-text,
+.dark-theme .factura-meta-text span:not(.factura-badge-edificio):not(.factura-badge-tipo) {
+  color: #94A3B8 !important;
+}
+.dark-theme .factura-badge-edificio {
+  background: #1E293B !important;
+  color: #60A5FA !important;
+  border-color: #3B82F6 !important;
+}
+.dark-theme .factura-badge-tipo,
+.dark-theme .factura-badge-count {
+  background: #1E293B !important;
+  color: #94A3B8 !important;
+  border-color: #334155 !important;
+}
+.dark-theme .factura-badge-caso {
+  background: #062C19 !important;
+  color: #4ADE80 !important;
+  border-color: #14532D !important;
+}
+.dark-theme .factura-badge-nocaso {
+  background: #1E293B !important;
+  color: #94A3B8 !important;
+  border-color: #334155 !important;
+}
+.dark-theme .factura-badge-dir {
+  background: #0C4A6E !important;
+  color: #38BDF8 !important;
+  border-color: #0369A1 !important;
+}
+.dark-theme .factura-badge-dir-warn {
+  background: #451A03 !important;
+  color: #FDBA74 !important;
+  border-color: #9A3412 !important;
+}
+.dark-theme .btn-factura-sec {
+  background: #1E293B !important;
+  color: #CBD5E1 !important;
+  border-color: #334155 !important;
+}
+.dark-theme .btn-factura-sec:hover {
+  background: #2563EB !important;
+  color: #FFFFFF !important;
+  border-color: #3B82F6 !important;
+}
+.dark-theme .btn-factura-sec i {
+  color: #CBD5E1 !important;
+}
+.dark-theme .btn-factura-sec:hover i {
+  color: #FFFFFF !important;
+}
+.dark-theme .input-factura-search {
+  background: #151F38 !important;
+  color: #F8FAFC !important;
+  border-color: #2A3A5E !important;
+}
+.dark-theme .input-factura-search::placeholder {
+  color: #64748B !important;
+}
+.dark-theme .popover-facturas-menu {
+  background: #1E293B !important;
+  border-color: #334155 !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+}
+.dark-theme .popover-item-btn {
+  color: #CBD5E1 !important;
+}
+.dark-theme .popover-item-btn:hover {
+  background: #334155 !important;
+  color: #FFFFFF !important;
+}
+
+/* OVERLAYS / BACKDROPS: Proteger overlay contra :hover azul sólido en Modo Oscuro */
+.drawer-overlay,
+.modal-overlay,
+#drawer-overlay,
+.dark-theme .drawer-overlay,
+.dark-theme .modal-overlay,
+.dark-theme #drawer-overlay,
+.dark-theme .drawer-overlay:hover,
+.dark-theme .modal-overlay:hover,
+.dark-theme #drawer-overlay:hover,
+.dark-theme div[onclick].drawer-overlay:hover,
+.dark-theme div[onclick].modal-overlay:hover,
+.dark-theme div[style*="cursor"].drawer-overlay:hover,
+.dark-theme div[style*="cursor"].modal-overlay:hover {
+  background: rgba(11, 19, 43, 0.70) !important;
+  backdrop-filter: blur(3px) !important;
+  -webkit-backdrop-filter: blur(3px) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Event Cards y Feeds */
+.dark-theme .hv-row { background:#151F38 !important; border-bottom-color:#2A3A5E !important; color:#F1F5F9 !important; }
+.dark-theme .hv-row span:not([style*="background"]) { color:#F1F5F9 !important; }
+.dark-theme .hv-row span[style*="color:#16233B"] { color:#FFFFFF !important; }
+.dark-theme .hv-row span[style*="color:#5A6B85"], .dark-theme .hv-row span[style*="color:#64748B"] { color:#CBD5E1 !important; }
+.dark-theme .hv-row span[style*="color:#9AA7BD"] { color:#94A3B8 !important; }
+
+/* Drawer Panel lateral de eventos */
+.drawer-grid-card { background:#fff; border:1px solid #E7ECF3; border-radius:12px; padding:11px 13px; }
+.drawer-notes-box { background:linear-gradient(120deg,#EAF1FB,#F3F7FD); border:1px solid #D8E5F6; border-radius:12px; padding:14px 16px; font-size:14.5px; color:#1E3A6B; line-height:1.6; white-space:pre-wrap; }
+.drawer-audio-box { background:#F1F5FB; border:1px solid #D8E5F6; border-radius:12px; padding:13px 16px; margin-bottom:16px; }
+.drawer-atendio-box { display:flex; align-items:center; gap:11px; background:#fff; border:1px solid #E7ECF3; border-radius:12px; padding:11px 14px; margin-bottom:18px; }
+
+.dark-theme .drawer-panel { background:#0B132B !important; color:#F1F5F9 !important; border-left:1px solid #2A3A5E !important; }
+.dark-theme .drawer-panel div, .dark-theme .drawer-panel p, .dark-theme .drawer-panel h1, .dark-theme .drawer-panel h2 { color:#F1F5F9 !important; }
+.dark-theme .drawer-panel span:not([style*="background"]) { color:#F1F5F9 !important; }
+.dark-theme .drawer-header-box { background:#151F38 !important; border-bottom:1px solid #2A3A5E !important; }
+.dark-theme .drawer-header-box div[style*="color:#5A6B85"] { color:#94A3B8 !important; }
+.dark-theme .drawer-header-box div[style*="color:#16233B"] { color:#FFFFFF !important; }
+.dark-theme .drawer-close-btn { background:#1C2B4E !important; color:#FFFFFF !important; border:1px solid #2A3A5E !important; }
+.dark-theme .drawer-icon-box { background:#1C2B4E !important; border:1px solid #2A3A5E !important; color:#FFFFFF !important; }
+.dark-theme .drawer-grid-card { background:#1C2B4E !important; border-color:#2A3A5E !important; }
+.dark-theme .drawer-grid-card div { color:#F1F5F9 !important; }
+.dark-theme .drawer-grid-card div:first-child { color:#94A3B8 !important; }
+.dark-theme .drawer-notes-box { background:#162447 !important; border-color:#2A3A5E !important; }
 .dark-theme [style*="background:#EAF1FB"],
 .dark-theme [style*="background: #EAF1FB"],
 .dark-theme [style*="background: rgb(247, 249, 252)"],
@@ -1202,10 +2061,27 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 }
 
 /* Universal: Textos oscuros en Modo Oscuro -> Texto Blanco / Gris Claro */
+.dark-theme [style*="color:#0F326A"],
+.dark-theme [style*="color: #0F326A"],
+.dark-theme [style*="color:#0F172A"],
+.dark-theme [style*="color: #0F172A"],
+.dark-theme [style*="color:#17408B"],
+.dark-theme [style*="color: #17408B"],
+.dark-theme [style*="color:#1E3A6B"],
+.dark-theme [style*="color: #1E3A6B"],
+.dark-theme [style*="color:#1E3A8A"],
+.dark-theme [style*="color: #1E3A8A"],
+.dark-theme [style*="color:#1E40AF"],
+.dark-theme [style*="color: #1E40AF"],
+.dark-theme [style*="color:#0F2554"],
+.dark-theme [style*="color: #0F2554"],
 .dark-theme [style*="color:#16233B"],
 .dark-theme [style*="color: #16233B"],
 .dark-theme [style*="color:#334259"],
-.dark-theme [style*="color: #334259"],
+.dark-theme [style*="color: #334259"] {
+  color: #FFFFFF !important;
+}
+
 .dark-theme [style*="color:#475569"],
 .dark-theme [style*="color: #475569"],
 .dark-theme [style*="color:#64748B"],
@@ -1215,6 +2091,65 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 .dark-theme [style*="color:#8595AD"],
 .dark-theme [style*="color: #8595AD"] {
   color: #CBD5E1 !important;
+}
+
+/* Modales en Modo Oscuro - Asegurar alto contraste en cajas internas y campos */
+.dark-theme .modal-box {
+  background: #151F38 !important;
+  border: 1px solid #2A3A5E !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box label {
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box label span {
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box .modal-subcard,
+.dark-theme .modal-box label[style*="background"],
+.dark-theme .modal-box div[style*="background:#F1F5FB"],
+.dark-theme .modal-box div[style*="background: #F1F5FB"],
+.dark-theme .modal-box div[style*="background:#F8FAFD"],
+.dark-theme .modal-box div[style*="background: #F8FAFD"],
+.dark-theme .modal-box div[style*="background:#F7F9FC"],
+.dark-theme .modal-box div[style*="background: #F7F9FC"],
+.dark-theme .modal-box div[style*="background:#EEF2F8"],
+.dark-theme .modal-box div[style*="background: #EEF2F8"],
+.dark-theme .modal-box div[style*="background:#EAF1FB"],
+.dark-theme .modal-box div[style*="background: #EAF1FB"] {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box .modal-subcard label,
+.dark-theme .modal-box .modal-subcard span,
+.dark-theme .modal-box .modal-subcard div {
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box .modal-subcard label[style*="color:#475569"],
+.dark-theme .modal-box .modal-subcard label[style*="color: #475569"],
+.dark-theme .modal-box label.modal-field-label {
+  color: #93C5FD !important;
+}
+.dark-theme .modal-box .inp,
+.dark-theme .modal-box input.inp,
+.dark-theme .modal-box select.inp,
+.dark-theme .modal-box textarea.inp {
+  background: #151F38 !important;
+  border: 1.5px solid #2A3A5E !important;
+  color: #FFFFFF !important;
+}
+.dark-theme .modal-box .inp:focus,
+.dark-theme .modal-box input.inp:focus,
+.dark-theme .modal-box select.inp:focus,
+.dark-theme .modal-box textarea.inp:focus {
+  border-color: #38BDF8 !important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25) !important;
+}
+.dark-theme .amenity-title-dash,
+.dark-theme .amenity-reg-title,
+.dark-theme .reserva-title-dash {
+  color: #FFFFFF !important;
 }
 
 /* Universal: Hover para Botones, Enlaces, Filas y Tarjetas en Modo Oscuro (Previene que se pasen a blanco o modo claro) */
@@ -1243,49 +2178,82 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
   color: #FFFFFF !important;
 }
 
-/* Preservar legibilidad de Badges, Chips y Pills al hacer Hover en Tarjetas/Botones en Modo Oscuro */
+/* Preservar legibilidad de Badges, Chips, Pills e Iconos en Modo Oscuro (Tanto estático como en Hover) */
+.dark-theme span[style*="background:#E7F4EC"],
+.dark-theme span[style*="background: #E7F4EC"],
+.dark-theme span[style*="background:#EAF3EC"],
+.dark-theme span[style*="background: #EAF3EC"],
 .dark-theme *:hover span[style*="background:#E7F4EC"],
 .dark-theme *:hover span[style*="background: #E7F4EC"],
-.dark-theme *:hover .status-active,
-.dark-theme *:hover .prio-primera,
-.dark-theme *:hover .ev-resuelto {
+.dark-theme *:hover span[style*="background:#EAF3EC"],
+.dark-theme *:hover span[style*="background: #EAF3EC"],
+.dark-theme .status-active,
+.dark-theme .prio-primera,
+.dark-theme .ev-resuelto {
   background: #062C19 !important;
   color: #4ADE80 !important;
   border-color: #14532D !important;
 }
 
+.dark-theme span[style*="background:#FBF3DE"],
+.dark-theme span[style*="background: #FBF3DE"],
+.dark-theme span[style*="background:#FEF3C7"],
+.dark-theme span[style*="background: #FEF3C7"],
 .dark-theme *:hover span[style*="background:#FBF3DE"],
 .dark-theme *:hover span[style*="background: #FBF3DE"],
 .dark-theme *:hover span[style*="background:#FEF3C7"],
 .dark-theme *:hover span[style*="background: #FEF3C7"],
-.dark-theme *:hover .rubro-gasista,
-.dark-theme *:hover .rubro-electricista {
+.dark-theme .rubro-gasista,
+.dark-theme .rubro-electricista {
   background: #2A2415 !important;
   color: #FDE047 !important;
   border-color: #594D1A !important;
 }
 
+.dark-theme span[style*="background:#FDECEC"],
+.dark-theme span[style*="background: #FDECEC"],
+.dark-theme span[style*="background:#FEF2F2"],
+.dark-theme span[style*="background: #FEF2F2"],
 .dark-theme *:hover span[style*="background:#FDECEC"],
 .dark-theme *:hover span[style*="background: #FDECEC"],
 .dark-theme *:hover span[style*="background:#FEF2F2"],
 .dark-theme *:hover span[style*="background: #FEF2F2"],
-.dark-theme *:hover .status-inactive,
-.dark-theme *:hover .prio-urgencia,
-.dark-theme *:hover .ev-urgente {
+.dark-theme .status-inactive,
+.dark-theme .prio-urgencia,
+.dark-theme .ev-urgente {
   background: #3B1219 !important;
   color: #FCA5A5 !important;
   border-color: #7F1D1D !important;
 }
 
+.dark-theme span[style*="background:#EEF2F8"],
+.dark-theme span[style*="background: #EEF2F8"],
+.dark-theme span[style*="background:#EAF1FB"],
+.dark-theme span[style*="background: #EAF1FB"],
+.dark-theme span[style*="background:#EDEEFB"],
+.dark-theme span[style*="background: #EDEEFB"],
 .dark-theme *:hover span[style*="background:#EEF2F8"],
 .dark-theme *:hover span[style*="background: #EEF2F8"],
 .dark-theme *:hover span[style*="background:#EAF1FB"],
 .dark-theme *:hover span[style*="background: #EAF1FB"],
-.dark-theme *:hover .plan-base,
-.dark-theme *:hover .rubro-plomero {
+.dark-theme *:hover span[style*="background:#EDEEFB"],
+.dark-theme *:hover span[style*="background: #EDEEFB"],
+.dark-theme .plan-base,
+.dark-theme .rubro-plomero {
   background: #1C2B4E !important;
   color: #38BDF8 !important;
   border-color: #2E6FC0 !important;
+}
+
+.dark-theme .ev-id-badge,
+.dark-theme span[style*="background:#F1F5F9"],
+.dark-theme span[style*="background: #F1F5F9"],
+.dark-theme *:hover .ev-id-badge,
+.dark-theme *:hover span[style*="background:#F1F5F9"],
+.dark-theme *:hover span[style*="background: #F1F5F9"] {
+  background: #1E293B !important;
+  color: #93C5FD !important;
+  border-color: #3B82F6 !important;
 }
 
 .dark-theme .hv-red:hover {
@@ -1324,24 +2292,64 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
   color: #FFFFFF !important;
 }
 
-/* Cajas de Divisas (USD / EUR) en Modo Oscuro */
+/* Cajas de Balance y Divisas (ARS / USD / EUR) */
+.box-hover-link {
+  transition: all .18s cubic-bezier(.2,.8,.2,1);
+  text-decoration: none;
+  cursor: pointer;
+  display: block;
+}
+.box-hover-link:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(16,35,59,.10);
+  filter: brightness(0.98);
+}
+.dark-theme .box-hover-link:hover {
+  box-shadow: 0 6px 20px rgba(0,0,0,.55);
+  filter: brightness(1.1);
+}
+
+@keyframes highlightTarget {
+  0% { box-shadow: 0 0 0 4px rgba(46,111,192,0.65); }
+  100% { box-shadow: 0 0 0 0 rgba(46,111,192,0); }
+}
+#seccion-amenities:target {
+  animation: highlightTarget 2.5s ease;
+}
+
+.dark-theme .box-ars,
+.dark-theme div[class*="box-ars"],
+.dark-theme a[class*="box-ars"] {
+  background: #0F2942 !important;
+  border: 1px solid #1E40AF !important;
+}
+.dark-theme .box-ars *,
+.dark-theme div[class*="box-ars"] *,
+.dark-theme a[class*="box-ars"] * {
+  color: #60A5FA !important;
+}
+
 .dark-theme .box-usd,
-.dark-theme div[class*="box-usd"] {
+.dark-theme div[class*="box-usd"],
+.dark-theme a[class*="box-usd"] {
   background: #092B19 !important;
   border: 1px solid #14532D !important;
 }
 .dark-theme .box-usd *,
-.dark-theme div[class*="box-usd"] * {
+.dark-theme div[class*="box-usd"] *,
+.dark-theme a[class*="box-usd"] * {
   color: #4ADE80 !important;
 }
 
 .dark-theme .box-eur,
-.dark-theme div[class*="box-eur"] {
+.dark-theme div[class*="box-eur"],
+.dark-theme a[class*="box-eur"] {
   background: #0F2942 !important;
   border: 1px solid #1E40AF !important;
 }
 .dark-theme .box-eur *,
-.dark-theme div[class*="box-eur"] * {
+.dark-theme div[class*="box-eur"] *,
+.dark-theme a[class*="box-eur"] * {
   color: #60A5FA !important;
 }
 
@@ -1429,6 +2437,8 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
 .dark-theme .ev-urgente:hover { background:#4A1720 !important; }
 .dark-theme .ev-resuelto { background:#062C19 !important; border-left:4px solid #22C55E !important; }
 .dark-theme .ev-resuelto:hover { background:#0B3D23 !important; }
+.dark-theme .ev-nuevo { border-left:4px solid #38BDF8 !important; }
+.dark-theme .ev-normal { border-left:4px solid transparent !important; }
 
 /* Inputs, Textareas, Selects y Placeholders en Modo Oscuro (High Contrast) */
 .dark-theme .inp,
@@ -1686,6 +2696,566 @@ html.dark-theme, body.dark-theme, .dark-theme { background:#0B132B !important; c
   color: #60A5FA !important;
 }
 
+/* 8. Bloque de Servicios, Personal y Limpieza en Edificios (Modo Oscuro) */
+.dark-theme .box-staff-section {
+  background: #0F1A30 !important;
+  border-color: #1E2D4A !important;
+}
+.dark-theme .box-staff-section h2,
+.dark-theme .box-staff-section div[style*="color:#16233B"],
+.dark-theme .box-staff-section div[style*="color: #16233B"] {
+  color: #FBBF24 !important; /* Amarillo oro para títulos de staff/servicios */
+}
+.dark-theme .box-staff-section .hv-card {
+  background: #15223D !important;
+  border-color: #24355A !important;
+}
+.dark-theme .box-staff-section .hv-card div[style*="color:#16233B"],
+.dark-theme .box-staff-section .hv-card div[style*="color: #16233B"] {
+  color: #FFFFFF !important; /* Blanco puro para nombres */
+}
+.dark-theme .box-staff-section div[style*="background:#F8FAFD"],
+.dark-theme .box-staff-section div[style*="background: #F8FAFD"] {
+  background: #0B1426 !important;
+  border-color: #1E2D4A !important;
+}
+.dark-theme .box-staff-section div[style*="color:#475569"],
+.dark-theme .box-staff-section div[style*="color: #475569"] {
+  color: #FFFFFF !important;
+}
+
+/* 9. Tablas, Encabezados y Contenedores en Modo Oscuro */
+.dark-theme table {
+  background: transparent !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme .tbl-wrap,
+.dark-theme div[style*="overflow-x:auto"],
+.dark-theme div[style*="overflow-y:auto"],
+.dark-theme div[style*="overflow:hidden"][style*="background:#fff"],
+.dark-theme div[style*="overflow: hidden"][style*="background: #fff"],
+.dark-theme div[style*="overflow:hidden"][style*="background: #fff"],
+.dark-theme div[style*="border-radius:12px"][style*="background:#fff"],
+.dark-theme div[style*="border-radius: 12px"][style*="background: #fff"] {
+  background: #0B132B !important;
+  border-color: #2A3A5E !important;
+}
+.dark-theme .tbl-head-row,
+.dark-theme thead tr,
+.dark-theme thead th,
+.dark-theme th,
+.dark-theme tr[style*="background:#F8FAFD"],
+.dark-theme tr[style*="background: #F8FAFD"],
+.dark-theme tr[style*="background:#F8FAFC"],
+.dark-theme tr[style*="background: #F8FAFC"] {
+  background: #151F38 !important;
+  border-bottom-color: #2A3A5E !important;
+  color: #94A3B8 !important;
+}
+.dark-theme tr,
+.dark-theme tr[style*="border-bottom"] {
+  border-bottom-color: #2A3A5E !important;
+}
+.dark-theme td {
+  border-bottom-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
+.dark-theme td div[style*="color:#16233B"],
+.dark-theme td span[style*="color:#16233B"],
+.dark-theme td[style*="color:#16233B"] {
+  color: #FFFFFF !important;
+}
+.dark-theme td div[style*="color:#334259"],
+.dark-theme td span[style*="color:#334259"],
+.dark-theme td[style*="color:#334259"] {
+  color: #CBD5E1 !important;
+}
+.dark-theme td div[style*="color:#64748B"],
+.dark-theme td span[style*="color:#64748B"],
+.dark-theme td[style*="color:#64748B"] {
+  color: #94A3B8 !important;
+}
+.dark-theme td div[style*="color:#2E6FC0"],
+.dark-theme td span[style*="color:#2E6FC0"],
+.dark-theme td[style*="color:#2E6FC0"] {
+  color: #38BDF8 !important;
+}
+
+/* 10. Tags de Origen de Accesos y Cajas de Relato en Modo Oscuro */
+.acceso-origen-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748B;
+  background: #F1F5FB;
+  border: 1px solid #E2E8F0;
+  padding: 2px 7px;
+  border-radius: 6px;
+  margin-left: 6px;
+  display: inline-block;
+}
+.dark-theme .acceso-origen-tag,
+.dark-theme span[style*="background:#F1F5FB"],
+.dark-theme span[style*="background: #F1F5FB"] {
+  background: #1C2B4E !important;
+  color: #93C5FD !important;
+  border-color: #2E6FC0 !important;
+}
+.dark-theme div[style*="background:#F8FAFD"],
+.dark-theme div[style*="background: #F8FAFD"],
+.dark-theme div[style*="background:#F8FAFC"],
+.dark-theme div[style*="background: #F8FAFC"] {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+}
+.dark-theme div[style*="background:#F8FAFD"] div[style*="color:#16233B"],
+.dark-theme div[style*="background:#F8FAFD"] p[style*="color:#64748B"],
+.dark-theme div[style*="background:#F8FAFC"] div[style*="color:#16233B"],
+.dark-theme div[style*="background:#F8FAFC"] p[style*="color:#64748B"] {
+  color: #F1F5F9 !important;
+}
+
+/* Card de alta y edición de proveedores en modo oscuro (Alto Contraste) */
+.dark-theme div[style*="border-radius:16px"][style*="background:#fff"],
+.dark-theme div[style*="border-radius: 16px"][style*="background: #fff"],
+.dark-theme div[style*="border-radius:16px"][style*="background: #fff"],
+.dark-theme div[style*="border-radius: 16px"][style*="background:#fff"] {
+  background: #111C33 !important;
+  border-color: #23355C !important;
+  color: #F1F5F9 !important;
+}
+
+.dark-theme details[style*="background:#F8FAFD"],
+.dark-theme details[style*="background: #F8FAFD"],
+.dark-theme details {
+  background: #182647 !important;
+  border-color: #2A3E6D !important;
+}
+
+.dark-theme summary {
+  color: #F8FAFC !important;
+}
+.dark-theme summary span,
+.dark-theme summary span[style*="color:#8595AD"],
+.dark-theme summary span[style*="color: #8595AD"] {
+  color: #94A3B8 !important;
+}
+
+.dark-theme div[style*="color:#8595AD"],
+.dark-theme div[style*="color: #8595AD"],
+.dark-theme span[style*="color:#8595AD"],
+.dark-theme span[style*="color: #8595AD"] {
+  color: #93C5FD !important;
+  font-weight: 700 !important;
+}
+
+.dark-theme div[style*="color:#64748B"],
+.dark-theme div[style*="color: #64748B"],
+.dark-theme span[style*="color:#64748B"],
+.dark-theme span[style*="color: #64748B"] {
+  color: #CBD5E1 !important;
+}
+
+.dark-theme div[style*="color:#334259"],
+.dark-theme div[style*="color: #334259"] {
+  color: #F8FAFC !important;
+}
+
+/* Chips táctiles en modo oscuro */
+.dark-theme .chip-rubro {
+  border: 1.5px solid #2A3E6D !important;
+  background: #182647 !important;
+  color: #E2E8F0 !important;
+}
+.dark-theme .chip-rubro:hover {
+  border-color: #38BDF8 !important;
+  background: #20335C !important;
+}
+.dark-theme .chip-rubro.chip-active {
+  border-color: #38BDF8 !important;
+  background: #0C4A6E !important;
+  color: #38BDF8 !important;
+  box-shadow: 0 1px 4px rgba(56,189,248,.25) !important;
+}
+.dark-theme .chip-rubro.chip-active .chip-check {
+  background: #38BDF8 !important;
+  color: #082F49 !important;
+}
+
+/* 11. Componentes de Expensas y Subida en Tanda (Luz y Modo Oscuro) */
+.exp-tanda-card {
+  background: #FAFCFF;
+  border: 1.5px solid #C9D5E8;
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+.dark-theme .exp-tanda-card,
+.dark-theme #exp-tanda-card {
+  background: #111C38 !important;
+  border-color: #2A3A5E !important;
+  color: #F1F5F9 !important;
+}
+
+.dark-theme #exp-file-wrap {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+}
+.dark-theme #exp-file-nombre {
+  color: #FFFFFF !important;
+}
+.dark-theme #exp-file-sub[style*="color:#1E5FB4"],
+.dark-theme #exp-file-sub[style*="color: #1E5FB4"] {
+  color: #38BDF8 !important;
+}
+.dark-theme #exp-file-sub[style*="color:#1B7A43"],
+.dark-theme #exp-file-sub[style*="color: #1B7A43"] {
+  color: #4ADE80 !important;
+}
+.dark-theme #exp-file-sub[style*="color:#DC2626"],
+.dark-theme #exp-file-sub[style*="color: #DC2626"] {
+  color: #F87171 !important;
+}
+
+.exp-tanda-titulo {
+  font-size: 15.5px;
+  font-weight: 800;
+  color: #16233B;
+}
+.dark-theme .exp-tanda-titulo {
+  color: #FFFFFF !important;
+}
+
+.exp-tanda-btn-cancelar {
+  border: none;
+  background: transparent;
+  color: #64748B;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all .15s;
+}
+.dark-theme .exp-tanda-btn-cancelar {
+  background: transparent !important;
+  color: #94A3B8 !important;
+}
+.dark-theme .exp-tanda-btn-cancelar:hover {
+  background: #1E293B !important;
+  color: #F1F5F9 !important;
+}
+
+/* Banners de estado de tanda */
+.exp-banner-analizando {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: 10px;
+  color: #1E40AF;
+}
+.dark-theme .exp-banner-analizando {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #93C5FD !important;
+}
+
+.exp-banner-advertencia {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: #92400E;
+  line-height: 1.4;
+}
+.dark-theme .exp-banner-advertencia {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FDE68A !important;
+}
+
+.exp-banner-error {
+  padding: 12px;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 10px;
+  color: #991B1B;
+}
+.dark-theme .exp-banner-error {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+
+/* Píldoras de resumen de tanda */
+.exp-pills-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.exp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 12.5px;
+}
+.exp-pill-total {
+  background: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  color: #334155;
+}
+.dark-theme .exp-pill-total {
+  background: #1E293B !important;
+  border-color: #334155 !important;
+  color: #F1F5F9 !important;
+}
+.exp-pill-ok {
+  background: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  color: #065F46;
+}
+.dark-theme .exp-pill-ok {
+  background: #062C19 !important;
+  border-color: #059669 !important;
+  color: #4ADE80 !important;
+}
+.exp-pill-general {
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1E40AF;
+}
+.dark-theme .exp-pill-general {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #60A5FA !important;
+}
+.exp-pill-sinvecino {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+}
+.dark-theme .exp-pill-sinvecino {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FCD34D !important;
+}
+.exp-pill-repetida {
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #991B1B;
+}
+.dark-theme .exp-pill-repetida {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+
+/* Tabla de revisión de tanda */
+.exp-tanda-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+  background: #FFFFFF;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #E2E8F0;
+}
+.dark-theme .exp-tanda-tabla {
+  background: #151F38 !important;
+  border-color: #2A3A5E !important;
+}
+.exp-tanda-tabla thead tr {
+  background: #F8FAFC;
+  border-bottom: 1px solid #E2E8F0;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #64748B;
+  letter-spacing: 0.5px;
+}
+.dark-theme .exp-tanda-tabla thead tr {
+  background: #0E1626 !important;
+  border-bottom-color: #2A3A5E !important;
+  color: #94A3B8 !important;
+}
+.exp-tanda-tabla tbody tr {
+  border-bottom: 1px solid #EDF2F7;
+}
+.dark-theme .exp-tanda-tabla tbody tr {
+  border-bottom-color: #2A3A5E !important;
+}
+.dark-theme .exp-tanda-tabla tbody tr:hover {
+  background: #1C2B4E !important;
+}
+
+/* Semáforos / Badges en la tabla */
+.exp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.exp-badge-ok {
+  background: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  color: #065F46;
+}
+.dark-theme .exp-badge-ok {
+  background: #062C19 !important;
+  border-color: #059669 !important;
+  color: #4ADE80 !important;
+}
+.exp-badge-general {
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1E40AF;
+}
+.dark-theme .exp-badge-general {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #60A5FA !important;
+}
+.exp-badge-sinvecino {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+}
+.dark-theme .exp-badge-sinvecino {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FCD34D !important;
+}
+.exp-badge-repetida {
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #991B1B;
+}
+.dark-theme .exp-badge-repetida {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+.exp-badge-listo {
+  background: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  color: #64748B;
+}
+.dark-theme .exp-badge-listo {
+  background: #1E293B !important;
+  border-color: #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+/* Columna de archivo */
+.exp-archivo-nombre {
+  font-weight: 600;
+  color: #1E293B;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dark-theme .exp-archivo-nombre {
+  color: #FFFFFF !important;
+}
+.exp-archivo-link {
+  font-size: 11px;
+  color: #1E5FB4;
+  text-decoration: none;
+}
+.dark-theme .exp-archivo-link {
+  color: #38BDF8 !important;
+}
+.exp-archivo-link:hover {
+  text-decoration: underline;
+}
+
+/* Botón descartar fila */
+.exp-btn-quitar {
+  border: 1px solid #FECDD3;
+  background: #FFF1F2;
+  color: #E11D48;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-weight: 700;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+}
+.exp-btn-quitar:hover {
+  background: #FFE4E6;
+  border-color: #FDA4AF;
+}
+.dark-theme .exp-btn-quitar {
+  background: #450A0A !important;
+  border-color: #991B1B !important;
+  color: #FCA5A5 !important;
+}
+.dark-theme .exp-btn-quitar:hover {
+  background: #7F1D1D !important;
+  color: #FFFFFF !important;
+}
+
+/* Botón cancelar tanda en acciones */
+.exp-btn-accion-cancelar {
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid #DCE4F0;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #64748B;
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.dark-theme .exp-btn-accion-cancelar {
+  background: #1C2B4E !important;
+  border-color: #2A3A5E !important;
+  color: #CBD5E1 !important;
+}
+
+/* Estado dinámico OCR en modo individual */
+.dark-theme #exp-ocr-status[style*="background:#ECFDF5"],
+.dark-theme #exp-ocr-status[style*="background: #ECFDF5"] {
+  background: #062C19 !important;
+  border-color: #059669 !important;
+  color: #4ADE80 !important;
+}
+.dark-theme #exp-ocr-status[style*="background:#FFFBEB"],
+.dark-theme #exp-ocr-status[style*="background: #FFFBEB"] {
+  background: #3B2406 !important;
+  border-color: #B45309 !important;
+  color: #FDE68A !important;
+}
+.dark-theme #exp-ocr-status[style*="background:#FEF2F2"],
+.dark-theme #exp-ocr-status[style*="background: #FEF2F2"] {
+  background: #450A0A !important;
+  border-color: #DC2626 !important;
+  color: #FCA5A5 !important;
+}
+.dark-theme #exp-ocr-status[style*="background:#EFF6FF"],
+.dark-theme #exp-ocr-status[style*="background: #EFF6FF"] {
+  background: #172554 !important;
+  border-color: #2563EB !important;
+  color: #93C5FD !important;
+}
 `;
 
 /* ===================================================================
@@ -1700,15 +3270,196 @@ function toast(msg,kind){
   t.className='toast show '+(kind||'ok');
   setTimeout(function(){t.className='toast';},2600);
 }
+window.toast = toast;
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g,function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
   });
 }
+window.escapeHtml = escapeHtml;
 function cerrarModal(id){
   var m=document.getElementById(id);
   if(m) m.classList.remove('open');
 }
+window.cerrarModal = cerrarModal;
+
+// --- INSTALACIONES Y ACCESOS CLIENT JS ---
+window.abrirModalAccesoNuevo = function(ed) {
+  var fields = ['acc-lugar', 'acc-ubicacion', 'acc-quien-abre', 'acc-tel', 'acc-tipo', 'acc-notas'];
+  fields.forEach(function(f) { var el = document.getElementById(f); if (el) el.value = ''; });
+  var m = document.getElementById('modal-acceso-nuevo');
+  if (m) m.classList.add('open');
+};
+
+window.renderTablaAccesosClient = function(lista) {
+  if (!lista || !lista.length) {
+    return '<div style="text-align:center;padding:24px 16px;color:#8595AD;font-size:13.5px;font-style:italic">No hay instalaciones o accesos cargados para este edificio. Escribí una descripción arriba o usá el botón + Añadir.</div>';
+  }
+  var filas = lista.map(function(a) {
+    var origHtml = a.origen
+      ? '<span class="acceso-origen-tag" style="font-size:10px;font-weight:600;color:#64748B;background:#F1F5FB;border:1px solid #E2E8F0;padding:2px 7px;border-radius:6px;margin-left:6px" title="Origen del dato">' + escapeHtml(a.origen) + '</span>'
+      : '';
+    var lugarEsc = escapeHtml(a.lugar || '—');
+    var ubEsc = escapeHtml(a.ubicacion || '—');
+    var qaEsc = escapeHtml(a.quienAbre || a.quien_abre || '—');
+    var telEsc = escapeHtml(a.telefono || '—');
+    var tipoEsc = escapeHtml(a.tipoAcceso || a.tipo_acceso || '—');
+    var notasEsc = escapeHtml(a.notas || '—');
+    var lugarAttr = escapeHtml(a.lugar || '');
+
+    return '<tr style="border-bottom:1px solid #EEF1F6">' +
+      '<td style="padding:12px 14px;vertical-align:top">' +
+        '<div style="font-size:13.5px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:4px;flex-wrap:wrap">' +
+          '<span>' + lugarEsc + '</span>' + origHtml +
+        '</div>' +
+      '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;color:#334259;font-weight:600">' + ubEsc + '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;color:#334259">' + qaEsc + '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;color:#2E6FC0;font-weight:700">' + telEsc + '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;color:#334259">' + tipoEsc + '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;color:#64748B;font-size:12.5px">' + notasEsc + '</td>' +
+      '<td style="padding:12px 14px;vertical-align:top;text-align:right">' +
+        '<button data-lugar="' + lugarAttr + '" onclick="quitarAcceso(this.dataset.lugar)" style="font-size:12.5px;font-weight:700;color:#EF4444;background:none;border:none;cursor:pointer;padding:4px 8px" class="hv-red">Quitar</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  return '<div style="overflow-x:auto;border:1px solid #E7ECF3;border-radius:12px;background:#fff" class="tbl-wrap">' +
+    '<table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">' +
+      '<thead>' +
+        '<tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em" class="tbl-head-row">' +
+          '<th style="padding:12px 14px">Lugar / Instalación</th>' +
+          '<th style="padding:12px 14px">Dónde está</th>' +
+          '<th style="padding:12px 14px">Quién abre</th>' +
+          '<th style="padding:12px 14px">Teléfono</th>' +
+          '<th style="padding:12px 14px">Tipo de acceso</th>' +
+          '<th style="padding:12px 14px">Notas</th>' +
+          '<th style="padding:12px 14px;text-align:right">Acción</th>' +
+        '</tr>' +
+      '</thead>' +
+      '<tbody>' + filas + '</tbody>' +
+    '</table>' +
+  '</div>';
+};
+
+window.actualizarTablaAccesosUI = function(lista) {
+  var container = document.getElementById('tabla-accesos-container');
+  if (container) {
+    container.innerHTML = window.renderTablaAccesosClient(lista);
+  }
+};
+
+window.guardarRelatoAccesos = function(btn) {
+  var txtEl = document.getElementById('accesos-relato-texto');
+  var msgEl = document.getElementById('accesos-relato-msg');
+  var texto = txtEl ? txtEl.value.trim() : '';
+  if (!texto) {
+    toast('Escribí una descripción del edificio', 'err');
+    return;
+  }
+  var txtOrig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Analizando relato...';
+  if (msgEl) msgEl.style.display = 'none';
+
+  fetch('/admin/api/accesos-relato', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texto: texto })
+  })
+  .then(function(res){ return res.json(); })
+  .then(function(data){
+    btn.disabled = false;
+    btn.textContent = txtOrig;
+    if (data.error) {
+      toast(data.error, 'err');
+      return;
+    }
+    var cant = data.detectados || 0;
+    toast('Se detectaron ' + cant + ' instalaciones', 'ok');
+    if (msgEl) {
+      msgEl.textContent = '✨ Se detectaron ' + cant + ' instalaciones en la descripción';
+      msgEl.style.display = 'block';
+    }
+    if (data.accesos) window.actualizarTablaAccesosUI(data.accesos);
+  })
+  .catch(function(err){
+    btn.disabled = false;
+    btn.textContent = txtOrig;
+    toast('Error de conexión', 'err');
+  });
+};
+
+window.guardarAccesoNuevo = function(btn) {
+  var lugar = (document.getElementById('acc-lugar') || {}).value || '';
+  var ubicacion = (document.getElementById('acc-ubicacion') || {}).value || '';
+  var quien_abre = (document.getElementById('acc-quien-abre') || {}).value || '';
+  var telefono = (document.getElementById('acc-tel') || {}).value || '';
+  var tipo_acceso = (document.getElementById('acc-tipo') || {}).value || '';
+  var notas = (document.getElementById('acc-notas') || {}).value || '';
+
+  if (!lugar.trim()) {
+    toast('Ingresá el lugar de la instalación', 'err');
+    return;
+  }
+
+  var txtOrig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+
+  fetch('/admin/api/acceso', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      lugar: lugar.trim(),
+      ubicacion: ubicacion.trim(),
+      quien_abre: quien_abre.trim(),
+      telefono: telefono.trim(),
+      tipo_acceso: tipo_acceso.trim(),
+      notas: notas.trim()
+    })
+  })
+  .then(function(res){ return res.json(); })
+  .then(function(data){
+    btn.disabled = false;
+    btn.textContent = txtOrig;
+    if (data.error) {
+      toast(data.error, 'err');
+      return;
+    }
+    cerrarModal('modal-acceso-nuevo');
+    toast('Instalación guardada', 'ok');
+    if (data.accesos) window.actualizarTablaAccesosUI(data.accesos);
+  })
+  .catch(function(err){
+    btn.disabled = false;
+    btn.textContent = txtOrig;
+    toast('Error al guardar instalación', 'err');
+  });
+};
+
+window.quitarAcceso = function(lugar) {
+  if (!lugar) return;
+  if (!confirm('¿Quitar ' + lugar + ' de la lista?')) return;
+
+  fetch('/admin/api/acceso-quitar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lugar: lugar })
+  })
+  .then(function(res){ return res.json(); })
+  .then(function(data){
+    if (data.error) {
+      toast(data.error, 'err');
+      return;
+    }
+    toast('Instalación eliminada', 'ok');
+    if (data.accesos) window.actualizarTablaAccesosUI(data.accesos);
+  })
+  .catch(function(err){
+    toast('Error al quitar instalación', 'err');
+  });
+};
 
 // --- Asistente Virtual AC Widget ---
 window.__aiWidgetJustDragged = false;
@@ -1744,11 +3495,14 @@ window.toggleAsistenteWidget = function toggleAsistenteWidget(){
 var toggleAsistenteWidget = window.toggleAsistenteWidget;
 
 // --- Arrastrar el globo flotante del Asistente ---
-(function initDragAsistenteWidget(){
+// --- Arrastrar el globo flotante del Asistente ---
+window.initDragAsistenteWidget = function initDragAsistenteWidget(){
   var widget = document.getElementById('ac-ai-widget-container');
   if (!widget) return;
-  var handle = widget.querySelector('button.hv-navy');
+  var handle = widget.querySelector('button.hv-navy') || widget.querySelector('#ac-ai-trigger-btn') || widget.querySelector('button');
   if (!handle) return;
+  if (handle.__dragInitialized) return;
+  handle.__dragInitialized = true;
 
   var dragging = false;
   var moved = false;
@@ -1759,7 +3513,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
   }
 
   function applyPosition(left, top){
-    var w = widget.offsetWidth || 60;
+    var w = widget.offsetWidth || 140;
     var h = widget.offsetHeight || 48;
     left = clamp(left, 8, window.innerWidth - w - 8);
     top = clamp(top, 8, window.innerHeight - h - 8);
@@ -1789,6 +3543,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
   function onPointerUp(){
     if (!dragging) return;
     dragging = false;
+    handle.style.cursor = 'grab';
     document.removeEventListener('mousemove', onPointerMove);
     document.removeEventListener('mouseup', onPointerUp);
     document.removeEventListener('touchmove', onPointerMove);
@@ -1796,6 +3551,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     if (moved) {
       guardarPosicion();
       window.__aiWidgetJustDragged = true;
+      setTimeout(function(){ window.__aiWidgetJustDragged = false; }, 300);
     }
   }
 
@@ -1803,6 +3559,7 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     var p = e.touches ? e.touches[0] : e;
     dragging = true;
     moved = false;
+    handle.style.cursor = 'grabbing';
     var rect = widget.getBoundingClientRect();
     startLeft = rect.left;
     startTop = rect.top;
@@ -1825,17 +3582,30 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
   });
 
   function posicionPorDefecto(){
-    // Arranca pegado abajo del header (64px, sticky) en vez de abajo de todo
-    // la pantalla, donde se pierde entre el resto de los botones del panel.
-    // En desktop el sidebar (236px, con la tarjeta "Enviar sugerencia" en modo
-    // cliente) queda tapado por el globo si arranca pegado a la izquierda.
-    // En mobile ese sidebar se oculta (@media max-width:900px), asi que ahi
-    // no hay conflicto. Se calcula en vivo en lugar de un valor fijo.
-    var sidebar = document.querySelector('nav.sidebar-nav');
-    var sidebarVisible = !!(sidebar && sidebar.offsetWidth > 0 && getComputedStyle(sidebar).display !== 'none');
-    var left = sidebarVisible ? (sidebar.getBoundingClientRect().right + 16) : 16;
-    var top = 76;
-    applyPosition(left, top);
+    var edBtn = document.querySelector('button[onclick*="menu-edificio"]') || document.querySelector('#menu-edificio-btn');
+    var header = document.querySelector('header');
+    
+    if (edBtn) {
+      var r = edBtn.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        var targetLeft = r.right + 12;
+        var targetTop = r.top + Math.max(0, (r.height - 38) / 2);
+        if (targetLeft + 150 < window.innerWidth) {
+          applyPosition(targetLeft, targetTop);
+          return;
+        }
+      }
+    }
+    
+    if (header) {
+      var rH = header.getBoundingClientRect();
+      var targetLeft = Math.min(260, window.innerWidth - 180);
+      var targetTop = rH.top + Math.max(0, (rH.height - 38) / 2);
+      applyPosition(targetLeft, targetTop);
+      return;
+    }
+    
+    applyPosition(240, 12);
   }
 
   try {
@@ -1843,19 +3613,161 @@ var toggleAsistenteWidget = window.toggleAsistenteWidget;
     if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
       applyPosition(saved.left, saved.top);
     } else {
-      posicionPorDefecto();
+      setTimeout(posicionPorDefecto, 50);
     }
-  } catch(e){}
-})();
-
-window.checkAndRunFirstTimeTour = function checkAndRunFirstTimeTour(force){
-  if(typeof toast === 'function'){
-    toast('📍 Recorrido iniciado: explorá las secciones del menú lateral.', 'ok');
-  } else if(typeof showToast === 'function'){
-    showToast('📍 Recorrido iniciado: explorá las secciones del menú lateral.', '📍');
+  } catch(e){
+    setTimeout(posicionPorDefecto, 50);
   }
 };
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function(){ window.initDragAsistenteWidget(); });
+} else {
+  setTimeout(function(){ window.initDragAsistenteWidget(); }, 50);
+}
+window.addEventListener('load', function(){ window.initDragAsistenteWidget(); });
+
+window.checkAndRunFirstTimeTour = function checkAndRunFirstTimeTour(force){
+  var TOUR_STEPS = [
+    { sel: '[data-tour="nav-resumen"]', title: 'Resumen', desc: 'Acá tenés el pantallazo general: reclamos activos, urgencias y lo último que pasó en tus edificios.' },
+    { sel: '[data-tour="nav-eventos"]', title: 'Eventos', desc: 'Todos los reclamos e incidentes reportados por los vecinos, con su estado y el detalle completo de cada caso.' },
+    { sel: '[data-tour="nav-edificio"]', title: 'Mi Edificio', desc: 'Los datos de tu edificio: personal de guardia, proveedores asignados y toda la información de contacto.' },
+    { sel: '[data-tour="nav-proveedores"]', title: 'Proveedores', desc: 'Tu lista de técnicos y proveedores de servicio, con sus datos de contacto y especialidad.' },
+    { sel: '[data-tour="nav-facturas"]', title: 'Facturas/Fotos', desc: 'Facturas y fotos que se van adjuntando a los casos, todo organizado en un solo lugar.' },
+    { sel: '[data-tour="nav-expensas"]', title: 'Expensas', desc: 'Consultá el estado de las expensas de tu edificio.' },
+    { sel: '[data-tour="nav-sugerencias"]', title: 'Sugerencias', desc: 'Ideas y pedidos que dejás para mejorar el servicio.' },
+    { sel: '[data-tour="nav-consumos"]', title: 'Consumos', desc: 'El consumo y la actividad de cada uno de tus edificios.' },
+    { sel: '[data-tour="nav-edificios"]', title: 'Clientes', desc: 'Todos los clientes y edificios que administrás, organizados para encontrar cualquiera rápido.' },
+    { sel: '[data-tour="nav-solicitudes"]', title: 'Solicitudes', desc: 'Pedidos de tus clientes pendientes de aprobación.' },
+    { sel: '[data-tour="nav-suscripciones"]', title: 'Planes y Pagos', desc: 'El estado de los planes y pagos de cada cliente.' },
+    { sel: '[data-tour="metrics"]', title: 'Métricas rápidas', desc: 'Un pantallazo rápido: reclamos abiertos, urgencias y edificios activos.' },
+    { sel: '[data-tour="event-table"]', title: 'Últimos eventos', desc: 'Acá aparecen los eventos más recientes, a medida que Marcos los va reportando en tiempo real.' },
+    { sel: '[data-tour="ai-widget"]', title: 'Asistente Virtual', desc: 'Volvé acá cuando quieras: preguntame lo que necesites sobre cómo usar el panel.' }
+  ];
+
+  var pasos = TOUR_STEPS.filter(function (p) {
+    var el = document.querySelector(p.sel);
+    return el && el.offsetParent !== null;
+  });
+
+  if (pasos.length === 0) {
+    if (typeof toast === 'function') toast('No hay nada para recorrer en esta pantalla todavía.', 'err');
+    return;
+  }
+
+  iniciarRecorridoTour(pasos);
+};
 var checkAndRunFirstTimeTour = window.checkAndRunFirstTimeTour;
+
+function iniciarRecorridoTour(pasos) {
+  var idx = 0;
+  var overlay = document.createElement('div');
+  overlay.id = 'tour-overlay-bg';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;background:transparent;';
+
+  var spot = document.createElement('div');
+  spot.id = 'tour-spotlight';
+  spot.style.cssText = 'position:fixed;z-index:100001;border-radius:12px;box-shadow:0 0 0 9999px rgba(10,18,35,.6);transition:all .35s ease;pointer-events:none;';
+
+  var card = document.createElement('div');
+  card.id = 'tour-card';
+  card.style.cssText = 'position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:100002;width:320px;max-width:92vw;background:#fff;border-radius:16px;box-shadow:0 20px 50px -12px rgba(16,35,59,.45);padding:18px 20px;font-family:"Hanken Grotesk",sans-serif;';
+
+  var stepLabel = document.createElement('div');
+  stepLabel.style.cssText = 'font-size:11px;font-weight:800;color:#2E6FC0;letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px;';
+
+  var titleEl = document.createElement('div');
+  titleEl.style.cssText = 'font-size:15.5px;font-weight:800;color:#16233B;margin-bottom:6px;';
+
+  var descEl = document.createElement('div');
+  descEl.style.cssText = 'font-size:13.5px;color:#475569;line-height:1.5;margin-bottom:16px;';
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;align-items:center;';
+
+  var btnSaltar = document.createElement('button');
+  btnSaltar.textContent = 'Saltar';
+  btnSaltar.style.cssText = 'background:none;border:none;color:#94A3B8;font-weight:700;font-size:13px;cursor:pointer;padding:8px 4px;';
+
+  var spacer = document.createElement('div');
+  spacer.style.cssText = 'flex:1;';
+
+  var btnAnterior = document.createElement('button');
+  btnAnterior.textContent = '← Atrás';
+  btnAnterior.style.cssText = 'background:#F1F5FB;border:none;color:#17408B;font-weight:700;font-size:13px;cursor:pointer;padding:9px 14px;border-radius:9px;';
+
+  var btnSiguiente = document.createElement('button');
+  btnSiguiente.style.cssText = 'background:linear-gradient(180deg,#2E6FC0,#1E5FB4);border:none;color:#fff;font-weight:700;font-size:13px;cursor:pointer;padding:9px 16px;border-radius:9px;';
+
+  btnRow.appendChild(btnSaltar);
+  btnRow.appendChild(spacer);
+  btnRow.appendChild(btnAnterior);
+  btnRow.appendChild(btnSiguiente);
+
+  card.appendChild(stepLabel);
+  card.appendChild(titleEl);
+  card.appendChild(descEl);
+  card.appendChild(btnRow);
+
+  document.body.appendChild(overlay);
+  document.body.appendChild(spot);
+  document.body.appendChild(card);
+
+  function posicionarEnElemento(el) {
+    var r = el.getBoundingClientRect();
+    var pad = 8;
+    spot.style.top = (r.top - pad) + 'px';
+    spot.style.left = (r.left - pad) + 'px';
+    spot.style.width = (r.width + pad * 2) + 'px';
+    spot.style.height = (r.height + pad * 2) + 'px';
+  }
+
+  function render() {
+    if (idx >= pasos.length) { cerrar(); return; }
+    var p = pasos[idx];
+    var el = document.querySelector(p.sel);
+    if (!el) { idx++; render(); return; }
+
+    stepLabel.textContent = 'Paso ' + (idx + 1) + ' de ' + pasos.length;
+    titleEl.textContent = p.title;
+    descEl.textContent = p.desc;
+    btnAnterior.style.visibility = idx === 0 ? 'hidden' : 'visible';
+    btnSiguiente.textContent = idx === pasos.length - 1 ? 'Listo ✓' : 'Siguiente →';
+
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(function () { posicionarEnElemento(el); }, 280);
+  }
+
+  function reposicionarActual() {
+    var p = pasos[idx];
+    if (!p) return;
+    var el = document.querySelector(p.sel);
+    if (el) posicionarEnElemento(el);
+  }
+
+  function cerrar() {
+    window.removeEventListener('resize', reposicionarActual);
+    if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    if (spot.parentNode) spot.parentNode.removeChild(spot);
+    if (card.parentNode) card.parentNode.removeChild(card);
+  }
+
+  btnSiguiente.onclick = function () {
+    if (idx === pasos.length - 1) { cerrar(); return; }
+    idx++;
+    render();
+  };
+  btnAnterior.onclick = function () {
+    if (idx === 0) return;
+    idx--;
+    render();
+  };
+  btnSaltar.onclick = cerrar;
+  overlay.onclick = cerrar;
+
+  window.addEventListener('resize', reposicionarActual);
+  render();
+}
 
 window.enviarPreguntaAsistente = async function enviarPreguntaAsistente(){
   var input = document.getElementById('ac-ai-input');
@@ -1906,23 +3818,32 @@ function valEl(id){
   return el ? el.value : '';
 }
 // --- menus del topbar ---
-function toggleMenu(id){
+function cerrarTodosLosMenus(){
+  document.querySelectorAll('.menu-pop.open').forEach(function(x){x.classList.remove('open');});
+}
+function toggleMenu(id, e){
+  if(e){
+    if(e.stopPropagation) e.stopPropagation();
+    if(e.cancelBubble !== undefined) e.cancelBubble = true;
+  }
   var m=document.getElementById(id);
   if(!m)return;
-  document.querySelectorAll('.menu-pop.open').forEach(function(x){if(x!==m)x.classList.remove('open');});
   var willOpen=!m.classList.contains('open');
-  m.classList.toggle('open',willOpen);
+  cerrarTodosLosMenus();
   if(willOpen){
-    setTimeout(function(){
-      document.addEventListener('click',function closeIt(e){
-        if(!m.contains(e.target)){m.classList.remove('open');document.removeEventListener('click',closeIt);}
-      });
-    },0);
+    m.classList.add('open');
   }
+}
+if(typeof document !== 'undefined'){
+  document.addEventListener('click',function(e){
+    if(!e.target.closest('.menu-pop') && !e.target.closest('[onclick*="toggleMenu"]')){
+      cerrarTodosLosMenus();
+    }
+  });
 }
 // --- modales genericos ---
 function abrirModal(id){
-  document.querySelectorAll('.menu-pop.open').forEach(function(x){x.classList.remove('open');});
+  cerrarTodosLosMenus();
   var m=document.getElementById(id);
   if(m){
     m.classList.add('open');
@@ -1936,11 +3857,25 @@ function cerrarModal(id){
   var m=document.getElementById(id);
   if(m) m.classList.remove('open');
 }
-function normalizarUrlAudio(pathOrUrl) {
+function normalizarUrlAudio(pathOrUrl, explicitType) {
   if (!pathOrUrl) return '';
   var u = String(pathOrUrl).trim();
   if (u.indexOf('http://') === 0 || u.indexOf('https://') === 0) {
     return u;
+  }
+
+  var isPdf = explicitType === 'pdf' || explicitType === 'doc' || explicitType === 'document' || /pdf|doc|docx|xls|xlsx|facturas|documentos/i.test(u);
+  var isImg = explicitType === 'image' || /jpeg|jpg|png|webp|gif|bmp|svg|imagenes|fotos/i.test(u);
+  var isVid = explicitType === 'video' || /mp4|mov|webm|mkv|avi|videos/i.test(u);
+  var defaultExt = isPdf ? '.pdf' : (isImg ? '.jpeg' : (isVid ? '.mp4' : '.ogg'));
+  var targetFolder = (isPdf || isImg || isVid) ? 'archivos' : 'audios';
+
+  if (/^media[:_]/i.test(u)) {
+    var mediaId = u.replace(/^media[:_]/i, '').trim();
+    var hasExt = /\.(jpeg|jpg|png|webp|gif|bmp|svg|mp4|mov|webm|mkv|avi|ogg|mp3|m4a|wav|pdf|doc|docx|xls|xlsx)$/i.test(mediaId);
+    u = '/' + targetFolder + '/media_' + mediaId + (hasExt ? '' : defaultExt);
+  } else if (/^[0-9]{10,20}$/.test(u)) {
+    u = '/' + targetFolder + '/media_' + u + defaultExt;
   }
 
   // Quitar prefijos del sistema de archivos local o del servidor VPS
@@ -1953,27 +3888,29 @@ function normalizarUrlAudio(pathOrUrl) {
 
   if (u.indexOf('/almacenamiento/') !== -1) {
     u = '/archivos/' + u.substring(u.indexOf('/almacenamiento/') + 16);
-  } else if (u.indexOf('/temp/') !== -1) {
-    u = '/audios/' + u.substring(u.indexOf('/temp/') + 6);
-  } else if (u.indexOf('/audios/') !== -1) {
-    u = '/audios/' + u.substring(u.indexOf('/audios/') + 8);
   } else if (u.indexOf('/archivos/') !== -1) {
     u = '/archivos/' + u.substring(u.indexOf('/archivos/') + 10);
+  } else if (u.indexOf('/temp/') !== -1) {
+    u = '/' + targetFolder + '/' + u.substring(u.indexOf('/temp/') + 6);
+  } else if (u.indexOf('/audios/') !== -1) {
+    u = '/' + ((isPdf || isImg || isVid) ? 'archivos' : 'audios') + '/' + u.substring(u.indexOf('/audios/') + 8);
   } else {
-    var filename = u.replace(/^\\/+/g, '').replace(/^\\\\+/g, '');
+    var filename = u.replace(new RegExp('^/+', 'g'), '').replace(new RegExp('^\\\\+', 'g'), '');
     if (filename.startsWith('temp/')) {
-      u = '/audios/' + filename.substring(5);
+      u = '/' + targetFolder + '/' + filename.substring(5);
     } else if (filename.startsWith('almacenamiento/')) {
       u = '/archivos/' + filename.substring(15);
-    } else {
-      u = '/audios/' + filename;
+    } else if (!filename.startsWith('audios/') && !filename.startsWith('/audios/') && !filename.startsWith('archivos/') && !filename.startsWith('/archivos/')) {
+      u = '/' + targetFolder + '/' + filename;
     }
   }
 
   if (u.charAt(0) !== '/') u = '/' + u;
-  return window.location.origin + u;
+  return (window.location ? window.location.origin : '') + u;
 }
+window.normalizarUrlAudio = normalizarUrlAudio;
 function stopEv(e){e.stopPropagation();}
+window.stopEv = stopEv;
 
 // --- drawer de evento ---
 var _drawerActual=null;
@@ -2050,7 +3987,7 @@ function parseAudiosDetallados(datos) {
     }
   }
 
-  var audioUrlRegex = new RegExp('(/root/marcos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/archivos[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|/almacenamiento[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]+\\\\.(ogg|mp3|wav|m4a|aac|opus|webm)|https?:\\\\/\\\\/[^"\\'()\\\\s]*audio[^"\\'()\\\\s]*)', 'gi');
+  var audioUrlRegex = new RegExp('(?:/root/marcos|/archivos|/almacenamiento|https?://)[\\\\w\\\\.\\\\-\\\\_/]+\\\\.(?:ogg|mp3|wav|m4a|aac|opus|webm)', 'gi');
 
   chatItems.forEach(function(line) {
     if (!line) return;
@@ -2082,7 +4019,7 @@ function parseAudiosDetallados(datos) {
     var textMatches = strText.match(audioUrlRegex);
     if (textMatches) {
       textMatches.forEach(function(mUrl) {
-        var cleanTrans = strText.replace(/^[^:]+:\s*/, '').replace(mUrl, '').replace(/\[audio\]/gi, '').trim();
+        var cleanTrans = strText.replace(new RegExp('^[^:]+:\\s*', ''), '').replace(mUrl, '').replace(new RegExp('\\[audio\\]', 'gi'), '').trim();
         addAudioItem(mUrl, lineEmisor, lineHora, cleanTrans || lineTrans);
       });
     }
@@ -2099,12 +4036,14 @@ function parseAudiosDetallados(datos) {
 
   return result;
 }
+window.parseAudiosDetallados = parseAudiosDetallados;
 
 function obtenerAudiosEvento(datos) {
   if (!datos) return [];
   var detailed = parseAudiosDetallados(datos);
   return detailed.map(function(item) { return item.url; });
 }
+window.obtenerAudiosEvento = obtenerAudiosEvento;
 
 function parseInvolucrados(datos) {
   if (!datos) return [];
@@ -2153,6 +4092,7 @@ function parseInvolucrados(datos) {
 
   return result;
 }
+window.parseInvolucrados = parseInvolucrados;
 
 function obtenerDireccionEdificio(datos) {
   if (!datos) return '—';
@@ -2175,6 +4115,43 @@ function obtenerDireccionEdificio(datos) {
   return edName;
 }
 
+function descargarArchivo(url, filename) {
+  if (!url) return;
+  fetch(url)
+    .then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.blob();
+    })
+    .then(function(blob) {
+      var blobUrl = window.URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename || 'archivo';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function() { window.URL.revokeObjectURL(blobUrl); }, 1500);
+    })
+    .catch(function() {
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'archivo';
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+}
+window.descargarArchivo = descargarArchivo;
+
+function descargarArchivoElem(elem) {
+  if (!elem) return;
+  var url = elem.getAttribute('data-url') || '';
+  var filename = elem.getAttribute('data-filename') || '';
+  descargarArchivo(url, filename);
+}
+window.descargarArchivoElem = descargarArchivoElem;
+
 function abrirVisorMultimediaElem(elem) {
   var url = elem.getAttribute('data-url') || '';
   var filename = elem.getAttribute('data-filename') || '';
@@ -2192,6 +4169,10 @@ function abrirVisorMultimedia(url, mediaType, filename) {
 
   btnDescargar.href = url;
   btnDescargar.download = filename || 'archivo_multimedia';
+  btnDescargar.onclick = function(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    descargarArchivo(url, filename);
+  };
 
   var nameTag = filename ? escapeHtml(filename) : 'Archivo Multimedia';
 
@@ -2201,6 +4182,9 @@ function abrirVisorMultimedia(url, mediaType, filename) {
   } else if (mediaType === 'video') {
     titulo.innerHTML = '🎥 ' + nameTag;
     contenido.innerHTML = '<video src="' + escapeHtml(url) + '" controls autoplay style="max-width:90vw;max-height:80vh;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);animation:mScale .2s cubic-bezier(0.16, 1, 0.3, 1) both"></video>';
+  } else if (mediaType === 'pdf') {
+    titulo.innerHTML = '📄 ' + nameTag;
+    contenido.innerHTML = '<iframe src="' + escapeHtml(url) + '" style="width:85vw;height:80vh;border-radius:12px;border:none;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.5)"></iframe>';
   }
 
   modal.style.display = 'flex';
@@ -2233,26 +4217,66 @@ if (typeof window !== 'undefined' && !window.__VISOR_ESC_REGISTERED__) {
 
 function procesarLineaMultimediaChat(strText) {
   var cleanText = String(strText || '');
-  var webUrl = '';
-  var filename = '';
-  var mediaType = '';
+  var visualUrl = '', visualType = '', visualFilename = '';
+  var audioUrl = '', audioFilename = '';
 
-  var tagMatch = cleanText.match(/\\\[(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO):\\s*([^\\\]]+)\\\]/i);
-  if (tagMatch) {
-    var rawUrlFromTag = tagMatch[2].trim();
-    var tagType = tagMatch[1].toUpperCase();
-    webUrl = normalizarUrlAudio(rawUrlFromTag);
-    var lastSlashTag = rawUrlFromTag.lastIndexOf('/');
-    filename = lastSlashTag !== -1 ? rawUrlFromTag.substring(lastSlashTag + 1) : rawUrlFromTag;
-    
-    if (tagType === 'IMAGEN' || tagType === 'FOTO') mediaType = 'image';
-    else if (tagType === 'VIDEO') mediaType = 'video';
-    else mediaType = 'audio';
+  var escOB = String.fromCharCode(92) + String.fromCharCode(91);
+  var escCB = String.fromCharCode(92) + String.fromCharCode(93);
+  var tagRegexGlobal = new RegExp(escOB + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^' + escCB + ']+)' + escCB, 'gi');
+  var tagRegexSingle = new RegExp(escOB + '(AUDIO|AUDIO_URL|IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA):\\s*([^' + escCB + ']+)' + escCB, 'i');
+  var allTags = cleanText.match(tagRegexGlobal) || [];
+  allTags.forEach(function(tagStr) {
+    var m = tagStr.match(tagRegexSingle);
+    if (m) {
+      var tagType = m[1].toUpperCase();
+      var rawUrl = m[2].trim();
+      var lastSlash = rawUrl.lastIndexOf('/');
+      var fn = lastSlash !== -1 ? rawUrl.substring(lastSlash + 1) : rawUrl;
 
-    cleanText = cleanText.replace(tagMatch[0], '').trim();
+      if (tagType === 'IMAGEN' || tagType === 'FOTO') {
+        visualUrl = normalizarUrlAudio(rawUrl, 'image');
+        visualType = 'image';
+        visualFilename = fn;
+      } else if (tagType === 'VIDEO') {
+        visualUrl = normalizarUrlAudio(rawUrl, 'video');
+        visualType = 'video';
+        visualFilename = fn;
+      } else if (tagType === 'DOCUMENTO' || tagType === 'DOC' || tagType === 'PDF' || tagType === 'FACTURA') {
+        visualUrl = normalizarUrlAudio(rawUrl, 'pdf');
+        visualType = 'pdf';
+        var mDocFile = cleanText.match(/\((?:Documento|Factura|Comprobante)(?:\s+adjunt[oa])?:?\s*([^)]+\.[a-z0-9]{2,5})\)/i);
+        var mDocN = cleanText.match(/\((?:Documento|Factura|Comprobante)(?:\s+adjunt[oa])?:?\s*([^)]+)\)/i);
+        if (mDocFile && mDocFile[1]) {
+          visualFilename = mDocFile[1].replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
+        } else if (mDocN && mDocN[1] && mDocN[1].trim()) {
+          visualFilename = mDocN[1].replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
+        } else {
+          visualFilename = fn;
+        }
+      } else {
+        audioUrl = normalizarUrlAudio(rawUrl, 'audio');
+        audioFilename = fn;
+      }
+      cleanText = cleanText.replace(tagStr, '').trim();
+    }
+  });
+
+  if (!visualUrl && !audioUrl) {
+    var mDocDirect = cleanText.match(/\((?:Documento|Factura|Comprobante)(?:\s+adjunt[oa])?:?\s*([^)]+)\)/i);
+    if (mDocDirect && mDocDirect[1]) {
+      var dName = mDocDirect[1].replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
+      var extD = dName.split('.').pop().toLowerCase();
+      if (['pdf', 'doc', 'docx', 'xls', 'xlsx'].indexOf(extD) !== -1 || /media_\d+/i.test(dName)) {
+        visualFilename = dName;
+        visualType = 'pdf';
+        if (dName.startsWith('/') || dName.startsWith('almacenamiento/') || dName.startsWith('temp/') || dName.startsWith('http://') || dName.startsWith('https://')) {
+          visualUrl = normalizarUrlAudio(dName, 'pdf');
+        }
+      }
+    }
   }
 
-  if (!webUrl) {
+  if (!visualUrl && !audioUrl) {
     var prefixes = ['/root/marcos/', '/archivos/', '/audios/', '/almacenamiento/', 'http://', 'https://'];
     var foundIdx = -1;
 
@@ -2276,18 +4300,29 @@ function procesarLineaMultimediaChat(strText) {
 
       var rawPath = rest.substring(0, endPos).trim();
       if (rawPath.length > 3) {
-        webUrl = normalizarUrlAudio(rawPath);
-        var lastSlash = rawPath.lastIndexOf('/');
-        filename = lastSlash !== -1 ? rawPath.substring(lastSlash + 1) : rawPath;
+        var lastSlash2 = rawPath.lastIndexOf('/');
+        var fn2 = lastSlash2 !== -1 ? rawPath.substring(lastSlash2 + 1) : rawPath;
+        var ext2 = fn2.split('.').pop().toLowerCase();
 
-        var ext = filename.split('.').pop().toLowerCase();
+        var isImgPath = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext2) !== -1 || rawPath.indexOf('/imagenes/') !== -1 || rawPath.indexOf('/fotos/') !== -1 || /imagen|foto/i.test(cleanText);
+        var isVidPath = ['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext2) !== -1 || rawPath.indexOf('/videos/') !== -1;
+        var isPdfPath = ['pdf', 'doc', 'docx', 'xls', 'xlsx'].indexOf(ext2) !== -1 || rawPath.indexOf('/facturas/') !== -1 || rawPath.indexOf('/documentos/') !== -1 || /documento|factura|pdf/i.test(cleanText);
 
-        if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawPath.indexOf('/imagenes/') !== -1 || rawPath.indexOf('/fotos/') !== -1) {
-          mediaType = 'image';
-        } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawPath.indexOf('/videos/') !== -1) {
-          mediaType = 'video';
+        if (isImgPath) {
+          visualUrl = normalizarUrlAudio(rawPath, 'image');
+          visualType = 'image';
+          visualFilename = fn2;
+        } else if (isVidPath) {
+          visualUrl = normalizarUrlAudio(rawPath, 'video');
+          visualType = 'video';
+          visualFilename = fn2;
+        } else if (isPdfPath) {
+          visualUrl = normalizarUrlAudio(rawPath, 'pdf');
+          visualType = 'pdf';
+          visualFilename = fn2;
         } else {
-          mediaType = 'audio';
+          audioUrl = normalizarUrlAudio(rawPath, 'audio');
+          audioFilename = fn2;
         }
 
         var startCut = foundIdx;
@@ -2299,7 +4334,21 @@ function procesarLineaMultimediaChat(strText) {
         var before = cleanText.substring(0, startCut).trim();
         var after = cleanText.substring(endCut).trim();
 
-        var tagRegexes = [/imagen:\\s*$/i, /foto:\\s*$/i, /video:\\s*$/i, /audio:\\s*$/i, /\\(imagen adjunta\\)\\s*$/i, /\\(video adjunto\\)\\s*$/i, /\\(nota de voz\\)\\s*$/i];
+        var tagRegexes = [
+          new RegExp('documento:\\s*$', 'i'),
+          new RegExp('doc:\\s*$', 'i'),
+          new RegExp('pdf:\\s*$', 'i'),
+          new RegExp('factura:\\s*$', 'i'),
+          new RegExp('imagen:\\s*$', 'i'),
+          new RegExp('foto:\\s*$', 'i'),
+          new RegExp('video:\\s*$', 'i'),
+          new RegExp('audio:\\s*$', 'i'),
+          new RegExp('\\(documento adjunto\\)\\s*$', 'i'),
+          new RegExp('\\(factura adjunta\\)\\s*$', 'i'),
+          new RegExp('\\(imagen adjunta\\)\\s*$', 'i'),
+          new RegExp('\\(video adjunto\\)\\s*$', 'i'),
+          new RegExp('\\(nota de voz\\)\\s*$', 'i')
+        ];
         for (var t = 0; t < tagRegexes.length; t++) {
           if (tagRegexes[t].test(before)) {
             before = before.replace(tagRegexes[t], '').trim();
@@ -2314,16 +4363,39 @@ function procesarLineaMultimediaChat(strText) {
     }
   }
 
-  if (webUrl && !cleanText) {
-    var label = mediaType === 'image' ? '(imagen adjunta)' : (mediaType === 'video' ? '(video adjunto)' : '(nota de voz)');
+  ['/archivos/', '/audios/', '/almacenamiento/', '/root/marcos/'].forEach(function(pref) {
+    var p = cleanText.indexOf(pref);
+    if (p !== -1) {
+      var endP = cleanText.indexOf(' ', p);
+      if (endP === -1) endP = cleanText.length;
+      cleanText = (cleanText.substring(0, p) + ' ' + cleanText.substring(endP)).trim();
+    }
+  });
+  cleanText = cleanText.trim();
+  while (cleanText && (cleanText.charAt(0) === ']' || cleanText.charAt(0) === ')' || cleanText.charAt(0) === '[' || cleanText.charAt(0) === '(')) {
+    cleanText = cleanText.substring(1).trim();
+  }
+  while (cleanText && (cleanText.charAt(cleanText.length - 1) === ']' || cleanText.charAt(cleanText.length - 1) === ')' || cleanText.charAt(cleanText.length - 1) === '[' || cleanText.charAt(cleanText.length - 1) === '(')) {
+    cleanText = cleanText.substring(0, cleanText.length - 1).trim();
+  }
+  var _rxSpacesMedia = new RegExp('[' + String.fromCharCode(92) + 's]+', 'g');
+  cleanText = cleanText.replace(_rxSpacesMedia, ' ').trim();
+
+  if ((visualUrl || audioUrl) && !cleanText) {
+    var label = visualType === 'image' ? '(imagen adjunta)' : (visualType === 'video' ? '(video adjunto)' : (visualType === 'pdf' ? '(documento adjunto)' : '(nota de voz)'));
     cleanText = label;
   }
 
   return {
     cleanText: cleanText,
-    webUrl: webUrl,
-    filename: filename,
-    mediaType: mediaType
+    visualUrl: visualUrl,
+    visualType: visualType,
+    visualFilename: visualFilename,
+    audioUrl: audioUrl,
+    audioFilename: audioFilename,
+    webUrl: visualUrl || audioUrl,
+    filename: visualFilename || audioFilename,
+    mediaType: visualType || (audioUrl ? 'audio' : '')
   };
 }
 
@@ -2368,9 +4440,400 @@ function cambiarTabChatEvento(tab) {
     if (panelP) panelP.style.display = 'block';
   }
 }
+window.cambiarTabChatEvento = cambiarTabChatEvento;
+
+function separarConversacionesEvento(datos) {
+  if (!datos) return { chatVecino: [], chatProveedor: [] };
+
+  function parseList(src) {
+    if (!src) return [];
+    if (typeof src === 'string' && src.trim()) {
+      if (src.trim().startsWith('[')) {
+        try { return JSON.parse(src); } catch(e) { return [src]; }
+      }
+      return String(src).split('\\n').filter(Boolean);
+    }
+    if (Array.isArray(src)) return src;
+    return [];
+  }
+
+  var techPhones = new Set();
+  if (datos.tel_tecnico) {
+    var pClean = String(datos.tel_tecnico).replace(/[^0-9]/g, '');
+    if (pClean.length >= 7) techPhones.add(pClean.slice(-10));
+  }
+  if (datos.involucrados_json) {
+    var invs = parseList(datos.involucrados_json);
+    invs.forEach(function(inv){
+      if (typeof inv === 'object' && inv.telefono) {
+        var rLow = String(inv.rol || '').toLowerCase();
+        if (rLow.indexOf('técnico') !== -1 || rLow.indexOf('tecnico') !== -1 || rLow.indexOf('proveedor') !== -1) {
+          var ic = String(inv.telefono).replace(/[^0-9]/g, '');
+          if (ic.length >= 7) techPhones.add(ic.slice(-10));
+        }
+      }
+    });
+  }
+
+  var vecPhones = new Set();
+  if (datos.telefono) {
+    var vClean = String(datos.telefono).replace(/[^0-9]/g, '');
+    if (vClean.length >= 7) vecPhones.add(vClean.slice(-10));
+  }
+  if (datos.involucrados_json) {
+    var invs2 = parseList(datos.involucrados_json);
+    invs2.forEach(function(inv){
+      if (typeof inv === 'object' && inv.telefono) {
+        var rLow2 = String(inv.rol || '').toLowerCase();
+        if (rLow2.indexOf('vecino') !== -1 || rLow2.indexOf('titular') !== -1 || rLow2.indexOf('familiar') !== -1 || rLow2.indexOf('propietario') !== -1 || rLow2.indexOf('inquilino') !== -1) {
+          var vc = String(inv.telefono).replace(/[^0-9]/g, '');
+          if (vc.length >= 7) vecPhones.add(vc.slice(-10));
+        }
+      }
+    });
+  }
+
+  function esMensajeDeVecino(item) {
+    if (!item) return false;
+    var rem = typeof item === 'object' ? String(item.remitente || item.emisor || item.destinatario || item.canal_orig || '').toLowerCase() : '';
+    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+    var strLower = str.toLowerCase();
+
+    if (rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || rem === 'titular' || rem === 'familiar') return true;
+    if (/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente)/i.test(str)) return true;
+
+    if (
+      strLower.indexOf('formalizar su reclamo') !== -1 ||
+      strLower.indexOf('su nombre y apellido') !== -1 ||
+      strLower.indexOf('número de su departamento') !== -1 ||
+      strLower.indexOf('numero de su departamento') !== -1 ||
+      strLower.indexOf('¿podría indicarme') !== -1 ||
+      strLower.indexOf('podria indicarme') !== -1 ||
+      strLower.indexOf('me indicás su') !== -1 ||
+      strLower.indexOf('me indicas su') !== -1 ||
+      strLower.indexOf('servicio técnico de guardia') !== -1 ||
+      strLower.indexOf('entiendo la urgencia') !== -1 ||
+      strLower.indexOf('ya confirmó la visita') !== -1 ||
+      strLower.indexOf('confirmó la visita para') !== -1 ||
+      strLower.indexOf('coordinará el ingreso') !== -1 ||
+      strLower.indexOf('coordinar el ingreso') !== -1 ||
+      strLower.indexOf('contactará con') !== -1
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function esMensajeDeProveedor(item) {
+    if (!item) return false;
+
+    // EL TELÉFONO MANDA: Si el mensaje viene del número del técnico del caso, es del técnico
+    var itemPhone = typeof item === 'object' ? String(item.telefono || '').replace(/[^0-9]/g, '') : '';
+    if (itemPhone.length >= 7 && techPhones.has(itemPhone.slice(-10))) return true;
+    if (itemPhone.length >= 7 && vecPhones.has(itemPhone.slice(-10))) return false;
+
+    // Si es explícitamente un mensaje dirigido al vecino o pidiéndole datos, NUNCA es de proveedor
+    if (esMensajeDeVecino(item)) return false;
+
+    var rem = typeof item === 'object' ? String(item.remitente || item.emisor || item.destinatario || item.canal_orig || '').toLowerCase() : '';
+    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+    var strLower = str.toLowerCase();
+
+    if (rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || rem === 'plomero' || rem === 'electricista' || rem === 'gasista') {
+      return true;
+    }
+    if (/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str)) {
+      return true;
+    }
+    if (/marcos\s*\(\s*(a|al)\s*(proveedor|t[ée]cnico)\s*\):/i.test(strLower)) {
+      return true;
+    }
+    // Una factura o un comprobante son del proveedor
+    if (strLower.indexOf('factura') !== -1 || strLower.indexOf('comprobante') !== -1 || strLower.indexOf('documento') !== -1 || strLower.indexOf('[factura:') !== -1) {
+      return true;
+    }
+    if (strLower.indexOf('plantilla whatsapp') !== -1 || strLower.indexOf('plantilla meta') !== -1) {
+      return true;
+    }
+    if (strLower.indexOf('marcos — contacto para el ingreso') !== -1 || strLower.indexOf('marcos - contacto para el ingreso') !== -1) {
+      return true;
+    }
+    if (
+      (strLower.indexOf('tenés una nueva solicitud de servicio') !== -1 || strLower.indexOf('tenes una nueva solicitud de servicio') !== -1 || strLower.indexOf('nueva solicitud de servicio') !== -1) &&
+      (strLower.indexOf('para la visita') !== -1 || strLower.indexOf('urgencia:') !== -1 || strLower.indexOf('acceso:') !== -1)
+    ) {
+      return true;
+    }
+    if (
+      strLower.indexOf('comunicate directamente con esa persona y avisame') !== -1 ||
+      strLower.indexOf('si al llegar no te abren') !== -1 ||
+      strLower.indexOf('pudiste ir') !== -1 ||
+      strLower.indexOf('pudiste realizar') !== -1 ||
+      strLower.indexOf('pudiste asistir') !== -1 ||
+      strLower.indexOf('pudiste pasar') !== -1 ||
+      strLower.indexOf('resolviste el reclamo') !== -1 ||
+      strLower.indexOf('solucionaste el reclamo') !== -1 ||
+      strLower.indexOf('confirmar la visita') !== -1 ||
+      strLower.indexOf('reclamo solucionado') !== -1
+    ) {
+      return true;
+    }
+
+    var noTieneVecino = !datos.telefono || /avisado por el proveedor/i.test(String(datos.vecino || ''));
+    if (noTieneVecino) return true;
+
+    return false;
+  }
+
+  function normalizarClaveMensaje(item) {
+    if (!item) return '';
+    var str = '';
+    var sender = '';
+    if (typeof item === 'object') {
+      sender = String(item.remitente || item.emisor || item.sender || '').toLowerCase().trim();
+      str = String(item.mensaje || item.texto || item.text || '').trim();
+    } else {
+      str = String(item).trim();
+      var colonIdx = str.indexOf(':');
+      if (colonIdx !== -1 && colonIdx < 40) {
+        sender = str.substring(0, colonIdx).toLowerCase().trim();
+        str = str.substring(colonIdx + 1).trim();
+      }
+    }
+
+    var rolNorm = 'marcos';
+    if (/^marcos/i.test(sender)) rolNorm = 'marcos';
+    else if (/vecino|usuario|cliente|titular|familiar|pariente/i.test(sender)) rolNorm = 'vecino';
+    else if (/tecnico|técnico|proveedor|plomero|electricista|gasista|instalador/i.test(sender)) rolNorm = 'tecnico';
+    else if (/encargado|portero|seguridad/i.test(sender)) rolNorm = 'encargado';
+    else if (/admin|administraci/i.test(sender)) rolNorm = 'admin';
+
+    // Quitar prefijos comunes redundantes embebidos en el mensaje (ej: "tecnico: ", "Marcos (a Proveedor): ")
+    str = str.replace(/^(vecino|usuario|cliente|titular|familiar|pariente|marcos ia|marcos|susana|ia|bot|asistente|sistema|proveedor|técnico|tecnico|plomero|electricista|gasista|instalador|encargado|seguridad|portero|portería|admin|administración)(\s*\([^)]*\))?:\s*/i, '').trim();
+
+    var _escOB = String.fromCharCode(92) + String.fromCharCode(91);
+    var _escCB = String.fromCharCode(92) + String.fromCharCode(93);
+    var tagReg = new RegExp(_escOB + '(audio|audio_url|imagen|foto|video|documento|doc|pdf|factura):[^' + _escCB + ']+' + _escCB, 'gi');
+
+    var clean = str.toLowerCase()
+      .replace(tagReg, '')
+      .replace(new RegExp('\\((?:factura|comprobante|imagen|documento|nota de voz|audio|adjunt[oa])[^)]*\\)', 'gi'), '')
+      .replace(new RegExp(_escOB + 'cita[^' + _escCB + ']*' + _escCB, 'gi'), '')
+      .replace(new RegExp('[' + String.fromCharCode(92) + 's]+', 'g'), ' ')
+      .trim();
+
+    while (clean && (clean.charAt(0) === '[' || clean.charAt(0) === '(' || clean.charAt(0) === ']' || clean.charAt(0) === ')')) clean = clean.substring(1).trim();
+    while (clean && (clean.charAt(clean.length - 1) === '[' || clean.charAt(clean.length - 1) === '(' || clean.charAt(clean.length - 1) === ']' || clean.charAt(clean.length - 1) === ')')) clean = clean.substring(0, clean.length - 1).trim();
+
+    var mediaStr = str + (typeof item === 'object' && item.url_media ? ' ' + item.url_media : '');
+    var mediaPrefixMatch = mediaStr.match(/media[_-]([0-9]{10,20})/i);
+    if (mediaPrefixMatch && mediaPrefixMatch[1]) {
+      return rolNorm + '::media_' + mediaPrefixMatch[1];
+    }
+    var mediaIdMatch = mediaStr.match(/(?:^|[^0-9])([0-9]{15,20})(?:[^0-9]|$)/);
+    if (mediaIdMatch && mediaIdMatch[1]) {
+      return rolNorm + '::media_' + mediaIdMatch[1];
+    }
+    var fileMatch = mediaStr.match(/\.(ogg|mp3|wav|m4a|aac|opus|webm|jpg|jpeg|png|webp|gif|pdf)/i);
+    var fileSuffix = fileMatch ? fileMatch[0].toLowerCase() : '';
+
+    return rolNorm + '::' + clean.slice(0, 120) + (fileSuffix ? '::' + fileSuffix : '');
+  }
+
+  var chatVecino = [];
+  var chatProveedor = [];
+  var seenV = new Set();
+  var seenP = new Set();
+
+  function enriquecerMensajeSiAplica(arr, nuevoItem, kNorm) {
+    for (var i = 0; i < arr.length; i++) {
+      if (normalizarClaveMensaje(arr[i]) === kNorm) {
+        var viejo = arr[i];
+        if (typeof viejo === 'object' && typeof nuevoItem === 'string') {
+          var _escOB = String.fromCharCode(92) + String.fromCharCode(91);
+          var _escCB = String.fromCharCode(92) + String.fromCharCode(93);
+          var mTag = nuevoItem.match(new RegExp(_escOB + '(IMAGEN|FOTO|VIDEO|DOCUMENTO|DOC|PDF|FACTURA|AUDIO):\\s*([^' + _escCB + ']+)' + _escCB, 'i'));
+          if (mTag && mTag[2] && !viejo.url_media) {
+            viejo.url_media = mTag[2].trim();
+          }
+          if (nuevoItem.indexOf('Factura') !== -1 && (!viejo.mensaje || !viejo.mensaje.includes('Factura'))) {
+            var mFac = nuevoItem.match(/\(Factura[^)]+\)/i);
+            if (mFac) viejo.mensaje = (viejo.mensaje || '') + ' ' + mFac[0];
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  function agregarMensaje(item, forzarDestino) {
+    if (!item) return;
+    var kNorm = normalizarClaveMensaje(item);
+    if (!kNorm) return;
+
+    var isProv = forzarDestino === 'proveedor' ? true : (forzarDestino === 'vecino' ? false : esMensajeDeProveedor(item));
+
+    if (isProv) {
+      if (!seenP.has(kNorm)) {
+        seenP.add(kNorm);
+        chatProveedor.push(item);
+      } else {
+        enriquecerMensajeSiAplica(chatProveedor, item, kNorm);
+      }
+    } else {
+      if (!seenV.has(kNorm)) {
+        seenV.add(kNorm);
+        chatVecino.push(item);
+      } else {
+        enriquecerMensajeSiAplica(chatVecino, item, kNorm);
+      }
+    }
+  }
+
+  var casoSoloProveedor = !datos.telefono || /avisado por el proveedor/i.test(String(datos.vecino || ''));
+
+  // 1. Si hay mensajes de PostgreSQL (chat_pg), es la fuente en vivo más completa y ordenada
+  var rawPg = parseList(datos.chat_pg);
+  if (rawPg.length > 0) {
+    var lastDestino = casoSoloProveedor ? 'proveedor' : 'vecino';
+    rawPg.forEach(function(item) {
+      var itemPhone = typeof item === 'object' ? String(item.telefono || '').replace(/[^0-9]/g, '') : '';
+      var isP = esMensajeDeProveedor(item);
+      var isV = esMensajeDeVecino(item);
+
+      if (isP) {
+        lastDestino = 'proveedor';
+        agregarMensaje(item, 'proveedor');
+      } else if (isV) {
+        lastDestino = 'vecino';
+        agregarMensaje(item, 'vecino');
+      } else {
+        var esTechPhone = itemPhone.length >= 7 && techPhones.has(itemPhone.slice(-10));
+        var esVecPhone = itemPhone.length >= 7 && vecPhones.has(itemPhone.slice(-10));
+
+        if (esTechPhone) {
+          lastDestino = 'proveedor';
+          agregarMensaje(item, 'proveedor');
+        } else if (esVecPhone) {
+          lastDestino = 'vecino';
+          agregarMensaje(item, 'vecino');
+        } else {
+          var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+          var strLower = str.toLowerCase();
+          var isContactoCompartidoProv = strLower.indexOf('(contacto compartido') !== -1 && lastDestino === 'proveedor';
+          var isMarcosToTech = isContactoCompartidoProv || /al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
+
+          if (isMarcosToTech || lastDestino === 'proveedor' || casoSoloProveedor) {
+            lastDestino = 'proveedor';
+            agregarMensaje(item, 'proveedor');
+          } else {
+            lastDestino = 'vecino';
+            agregarMensaje(item, 'vecino');
+          }
+        }
+      }
+    });
+  }
+
+  // 2. Incorporar listas de Google Sheets SOLO si no hay mensajes en PostgreSQL (chat_pg)
+  // o para enriquecer metadatos (como URLs de fotos o PDFs) si ya están en PostgreSQL.
+  var rawVecino = parseList(datos.chat_vecino_json);
+  if (!rawVecino.length) rawVecino = parseList(datos.historial_chat_vecino);
+
+  var rawProveedor = parseList(datos.chat_proveedor_json);
+  if (!rawProveedor.length) rawProveedor = parseList(datos.historial_chat_proveedor);
+
+  if (rawPg.length === 0) {
+    // Si no hay datos de PostgreSQL, Google Sheets es la fuente principal
+    rawVecino.forEach(function(item) { agregarMensaje(item, 'vecino'); });
+
+    rawProveedor.forEach(function(item) {
+      var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+      var strLower = str.toLowerCase();
+      var esMarcosGenericoVecino = /^marcos:\s*/i.test(str) && !/al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
+      if (esMensajeDeVecino(item) || esMarcosGenericoVecino) {
+        agregarMensaje(item, 'vecino');
+      } else {
+        agregarMensaje(item, 'proveedor');
+      }
+    });
+  } else {
+    // Si PostgreSQL ya cargó los mensajes (fuente oficial y cronológica), solo enriquecemos
+    // archivos adjuntos (multimedia/facturas) que Sheets pueda tener completos
+    rawVecino.forEach(function(item) {
+      var kNorm = normalizarClaveMensaje(item);
+      if (kNorm) enriquecerMensajeSiAplica(chatVecino, item, kNorm);
+    });
+    rawProveedor.forEach(function(item) {
+      var kNorm = normalizarClaveMensaje(item);
+      if (kNorm) enriquecerMensajeSiAplica(chatProveedor, item, kNorm);
+    });
+  }
+
+  // 3. Fallback adicional de historial_chat: SOLO si no hubo chat_vecino ni chat_proveedor ni chat_pg
+  var rawHist = parseList(datos.historial_chat);
+  if (rawHist.length > 0 && !rawVecino.length && !rawProveedor.length && !rawPg.length) {
+    var lastProvH = false;
+    rawHist.forEach(function(item) {
+      var isP = esMensajeDeProveedor(item);
+      var isV = esMensajeDeVecino(item);
+      if (isP) {
+        lastProvH = true;
+        agregarMensaje(item, 'proveedor');
+      } else if (isV) {
+        lastProvH = false;
+        agregarMensaje(item, 'vecino');
+      } else {
+        var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+        var strLower = str.toLowerCase();
+        var isMarcosToTech = /al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
+        if (isMarcosToTech || lastProvH || casoSoloProveedor) {
+          lastProvH = true;
+          agregarMensaje(item, 'proveedor');
+        } else {
+          lastProvH = false;
+          agregarMensaje(item, 'vecino');
+        }
+      }
+    });
+  }
+
+  // Limpieza final de seguridad:
+  // 1. Asegurar que NINGÚN mensaje de proveedor quede en chatVecino
+  chatVecino = chatVecino.filter(function(item) {
+    if (esMensajeDeProveedor(item)) {
+      agregarMensaje(item, 'proveedor');
+      return false;
+    }
+    return true;
+  });
+
+  // 2. Asegurar que NINGÚN mensaje de vecino (o de Marcos dirigido al vecino) quede en chatProveedor
+  chatProveedor = chatProveedor.filter(function(item) {
+    var itemPhone = typeof item === 'object' ? String(item.telefono || '').replace(/[^0-9]/g, '') : '';
+    var esVecPhone = itemPhone.length >= 7 && vecPhones.has(itemPhone.slice(-10));
+    var isV = esMensajeDeVecino(item);
+    var str = typeof item === 'object' ? ((item.emisor ? item.emisor + ': ' : '') + (item.texto || item.mensaje || '')) : String(item);
+    var strLower = str.toLowerCase();
+    var esMarcosGenericoVecino = /^marcos:\s*/i.test(str) && !/al proveedor|al técnico|estimado técnico|hola técnico|notificación al técnico|notificación al proveedor|para que le abran|comunicate directamente con esa persona|pudiste ir|pudiste realizar|pudiste asistir|pudiste pasar|reclamo solucionado/i.test(strLower);
+
+    if (esVecPhone || isV || esMarcosGenericoVecino) {
+      agregarMensaje(item, 'vecino');
+      return false;
+    }
+    return true;
+  });
+
+  return {
+    chatVecino: chatVecino,
+    chatProveedor: chatProveedor
+  };
+}
+window.separarConversacionesEvento = separarConversacionesEvento;
 
 function renderizarBloqueChat(rawChat, tipoBloque, datos) {
   var chatLines = [];
+  var audioFallbackUsado = false;
   if (typeof rawChat === 'string' && rawChat.trim()) {
     if (rawChat.trim().startsWith('[')) {
       try { chatLines = JSON.parse(rawChat); } catch(e) { chatLines = [rawChat]; }
@@ -2381,50 +4844,53 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
     chatLines = rawChat;
   }
 
-  if (!chatLines.length && tipoBloque === 'vecino' && datos.historial_chat) {
-    var rawGen = datos.historial_chat;
-    if (typeof rawGen === 'string' && rawGen.trim()) {
-      if (rawGen.trim().startsWith('[')) {
-        try { chatLines = JSON.parse(rawGen); } catch(e) { chatLines = [rawGen]; }
-      } else {
-        chatLines = String(rawGen).split('\\n').filter(Boolean);
+  if (!chatLines.length && datos) {
+    var sep = separarConversacionesEvento(datos);
+    chatLines = tipoBloque === 'proveedor' ? sep.chatProveedor : sep.chatVecino;
+  }
+
+  // El nombre real que viene entre paréntesis: "Proveedor (dario juju): ...".
+  // Antes se sacaba con una expresión regular que vive adentro de una plantilla de texto, donde
+  // las barras invertidas se procesan ANTES de servirse: el patrón que llegaba al navegador no
+  // era el que estaba escrito acá, y no enganchaba nunca. Buscar los paréntesis a mano no tiene
+  // ese problema.
+  function extraerNombreEntreParentesis(s) {
+    if (!s) return '';
+    var colon = s.indexOf(':');
+    var targetStr = (colon !== -1 && colon < 60) ? s.substring(0, colon) : s;
+    var p1 = targetStr.indexOf('(');
+    var p2 = targetStr.indexOf(')', p1);
+    if (p1 !== -1 && p2 > p1) {
+      var inner = targetStr.substring(p1 + 1, p2).trim();
+      if (!/adjunt|documento|imagen|factura|foto|video|audio|nota de voz/i.test(inner)) {
+        return inner;
       }
-    } else if (Array.isArray(rawGen)) {
-      chatLines = rawGen;
     }
-    chatLines = chatLines.filter(function(line) {
-      var str = typeof line === 'object' ? (line.emisor || '') + ': ' + (line.texto || '') : String(line);
-      return !/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
-    });
-  } else if (!chatLines.length && tipoBloque === 'proveedor' && datos.historial_chat) {
-    var rawGen = datos.historial_chat;
-    var allGen = [];
-    if (typeof rawGen === 'string' && rawGen.trim()) {
-      if (rawGen.trim().startsWith('[')) {
-        try { allGen = JSON.parse(rawGen); } catch(e) { allGen = [rawGen]; }
-      } else {
-        allGen = String(rawGen).split('\\n').filter(Boolean);
-      }
-    } else if (Array.isArray(rawGen)) {
-      allGen = rawGen;
-    }
-    chatLines = allGen.filter(function(line) {
-      var str = typeof line === 'object' ? (line.emisor || '') + ': ' + (line.texto || '') : String(line);
-      return /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
-    });
+    return '';
   }
 
   if (chatLines.length > 0) {
     var bubbles = chatLines.map(function(line) {
-      var str = typeof line === 'object' ? ((line.emisor ? line.emisor + ': ' : '') + (line.texto || line.mensaje || '')) : String(line);
+      var rem = typeof line === 'object' ? String(line.remitente || line.emisor || '').toLowerCase() : '';
+      var str = typeof line === 'object' ? ((line.emisor ? line.emisor + ': ' : (rem ? rem + ': ' : '')) + (line.texto || line.mensaje || '')) : String(line);
       var horaTag = (typeof line === 'object' && line.hora) ? line.hora : '';
 
-      var isFamiliar = /^(Familiar|Pariente)/i.test(str);
-      var isVecino = /^(Vecino|Usuario|Cliente|Titular)/i.test(str);
-      var isProveedor = /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
-      var isEncargado = /^(Encargado|Seguridad|Portero|Portería)/i.test(str);
+      var isFamiliar = rem === 'familiar' || /^(Familiar|Pariente)/i.test(str);
+      var isVecino = rem === 'vecino' || rem === 'usuario' || rem === 'cliente' || /^(Vecino|Usuario|Cliente|Titular)/i.test(str);
+      var isProveedor = rem === 'tecnico' || rem === 'proveedor' || rem === 'instalador' || /^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)/i.test(str);
+      var isEncargado = rem === 'encargado' || rem === 'portero' || rem === 'seguridad' || /^(Encargado|Seguridad|Portero|Portería)/i.test(str);
+      var isAdmin = rem === 'admin' || rem === 'administracion' || /^(Admin|Administración)/i.test(str);
 
-      var cleanText = str.replace(/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos|Susana|Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería)(\s*\(.*\?\))?:\s*/i, '');
+      // Se le saca el prefijo de quién habla ("Vecino: ", "Marcos (a Proveedor): ") sin usar una
+      // expresión regular con barras invertidas, por el mismo motivo que arriba.
+      var cleanText = str;
+      var colonIdx = str.indexOf(':');
+      if (colonIdx !== -1 && colonIdx < 40) {
+        var prefix = str.substring(0, colonIdx).trim();
+        if (/^(Vecino|Usuario|Cliente|Titular|Familiar|Pariente|Marcos IA|Marcos|Susana|IA|Bot|Asistente|Sistema|Proveedor|Técnico|tecnico|Plomero|Electricista|Gasista|Instalador|Encargado|Seguridad|Portero|Portería|Admin|Administración)/i.test(prefix)) {
+          cleanText = str.substring(colonIdx + 1).trim();
+        }
+      }
       
       var senderLabel = 'Marcos IA';
       var align = 'margin-right:auto;background:#FFFFFF;color:#16233B;border:1px solid #E1E7F0;border-bottom-left-radius:2px;';
@@ -2432,120 +4898,261 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
       var tagBg = '#EAF1FB', tagFg = '#2E6FC0';
 
       if (isFamiliar) {
-        senderLabel = (str.match(/^(Familiar|Pariente)(\s*\(.*\?\))?/i)?.[0]) || 'Familiar';
+        senderLabel = extraerNombreEntreParentesis(str) || 'Familiar';
         align = 'margin-left:auto;background:#EFF6FF;color:#1E3A8A;border:1px solid #BFDBFE;border-bottom-right-radius:2px;';
         icon = '🔵';
         tagBg = '#DBEAFE'; tagFg = '#1E40AF';
       } else if (isVecino) {
-        var matchNom = str.match(/^(Vecino|Usuario|Cliente|Titular)(\s*\(.*\?\))?/i)?.[0];
-        senderLabel = matchNom || (datos.vecino || 'Vecino (Titular)');
+        senderLabel = extraerNombreEntreParentesis(str) || (datos.vecino || 'Vecino (Titular)');
         align = 'margin-left:auto;background:#DCF8C6;color:#0F2310;border-bottom-right-radius:2px;';
         icon = '🟢';
         tagBg = '#D1FAE5'; tagFg = '#065F46';
       } else if (isProveedor) {
-        var matchProv = str.match(/^(Proveedor|Técnico|Plomero|Electricista|Gasista|Instalador)(\s*\(.*\?\))?/i)?.[0];
-        senderLabel = matchProv || (datos.tecnico || 'Técnico / Proveedor');
+        var nomProvInStr = extraerNombreEntreParentesis(str);
+        var nomTechClean = (nomProvInStr || datos.tecnico || 'Técnico / Proveedor').replace(/[()]/g, '').trim();
+        senderLabel = nomTechClean || 'Técnico / Proveedor';
         align = 'margin-left:auto;background:#FEF3C7;color:#78350F;border:1px solid #FDE68A;border-bottom-right-radius:2px;';
         icon = '🔧';
         tagBg = '#FDE68A'; tagFg = '#92400E';
       } else if (isEncargado) {
-        senderLabel = (str.match(/^(Encargado|Seguridad|Portero|Portería)(\s*\(.*\?\))?/i)?.[0]) || 'Personal del Edificio';
+        // Mismo motivo que en las otras etiquetas: la expresión regular vive adentro de una
+        // plantilla de texto, donde las barras invertidas se procesan antes de servirse, y el
+        // patrón que llega al navegador no es el que está escrito acá.
+        senderLabel = extraerNombreEntreParentesis(str) || 'Personal del Edificio';
         align = 'margin-left:auto;background:#EDE9FE;color:#4C1D95;border:1px solid #DDD6FE;border-bottom-right-radius:2px;';
         icon = '👷';
         tagBg = '#DDD6FE'; tagFg = '#5B21B6';
+      } else if (isAdmin) {
+        senderLabel = 'Administración';
+        align = 'margin-left:auto;background:#F3E8FF;color:#581C87;border:1px solid #E9D5FF;border-bottom-right-radius:2px;';
+        icon = '👔';
+        tagBg = '#E9D5FF'; tagFg = '#6B21A8';
       }
 
       var mediaRes = procesarLineaMultimediaChat(cleanText);
       cleanText = mediaRes.cleanText;
-      var mediaLinkHtml = '';
 
-      var finalWebUrl = mediaRes.webUrl;
-      var finalMediaType = mediaRes.mediaType;
-      var finalFilename = mediaRes.filename;
+      var visualUrl = mediaRes.visualUrl || '';
+      var visualType = mediaRes.visualType || '';
+      var visualFilename = mediaRes.visualFilename || '';
+      var audioUrl = mediaRes.audioUrl || '';
+      var audioFilename = mediaRes.audioFilename || '';
 
-      var objAudioUrl = typeof line === 'object' ? (line.audio_url || line.url || line.audio || '') : '';
-      if (objAudioUrl && !finalWebUrl) {
-        finalWebUrl = normalizarUrlAudio(objAudioUrl);
-        finalMediaType = 'audio';
-        var lastSlashObj = objAudioUrl.lastIndexOf('/');
-        finalFilename = lastSlashObj !== -1 ? objAudioUrl.substring(lastSlashObj + 1) : objAudioUrl;
+      var isMarcosIA = !isVecino && !isFamiliar && !isProveedor && !isEncargado && !isAdmin;
+      if (isMarcosIA) {
+        // En mensajes de Marcos IA: si el texto citaba un caso resuelto con audio previo,
+        // no debe renderizarse un reproductor de audio en la burbuja de respuesta de Marcos
+        if (audioUrl && !/tts|marcos_voz|audio_marcos/i.test(audioUrl) && !(typeof line === 'object' && /audio/i.test(line.tipo_canal || ''))) {
+          audioUrl = '';
+          audioFilename = '';
+        }
       }
 
-      if (!finalWebUrl && datos.audio_url && tipoBloque === 'vecino') {
-        var rawAudioUrl = String(datos.audio_url).trim();
-        if (rawAudioUrl.length > 3) {
-          var ext = rawAudioUrl.split('.').pop().toLowerCase();
-          var lowerTxt = cleanText.toLowerCase();
-          if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/imagenes/') !== -1 || lowerTxt.indexOf('imagen') !== -1 || lowerTxt.indexOf('foto') !== -1) {
-            finalWebUrl = normalizarUrlAudio(rawAudioUrl);
-            finalMediaType = 'image';
-            var lastSlash = rawAudioUrl.lastIndexOf('/');
-            finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-          } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/videos/') !== -1 || lowerTxt.indexOf('video') !== -1) {
-            finalWebUrl = normalizarUrlAudio(rawAudioUrl);
-            finalMediaType = 'video';
-            var lastSlash = rawAudioUrl.lastIndexOf('/');
-            finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
-          } else if (['ogg', 'mp3', 'wav', 'm4a', 'aac'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/audios/') !== -1 || lowerTxt.indexOf('nota de voz') !== -1 || lowerTxt.indexOf('audio') !== -1) {
-            finalWebUrl = normalizarUrlAudio(rawAudioUrl);
-            finalMediaType = 'audio';
-            var lastSlash = rawAudioUrl.lastIndexOf('/');
-            finalFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+      var rawObjMedia = typeof line === 'object' ? (line.url_media || line.audio_url || line.url || line.audio || '') : '';
+      if (rawObjMedia && (!visualUrl || !audioUrl || visualUrl.indexOf('Documento') !== -1 || visualUrl.indexOf('Factura') !== -1)) {
+        var cleanObjMedia = String(rawObjMedia).split('?')[0].split('#')[0];
+        var lastSlashObj = cleanObjMedia.lastIndexOf('/');
+        var fnObj = lastSlashObj !== -1 ? cleanObjMedia.substring(lastSlashObj + 1) : cleanObjMedia;
+        var extObj = fnObj.indexOf('.') !== -1 ? fnObj.split('.').pop().toLowerCase() : '';
+
+        var isAudioExt = ['ogg', 'mp3', 'wav', 'm4a', 'aac', 'opus', 'webm'].indexOf(extObj) !== -1;
+        var isImgExt = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(extObj) !== -1;
+        var isVidExt = ['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(extObj) !== -1;
+        var isDocExt = ['pdf', 'doc', 'docx', 'xls', 'xlsx'].indexOf(extObj) !== -1;
+
+        var isChannelAudio = typeof line === 'object' && /audio/i.test(line.tipo_canal || '');
+        var isChannelImg = typeof line === 'object' && /image|imagen/i.test(line.tipo_canal || '');
+        var isChannelVid = typeof line === 'object' && /video/i.test(line.tipo_canal || '');
+        var isChannelDoc = typeof line === 'object' && /document|pdf/i.test(line.tipo_canal || '');
+
+        var _LBR_IMG = String.fromCharCode(92) + String.fromCharCode(91);
+        var isTagImg = (new RegExp(_LBR_IMG + '(IMAGEN|FOTO):', 'i')).test(String(line.mensaje || line.texto || ''));
+        var isTagVid = (new RegExp(_LBR_IMG + 'VIDEO:', 'i')).test(String(line.mensaje || line.texto || ''));
+        var isTagDoc = (new RegExp(_LBR_IMG + '(DOCUMENTO|DOC|PDF|FACTURA):', 'i')).test(String(line.mensaje || line.texto || ''));
+        var isTagAud = (new RegExp(_LBR_IMG + 'AUDIO:', 'i')).test(String(line.mensaje || line.texto || ''));
+
+        // 1. Audio tiene máxima prioridad si el archivo o canal es de audio
+        if (isAudioExt || isChannelAudio || isTagAud || rawObjMedia.indexOf('/audios/') !== -1) {
+          audioUrl = normalizarUrlAudio(rawObjMedia, 'audio');
+          audioFilename = fnObj;
+        } else if (isImgExt || isChannelImg || isTagImg || rawObjMedia.indexOf('/imagenes/') !== -1 || (!isVidExt && !isDocExt && /imagen|foto/i.test(cleanText))) {
+          visualUrl = normalizarUrlAudio(rawObjMedia, 'image');
+          visualType = 'image';
+          visualFilename = (/^[0-9]+$/.test(fnObj) || fnObj.indexOf('.') === -1) ? ('imagen_' + fnObj + '.jpeg') : fnObj;
+        } else if (isVidExt || isChannelVid || isTagVid || rawObjMedia.indexOf('/videos/') !== -1 || (!isDocExt && /video/i.test(cleanText))) {
+          visualUrl = normalizarUrlAudio(rawObjMedia, 'video');
+          visualType = 'video';
+          visualFilename = (/^[0-9]+$/.test(fnObj) || fnObj.indexOf('.') === -1) ? ('video_' + fnObj + '.mp4') : fnObj;
+        } else if (isDocExt || isChannelDoc || isTagDoc || cleanObjMedia.toLowerCase().indexOf('.pdf') !== -1 || rawObjMedia.indexOf('/facturas/') !== -1 || rawObjMedia.indexOf('/documentos/') !== -1 || /documento|factura|pdf/i.test(cleanText)) {
+          visualUrl = normalizarUrlAudio(rawObjMedia, 'pdf');
+          visualType = 'pdf';
+          var _rxDocFile = new RegExp('[(](?:Documento|Factura|Comprobante)(?:[' + String.fromCharCode(92) + 's]+adjunt[oa])?:?[' + String.fromCharCode(92) + 's]*([^)]+[.][a-z0-9]{2,5})[)]', 'i');
+          var _rxDoc = new RegExp('[(](?:Documento|Factura|Comprobante)(?:[' + String.fromCharCode(92) + 's]+adjunt[oa])?:?[' + String.fromCharCode(92) + 's]*([^)]+)[)]', 'i');
+          var mDocFile = String(line.mensaje || line.texto || cleanText || '').match(_rxDocFile);
+          var mDoc = String(line.mensaje || line.texto || cleanText || '').match(_rxDoc);
+          if (mDocFile && mDocFile[1]) {
+            visualFilename = mDocFile[1].replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
+          } else if (mDoc && mDoc[1] && mDoc[1].trim()) {
+            visualFilename = mDoc[1].replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
+          } else if (visualFilename) {
+            visualFilename = visualFilename.replace(/^(?:Documento|Factura|Comprobante)\s+adjunt[oa]:?\s*/i, '').trim();
+          } else if (/^[0-9]+$/.test(fnObj) || fnObj.indexOf('.') === -1) {
+            visualFilename = 'documento_' + fnObj + '.pdf';
+          } else {
+            visualFilename = fnObj;
           }
         }
       }
 
-      if (finalWebUrl) {
-        var urlEsc = escapeHtml(finalWebUrl);
-        var fnEsc = escapeHtml(finalFilename);
+      if (audioUrl) {
+        audioFallbackUsado = true;
+      }
 
-        if (finalMediaType === 'image') {
-          mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
+      if (!audioUrl && !visualUrl && datos.audio_url && !audioFallbackUsado && (isVecino || isFamiliar || isProveedor)) {
+        var isAudioMentioned = /audio|voz|nota de voz|escuchar|grabaci[oó]n/i.test(str);
+        var isVisualMentioned = /imagen|foto|video|documento|factura|pdf/i.test(str);
+        if (isAudioMentioned || !isVisualMentioned) {
+          var rawAudioUrl = String(datos.audio_url).trim();
+          if (rawAudioUrl.length > 3) {
+            var ext = rawAudioUrl.split('.').pop().toLowerCase();
+            if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/imagenes/') !== -1) {
+              visualUrl = normalizarUrlAudio(rawAudioUrl, 'image');
+              visualType = 'image';
+              var lastSlash = rawAudioUrl.lastIndexOf('/');
+              visualFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+            } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].indexOf(ext) !== -1 || rawAudioUrl.indexOf('/videos/') !== -1) {
+              visualUrl = normalizarUrlAudio(rawAudioUrl, 'video');
+              visualType = 'video';
+              var lastSlash = rawAudioUrl.lastIndexOf('/');
+              visualFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+            } else {
+              audioUrl = normalizarUrlAudio(rawAudioUrl, 'audio');
+              var lastSlash = rawAudioUrl.lastIndexOf('/');
+              audioFilename = lastSlash !== -1 ? rawAudioUrl.substring(lastSlash + 1) : rawAudioUrl;
+              audioFallbackUsado = true;
+            }
+          }
+        }
+      }
+
+      if (visualUrl) {
+        var _rxStripDoc = new RegExp('[(](?:Documento|Factura|Comprobante)[' + String.fromCharCode(92) + 's]+adjunt[oa]:?[^)]*[)]?', 'gi');
+        var _rxStripImg = new RegExp('[(](?:Imagen|Foto|Video)[' + String.fromCharCode(92) + 's]+adjunt[oa]:?[^)]*[)]?', 'gi');
+        cleanText = cleanText.replace(_rxStripDoc, '').replace(_rxStripImg, '').trim();
+        var _escOB_C = String.fromCharCode(92) + String.fromCharCode(91);
+        var _escCB_C = String.fromCharCode(92) + String.fromCharCode(93);
+        cleanText = cleanText.replace(new RegExp(_escOB_C + '(?:DOCUMENTO|DOC|PDF|FACTURA|IMAGEN|FOTO|VIDEO):[^' + _escCB_C + ']+' + _escCB_C, 'gi'), '').trim();
+        cleanText = cleanText.replace(new RegExp('DOCUMENTO:[^\\s' + _escCB_C + ')]+', 'gi'), '').trim();
+        ['/archivos/', '/audios/', '/almacenamiento/', '/root/marcos/'].forEach(function(pref) {
+          var p = cleanText.indexOf(pref);
+          if (p !== -1) {
+            var endP = cleanText.indexOf(' ', p);
+            if (endP === -1) endP = cleanText.length;
+            cleanText = (cleanText.substring(0, p) + ' ' + cleanText.substring(endP)).trim();
+          }
+        });
+        while (cleanText && (cleanText.charAt(0) === ']' || cleanText.charAt(0) === ')' || cleanText.charAt(0) === '[' || cleanText.charAt(0) === '(')) {
+          cleanText = cleanText.substring(1).trim();
+        }
+        while (cleanText && (cleanText.charAt(cleanText.length - 1) === ']' || cleanText.charAt(cleanText.length - 1) === ')' || cleanText.charAt(cleanText.length - 1) === '[' || cleanText.charAt(cleanText.length - 1) === '(')) {
+          cleanText = cleanText.substring(0, cleanText.length - 1).trim();
+        }
+      }
+      if (audioUrl) {
+        var _rxStripAud = new RegExp('[(](?:Audio|Nota de voz|Voz)[' + String.fromCharCode(92) + 's]+adjunt[oa]:?[^)]*[)]?', 'gi');
+        cleanText = cleanText.replace(_rxStripAud, '').trim();
+        var _escOB_A = String.fromCharCode(92) + String.fromCharCode(91);
+        var _escCB_A = String.fromCharCode(92) + String.fromCharCode(93);
+        cleanText = cleanText.replace(new RegExp(_escOB_A + 'AUDIO:[^' + _escCB_A + ']+' + _escCB_A, 'gi'), '').trim();
+        cleanText = cleanText.replace(new RegExp('AUDIO:[^\\s' + _escCB_A + ')]+', 'gi'), '').trim();
+        while (cleanText && (cleanText.charAt(0) === ']' || cleanText.charAt(0) === ')' || cleanText.charAt(0) === '[' || cleanText.charAt(0) === '(')) {
+          cleanText = cleanText.substring(1).trim();
+        }
+        while (cleanText && (cleanText.charAt(cleanText.length - 1) === ']' || cleanText.charAt(cleanText.length - 1) === ')' || cleanText.charAt(cleanText.length - 1) === '[' || cleanText.charAt(cleanText.length - 1) === '(')) {
+          cleanText = cleanText.substring(0, cleanText.length - 1).trim();
+        }
+      }
+
+      var visualMediaHtml = '';
+      if (visualUrl) {
+        var urlEsc = escapeHtml(visualUrl);
+        var fnEsc = escapeHtml(visualFilename);
+        if (visualType === 'pdf') {
+          visualMediaHtml = '<div style="margin-top:8px;padding:10px 12px;background:#FFF9F2;border-radius:10px;border:1px solid #FDE68A">' +
+            '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+              '<span style="font-size:26px">📄</span>' +
+              '<div>' +
+                '<div style="font-size:13px;font-weight:800;color:#16233B">' + fnEsc + '</div>' +
+                '<div style="font-size:11px;color:#78350F;font-weight:700">Documento / Factura Adjunta (PDF)</div>' +
+              '</div>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" onclick="descargarArchivoElem(this)" style="font-size:11.5px;font-weight:800;color:#92400E;background:#FDE68A;border:1px solid #F7D070;padding:6px 14px;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:5px" class="hv-soft">⬇️ Descargar PDF / Comprobante</button>' +
+              '<a href="' + urlEsc + '" target="_blank" rel="noopener noreferrer" style="font-size:11.5px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:6px 12px;border-radius:7px;text-decoration:none;display:inline-flex;align-items:center;gap:5px" class="hv-soft">👁️ Ver Documento</a>' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="pdf" onclick="abrirVisorMultimediaElem(this)" style="font-size:11.5px;font-weight:700;color:#5A6B85;background:#fff;border:1px solid #DCE4F0;padding:6px 10px;border-radius:7px;cursor:pointer" class="hv-soft" title="Vista previa en panel">🔍 Previsualizar</button>' +
+            '</div>' +
+          '</div>';
+        } else if (visualType === 'image') {
+          visualMediaHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
             '<div style="position:relative;max-width:280px;max-height:200px;border-radius:8px;overflow:hidden;margin-bottom:6px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.12);background:#000" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)">' +
               '<img src="' + urlEsc + '" style="width:100%;height:100%;object-fit:cover;display:block" alt="Imagen adjunta">' +
               '<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.65);color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;backdrop-filter:blur(4px)">🔍 Ver HD</div>' +
             '</div>' +
             '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-              '<button data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;cursor:pointer" class="hv-soft">🖼️ Ampliar foto</button>' +
-              '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="image" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:4px 10px;border-radius:6px;cursor:pointer" class="hv-soft">🖼️ Ampliar foto</button>' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" onclick="descargarArchivoElem(this)" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:4px 10px;border-radius:6px;cursor:pointer" class="hv-soft">⬇️ Descargar</button>' +
             '</div>' +
           '</div>';
-        } else if (finalMediaType === 'video') {
-          mediaLinkHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
+        } else if (visualType === 'video') {
+          visualMediaHtml = '<div style="margin-top:8px;padding:8px;background:rgba(46,111,192,.06);border-radius:10px;border:1px solid rgba(46,111,192,.18)">' +
             '<video src="' + urlEsc + '" controls style="width:100%;max-height:220px;border-radius:8px;margin-bottom:6px"></video>' +
             '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-              '<button data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="video" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;cursor:pointer" class="hv-soft">🎥 Ampliar video</button>' +
-              '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar</a>' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" data-type="video" onclick="abrirVisorMultimediaElem(this)" style="font-size:11px;font-weight:800;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:4px 10px;border-radius:6px;cursor:pointer" class="hv-soft">🎥 Ampliar video</button>' +
+              '<button type="button" data-url="' + urlEsc + '" data-filename="' + fnEsc + '" onclick="descargarArchivoElem(this)" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:4px 10px;border-radius:6px;cursor:pointer" class="hv-soft">⬇️ Descargar</button>' +
             '</div>' +
-          '</div>';
-        } else if (isFamiliar || isVecino || isProveedor || isEncargado) {
-          var dias = datos.audioDiasRestantes;
-          if (dias === null || dias === undefined) dias = 30;
-          var diasBadgeHtml = (dias <= 0)
-            ? '<span style="font-size:10px;font-weight:800;background:#FBF3DE;color:#8A6410;padding:2px 7px;border-radius:999px;border:1px solid #E8D9A0;margin-left:4px">⏳ Expirado</span>'
-            : (dias <= 7
-              ? '<span style="font-size:10px;font-weight:800;background:#FDECEC;color:#C0392B;padding:2px 7px;border-radius:999px;border:1px solid #F8B4B4;margin-left:4px">' + dias + 'd restantes</span>'
-              : '<span style="font-size:10px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:2px 7px;border-radius:999px;border:1px solid #C3E6D0;margin-left:4px">' + dias + 'd restantes</span>');
-
-          mediaLinkHtml = '<div style="margin-top:6px;padding:8px 12px;background:rgba(46,111,192,.08);border-radius:10px;border:1px solid rgba(46,111,192,.2)">' +
-            '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
-              '<div style="display:flex;align-items:center;gap:4px">' +
-                '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + fnEsc + '</span>' +
-                diasBadgeHtml +
-              '</div>' +
-              '<a href="' + urlEsc + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
-            '</div>' +
-            '<audio controls preload="metadata" style="width:100%;height:36px;border-radius:6px;outline:none"><source src="' + urlEsc + '" type="audio/ogg"><source src="' + urlEsc + '" type="audio/mpeg"><source src="' + urlEsc + '"></audio>' +
           '</div>';
         }
       }
+
+      var audioMediaHtml = '';
+      if (audioUrl) {
+        var urlEscAud = escapeHtml(audioUrl);
+        var fnEscAud = escapeHtml(audioFilename || 'nota_de_voz.ogg');
+        var dias = datos.audioDiasRestantes;
+        if (dias === null || dias === undefined) dias = 30;
+        var diasBadgeHtml = (dias <= 0)
+          ? '<span style="font-size:10px;font-weight:800;background:#FBF3DE;color:#8A6410;padding:2px 7px;border-radius:999px;border:1px solid #E8D9A0;margin-left:4px">⏳ Expirado</span>'
+          : (dias <= 7
+            ? '<span style="font-size:10px;font-weight:800;background:#FDECEC;color:#C0392B;padding:2px 7px;border-radius:999px;border:1px solid #F8B4B4;margin-left:4px">' + dias + 'd restantes</span>'
+            : '<span style="font-size:10px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:2px 7px;border-radius:999px;border:1px solid #C3E6D0;margin-left:4px">' + dias + 'd restantes</span>');
+
+        var mp3UrlEsc = urlEscAud.replace(/\.(ogg|opus)$/i, '.mp3');
+        var oggUrlEsc = urlEscAud;
+
+        audioMediaHtml = '<div style="margin-top:6px;padding:8px 12px;background:rgba(46,111,192,.08);border-radius:10px;border:1px solid rgba(46,111,192,.2)">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
+            '<div style="display:flex;align-items:center;gap:4px">' +
+              '<span style="font-size:11.5px;font-weight:800;color:#2E6FC0">🎙️ (nota de voz) ' + fnEscAud + '</span>' +
+              diasBadgeHtml +
+            '</div>' +
+            '<a href="' + urlEscAud + '" download target="_blank" style="font-size:11px;font-weight:700;color:#2E6FC0;background:#fff;border:1px solid #DCE4F0;padding:3px 9px;border-radius:6px;text-decoration:none" class="hv-soft">⬇️ Descargar audio</a>' +
+          '</div>' +
+          '<audio controls preload="metadata" style="width:100%;height:36px;border-radius:6px;outline:none">' +
+            '<source src="' + mp3UrlEsc + '" type="audio/mpeg">' +
+            '<source src="' + oggUrlEsc + '" type="audio/ogg; codecs=opus">' +
+            '<source src="' + urlEscAud + '">' +
+          '</audio>' +
+        '</div>';
+      }
+
+      var mediaLinkHtml = visualMediaHtml + audioMediaHtml;
 
       return '<div style="max-width:88%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.06);' + align + '" class="chat-bubble">' +
         '<div style="font-size:10.5px;font-weight:800;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
           '<span style="display:flex;align-items:center;gap:4px"><span>' + icon + '</span><span style="padding:1px 6px;border-radius:999px;background:' + tagBg + ';color:' + tagFg + '">' + escapeHtml(senderLabel) + '</span></span>' +
           (horaTag ? '<span style="font-size:10px;opacity:.65;font-weight:600">🕒 ' + escapeHtml(horaTag) + '</span>' : '') +
         '</div>' +
-        '<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>' +
+        (cleanText ? ('<div style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(cleanText) + '</div>') : '') +
         mediaLinkHtml +
       '</div>';
     }).join('');
@@ -2569,6 +5176,7 @@ function renderizarBloqueChat(rawChat, tipoBloque, datos) {
     }
   }
 }
+window.renderizarBloqueChat = renderizarBloqueChat;
 
 function abrirDrawerEvento(idx){
   var datos=(window.__EVENTOS__||[])[idx];
@@ -2590,12 +5198,17 @@ function abrirDrawerEvento(idx){
       '<button onclick="guardarFeedbackDrawer(this,'+datos.row+')" style="height:44px;padding:0 16px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-primary">Guardar</button>'+
       '</div></div>';
   }
+  
+  var esTrabajoExterno = datos.catKey === 'trabajo_externo' || datos.tipo === 'trabajo_externo' || /trabajo_externo|externo/i.test(datos.tipo || '');
+  var badgeExterno = esTrabajoExterno ? '<span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:#FEF3C7;color:#92400E;border:1px solid #F59E0B">🧾 Trabajo externo</span>' : '';
+  var bannerExterno = esTrabajoExterno ? '<div style="background:#FFFDF5;border:1px solid #FDE68A;border-radius:12px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:#78350F;display:flex;align-items:center;gap:10px"><span style="font-size:22px">🧾</span><div><strong style="display:block;margin-bottom:2px">Trabajo coordinado fuera del sistema</strong>Este caso fue coordinado por el encargado/administración directamente con el proveedor y no ingresó previamente por Marcos IA.</div></div>' : '';
 
   panel.innerHTML=
     '<div style="background:'+escapeHtml(datos.catBg)+';padding:22px 24px 20px;position:relative" class="drawer-header-box">'+
-      '<button onclick="cerrarDrawerEvento()" style="position:absolute;top:16px;right:16px;width:34px;height:34px;border:none;border-radius:9px;background:rgba(255,255,255,.7);cursor:pointer;font-size:17px" class="drawer-close-btn">✕</button>'+
+      '<button onclick="cerrarDrawerEvento()" style="position:absolute;top:16px;right:16px;width:34px;height:34px;border:none;border-radius:999px;background:rgba(255,255,255,.7);cursor:pointer;font-size:17px" class="drawer-close-btn">✕</button>'+
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
         '<span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:#EAF1FB;color:#1E5FB4;border:1px solid #C9D5E8">📋 ' + escapeHtml(casoCode) + '</span>'+
+        badgeExterno+
         '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:'+escapeHtml(datos.urgBg)+';color:'+escapeHtml(datos.urgFg)+'">'+escapeHtml(datos.urgLabel)+'</span>'+
         '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:'+escapeHtml(datos.estBg)+';color:'+escapeHtml(datos.estFg)+'">'+escapeHtml(datos.estLabel)+'</span>'+
       '</div>'+
@@ -2606,16 +5219,40 @@ function abrirDrawerEvento(idx){
       '</div>'+
     '</div>'+
     '<div style="padding:22px 24px">'+
+      bannerExterno+
       // ── Bloques de Comunicación (Vecino vs Proveedor) ──
       (function(){
-        var chatVecinoHtml = renderizarBloqueChat(datos.historial_chat_vecino || datos.historial_chat, 'vecino', datos);
-        var chatProveedorHtml = renderizarBloqueChat(datos.historial_chat_proveedor, 'proveedor', datos);
+        var convSep = separarConversacionesEvento(datos);
+        var chatVecinoHtml = renderizarBloqueChat(convSep.chatVecino, 'vecino', datos);
+        var chatProveedorHtml = renderizarBloqueChat(convSep.chatProveedor, 'proveedor', datos);
         var allAudios = parseAudiosDetallados(datos);
         var bulkBtn = allAudios.length > 1 ? '<button onclick="descargarTodosLosAudiosEvento()" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer;margin-right:6px" class="hv-soft">🎙️ Descargar todos los audios (' + allAudios.length + ')</button>' : '';
         var telVecinoClean = datos.telefono ? String(datos.telefono).replace(/[^0-9]/g, '') : '';
         var telVecinoLink = telVecinoClean ? '<a href="https://wa.me/' + escapeHtml(telVecinoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(datos.telefono) + '</a>' : (datos.telefono ? escapeHtml(datos.telefono) : '—');
-        var telTecnicoClean = datos.tel_tecnico ? String(datos.tel_tecnico).replace(/[^0-9]/g, '') : '';
-        var telTecnicoLink = telTecnicoClean ? '<a href="https://wa.me/' + escapeHtml(telTecnicoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(datos.tel_tecnico) + '</a>' : (datos.tel_tecnico ? escapeHtml(datos.tel_tecnico) : '—');
+        
+        var rawTechName = (datos.tecnico || '').replace(/[()]/g, '').trim();
+        if (!rawTechName) {
+          var mProvChat = String(datos.historial_chat || '').match(/Proveedor\s*\(([^)]+)\)/i);
+          if (mProvChat && mProvChat[1]) rawTechName = mProvChat[1].trim().replace(/[()]/g, '');
+        }
+
+        var tecEncontrado = null;
+        var provList = window.__PROVEEDORES__ || [];
+        if (rawTechName && Array.isArray(provList)) {
+          tecEncontrado = provList.find(function(p) {
+            var pNom = String(p.nombre || p.proveedor || '').toLowerCase().trim();
+            var tNom = rawTechName.toLowerCase().trim();
+            return pNom && (pNom === tNom || pNom.includes(tNom) || tNom.includes(pNom));
+          });
+        }
+
+        var telTecnicoFinal = datos.tel_tecnico || (tecEncontrado ? (tecEncontrado.telefono || tecEncontrado.celular || '') : '');
+        var rubroTecnicoFinal = datos.rubro_tecnico || (tecEncontrado ? (tecEncontrado.rubro || tecEncontrado.especialidad || '') : (rawTechName ? 'Especialista Asignado' : '—'));
+        var tecNombreFinal = rawTechName || (tecEncontrado ? tecEncontrado.nombre : 'Sin asignación aún');
+
+        var telTecnicoClean = telTecnicoFinal ? String(telTecnicoFinal).replace(/[^0-9]/g, '') : '';
+        var telTecnicoLink = telTecnicoClean ? '<a href="https://wa.me/' + escapeHtml(telTecnicoClean) + '" target="_blank" style="color:#2E6FC0;font-weight:700;text-decoration:none">💬 ' + escapeHtml(telTecnicoFinal) + '</a>' : (telTecnicoFinal ? escapeHtml(telTecnicoFinal) : '—');
+
         return '<div style="display:flex;gap:8px;margin-bottom:18px;background:#F1F5FB;padding:5px;border-radius:14px;border:1px solid #E2E8F0">'+
           '<button id="tab-btn-ambos" onclick="cambiarTabChatEvento(&quot;ambos&quot;)" style="flex:1;padding:9px 12px;border:1px solid #1E5FB4;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#FFFFFF;font-weight:800;font-size:12.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s ease" class="hv-primary">'+
             '👁️ Ver Ambos Bloques'+
@@ -2670,17 +5307,17 @@ function abrirDrawerEvento(idx){
                 '<button onclick="descargarResumenEvento(&quot;vecino&quot;)" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar TXT Vecino</button>'+
               '</div>'+
             '</div>'+
-            chatVecinoHtml+
+            '<div id="chat-vecino-container">' + chatVecinoHtml + '</div>'+
           '</div>'+
         '</div>'+
         '<div id="panel-chat-proveedor" style="display:block;margin-top:20px">'+
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'+
             '<div class="drawer-grid-card" style="grid-column:span 2;background:#FFFDF5;border:1px solid #FDE68A">'+
               '<div style="font-size:10px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.04em">🔧 Técnico / Proveedor Asignado</div>'+
-              '<div style="font-size:15px;font-weight:800;margin-top:3px;color:#78350F">'+escapeHtml(datos.tecnico||'Sin asignación aún')+'</div>'+
+              '<div style="font-size:15px;font-weight:800;margin-top:3px;color:#78350F">'+escapeHtml(tecNombreFinal)+'</div>'+
             '</div>'+
             '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Teléfono Técnico</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+telTecnicoLink+'</div></div>'+
-            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Rubro / Especialidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(datos.rubro_tecnico||datos.tecnico||'—')+'</div></div>'+
+            '<div class="drawer-grid-card"><div style="font-size:10px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.04em">Rubro / Especialidad</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:#16233B">'+escapeHtml(rubroTecnicoFinal)+'</div></div>'+
           '</div>'+
           '<div style="margin-top:16px">'+
             '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">'+
@@ -2689,7 +5326,7 @@ function abrirDrawerEvento(idx){
                 '<button onclick="descargarResumenEvento(&quot;proveedor&quot;)" style="height:31px;padding:0 12px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12px;cursor:pointer" class="hv-soft">⬇ Descargar TXT Proveedor</button>'+
               '</div>'+
             '</div>'+
-            chatProveedorHtml+
+            '<div id="chat-proveedor-container">' + chatProveedorHtml + '</div>'+
           '</div>'+
         '</div>';
       })()+
@@ -2703,7 +5340,39 @@ function abrirDrawerEvento(idx){
     '</div>';
   overlay.classList.add('open');
   panel.classList.add('open');
+
+  var sepInicial = separarConversacionesEvento(datos);
+  if (sepInicial.chatVecino.length === 0 && sepInicial.chatProveedor.length > 0) {
+    cambiarTabChatEvento('proveedor');
+  } else if (sepInicial.chatProveedor.length === 0 && sepInicial.chatVecino.length > 0) {
+    cambiarTabChatEvento('vecino');
+  }
+
+  if (casoCode && typeof fetch === 'function') {
+    fetch('/admin/api/mensajes?eventoId=' + encodeURIComponent(casoCode))
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        if (j && j.ok && Array.isArray(j.mensajes) && j.mensajes.length > 0) {
+          datos.chat_pg = j.mensajes;
+          var convSep2 = separarConversacionesEvento(datos);
+
+          var contV = document.getElementById('chat-vecino-container');
+          if (contV) contV.innerHTML = renderizarBloqueChat(convSep2.chatVecino, 'vecino', datos);
+          var contP = document.getElementById('chat-proveedor-container');
+          if (contP) contP.innerHTML = renderizarBloqueChat(convSep2.chatProveedor, 'proveedor', datos);
+
+          if (convSep2.chatVecino.length === 0 && convSep2.chatProveedor.length > 0) {
+            cambiarTabChatEvento('proveedor');
+          } else if (convSep2.chatProveedor.length === 0 && convSep2.chatVecino.length > 0) {
+            cambiarTabChatEvento('vecino');
+          }
+        }
+      })
+      .catch(function(e) { console.warn('Error cargando mensajes de PostgreSQL:', e); });
+  }
 }
+window.abrirDrawerEvento = abrirDrawerEvento;
+window._abrirDrawerEventoImpl = abrirDrawerEvento;
 
 function cerrarDrawerEvento(){
   var p=document.getElementById('drawer-panel');
@@ -2711,6 +5380,8 @@ function cerrarDrawerEvento(){
   if(p)p.classList.remove('open');
   if(o)o.classList.remove('open');
 }
+window.cerrarDrawerEvento = cerrarDrawerEvento;
+window._cerrarDrawerEventoImpl = cerrarDrawerEvento;
 
 function descargarResumenEvento(){
   var d=_drawerActual;
@@ -2772,6 +5443,8 @@ function descargarResumenEvento(){
   document.body.appendChild(a);a.click();document.body.removeChild(a);
   setTimeout(function(){URL.revokeObjectURL(url);},2000);
 }
+window.descargarResumenEvento = descargarResumenEvento;
+
 async function guardarFeedbackDrawer(btn,row){
   var ta=btn.parentElement.querySelector('textarea[data-fb-drawer]');
   var nota=ta?ta.value.trim():'';
@@ -2785,6 +5458,8 @@ async function guardarFeedbackDrawer(btn,row){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
+window.guardarFeedbackDrawer = guardarFeedbackDrawer;
+
 async function marcarEventoResuelto(btn,row){
   if(!confirm('¿Estás seguro de marcar este caso como Resuelto?')) return;
   btn.disabled=true;var old=btn.textContent;btn.textContent='...';
@@ -2803,6 +5478,581 @@ async function marcarEventoResuelto(btn,row){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
+window.marcarEventoResuelto = marcarEventoResuelto;
+
+async function toggleFacturaEstado(btn, row, nuevoEstado){
+  if(btn.disabled)return;
+  var esPagada = nuevoEstado === 'pagada';
+  btn.disabled = true;
+  var oldHtml = btn.innerHTML;
+  btn.textContent = '...';
+  try{
+    var r = await fetch('/admin/api/factura-estado', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row: row, estado: nuevoEstado })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error');
+    toast(esPagada ? 'Factura marcada como Pagada' : 'Factura marcada como Pendiente', 'ok');
+    btn.setAttribute('onclick', "event.stopPropagation(); toggleFacturaEstado(this, " + row + ", '" + (esPagada ? 'pendiente' : 'pagada') + "')");
+    btn.style.background = esPagada ? '#E7F4EC' : '#FBF3DE';
+    btn.style.color = esPagada ? '#1B7A43' : '#8A6410';
+    btn.style.borderColor = esPagada ? '#A3D9B1' : '#F7D070';
+    btn.innerHTML = esPagada ? '✓ Pagada' : '⏳ Pendiente';
+  }catch(e){
+    toast('Error: ' + e.message, 'err');
+    btn.innerHTML = oldHtml;
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+// ── FACTURAS Y FOTOS: SCRIPT CLIENTE ──
+var __facturasState = { clase: '', origen: '', q: '', page: 1 };
+var __facturasDebounceTimer = null;
+var __facturasDataCache = null;
+
+function onBuscadorInput(val) {
+  clearTimeout(__facturasDebounceTimer);
+  __facturasDebounceTimer = setTimeout(function() {
+    __facturasState.q = val;
+    __facturasState.page = 1;
+    cargarFacturasDesdeApi();
+  }, 300);
+}
+
+function cambiarTabClase(clase) {
+  __facturasState.clase = clase;
+  __facturasState.page = 1;
+  cargarFacturasDesdeApi();
+}
+
+function cambiarChipOrigen(origen) {
+  __facturasState.origen = origen;
+  __facturasState.page = 1;
+  cargarFacturasDesdeApi();
+}
+
+async function cargarFacturasDesdeApi() {
+  var container = document.getElementById('facturas-grupos-container');
+  if (!container) return; // No estamos en la página de archivos
+
+  var isDark = document.documentElement.classList.contains('dark-theme') || (document.body && document.body.classList.contains('dark-theme'));
+
+  // Actualizar UI de Tabs
+  ['', 'Proveedor', 'Gasto fijo'].forEach(function(c) {
+    var tabId = c === '' ? 'tab-clase-todos' : (c === 'Proveedor' ? 'tab-clase-proveedor' : 'tab-clase-fijo');
+    var el = document.getElementById(tabId);
+    if (el) {
+      var act = __facturasState.clase === c;
+      if (act) {
+        el.style.background = '#2E6FC0';
+        el.style.color = '#FFFFFF';
+        el.style.borderColor = '#2E6FC0';
+      } else {
+        el.style.background = isDark ? '#151F38' : '#FFFFFF';
+        el.style.color = isDark ? '#CBD5E1' : '#475569';
+        el.style.borderColor = isDark ? '#2A3A5E' : '#E2E8F0';
+      }
+    }
+  });
+
+  // Actualizar UI de Chips Origen
+  ['', 'Marcos IA', 'Encargado', 'Consejo', 'Administrador'].forEach(function(o) {
+    var chipId = o === '' ? 'chip-origen-todos' : (o === 'Marcos IA' ? 'chip-origen-marcos' : (o === 'Encargado' ? 'chip-origen-encargado' : (o === 'Consejo' ? 'chip-origen-consejo' : 'chip-origen-admin')));
+    var el = document.getElementById(chipId);
+    if (el) {
+      var act = __facturasState.origen === o;
+      if (act) {
+        el.style.background = '#1E408B';
+        el.style.color = '#FFFFFF';
+        el.style.borderColor = '#1E408B';
+      } else {
+        el.style.background = isDark ? '#151F38' : '#FFFFFF';
+        el.style.color = isDark ? '#CBD5E1' : '#475569';
+        el.style.borderColor = isDark ? '#2A3A5E' : '#E2E8F0';
+      }
+    }
+  });
+
+  var urlParams = new URLSearchParams(window.location.search);
+  var edParam = urlParams.get('edificio') || 'todos';
+
+  var apiParams = new URLSearchParams();
+  if (edParam && edParam !== 'todos') apiParams.set('edificio', edParam);
+  if (__facturasState.clase) apiParams.set('clase', __facturasState.clase);
+  if (__facturasState.origen) apiParams.set('origen', __facturasState.origen);
+  if (__facturasState.q) apiParams.set('q', __facturasState.q);
+  if (__facturasState.page > 1) apiParams.set('page', __facturasState.page);
+
+  container.innerHTML = '<div style="text-align:center;padding:48px 20px;color:#64748B;font-size:14px;"><i class="ph ph-spinner spin" style="font-size:24px;display:block;margin:0 auto 8px;color:#2E6FC0;"></i>Cargando comprobantes...</div>';
+
+  try {
+    var resp = await fetch('/admin/api/facturas?' + apiParams.toString());
+    if (!resp.ok) throw new Error('Error al obtener facturas');
+    var data = await resp.json();
+    __facturasDataCache = data;
+    renderizarSeccionFacturas(data);
+  } catch (err) {
+    container.innerHTML = '<div style="text-align:center;padding:36px;color:#DC2626;border:1px dashed #FCA5A5;background:#FEF2F2;border-radius:14px;">Error al cargar comprobantes: ' + err.message + '</div>';
+  }
+}
+
+function renderizarSeccionFacturas(data) {
+  var container = document.getElementById('facturas-grupos-container');
+  if (!container) return;
+
+  var tot = data.totales || {};
+  document.getElementById('tot-archivados').textContent = tot.total_facturas || 0;
+  document.getElementById('tot-proveedores').textContent = tot.total_proveedor || 0;
+  document.getElementById('tot-fijos').textContent = tot.total_gasto_fijo || 0;
+  document.getElementById('tot-pendiente').textContent = tot.monto_pendiente_total_texto || '$0,00';
+
+  var edTitulo = document.getElementById('facturas-titulo-edificio');
+  if (edTitulo) {
+    var urlParams = new URLSearchParams(window.location.search);
+    var edName = urlParams.get('edificio');
+    edTitulo.textContent = 'Facturas y Fotos' + (edName && edName !== 'todos' ? ' · ' + edName : '');
+  }
+
+  var grupos = data.grupos || [];
+  if (grupos.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:48px 20px;background:#FFFFFF;border:1px dashed #CBD5E1;border-radius:16px;color:#64748B;font-size:14px;"><i class="ph ph-folder-open" style="font-size:36px;display:block;margin:0 auto 10px;color:#94A3B8;"></i>No se encontraron comprobantes para los filtros seleccionados.</div>';
+    return;
+  }
+
+  var html = '';
+
+  grupos.forEach(function(g) {
+    var esFijo = g.clase === 'Gasto fijo';
+    var iconHead = esFijo ? 'ph-lightning' : 'ph-wrench';
+
+    html += '<div style="margin-bottom: 32px;">';
+    // Group Header
+    html += '  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">';
+    html += '    <i class="ph ' + iconHead + '" style="font-size: 20px; color: #2E6FC0;"></i>';
+    html += '    <h3 class="factura-grupo-titulo" style="font-size: 17.5px; font-weight: 700; color: #0F172A; margin: 0;">' + g.titulo + '</h3>';
+    html += '    <span class="factura-badge-count" style="font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: #F1F5F9; border: 1px solid #E2E8F0; color: #475569;">' + g.conteo + '</span>';
+    html += '    <div style="flex: 1; height: 1px; background: linear-gradient(90deg, #CBD5E1 0%, transparent 100%); margin: 0 8px;"></div>';
+    html += '    <div style="font-size: 13px; color: #64748B; display: flex; align-items: center; gap: 6px;">';
+    html += '      <span>' + g.pendientes + ' pendientes</span>';
+    html += '      <span>·</span>';
+    html += '      <span style="color: #D97706; font-weight: 700;">' + g.monto_pendiente_texto + '</span>';
+    html += '    </div>';
+    html += '  </div>';
+
+    // Items List
+    html += '  <div style="display: flex; flex-direction: column; gap: 8px;">';
+    g.items.forEach(function(item) {
+      var isPdf = item.tipo === 'Factura PDF' || (item.url_archivo && item.url_archivo.toLowerCase().endsWith('.pdf'));
+      var isPagada = item.estado === 'Pagada';
+      var iconType = isPdf ? 'ph-file-pdf' : 'ph-image';
+      var iconBg = isPdf ? '#FEF3C7' : '#D1FAE5';
+      var iconColor = isPdf ? '#D97706' : '#059669';
+
+      var isMarcos = item.origen === 'Marcos IA' || item.origen === 'Susana IA' || item.origen_nombre === 'Marcos IA' || item.origen_nombre === 'Susana IA';
+      var origIcon = isMarcos ? 'ph-robot' : (item.origen === 'Encargado' ? 'ph-user-gear' : (item.origen === 'Consejo' ? 'ph-users-three' : 'ph-briefcase'));
+      var origNombre = isMarcos ? (item.origen_nombre || 'Marcos IA') : (item.origen_nombre || item.origen);
+
+      var dirEdificionHtml = item.edificio_direccion ? ' <span style="font-weight:600;opacity:0.88;" title="Dirección física del consorcio">(📍 ' + escapeHtml(item.edificio_direccion) + ')</span>' : '';
+
+      var codCaso = item.codigo_caso || item.id_evento || '';
+      var casoHtml = codCaso
+        ? ' <span class="factura-badge-caso" style="color: #059669; font-weight: 700; background: #D1FAE5; padding: 1px 7px; border-radius: 4px; border: 1px solid #6EE7B7;" title="Código de reparación asignado">📌 Caso ' + escapeHtml(codCaso) + '</span>'
+        : ' <span class="factura-badge-nocaso" style="color: #64748B; font-weight: 600; background: #F1F5F9; padding: 1px 7px; border-radius: 4px; border: 1px solid #E2E8F0;" title="Sin caso de reparación asignado">Sin caso asignado</span>';
+
+      var dirFacturaHtml = '';
+      if (item.direccion_factura) {
+        var isDiff = item.edificio_direccion && item.direccion_factura.toLowerCase().indexOf(item.edificio_direccion.toLowerCase()) === -1 && item.edificio_direccion.toLowerCase().indexOf(item.direccion_factura.toLowerCase()) === -1;
+        if (isDiff) {
+          dirFacturaHtml = ' <span class="factura-badge-dir-warn" style="color: #B45309; font-weight: 700; background: #FEF3C7; padding: 1px 7px; border-radius: 4px; border: 1px solid #FDE68A;" title="¡Atención! La dirección impresa en la factura difiere del edificio asignado">⚠️ Dir. en factura: ' + escapeHtml(item.direccion_factura) + '</span>';
+        } else {
+          dirFacturaHtml = ' <span class="factura-badge-dir" style="color: #0284C7; font-weight: 600; background: #E0F2FE; padding: 1px 7px; border-radius: 4px; border: 1px solid #BAE6FD;" title="Dirección impresa en el comprobante">📍 Dir. en factura: ' + escapeHtml(item.direccion_factura) + '</span>';
+        }
+      }
+
+      html += '    <div class="row-item-hover" style="display: grid; grid-template-columns: 40px minmax(0, 1fr) 170px 150px 140px; gap: 14px; align-items: center; padding: 11px 16px; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); transition: all .15s ease; position: relative;">';
+
+      // 1. Icon Box
+      html += '      <div style="width: 40px; height: 40px; border-radius: 999px; background: ' + iconBg + '; display: flex; align-items: center; justify-content: center;">';
+      html += '        <i class="ph ' + iconType + '" style="font-size: 22px; color: ' + iconColor + ';"></i>';
+      html += '      </div>';
+
+      // 2. Concept & Meta
+      html += '      <div style="min-width: 0;">';
+      html += '        <div class="factura-concepto-title" style="font-size: 14.5px; font-weight: 700; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + (item.concepto || 'Sin concepto') + '</div>';
+      html += '        <div class="factura-meta-text" style="font-size: 12px; color: #64748B; margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">';
+      html += '          <span class="factura-badge-edificio" style="color: #1E5FB4; font-weight: 700; background: #EFF6FF; padding: 1px 7px; border-radius: 4px; border: 1px solid #BFDBFE;">🏢 ' + item.edificio + dirEdificionHtml + '</span>';
+      html += '          <span>·</span>';
+      html += '          ' + casoHtml;
+      html += '          <span>·</span>';
+      html += '          ' + (dirFacturaHtml ? dirFacturaHtml + ' <span>·</span> ' : '');
+      html += '          <span>N° ' + item.numero_factura + '</span>';
+      html += '          <span>·</span>';
+      html += '          <span>' + item.fecha_texto + '</span>';
+      html += '          <span class="factura-badge-tipo" style="font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: #F1F5F9; border: 1px solid #E2E8F0; color: #475569;">' + item.tipo + '</span>';
+      html += '        </div>';
+      html += '      </div>';
+
+      // 3. Responsable Column
+      html += '      <div style="min-width: 0;">';
+      html += '        <div class="factura-proveedor-title" style="font-size: 13.5px; font-weight: 700; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + (item.proveedor || item.categoria || '—') + '</div>';
+      html += '        <div class="factura-meta-text" style="font-size: 11.5px; color: #64748B; margin-top: 3px; display: flex; align-items: center; gap: 4px;">';
+      html += '          <i class="ph ' + origIcon + '" style="font-size: 14px; color: #2E6FC0;"></i>';
+      html += '          <span>' + origNombre + '</span>';
+      html += '        </div>';
+      html += '      </div>';
+
+      // 4. Amount & Status
+      html += '      <div style="text-align: right;">';
+      html += '        <div class="factura-monto-title" style="font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; color: #0F172A;">' + item.monto + '</div>';
+      html += '        <div style="margin-top: 3px;">';
+      if (isPagada) {
+        html += '          <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #DCFCE7; border: 1px solid #86EFAC; color: #15803D;"><i class="ph ph-check-circle"></i>Pagada</span>';
+      } else {
+        html += '          <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #FEF3C7; border: 1px solid #FDE68A; color: #B45309;"><i class="ph ph-clock"></i>Pendiente</span>';
+      }
+      html += '        </div>';
+      html += '      </div>';
+
+      // 5. Actions Column
+      html += '      <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; position: relative;">';
+      if (item.url_archivo) {
+        html += '        <a href="' + item.url_archivo + '" target="_blank" class="btn-factura-sec" style="padding: 6px 10px; font-size: 12.5px;" title="Ver comprobante"><i class="ph ph-eye"></i>Ver</a>';
+        html += '        <a href="/admin/api/facturas/' + encodeURIComponent(item.factura_key) + '/archivo?descargar=1" class="btn-factura-sec" style="padding: 6px 9px; font-size: 13.5px;" title="Descargar archivo"><i class="ph ph-download-simple"></i></a>';
+      }
+      html += '        <button type="button" class="btn-factura-sec" onclick="togglePopoverMenu(this, &quot;' + encodeURIComponent(item.factura_key) + '&quot;)" style="padding: 6px 9px; font-size: 15px;" title="Opciones"><i class="ph ph-dots-three"></i></button>';
+      html += '      </div>';
+
+      html += '    </div>';
+    });
+    html += '  </div>';
+    html += '</div>';
+  });
+
+  container.innerHTML = html;
+}
+
+function togglePopoverMenu(btn, encodedKey) {
+  var key = decodeURIComponent(encodedKey);
+  var item = null;
+  if (__facturasDataCache && __facturasDataCache.grupos) {
+    for (var i = 0; i < __facturasDataCache.grupos.length; i++) {
+      var found = __facturasDataCache.grupos[i].items.find(function(x) { return x.factura_key === key; });
+      if (found) { item = found; break; }
+    }
+  }
+  if (!item) return;
+
+  // Cerrar popovers abiertos y resetear z-index de filas
+  document.querySelectorAll('.row-item-hover').forEach(function(r) { r.style.zIndex = '1'; });
+  document.querySelectorAll('.popover-facturas-menu').forEach(function(p) { p.remove(); });
+
+  var row = btn.closest('.row-item-hover');
+  if (row) row.style.zIndex = '1000';
+
+  var parent = btn.parentElement;
+  var pop = document.createElement('div');
+  pop.className = 'popover-facturas-menu';
+
+  var isPagada = item.estado === 'Pagada';
+  var esFijo = item.clase === 'Gasto fijo';
+
+  var h = '';
+  if (item.url_archivo) {
+    h += '<a href="' + item.url_archivo + '" target="_blank" class="popover-item-btn"><i class="ph ph-eye" style="font-size:16px;color:#2E6FC0;"></i><span>Ver comprobante</span></a>';
+    h += '<a href="/admin/api/facturas/' + encodeURIComponent(item.factura_key) + '/archivo?descargar=1" class="popover-item-btn"><i class="ph ph-download-simple" style="font-size:16px;color:#2E6FC0;"></i><span>Descargar archivo</span></a>';
+    h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
+  }
+
+  h += '<button type="button" class="popover-item-btn" onclick="abrirModalEditarDocumento(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-pencil-simple" style="font-size:16px;color:#475569;"></i><span>Editar monto y fecha</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="abrirModalCambiarOrigen(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-user-switch" style="font-size:16px;color:#475569;"></i><span>Cambiar quién lo cargó</span></button>';
+  h += '<button type="button" class="popover-item-btn" onclick="moverClaseFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;, &quot;' + (esFijo ? 'Proveedor' : 'Gasto fijo') + '&quot;)"><i class="ph ph-arrows-down-up" style="font-size:16px;color:#475569;"></i><span>' + (esFijo ? 'Mover a Proveedores' : 'Mover a Gastos fijos') + '</span></button>';
+
+  h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
+
+  if (isPagada) {
+    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;, &quot;Pendiente&quot;)"><i class="ph ph-clock" style="font-size:16px;color:#D97706;"></i><span>Marcar como Pendiente</span></button>';
+  } else {
+    h += '<button type="button" class="popover-item-btn" onclick="cambiarEstadoFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;, &quot;Pagada&quot;)"><i class="ph ph-check-circle" style="font-size:16px;color:#16A34A;"></i><span>Marcar como Pagada</span></button>';
+  }
+
+  h += '<button type="button" class="popover-item-btn" onclick="enviarConsejoFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-paper-plane-tilt" style="font-size:16px;color:#2E6FC0;"></i><span>Enviar al consejo por mail/WSP</span></button>';
+
+  h += '<div style="height:1px;background:#E2E8F0;margin:4px 0;"></div>';
+
+  h += '<button type="button" class="popover-item-btn" style="color:#DC2626;" onclick="eliminarFacturaKey(&quot;' + encodeURIComponent(key) + '&quot;)"><i class="ph ph-trash" style="font-size:16px;color:#DC2626;"></i><span>Eliminar del archivo</span></button>';
+
+  pop.innerHTML = h;
+  parent.appendChild(pop);
+
+  // Auto-cerrar al hacer clic fuera
+  setTimeout(function() {
+    function cerrarPop(e) {
+      if (!pop.contains(e.target) && e.target !== btn) {
+        pop.remove();
+        if (row) row.style.zIndex = '1';
+        document.removeEventListener('click', cerrarPop);
+      }
+    }
+    document.addEventListener('click', cerrarPop);
+  }, 10);
+}
+
+async function cambiarEstadoFacturaKey(encodedKey, nuevoEstado) {
+  var key = decodeURIComponent(encodedKey);
+  try {
+    var resp = await fetch('/admin/api/facturas/' + encodeURIComponent(key), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estado: nuevoEstado })
+    });
+    if (!resp.ok) throw new Error('Error al actualizar estado');
+    toast('Comprobante marcado como ' + nuevoEstado, 'ok');
+    cargarFacturasDesdeApi();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+async function moverClaseFacturaKey(encodedKey, nuevaClase) {
+  var key = decodeURIComponent(encodedKey);
+  try {
+    var resp = await fetch('/admin/api/facturas/' + encodeURIComponent(key), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clase: nuevaClase })
+    });
+    if (!resp.ok) throw new Error('Error al mover clase');
+    toast('Movido a ' + nuevaClase, 'ok');
+    cargarFacturasDesdeApi();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+async function eliminarFacturaKey(encodedKey) {
+  if (!confirm('¿Seguro que deseas eliminar este comprobante del archivo?')) return;
+  var key = decodeURIComponent(encodedKey);
+  try {
+    var resp = await fetch('/admin/api/facturas/' + encodeURIComponent(key), {
+      method: 'DELETE'
+    });
+    if (!resp.ok) throw new Error('Error al eliminar');
+    toast('Comprobante eliminado del archivo', 'ok');
+    cargarFacturasDesdeApi();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+async function enviarConsejoFacturaKey(encodedKey) {
+  var key = decodeURIComponent(encodedKey);
+  try {
+    var resp = await fetch('/admin/api/facturas/' + encodeURIComponent(key) + '/enviar-consejo', {
+      method: 'POST'
+    });
+    if (!resp.ok) throw new Error('Error al enviar');
+    toast('Comprobante enviado al consejo por mail y WhatsApp', 'ok');
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+function abrirModalSubirDocumento() {
+  var fileInput = document.getElementById('factura-subir-archivo');
+  if (fileInput) fileInput.value = '';
+  var prev = document.getElementById('factura-subir-preview');
+  if (prev) prev.style.display = 'none';
+  var dropText = document.getElementById('factura-subir-droptext');
+  if (dropText) dropText.style.display = 'block';
+  var imgPrev = document.getElementById('factura-subir-imgprev');
+  if (imgPrev) { imgPrev.src = ''; imgPrev.style.display = 'none'; }
+  var conceptoInp = document.getElementById('factura-subir-concepto');
+  if (conceptoInp) conceptoInp.value = '';
+  var provInp = document.getElementById('factura-subir-proveedor');
+  if (provInp) provInp.value = '';
+  var montoInp = document.getElementById('factura-subir-monto');
+  if (montoInp) montoInp.value = '';
+  var numInp = document.getElementById('factura-subir-numero');
+  if (numInp) numInp.value = '';
+  var catInp = document.getElementById('factura-subir-categoria');
+  if (catInp) catInp.value = '';
+
+  var urlParams = new URLSearchParams(window.location.search);
+  var edParam = urlParams.get('edificio');
+  var edSelect = document.getElementById('factura-subir-edificio');
+  if (edSelect && edParam && edParam !== 'todos') {
+    edSelect.value = edParam;
+  }
+
+  abrirModal('modal-subir-documento');
+}
+
+function onFacturaArchivoSeleccionado(input) {
+  var file = input && input.files ? input.files[0] : null;
+  var prev = document.getElementById('factura-subir-preview');
+  var dropText = document.getElementById('factura-subir-droptext');
+  var nameEl = document.getElementById('factura-subir-filename');
+  var badgeEl = document.getElementById('factura-subir-typebadge');
+  var imgPrev = document.getElementById('factura-subir-imgprev');
+  var tipoSelect = document.getElementById('factura-subir-tipo');
+
+  if (!file) {
+    if (prev) prev.style.display = 'none';
+    if (dropText) dropText.style.display = 'block';
+    return;
+  }
+
+  var sizeKb = Math.round(file.size / 1024);
+  var sizeText = sizeKb < 1024 ? sizeKb + ' KB' : (sizeKb / 1024).toFixed(1) + ' MB';
+  if (nameEl) nameEl.textContent = file.name + ' (' + sizeText + ')';
+
+  var isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  var isImg = file.type.indexOf('image/') === 0 || /\.(jpg|jpeg|png|webp|heic|gif)$/i.test(file.name);
+
+  if (isPdf) {
+    if (tipoSelect) tipoSelect.value = 'Factura PDF';
+    if (badgeEl) badgeEl.innerHTML = '<span style="background:#FEF3C7;color:#D97706;padding:3px 8px;border-radius:6px;font-size:11.5px;font-weight:700">📄 Factura PDF</span>';
+    if (imgPrev) imgPrev.style.display = 'none';
+  } else if (isImg) {
+    if (tipoSelect) tipoSelect.value = 'Foto';
+    if (badgeEl) badgeEl.innerHTML = '<span style="background:#DCFCE7;color:#15803D;padding:3px 8px;border-radius:6px;font-size:11.5px;font-weight:700">📸 Foto / Imagen</span>';
+    if (imgPrev) {
+      imgPrev.style.display = 'block';
+      var reader = new FileReader();
+      reader.onload = function(e) { imgPrev.src = e.target.result; };
+      reader.readAsDataURL(file);
+    }
+  } else {
+    if (tipoSelect) tipoSelect.value = 'Otro';
+    if (badgeEl) badgeEl.innerHTML = '<span style="background:#F1F5F9;color:#475569;padding:3px 8px;border-radius:6px;font-size:11.5px;font-weight:700">📎 Archivo</span>';
+    if (imgPrev) imgPrev.style.display = 'none';
+  }
+
+  if (dropText) dropText.style.display = 'none';
+  if (prev) prev.style.display = 'flex';
+}
+
+function onClaseFacturaCambiada(clase) {
+  var provLabel = document.getElementById('label-subir-proveedor');
+  if (provLabel) {
+    provLabel.textContent = clase === 'Gasto fijo' ? 'Servicio o Empresa (ej: Edenor, Metrogas, Seguros)' : 'Proveedor o Técnico (ej: Ferretería, Plomero)';
+  }
+}
+
+async function subirFacturaSubmit() {
+  var fileInput = document.getElementById('factura-subir-archivo');
+  var file = fileInput && fileInput.files ? fileInput.files[0] : null;
+  if (!file) {
+    toast('Por favor seleccioná una factura en PDF o una foto de comprobante', 'err');
+    return;
+  }
+
+  var edificio = (document.getElementById('factura-subir-edificio').value || '').trim();
+  if (!edificio) {
+    toast('Seleccioná el edificio correspondiente', 'err');
+    return;
+  }
+
+  var concepto = (document.getElementById('factura-subir-concepto').value || '').trim();
+  if (!concepto) {
+    toast('Ingresá el concepto o detalle del comprobante', 'err');
+    return;
+  }
+
+  var clase = document.getElementById('factura-subir-clase').value || 'Proveedor';
+  var proveedor = (document.getElementById('factura-subir-proveedor').value || '').trim();
+  var categoria = (document.getElementById('factura-subir-categoria').value || '').trim();
+  var monto = (document.getElementById('factura-subir-monto').value || '').trim();
+  var numero_factura = (document.getElementById('factura-subir-numero').value || '').trim();
+  var origen = document.getElementById('factura-subir-origen').value || 'Administrador';
+  var tipo = document.getElementById('factura-subir-tipo').value || 'Otro';
+
+  if (clase === 'Gasto fijo' && !categoria && !proveedor) {
+    categoria = 'Servicios generales';
+  }
+
+  var btn = document.getElementById('btn-subir-factura-enviar');
+  var prevTxt = btn ? btn.innerText : 'Subir Comprobante';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = '⏳ Subiendo archivo...';
+  }
+
+  try {
+    var fd = new FormData();
+    fd.append('archivo', file);
+    fd.append('edificio', edificio);
+    fd.append('clase', clase);
+    fd.append('concepto', concepto);
+    fd.append('proveedor', proveedor);
+    fd.append('categoria', categoria);
+    fd.append('monto', monto);
+    fd.append('numero_factura', numero_factura);
+    fd.append('origen', origen);
+    fd.append('tipo', tipo);
+
+    var res = await fetch('/admin/api/facturas', {
+      method: 'POST',
+      body: fd
+    });
+    var data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.mensaje || data.error || 'Error al guardar el comprobante');
+    }
+
+    toast('Comprobante archivado con éxito', 'ok');
+    cerrarModal('modal-subir-documento');
+    cargarFacturasDesdeApi();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = prevTxt;
+    }
+  }
+}
+
+function abrirModalEditarDocumento(encodedKey) {
+  var key = decodeURIComponent(encodedKey);
+  var nuevoMonto = prompt('Ingresá el nuevo monto (o dejá "Según comprobante"):');
+  if (nuevoMonto === null) return;
+  fetch('/admin/api/facturas/' + encodeURIComponent(key), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ monto: nuevoMonto.trim() || 'Según comprobante' })
+  }).then(function(r) { return r.json(); }).then(function() {
+    toast('Monto actualizado', 'ok');
+    cargarFacturasDesdeApi();
+  }).catch(function(e) { toast('Error: ' + e.message, 'err'); });
+}
+
+function abrirModalCambiarOrigen(encodedKey) {
+  var key = decodeURIComponent(encodedKey);
+  var nuevoOrigen = prompt('Ingresá el origen (Encargado, Consejo, Administrador):');
+  if (!nuevoOrigen) return;
+  fetch('/admin/api/facturas/' + encodeURIComponent(key), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ origen: nuevoOrigen.trim() })
+  }).then(function(r) { return r.json(); }).then(function() {
+    toast('Origen actualizado', 'ok');
+    cargarFacturasDesdeApi();
+  }).catch(function(e) { toast('Error: ' + e.message, 'err'); });
+}
+
+function abrirModalFiltrosAvanzados() {
+  toast('Filtros avanzados listos.', 'info');
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  if (document.getElementById('facturas-grupos-container')) {
+    cargarFacturasDesdeApi();
+  }
+});
 
 // --- chips de filtro de eventos (cliente) ---
 function filtrarEventos(modo,btn){
@@ -2905,20 +6155,30 @@ function abrirSolicitudCorporativa(planNombre, limiteCupos, edificiosJsonStr) {
   var lblPlan = document.getElementById('corp-plan-nombre');
   if (lblPlan) lblPlan.textContent = planNombre + ' (' + _corpLimiteCupos + ' Edificios)';
 
+  var yaEnPaquete = _corpEdificiosLista.filter(function(e) {
+    var pName = String(e.plan || '').toLowerCase();
+    return pName.includes('corporativo') || pName.includes(planNombre.toLowerCase());
+  });
+
   var container = document.getElementById('corp-edificios-checklist');
   if (container) {
     if (_corpEdificiosLista.length === 0) {
       container.innerHTML = '<div style="padding:16px;text-align:center;color:#8595AD">No tenés edificios registrados aún.</div>';
     } else {
       container.innerHTML = _corpEdificiosLista.map(function(e, idx) {
-        var autoChecked = idx < _corpLimiteCupos ? 'checked' : '';
-        var statusBadge = autoChecked ? '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#E7F4EC;color:#1B7A43">Incluido en Paquete</span>' : '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F1F5FB;color:#64748B">Plan Individual</span>';
+        var pName = String(e.plan || '').toLowerCase();
+        var perteneceYa = pName.includes('corporativo') || (planNombre && pName.includes(planNombre.toLowerCase()));
+        var autoChecked = yaEnPaquete.length > 0 ? perteneceYa : idx < _corpLimiteCupos;
+
+        var statusBadge = autoChecked
+          ? '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ En el Paquete</span>'
+          : '<span class="corp-status-tag" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F1F5FB;color:#64748B">Plan Individual</span>';
         var safeNombre = escStr(e.nombre);
         var safeDir = escStr(e.direccion || e.nombre);
         var safePlan = escStr(e.plan || 'Base');
         return '<label style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#fff;border:1.5px solid #E4E9F1;border-radius:12px;cursor:pointer;gap:12px" class="hv-card">' +
           '<div style="display:flex;align-items:center;gap:12px">' +
-            '<input type="checkbox" class="chk-corp-item" value="' + safeNombre + '" ' + autoChecked + ' onchange="recalcularCuposCorp()" style="width:18px;height:18px;accent-color:#2E6FC0">' +
+            '<input type="checkbox" class="chk-corp-item" value="' + safeNombre + '" ' + (autoChecked ? 'checked' : '') + ' data-pertenece="' + (perteneceYa ? '1' : '0') + '" onchange="recalcularCuposCorp()" style="width:18px;height:18px;accent-color:#2E6FC0">' +
             '<div>' +
               '<div style="font-size:14.5px;font-weight:700;color:#16233B">' + safeNombre + '</div>' +
               '<div style="font-size:12px;color:#8595AD">' + safeDir + ' · Plan actual: ' + safePlan + '</div>' +
@@ -2941,18 +6201,32 @@ function recalcularCuposCorp() {
   chks.forEach(function(chk) {
     var label = chk.closest('label');
     var tag = label ? label.querySelector('.corp-status-tag') : null;
+    var perteneceYa = chk.getAttribute('data-pertenece') === '1';
+
     if (chk.checked) {
       count++;
       if (tag) {
-        tag.textContent = 'Incluido en Paquete';
-        tag.style.background = '#E7F4EC';
-        tag.style.color = '#1B7A43';
+        if (perteneceYa) {
+          tag.textContent = '✓ Mantiene en Paquete';
+          tag.style.background = '#E7F4EC';
+          tag.style.color = '#1B7A43';
+        } else {
+          tag.textContent = '➕ Adherir al Paquete';
+          tag.style.background = '#EAF1FB';
+          tag.style.color = '#2E6FC0';
+        }
       }
     } else {
       if (tag) {
-        tag.textContent = 'Plan Individual';
-        tag.style.background = '#F1F5FB';
-        tag.style.color = '#64748B';
+        if (perteneceYa) {
+          tag.textContent = '❌ Quitar del Paquete';
+          tag.style.background = '#FDF2F2';
+          tag.style.color = '#C0392B';
+        } else {
+          tag.textContent = 'Plan Individual';
+          tag.style.background = '#F1F5FB';
+          tag.style.color = '#64748B';
+        }
       }
     }
   });
@@ -2995,23 +6269,24 @@ async function enviarSolicitudCorporativa(btn) {
     detalleMotivo += ' · Nota cliente: ' + motivoObs.trim();
   }
 
-  btn.disabled = true; var old = btn.textContent; btn.textContent = 'Enviando solicitud...';
+  btn.disabled = true; var old = btn.textContent; btn.textContent = 'Guardando cambios...';
   try {
-    var r = await fetch('/admin/api/solicitar-cambio', {
+    var r = await fetch('/admin/api/adherir-plan-corporativo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        campo: 'plan',
-        valorNuevo: _corpPlanNombre + ' (Paquete Corporativo)',
-        edificio: 'Paquete Corporativo (' + seleccionados.length + ' edificios)',
+        plan: _corpPlanNombre,
+        cupos: _corpLimiteCupos,
+        seleccionados: seleccionados,
+        excluidos: excluidos,
         motivo: detalleMotivo
       })
     });
     var j = await r.json();
-    if (!r.ok || j.error) throw new Error(j.error || 'Error al enviar solicitud');
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al procesar');
     cerrarModal('modal-solicitud-corporativa');
-    toast('¡Solicitud de Paquete Corporativo enviada con éxito!', 'ok');
-    setTimeout(function() { location.reload(); }, 1000);
+    toast(j.mensaje || '¡Paquete Corporativo actualizado con éxito!', 'ok');
+    setTimeout(function() { location.reload(); }, 900);
   } catch (e) {
     toast('Error: ' + e.message, 'err');
   } finally {
@@ -3109,17 +6384,44 @@ async function guardarCampoEditado(btn){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
+// Manejo táctil de chips de rubros (mobile friendly)
+function toggleRubroChip(selectId, rubroVal, btnEl){
+  var sel = document.getElementById(selectId);
+  if (!sel) return;
+  for (var i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value.toLowerCase() === rubroVal.toLowerCase()) {
+      sel.options[i].selected = !sel.options[i].selected;
+      if (sel.options[i].selected) {
+        btnEl.classList.add('chip-active');
+      } else {
+        btnEl.classList.remove('chip-active');
+      }
+      break;
+    }
+  }
+}
+window.toggleRubroChip = toggleRubroChip;
+
 // Agregar proveedor a la lista maestra del cliente (una sola vez).
 async function agregarProveedor(btn){
-  var rubro=(document.getElementById('prov-rubro')||{}).value||'';
+  var selRub=document.getElementById('prov-rubro');
+  var rubrosElegidos=selRub&&selRub.selectedOptions?Array.from(selRub.selectedOptions).map(function(o){return o.value.trim();}).filter(Boolean):[];
+  var rubro=rubrosElegidos.join(', ')||(selRub?selRub.value:'')||'Otro';
   var nombre=(document.getElementById('prov-nombre')||{}).value||'';
   var tel=(document.getElementById('prov-tel')||{}).value||'';
   var notas=(document.getElementById('prov-notas')||{}).value||'';
+  // Datos de cobro, opcionales. Van en el alta para no tener que volver a entrar si ya se
+  // tienen a mano. El servidor verifica el CBU y rechaza el alta si está mal escrito.
+  var cbu=((document.getElementById('prov-cbu')||{}).value||'').replace(/\\D/g,'');
+  var alias=((document.getElementById('prov-alias')||{}).value||'').trim();
+  var titular=((document.getElementById('prov-titular')||{}).value||'').trim();
+  var cuit=((document.getElementById('prov-cuit')||{}).value||'').replace(/\\D/g,'');
   if(!nombre.trim()&&!tel.trim()){toast('Cargá al menos nombre o teléfono','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Agregando...';
   try{
     var r=await fetch('/admin/api/proveedor',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({rubro:rubro,nombre:nombre.trim(),telefono:tel.trim(),notas:notas.trim()})});
+      body:JSON.stringify({rubro:rubro,nombre:nombre.trim(),telefono:tel.trim(),notas:notas.trim(),
+        cbu:cbu,alias:alias,titular:titular,cuit:cuit})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Proveedor agregado a tu lista','ok');
@@ -3139,7 +6441,25 @@ async function quitarProveedor(btn,row){
 }
 function abrirEditarProveedor(row, rubro, nombre, tel, notas){
   var r=document.getElementById('edit-prov-row');if(r)r.value=row;
-  var rb=document.getElementById('edit-prov-rubro');if(rb)rb.value=rubro||'Otro';
+  var rb=document.getElementById('edit-prov-rubro');
+  var lista=String(rubro||'').split(',').map(function(s){return s.trim().toLowerCase();}).filter(Boolean);
+  if(rb){
+    for(var i=0;i<rb.options.length;i++){
+      rb.options[i].selected=lista.indexOf(rb.options[i].value.toLowerCase())!==-1;
+    }
+  }
+  var box = document.getElementById('chips-edit-prov-rubro');
+  if (box) {
+    var chips = box.querySelectorAll('.chip-rubro');
+    for (var j = 0; j < chips.length; j++) {
+      var rVal = (chips[j].getAttribute('data-rubro') || '').toLowerCase();
+      if (lista.indexOf(rVal) !== -1) {
+        chips[j].classList.add('chip-active');
+      } else {
+        chips[j].classList.remove('chip-active');
+      }
+    }
+  }
   var n=document.getElementById('edit-prov-nombre');if(n)n.value=nombre||'';
   var t=document.getElementById('edit-prov-tel');if(t)t.value=tel||'';
   var nt=document.getElementById('edit-prov-notas');if(nt)nt.value=notas||'';
@@ -3147,7 +6467,9 @@ function abrirEditarProveedor(row, rubro, nombre, tel, notas){
 }
 async function guardarEditarProveedor(btn){
   var row=valEl('edit-prov-row');
-  var rubro=valEl('edit-prov-rubro');
+  var selRub=document.getElementById('edit-prov-rubro');
+  var rubrosElegidos=selRub&&selRub.selectedOptions?Array.from(selRub.selectedOptions).map(function(o){return o.value.trim();}).filter(Boolean):[];
+  var rubro=rubrosElegidos.join(', ')||(selRub?selRub.value:'')||'Otro';
   var nombre=valEl('edit-prov-nombre');
   var tel=valEl('edit-prov-tel');
   var notas=valEl('edit-prov-notas');
@@ -3164,6 +6486,404 @@ async function guardarEditarProveedor(btn){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
+window.guardarEditarProveedor = guardarEditarProveedor;
+
+// ── GESTIÓN DE AMENITIES Y ESPACIOS COMUNES (CLIENTE) ──
+function abrirModalAmenityNuevo(edificio) {
+  var e = document.getElementById('amenity-nuevo-edificio');
+  if (e) e.value = edificio || '';
+  abrirModal('modal-amenity-nuevo');
+}
+window.abrirModalAmenityNuevo = abrirModalAmenityNuevo;
+
+async function guardarAmenityNuevo(btn) {
+  var edificio = valEl('amenity-nuevo-edificio');
+  var nombre = valEl('amenity-nuevo-nombre');
+  var icono = valEl('amenity-nuevo-icono') || '🎉';
+  var apertura = valEl('amenity-nuevo-apertura') || '08:00';
+  var cierre = valEl('amenity-nuevo-cierre') || '23:00';
+  var capacidad = valEl('amenity-nuevo-capacidad') || '20';
+  var descripcion = valEl('amenity-nuevo-desc') || '';
+  var reglamento = valEl('amenity-nuevo-reglamento') || '';
+  var chkArancel = document.getElementById('amenity-nuevo-arancelado');
+  var arancelado = chkArancel ? chkArancel.checked : false;
+  var precio = valEl('amenity-nuevo-precio') || '0';
+  var tipoArancel = valEl('amenity-nuevo-tipo-arancel') || 'por_hora';
+
+  if (!nombre.trim()) {
+    toast('Ingresá el nombre del espacio común (ej: SUM, Piscina, Gimnasio)', 'err');
+    return;
+  }
+
+  btn.disabled = true;
+  var old = btn.textContent;
+  btn.textContent = 'Guardando...';
+
+  try {
+    var r = await fetch('/admin/api/edificio-amenity-guardar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        edificio: edificio,
+        nombre: nombre.trim(),
+        icono: icono.trim(),
+        hora_apertura: apertura,
+        hora_cierre: cierre,
+        capacidad: parseInt(capacidad, 10) || 20,
+        descripcion: descripcion.trim(),
+        reglamento: reglamento.trim(),
+        arancelado: Boolean(arancelado),
+        precio: parseFloat(precio) || 0,
+        tipo_arancel: tipoArancel
+      })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al guardar amenity');
+    cerrarModal('modal-amenity-nuevo');
+    toast('¡Espacio común configurado con éxito!', 'ok');
+    setTimeout(function() { location.reload(); }, 700);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+window.guardarAmenityNuevo = guardarAmenityNuevo;
+
+function abrirModalAmenityEditar(id, nombre, icono, apertura, cierre, capacidad, desc, reglamento, arancelado, precio, tipoArancel) {
+  var idEl = document.getElementById('amenity-edit-id');
+  if (idEl) idEl.value = id || '';
+  var nEl = document.getElementById('amenity-edit-nombre');
+  if (nEl) nEl.value = nombre || '';
+  var iEl = document.getElementById('amenity-edit-icono');
+  if (iEl) iEl.value = icono || '🎉';
+  var aEl = document.getElementById('amenity-edit-apertura');
+  if (aEl) aEl.value = apertura || '08:00';
+  var cEl = document.getElementById('amenity-edit-cierre');
+  if (cEl) cEl.value = cierre || '23:00';
+  var capEl = document.getElementById('amenity-edit-capacidad');
+  if (capEl) capEl.value = capacidad || 20;
+  var dEl = document.getElementById('amenity-edit-desc');
+  if (dEl) dEl.value = desc || '';
+  var regEl = document.getElementById('amenity-edit-reglamento');
+  if (regEl) regEl.value = reglamento || '';
+
+  var chkEl = document.getElementById('amenity-edit-arancelado');
+  if (chkEl) chkEl.checked = Boolean(arancelado);
+  var boxP = document.getElementById('box-precio-edit');
+  if (boxP) boxP.style.display = arancelado ? 'block' : 'none';
+  var pEl = document.getElementById('amenity-edit-precio');
+  if (pEl) pEl.value = precio || 0;
+  var tEl = document.getElementById('amenity-edit-tipo-arancel');
+  if (tEl) tEl.value = tipoArancel || 'por_hora';
+
+  abrirModal('modal-amenity-editar');
+}
+window.abrirModalAmenityEditar = abrirModalAmenityEditar;
+
+async function guardarAmenityEditado(btn) {
+  var id = valEl('amenity-edit-id');
+  var edificio = valEl('amenity-edit-edificio');
+  var nombre = valEl('amenity-edit-nombre');
+  var icono = valEl('amenity-edit-icono') || '🎉';
+  var apertura = valEl('amenity-edit-apertura') || '08:00';
+  var cierre = valEl('amenity-edit-cierre') || '23:00';
+  var capacidad = valEl('amenity-edit-capacidad') || '20';
+  var descripcion = valEl('amenity-edit-desc') || '';
+  var reglamento = valEl('amenity-edit-reglamento') || '';
+  var chkArancel = document.getElementById('amenity-edit-arancelado');
+  var arancelado = chkArancel ? chkArancel.checked : false;
+  var precio = valEl('amenity-edit-precio') || '0';
+  var tipoArancel = valEl('amenity-edit-tipo-arancel') || 'por_hora';
+
+  if (!id || !nombre.trim()) {
+    toast('Ingresá el nombre del espacio común', 'err');
+    return;
+  }
+
+  btn.disabled = true;
+  var old = btn.textContent;
+  btn.textContent = 'Guardando...';
+
+  try {
+    var r = await fetch('/admin/api/edificio-amenity-editar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: id,
+        edificio: edificio,
+        nombre: nombre.trim(),
+        icono: icono.trim(),
+        hora_apertura: apertura,
+        hora_cierre: cierre,
+        capacidad: parseInt(capacidad, 10) || 20,
+        descripcion: descripcion.trim(),
+        reglamento: reglamento.trim(),
+        arancelado: Boolean(arancelado),
+        precio: parseFloat(precio) || 0,
+        tipo_arancel: tipoArancel
+      })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al actualizar');
+    cerrarModal('modal-amenity-editar');
+    toast('¡Amenity y reglamento actualizados!', 'ok');
+    setTimeout(function() { location.reload(); }, 700);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+window.guardarAmenityEditado = guardarAmenityEditado;
+
+async function cambiarEstadoPagoReserva(id, estado_pago, motivo) {
+  try {
+    var r = await fetch('/admin/api/reserva-amenity-pago', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id, estado_pago: estado_pago, motivo_rechazo: motivo || '' })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al actualizar estado de pago');
+    toast('¡Estado de pago actualizado!', 'ok');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+window.cambiarEstadoPagoReserva = cambiarEstadoPagoReserva;
+
+function abrirModalRevisarComprobante(id, amenity, depto, vecino, tel, fecha, horario, monto, compUrl, estadoPago, motivo) {
+  document.getElementById('rev-comp-id').value = id;
+  document.getElementById('rev-comp-amenity').textContent = amenity || 'Amenity';
+  document.getElementById('rev-comp-vecino').textContent = (vecino || 'Vecino') + ' (' + (depto || 'Depto') + ')';
+  document.getElementById('rev-comp-fecha-horario').textContent = (fecha || '') + ' · ' + (horario || '') + ' hs';
+  document.getElementById('rev-comp-monto').textContent = '$' + (Number(monto) || 0).toLocaleString('es-AR');
+
+  var telEl = document.getElementById('rev-comp-tel');
+  var waEl = document.getElementById('rev-comp-btn-wa');
+  if (tel && tel.trim()) {
+    telEl.textContent = tel;
+    var cleanTel = tel.replace(/[^0-9]/g, '');
+    var waMsg = encodeURIComponent('Hola ' + (vecino || '') + ', te contacto desde la administración sobre tu reserva de ' + (amenity || 'amenity') + ' para el día ' + (fecha || '') + '.');
+    waEl.href = 'https://wa.me/' + cleanTel + '?text=' + waMsg;
+    waEl.style.display = 'inline-flex';
+  } else {
+    telEl.textContent = 'No registrado';
+    waEl.style.display = 'none';
+  }
+
+  var boxImg = document.getElementById('rev-comp-preview-img');
+  var boxPdf = document.getElementById('rev-comp-preview-pdf');
+  var linkOpen = document.getElementById('rev-comp-link-open');
+
+  linkOpen.href = compUrl || '#';
+  var isPdf = (compUrl || '').toLowerCase().indexOf('.pdf') !== -1;
+  if (compUrl) {
+    if (isPdf) {
+      boxImg.style.display = 'none';
+      boxPdf.style.display = 'block';
+      boxPdf.src = compUrl;
+    } else {
+      boxPdf.style.display = 'none';
+      boxImg.style.display = 'block';
+      boxImg.src = compUrl;
+    }
+  } else {
+    boxImg.style.display = 'none';
+    boxPdf.style.display = 'none';
+  }
+
+  var stEl = document.getElementById('rev-comp-estado-actual');
+  if (estadoPago === 'aprobado') {
+    stEl.innerHTML = '<span style="color:#15803D;background:#DCFCE7;padding:3px 8px;border-radius:6px;font-weight:800;font-size:12px">✅ Pago Aprobado</span>';
+  } else if (estadoPago === 'comprobante_subido') {
+    stEl.innerHTML = '<span style="color:#0369A1;background:#E0F2FE;padding:3px 8px;border-radius:6px;font-weight:800;font-size:12px">🧾 Comprobante Subido (Por Revisar)</span>';
+  } else if (estadoPago === 'rechazado') {
+    stEl.innerHTML = '<span style="color:#DC2626;background:#FEE2E2;padding:3px 8px;border-radius:6px;font-weight:800;font-size:12px">❌ Rechazado' + (motivo ? ': ' + motivo : '') + '</span>';
+  } else {
+    stEl.innerHTML = '<span style="color:#92400E;background:#FEF3C7;padding:3px 8px;border-radius:6px;font-weight:800;font-size:12px">⏳ Pendiente de Pago</span>';
+  }
+
+  document.getElementById('rev-comp-box-rechazo').style.display = 'none';
+  document.getElementById('rev-comp-motivo').value = motivo || '';
+  abrirModal('modal-revisar-comprobante-reserva');
+}
+window.abrirModalRevisarComprobante = abrirModalRevisarComprobante;
+
+function toggleRechazoComprobante() {
+  var b = document.getElementById('rev-comp-box-rechazo');
+  b.style.display = (b.style.display === 'none' || !b.style.display) ? 'block' : 'none';
+  if (b.style.display === 'block') {
+    document.getElementById('rev-comp-motivo').focus();
+  }
+}
+window.toggleRechazoComprobante = toggleRechazoComprobante;
+
+function setMotivoRapido(txt) {
+  document.getElementById('rev-comp-motivo').value = txt;
+}
+window.setMotivoRapido = setMotivoRapido;
+
+async function aprobarPagoDesdeModal(btn) {
+  var id = document.getElementById('rev-comp-id').value;
+  if (!id) return;
+  btn.disabled = true;
+  btn.textContent = 'Aprobando...';
+  await cambiarEstadoPagoReserva(id, 'aprobado');
+}
+window.aprobarPagoDesdeModal = aprobarPagoDesdeModal;
+
+async function rechazarPagoDesdeModal(btn) {
+  var id = document.getElementById('rev-comp-id').value;
+  var b = document.getElementById('rev-comp-box-rechazo');
+  if (b.style.display === 'none' || !b.style.display) {
+    b.style.display = 'block';
+    document.getElementById('rev-comp-motivo').focus();
+    return;
+  }
+  var motivo = (document.getElementById('rev-comp-motivo').value || '').trim();
+  if (!motivo) {
+    alert('Por favor indicá un motivo de rechazo para orientar al vecino.');
+    document.getElementById('rev-comp-motivo').focus();
+    return;
+  }
+  if (!confirm('¿Confirmás rechazar este comprobante?\\n\\nMotivo: ' + motivo)) return;
+  btn.disabled = true;
+  btn.textContent = 'Rechazando...';
+  await cambiarEstadoPagoReserva(id, 'rechazado', motivo);
+}
+window.rechazarPagoDesdeModal = rechazarPagoDesdeModal;
+
+async function marcarPagoManual(id, amenity, monto) {
+  var mFmt = Number(monto || 0).toLocaleString('es-AR');
+  if (!confirm('¿Registrar pago manual en efectivo o transferencia para la reserva de ' + amenity + ' ($' + mFmt + ')?')) return;
+  await cambiarEstadoPagoReserva(id, 'aprobado');
+}
+window.marcarPagoManual = marcarPagoManual;
+
+async function cancelarReservaAdmin(id, amenity, fecha, horario) {
+  if (!confirm('¿Estás seguro de cancelar esta reserva de ' + amenity + ' (' + fecha + ' ' + horario + ')?\\n\\nEl turno quedará liberado inmediatamente para otros vecinos.')) return;
+  try {
+    var r = await fetch('/admin/api/reserva-amenity-cancelar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al cancelar reserva');
+    toast('Reserva cancelada y horario liberado', 'ok');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+window.cancelarReservaAdmin = cancelarReservaAdmin;
+
+function filtrarReservasAmenities(tab) {
+  var rows = document.querySelectorAll('.fila-reserva-amenity');
+  var tabs = document.querySelectorAll('.tab-reserva-amenity');
+  tabs.forEach(function(t) {
+    if (t.getAttribute('data-tab') === tab) {
+      t.style.background = '#1E5FB4';
+      t.style.color = '#fff';
+      t.style.borderColor = '#1E5FB4';
+    } else {
+      t.style.background = '#F8FAFC';
+      t.style.color = '#475569';
+      t.style.borderColor = '#CBD5E1';
+    }
+  });
+
+  rows.forEach(function(row) {
+    var estado = row.getAttribute('data-estado-pago') || '';
+    var estadoReserva = row.getAttribute('data-estado-reserva') || '';
+    if (tab === 'todas') {
+      row.style.display = 'flex';
+    } else if (tab === 'revisar') {
+      row.style.display = (estado === 'comprobante_subido') ? 'flex' : 'none';
+    } else if (tab === 'aprobadas') {
+      row.style.display = (estado === 'aprobado') ? 'flex' : 'none';
+    } else if (tab === 'pendientes') {
+      row.style.display = (estado === 'pendiente' && estadoReserva !== 'cancelada') ? 'flex' : 'none';
+    }
+  });
+}
+window.filtrarReservasAmenities = filtrarReservasAmenities;
+
+async function eliminarAmenity(id, nombre) {
+  if (!confirm('¿Estás seguro de eliminar el amenity "' + nombre + '" de este edificio?')) return;
+  try {
+    var r = await fetch('/admin/api/edificio-amenity-eliminar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al eliminar');
+    toast('Amenity eliminado', 'ok');
+    setTimeout(function() { location.reload(); }, 700);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+window.eliminarAmenity = eliminarAmenity;
+
+// ── DATOS DE COBRO DEL PROVEEDOR ──────────────────────────────────────────────────────
+function abrirDatosCobro(row, nombre, cbu, alias, titular, cuit){
+  var r=document.getElementById('cobro-row');if(r)r.value=row;
+  var n=document.getElementById('cobro-nombre');if(n)n.textContent=nombre||'Proveedor';
+  var c=document.getElementById('cobro-cbu');if(c)c.value=cbu||'';
+  var a=document.getElementById('cobro-alias');if(a)a.value=alias||'';
+  var t=document.getElementById('cobro-titular');if(t)t.value=titular||'';
+  var q=document.getElementById('cobro-cuit');if(q)q.value=cuit||'';
+  abrirModal('modal-datos-cobro');
+}
+window.abrirDatosCobro = abrirDatosCobro;
+
+async function guardarDatosCobro(btn){
+  var row=valEl('cobro-row');
+  var cbu=valEl('cobro-cbu').replace(/\\D/g,'');
+  var alias=valEl('cobro-alias').trim();
+  var titular=valEl('cobro-titular').trim();
+  var cuit=valEl('cobro-cuit').replace(/\\D/g,'');
+  if(!cbu&&!alias){toast('Cargá el CBU o el alias','err');return;}
+  btn.disabled=true;var old=btn.textContent;btn.textContent='Guardando...';
+  try{
+    var r=await fetch('/admin/api/proveedor-datos-cobro',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row,cbu:cbu,alias:alias,titular:titular,cuit:cuit})});
+    var j=await r.json();
+    // El servidor verifica los dígitos del CBU: si no cierra, el mensaje dice qué pasó.
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    cerrarModal('modal-datos-cobro');
+    toast('Datos de cobro guardados','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+window.guardarDatosCobro = guardarDatosCobro;
+
+// Aprobar o rechazar el cambio de cuenta que pidió un proveedor por WhatsApp. Se confirma
+// aparte porque aprobarlo por error manda el pago del mes a otra cuenta.
+async function resolverCambioCobro(btn,row,aprobar){
+  var pregunta = aprobar
+    ? '¿Confirmás el cambio de cuenta?\\n\\nAntes de aceptar, verificá con el proveedor llamándolo al número de siempre — no respondiendo al mensaje que te mandó.'
+    : '¿Rechazás el cambio? Se va a seguir usando la cuenta anterior.';
+  if(!confirm(pregunta))return;
+  btn.disabled=true;var old=btn.textContent;btn.textContent='...';
+  try{
+    var r=await fetch('/admin/api/proveedor-cambio-cobro',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({row:row,aprobar:!!aprobar})});
+    var j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||'Error');
+    toast(aprobar?'Cambio aprobado: ahora cobra en la cuenta nueva':'Cambio rechazado: sigue la cuenta anterior','ok');
+    setTimeout(function(){location.reload();},900);
+  }catch(e){toast('Error: '+e.message,'err');btn.disabled=false;btn.textContent=old;}
+}
+window.resolverCambioCobro = resolverCambioCobro;
 
 // --- consejo de administracion ---
 function abrirModalConsejoNuevo(edificios){
@@ -3245,15 +6965,31 @@ async function toggleServicioGastos(btn,edificio,nuevoEstado){
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
-// Asignar un proveedor de la lista a ESTE edificio con prioridad.
+function actualizarRubrosAsignacion(){
+  var selProv=document.getElementById('asig-prov');
+  var selRub=document.getElementById('asig-rubro');
+  if(!selProv||!selRub)return;
+  var opt=selProv.options[selProv.selectedIndex];
+  if(!opt){selRub.innerHTML='';return;}
+  var raw=opt.getAttribute('data-rubros')||'';
+  var rubros=raw.split(',').map(function(s){return s.trim();}).filter(Boolean);
+  if(!rubros.length)rubros=['Otro'];
+  selRub.innerHTML=rubros.map(function(r){
+    return '<option value="'+escapeHtml(r)+'">'+escapeHtml(r)+'</option>';
+  }).join('');
+}
+
+// Asignar un proveedor de la lista a ESTE edificio con prioridad y rubro.
 async function asignarProveedor(btn,edificio){
   var prov=(document.getElementById('asig-prov')||{}).value||'';
   var prio=(document.getElementById('asig-prio')||{}).value||'primera';
+  var rub=(document.getElementById('asig-rubro')||{}).value||'';
   if(!prov){toast('Elegí un proveedor','err');return;}
+  if(!rub){toast('Elegí un rubro','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Asignando...';
   try{
     var r=await fetch('/admin/api/proveedor-asignar',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({proveedor:prov,prioridad:prio,edificio:edificio})});
+      body:JSON.stringify({proveedor:prov,prioridad:prio,rubro:rub,edificio:edificio})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Proveedor asignado a este edificio','ok');
@@ -3379,8 +7115,10 @@ async function crearEdificio(btn,clienteUsuario){
         plan:plan,clienteUsuario:clienteUsuario||undefined})});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
-    toast('Edificio agregado','ok');
-    setTimeout(function(){location.reload();},900);
+    // Cuando el edificio ya estaba cargado y suelto, el backend lo asigna en vez de crearlo:
+    // hay que decirlo, porque "Edificio agregado" a secas haria pensar que se duplico.
+    toast(j.asignado?(j.mensaje||'Edificio asignado'):'Edificio agregado','ok');
+    setTimeout(function(){location.reload();},j.asignado?1800:900);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
@@ -3421,23 +7159,214 @@ async function guardarEditar(btn){
   finally{btn.disabled=false;btn.textContent=old;}
 }
 
+async function eliminarEdificioModal(btn) {
+  var nombre = valEl('edit-nombre') || (document.getElementById('edit-bname') || {}).textContent || '';
+  if (!nombre) return;
+  if (!confirm('¿Estás seguro de eliminar el edificio "' + nombre + '" definitivamente?\\n\\nEsta acción realizará un saneamiento en cascada:\\n• Eliminará las asignaciones de proveedores de este edificio.\\n• Eliminará los miembros del consejo registrados.\\n• Quitará el edificio de la cuenta del administrador.\\n• Eliminará la ficha del edificio en EDIFICIOS.')) return;
+  btn.disabled = true;
+  var old = btn.textContent;
+  btn.textContent = 'Eliminando...';
+  try {
+    var r = await fetch('/admin/api/edificio-eliminar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edificio: nombre.trim(), eliminar_definitivo: true })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al eliminar');
+    cerrarModal('modal-editar');
+    toast('Edificio eliminado y saneado correctamente (' + (j.cambios || 0) + ' referencias limpiadas)', 'ok');
+    setTimeout(function(){ location.reload(); }, 1000);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+async function darDeBajaEdificioCliente(edNombre) {
+  if (!edNombre) return;
+  if (!confirm('¿Estás seguro de dar de baja el edificio "' + edNombre + '" de tu cuenta de administración?\\n\\nSe desvinculará este edificio de tu usuario y se limpiarán las asignaciones de proveedores y miembros del consejo asociados a él.')) return;
+  try {
+    var r = await fetch('/admin/api/edificio-eliminar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edificio: edNombre, eliminar_definitivo: false })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al desvincular edificio');
+    toast('Edificio dado de baja de tu cuenta exitosamente', 'ok');
+    setTimeout(function(){ location.href = '/admin/mi-edificio'; }, 1000);
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+// --- asignar edificio a administrador (dueño / colaboradores de sistema) ---
+var _asigEdificio = null;
+function abrirModalAsignarAdmin(edificio, adminActual, usuarioActual) {
+  _asigEdificio = edificio;
+  var tit = document.getElementById('asig-edificio-nombre');
+  if (tit) tit.textContent = edificio;
+  var act = document.getElementById('asig-admin-actual');
+  if (act) act.textContent = adminActual || 'Sin asignar';
+  var sel = document.getElementById('asig-nuevo-admin');
+  if (sel && usuarioActual) sel.value = usuarioActual;
+  abrirModal('modal-asignar-admin');
+}
+
+async function guardarAsignacionAdmin(btn) {
+  if (!_asigEdificio) return;
+  var sel = document.getElementById('asig-nuevo-admin');
+  var nuevoUsuario = sel ? sel.value : '';
+  if (!nuevoUsuario) {
+    toast('Por favor seleccioná un administrador.', 'err');
+    return;
+  }
+  btn.disabled = true;
+  var old = btn.textContent;
+  btn.textContent = 'Guardando...';
+  try {
+    var r = await fetch('/admin/api/edificio-asignar-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edificio: _asigEdificio, nuevo_usuario: nuevoUsuario })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error');
+    toast('Edificio asignado a ' + (j.nuevo_admin || nuevoUsuario), 'ok');
+    cerrarModal('modal-asignar-admin');
+    setTimeout(function() { location.reload(); }, 900);
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
 // --- gestión multi-personal (encargados, suplentes, seguridad) ---
+var DIAS_KEYS_CLIENT = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+var DIAS_NOMBRES_CLIENT = { lun: 'Lun', mar: 'Mar', mie: 'Mié', jue: 'Jue', vie: 'Vie', sab: 'Sáb', dom: 'Dom' };
+
+function padHora(t) {
+  if (!t) return '';
+  var s = String(t).trim().replace(/hs?$/i, '');
+  var m = s.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return s;
+  var h = m[1].length === 1 ? '0' + m[1] : m[1];
+  var min = m[2] ? (m[2].length === 1 ? '0' + m[2] : m[2]) : '00';
+  return h + ':' + min;
+}
+
+function parseHorarioFlexible(str) {
+  if (!str || str === 'Sin horario' || str === '—' || str === 'Sin horario cargado') return [];
+  if (typeof str === 'object' && str !== null) {
+    if (Array.isArray(str)) return str;
+    if (str.lv1 || str.lv2 || str.sab) {
+      var arr = [];
+      if (str.lv1 && str.lv1[0] && str.lv1[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv1[0]), hasta: padHora(str.lv1[1]) });
+      if (str.lv2 && str.lv2[0] && str.lv2[1]) arr.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: padHora(str.lv2[0]), hasta: padHora(str.lv2[1]) });
+      if (str.sab && str.sab[0] && str.sab[1]) arr.push({ dias: ['sab'], desde: padHora(str.sab[0]), hasta: padHora(str.sab[1]) });
+      return arr;
+    }
+  }
+  var s = String(str).trim();
+  if (s.indexOf('{') === 0 || s.indexOf('[') === 0) {
+    try {
+      var obj = JSON.parse(s);
+      return parseHorarioFlexible(obj);
+    } catch (_) {}
+  }
+  var splitRx = new RegExp('[·;\\n]+');
+  var partes = s.split(splitRx).map(function(p){ return p.trim(); }).filter(Boolean);
+  var turnos = [];
+  for (var pi = 0; pi < partes.length; pi++) {
+    var parte = partes[pi];
+    var dias = [];
+    var pLow = parte.toLowerCase();
+
+    if (/todos\s+los\s+dias|toda\s+la\s+semana|diario/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+    } else if (/l-v|lun\s*(?:a|al)\s*vie|lunes\s*(?:a|al)\s*viernes/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    } else if (/l-s|lun\s*(?:a|al)\s*sab|lunes\s*(?:a|al)\s*sabado/.test(pLow)) {
+      dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab'];
+    } else if (/sab\s*y\s*dom|fines\s*de\s*semana/.test(pLow)) {
+      dias = ['sab', 'dom'];
+    } else {
+      if (/\blun(?:es)?\b/.test(pLow)) dias.push('lun');
+      if (/\bmar(?:tes)?\b/.test(pLow)) dias.push('mar');
+      if (/\bmi[eé](?:rcoles)?\b/.test(pLow)) dias.push('mie');
+      if (/\bjue(?:ves)?\b/.test(pLow)) dias.push('jue');
+      if (/\bvie(?:rnes)?\b/.test(pLow)) dias.push('vie');
+      if (/\bs[aá]b(?:ado)?\b/.test(pLow)) dias.push('sab');
+      if (/\bdom(?:ingo)?\b/.test(pLow)) dias.push('dom');
+    }
+    if (dias.length === 0) {
+      if (/\bs[aá]b(?:ado)?\b/.test(pLow)) dias = ['sab'];
+      else if (/\bdom(?:ingo)?\b/.test(pLow)) dias = ['dom'];
+      else dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+    }
+    var regexHoras = /(\d{1,2}(?::\d{2})?)\s*(?:hs?)?\s*(?:-|–|—|a|hasta)\s*(\d{1,2}(?::\d{2})?)\s*(?:hs?)?/gi;
+    var match;
+    var encontroHora = false;
+    while ((match = regexHoras.exec(parte)) !== null) {
+      encontroHora = true;
+      var d = padHora(match[1]);
+      var h = padHora(match[2]);
+      if (d && h) {
+        var uniqDias = [];
+        for (var di = 0; di < dias.length; di++) {
+          if (uniqDias.indexOf(dias[di]) === -1) uniqDias.push(dias[di]);
+        }
+        turnos.push({ dias: uniqDias, desde: d, hasta: h });
+      }
+    }
+    if (!encontroHora) {
+      var mSingle = parte.match(/(\d{1,2}:\d{2})/g);
+      if (mSingle && mSingle.length >= 2) {
+        var uniqDiasSingle = [];
+        for (var di2 = 0; di2 < dias.length; di2++) {
+          if (uniqDiasSingle.indexOf(dias[di2]) === -1) uniqDiasSingle.push(dias[di2]);
+        }
+        turnos.push({ dias: uniqDiasSingle, desde: padHora(mSingle[0]), hasta: padHora(mSingle[1]) });
+      }
+    }
+  }
+  return turnos;
+}
+
+function formatearDiasClient(dias) {
+  if (!dias || !dias.length) return 'Lun a Vie';
+  var orden = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  var ordenados = orden.filter(function(d){ return dias.indexOf(d) !== -1; });
+  if (ordenados.length === 7) return 'Todos los días';
+  if (ordenados.length === 6 && ordenados.indexOf('dom') === -1) return 'Lun a Sáb';
+  if (ordenados.length === 5 && ordenados.indexOf('sab') === -1 && ordenados.indexOf('dom') === -1) return 'Lun a Vie';
+  if (ordenados.length === 2 && ordenados.indexOf('sab') !== -1 && ordenados.indexOf('dom') !== -1) return 'Sáb y Dom';
+  var nombres = ordenados.map(function(d){ return DIAS_NOMBRES_CLIENT[d] || d; });
+  if (nombres.length === 1) return nombres[0];
+  if (nombres.length === 2) return nombres[0] + ' y ' + nombres[1];
+  return nombres.slice(0, -1).join(', ') + ' y ' + nombres[nombres.length - 1];
+}
+
+function formatearHorarioTurnos(turnos) {
+  if (!turnos || !turnos.length) return 'Sin horario';
+  var validos = turnos.filter(function(t){ return t && t.desde && t.hasta && t.dias && t.dias.length > 0; });
+  if (!validos.length) return 'Sin horario';
+  return validos.map(function(t){
+    var dStr = formatearDiasClient(t.dias);
+    return dStr + ' ' + t.desde + '–' + t.hasta;
+  }).join(' · ');
+}
+
 function formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb) {
   var partes = [];
-  function padTime(t) {
-    if (!t) return '';
-    var p = t.trim().split(':');
-    if (p.length === 2) {
-      var h = p[0].length === 1 ? '0' + p[0] : p[0];
-      var m = p[1].length === 1 ? '0' + p[1] : p[1];
-      return h + ':' + m;
-    }
-    return t.trim();
-  }
-  var l1a = padTime(lv1a), l1b = padTime(lv1b);
-  var l2a = padTime(lv2a), l2b = padTime(lv2b);
-  var sa = padTime(saba), sb = padTime(sabb);
-
+  var l1a = padHora(lv1a), l1b = padHora(lv1b);
+  var l2a = padHora(lv2a), l2b = padHora(lv2b);
+  var sa = padHora(saba), sb = padHora(sabb);
   if (l1a && l1b) partes.push('L-V ' + l1a + '-' + l1b);
   if (l2a && l2b) partes.push('L-V ' + l2a + '-' + l2b);
   if (sa && sb) partes.push('Sáb ' + sa + '-' + sb);
@@ -3447,49 +7376,48 @@ function formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb) {
 function parseHorario3Lineas(str) {
   var res = { lv1: ['', ''], lv2: ['', ''], sab: ['', ''] };
   if (!str || str === 'Sin horario') return res;
-
-  function padTime(t) {
-    if (!t) return '';
-    var p = t.trim().split(':');
-    if (p.length === 2) {
-      var h = p[0].length === 1 ? '0' + p[0] : p[0];
-      var m = p[1].length === 1 ? '0' + p[1] : p[1];
-      return h + ':' + m;
+  var turnos = parseHorarioFlexible(str);
+  for (var i = 0; i < turnos.length; i++) {
+    var t = turnos[i];
+    var esSab = t.dias.length === 1 && t.dias[0] === 'sab';
+    var esLv = t.dias.some(function(d){ return ['lun','mar','mie','jue','vie'].indexOf(d) !== -1; });
+    if (esSab && !res.sab[0]) {
+      res.sab = [t.desde, t.hasta];
+    } else if (esLv) {
+      if (!res.lv1[0]) res.lv1 = [t.desde, t.hasta];
+      else if (!res.lv2[0]) res.lv2 = [t.desde, t.hasta];
     }
-    return t.trim();
   }
-
-  var partes = String(str).split(/·|\\n|,/).map(function(s){ return s.trim(); }).filter(Boolean);
-  partes.forEach(function(p) {
-    var matchLv = p.match(/(?:L-V|Lun|Viernes|Lunes)\\s*([0-9]{1,2}:[0-9]{2})\\s*(?:[-–—]|a|hasta)\\s*([0-9]{1,2}:[0-9]{2})/i);
-    if (matchLv) {
-      var t1 = padTime(matchLv[1]);
-      var t2 = padTime(matchLv[2]);
-      if (!res.lv1[0]) { res.lv1 = [t1, t2]; }
-      else { res.lv2 = [t1, t2]; }
-      return;
-    }
-    var matchSab = p.match(/(?:Sáb|Sabado|Sábado)\\s*([0-9]{1,2}:[0-9]{2})\\s*(?:[-–—]|a|hasta)\\s*([0-9]{1,2}:[0-9]{2})/i);
-    if (matchSab) {
-      res.sab = [padTime(matchSab[1]), padTime(matchSab[2])];
-      return;
-    }
-    var matchTimes = p.match(/([0-9]{1,2}:[0-9]{2})\\s*(?:[-–—]|a|hasta)\\s*([0-9]{1,2}:[0-9]{2})/i);
-    if (matchTimes) {
-      var t1f = padTime(matchTimes[1]);
-      var t2f = padTime(matchTimes[2]);
-      if (!res.lv1[0]) { res.lv1 = [t1f, t2f]; }
-      else if (!res.lv2[0]) { res.lv2 = [t1f, t2f]; }
-      else { res.sab = [t1f, t2f]; }
-    }
-  });
   return res;
+}
+
+function splitStaffItems(rawStr) {
+  if (!rawStr) return [];
+  var s = String(rawStr).trim();
+  var items = [];
+  var current = '';
+  var inBracket = false;
+  var inParen = false;
+  for (var i = 0; i < s.length; i++) {
+    var c = s[i];
+    if (c === '[') inBracket = true;
+    else if (c === ']') inBracket = false;
+    var isSep = (c === ',' || c === ';' || c === String.fromCharCode(10) || c === String.fromCharCode(13));
+    if (isSep && !inBracket && !inParen) {
+      if (current.trim()) items.push(current.trim());
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  if (current.trim()) items.push(current.trim());
+  return items;
 }
 
 function parseStaffClient(namesStr, telsStr) {
   if (!namesStr && !telsStr) return [];
-  var rawNames = String(namesStr || '').split(/[,\\n;]/).map(function(s){ return s.trim(); }).filter(Boolean);
-  var rawTels = String(telsStr || '').split(/[,\\n;]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var rawNames = splitStaffItems(namesStr);
+  var rawTels = splitStaffItems(telsStr);
   var res = [];
 
   for (var i = 0; i < rawNames.length; i++) {
@@ -3498,31 +7426,43 @@ function parseStaffClient(namesStr, telsStr) {
     var estado = 'activo';
     var horario = '';
 
-    var isScheduleFragment = new RegExp('^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\\d{1,2}:)', 'i').test(str.replace(new RegExp('^[^a-z0-9]+', 'i'), ''));
-    if (isScheduleFragment && res.length > 0) {
-      var cleanHor = str.replace(new RegExp('\\[[^\\]]*\\]', 'g'), '').replace(new RegExp('\\]', 'g'), '').replace(new RegExp('^[^a-z0-9]+', 'i'), '').trim();
-      if (cleanHor) {
-        res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
-          ? cleanHor
-          : res[res.length - 1].horario + ' · ' + cleanHor;
+    var openB = str.indexOf('[');
+    var closeB = str.indexOf(']', openB);
+    if (openB !== -1 && closeB > openB) {
+      var metaContent = str.substring(openB + 1, closeB).trim();
+      str = (str.substring(0, openB) + ' ' + str.substring(closeB + 1)).trim();
+
+      if (metaContent) {
+        var parts = metaContent.split('|').map(function(s){ return s.trim(); }).filter(Boolean);
+        parts.forEach(function(part) {
+          var pLow = part.toLowerCase();
+          if (pLow === 'activo' || pLow === 'licencia' || pLow === 'vacaciones') {
+            estado = pLow;
+          } else {
+            horario = part;
+          }
+        });
       }
-      continue;
     }
 
-    var matchMeta = str.match(new RegExp('\\[(activo|licencia|vacaciones)?\\s*\\|?\\s*([^\\]]*)\\]', 'i'));
-    if (matchMeta) {
-      if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
-      if (matchMeta[2]) horario = matchMeta[2].trim();
-      str = str.replace(new RegExp('\\[[^\\]]*\\]', 'g'), '').trim();
+    var openP = str.indexOf('(');
+    var closeP = str.indexOf(')', openP);
+    if (openP !== -1 && closeP > openP) {
+      var telInParens = str.substring(openP + 1, closeP).trim();
+      if (telInParens && (!tel || tel === '—')) {
+        tel = telInParens;
+      }
+      str = (str.substring(0, openP) + ' ' + str.substring(closeP + 1)).trim();
     }
 
-    var matchTel = str.match(new RegExp('\\(([^)]+)\\)'));
-    if (matchTel && (!tel || tel === '—')) {
-      tel = matchTel[1].trim();
-      str = str.replace(/\\([^)]+\\)/g, '').trim();
+    if (/^[\-+0-9\s()]+$/.test(str) && str.replace(/[^0-9]/g, '').length >= 7) {
+      if (!tel || tel === '—') {
+        tel = str;
+        str = '';
+      }
     }
 
-    str = str.replace(/\\[|\\]/g, '').trim();
+    str = str.replace(/[\[\]\(\)]/g, '').trim();
 
     if (str || tel !== '—') {
       res.push({
@@ -3534,6 +7474,155 @@ function parseStaffClient(namesStr, telsStr) {
     }
   }
   return res;
+}
+
+window._staffTurnos = [];
+
+function toggleDiaStaffTurnoBtn(btn) {
+  var card = btn.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  var dia = btn.getAttribute('data-dia') || '';
+  toggleDiaStaffTurno(idx, dia);
+}
+
+function setPresetDiasStaffTurnoBtn(btn) {
+  var card = btn.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  var preset = btn.getAttribute('data-preset') || '';
+  setPresetDiasStaffTurno(idx, preset);
+}
+
+function eliminarStaffTurnoBtn(btn) {
+  var card = btn.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  eliminarStaffTurno(idx);
+}
+
+function actualizarHoraStaffTurnoInput(inp) {
+  var card = inp.closest('.staff-turno-card');
+  if (!card) return;
+  var idx = parseInt(card.getAttribute('data-idx') || '0', 10);
+  var field = inp.getAttribute('data-field') || 'desde';
+  actualizarHoraStaffTurno(idx, field, inp.value);
+}
+
+function renderStaffTurnos() {
+  var container = document.getElementById('staff-turnos-container');
+  if (!container) return;
+
+  if (!window._staffTurnos || !window._staffTurnos.length) {
+    window._staffTurnos = [{ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '08:00', hasta: '12:00' }];
+  }
+
+  var diasOrder = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  var diasNombres = { lun: 'Lun', mar: 'Mar', mie: 'Mié', jue: 'Jue', vie: 'Vie', sab: 'Sáb', dom: 'Dom' };
+
+  var html = window._staffTurnos.map(function(t, idx) {
+    var diasActuales = t.dias || [];
+
+    var btnsDias = diasOrder.map(function(d) {
+      var sel = diasActuales.indexOf(d) !== -1;
+      var cls = sel ? 'staff-dia-btn active' : 'staff-dia-btn';
+      return '<button type="button" class="' + cls + '" data-dia="' + d + '" onclick="toggleDiaStaffTurnoBtn(this)">' + diasNombres[d] + '</button>';
+    }).join('');
+
+    var btnQuitar = (window._staffTurnos.length > 1)
+      ? '<button type="button" onclick="eliminarStaffTurnoBtn(this)" style="font-size:12px;font-weight:700;color:#EF4444;background:none;border:none;cursor:pointer;padding:2px 6px;display:inline-flex;align-items:center;gap:3px" class="hv-red" title="Eliminar este turno">🗑️ Quitar</button>'
+      : '';
+
+    return '<div class="staff-turno-card" data-idx="' + idx + '" style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px;box-shadow:0 1px 3px rgba(0,0,0,0.03)">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap">' +
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+          '<span style="font-size:12px;font-weight:800;background:#EAF1FB;color:#2E6FC0;padding:3px 8px;border-radius:6px">Turno ' + (idx + 1) + '</span>' +
+          '<div style="display:flex;gap:4px;flex-wrap:wrap">' +
+            '<button type="button" data-preset="lv" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Lun-Vie</button>' +
+            '<button type="button" data-preset="ls" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Lun-Sáb</button>' +
+            '<button type="button" data-preset="sab" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Sáb</button>' +
+            '<button type="button" data-preset="todos" onclick="setPresetDiasStaffTurnoBtn(this)" style="font-size:11px;font-weight:700;padding:2px 7px;border:1px solid #DCE4F0;border-radius:6px;background:#fff;color:#64748B;cursor:pointer" class="hv-soft">Todos</button>' +
+          '</div>' +
+        '</div>' +
+        btnQuitar +
+      '</div>' +
+      '<div style="margin-bottom:10px">' +
+        '<div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">Días que asiste / atiende:</div>' +
+        '<div style="display:flex;gap:5px;flex-wrap:wrap">' + btnsDias + '</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<span style="font-size:12.5px;font-weight:700;color:#475569">Desde:</span>' +
+          '<input type="time" class="inp" data-field="desde" value="' + (t.desde || '') + '" onchange="actualizarHoraStaffTurnoInput(this)" style="height:36px;width:115px;font-size:13.5px;font-weight:700;padding:4px 8px">' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<span style="font-size:12.5px;font-weight:700;color:#475569">Hasta:</span>' +
+          '<input type="time" class="inp" data-field="hasta" value="' + (t.hasta || '') + '" onchange="actualizarHoraStaffTurnoInput(this)" style="height:36px;width:115px;font-size:13.5px;font-weight:700;padding:4px 8px">' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  container.innerHTML = html;
+  actualizarVistaPreviaHorarios();
+}
+
+function agregarStaffTurno() {
+  if (!window._staffTurnos) window._staffTurnos = [];
+  window._staffTurnos.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '', hasta: '' });
+  renderStaffTurnos();
+}
+
+function eliminarStaffTurno(idx) {
+  if (!window._staffTurnos) return;
+  if (idx >= 0 && idx < window._staffTurnos.length) {
+    window._staffTurnos.splice(idx, 1);
+  }
+  if (!window._staffTurnos.length) {
+    window._staffTurnos.push({ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '', hasta: '' });
+  }
+  renderStaffTurnos();
+}
+
+function toggleDiaStaffTurno(idx, diaKey) {
+  if (!window._staffTurnos || !window._staffTurnos[idx]) return;
+  var dias = window._staffTurnos[idx].dias || [];
+  var pos = dias.indexOf(diaKey);
+  if (pos !== -1) {
+    dias.splice(pos, 1);
+  } else {
+    dias.push(diaKey);
+  }
+  window._staffTurnos[idx].dias = dias;
+  renderStaffTurnos();
+}
+
+function setPresetDiasStaffTurno(idx, preset) {
+  if (!window._staffTurnos || !window._staffTurnos[idx]) return;
+  if (preset === 'lv') {
+    window._staffTurnos[idx].dias = ['lun', 'mar', 'mie', 'jue', 'vie'];
+  } else if (preset === 'ls') {
+    window._staffTurnos[idx].dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab'];
+  } else if (preset === 'sab') {
+    window._staffTurnos[idx].dias = ['sab'];
+  } else if (preset === 'todos') {
+    window._staffTurnos[idx].dias = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  }
+  renderStaffTurnos();
+}
+
+function actualizarHoraStaffTurno(idx, field, val) {
+  if (!window._staffTurnos || !window._staffTurnos[idx]) return;
+  window._staffTurnos[idx][field] = val || '';
+  actualizarVistaPreviaHorarios();
+}
+
+function actualizarVistaPreviaHorarios() {
+  var prevTxt = document.getElementById('staff-horario-preview-txt');
+  if (!prevTxt) return;
+  var turnos = window._staffTurnos || [];
+  var txt = formatearHorarioTurnos(turnos);
+  prevTxt.textContent = txt;
 }
 
 function abrirModalStaffItem(fieldKey, idx, edNombre) {
@@ -3584,39 +7673,24 @@ function abrirModalStaffItem(fieldKey, idx, edNombre) {
 
   var items = parseStaffClient(namesStr, telsStr);
 
-  var lv1a = document.getElementById('staff-inp-lv1a');
-  var lv1b = document.getElementById('staff-inp-lv1b');
-  var lv2a = document.getElementById('staff-inp-lv2a');
-  var lv2b = document.getElementById('staff-inp-lv2b');
-  var saba = document.getElementById('staff-inp-saba');
-  var sabb = document.getElementById('staff-inp-sabb');
-
   if (idx >= 0 && items[idx]) {
     if (titleEl) titleEl.textContent = '✏️ Editar ' + labelTipo;
     inputNombre.value = items[idx].nombre;
     inputTel.value = items[idx].tel !== '—' ? items[idx].tel : '';
     if (inputEstado) inputEstado.value = items[idx].estado || 'activo';
-
-    var horParsed = parseHorario3Lineas(items[idx].horario);
-    if (lv1a) lv1a.value = horParsed.lv1[0] || '';
-    if (lv1b) lv1b.value = horParsed.lv1[1] || '';
-    if (lv2a) lv2a.value = horParsed.lv2[0] || '';
-    if (lv2b) lv2b.value = horParsed.lv2[1] || '';
-    if (saba) saba.value = horParsed.sab[0] || '';
-    if (sabb) sabb.value = horParsed.sab[1] || '';
+    window._staffTurnos = parseHorarioFlexible(items[idx].horario);
+    if (!window._staffTurnos.length) {
+      window._staffTurnos = [{ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '', hasta: '' }];
+    }
   } else {
     if (titleEl) titleEl.textContent = '➕ Añadir ' + labelTipo;
     inputNombre.value = '';
     inputTel.value = '';
     if (inputEstado) inputEstado.value = 'activo';
-    if (lv1a) lv1a.value = '';
-    if (lv1b) lv1b.value = '';
-    if (lv2a) lv2a.value = '';
-    if (lv2b) lv2b.value = '';
-    if (saba) saba.value = '';
-    if (sabb) sabb.value = '';
+    window._staffTurnos = [{ dias: ['lun', 'mar', 'mie', 'jue', 'vie'], desde: '08:00', hasta: '12:00' }];
   }
 
+  renderStaffTurnos();
   abrirModal('modal-staff-edit');
 }
 
@@ -3628,14 +7702,7 @@ async function guardarStaffItem(btn) {
   var tel = (document.getElementById('staff-inp-tel') || {}).value || '';
   var estado = (document.getElementById('staff-inp-estado') || {}).value || 'activo';
 
-  var lv1a = (document.getElementById('staff-inp-lv1a') || {}).value || '';
-  var lv1b = (document.getElementById('staff-inp-lv1b') || {}).value || '';
-  var lv2a = (document.getElementById('staff-inp-lv2a') || {}).value || '';
-  var lv2b = (document.getElementById('staff-inp-lv2b') || {}).value || '';
-  var saba = (document.getElementById('staff-inp-saba') || {}).value || '';
-  var sabb = (document.getElementById('staff-inp-sabb') || {}).value || '';
-
-  var horario = formatHorario3Lineas(lv1a, lv1b, lv2a, lv2b, saba, sabb);
+  var horario = formatearHorarioTurnos(window._staffTurnos || []);
 
   if (!nombre.trim() && !tel.trim()) {
     toast('Ingresá al menos el nombre o teléfono', 'err');
@@ -3665,7 +7732,7 @@ async function guardarStaffItem(btn) {
   }
 
   var items = parseStaffClient(namesStr, telsStr);
-  var cleanNombre = nombre.trim().replace(/\[|\]/g, '');
+  var cleanNombre = nombre.trim().replace(/[\[\]]/g, '');
   var newItem = {
     nombre: cleanNombre || 'Personal',
     tel: tel.trim() || '—',
@@ -3680,7 +7747,7 @@ async function guardarStaffItem(btn) {
   }
 
   var formattedNames = items.map(function(x){
-    var cNom = (x.nombre || 'Personal').replace(/\[|\]/g, '').trim();
+    var cNom = (x.nombre || 'Personal').replace(/[\[\]]/g, '').trim();
     return cNom + ' [' + (x.estado || 'activo') + ' | ' + (x.horario || 'Sin horario') + ']';
   }).join(', ');
 
@@ -4065,7 +8132,75 @@ async function guardarDatosBancarios(btn) {
   }
 }
 
-// --- mi cuenta y preferencias ---
+// --- mi cuenta, avatar y preferencias ---
+async function subirAvatarPerfil(inp){
+  if(!inp||!inp.files||!inp.files[0])return;
+  var file=inp.files[0];
+  var fileName=(file.name||'').toLowerCase();
+  var isImgExt=/\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(fileName);
+  var isImgMime=file.type&&file.type.startsWith('image/');
+  if(!isImgExt&&!isImgMime){
+    toast('Por favor seleccioná una imagen válida (PNG, JPG, WEBP, GIF)','err');
+    inp.value='';
+    return;
+  }
+  if(file.size>10*1024*1024){
+    toast('La imagen no puede pesar más de 10 MB','err');
+    inp.value='';
+    return;
+  }
+  var btnText=document.getElementById('account-avatar-btn-text');
+  var label=inp.closest('label');
+  if(btnText)btnText.innerText='⏳ Subiendo...';
+  if(label)label.style.pointerEvents='none';
+  try{
+    var fd=new FormData();
+    fd.append('avatar',file);
+    var r=await fetch('/admin/api/subir-avatar',{method:'POST',body:fd});
+    var ct=r.headers.get('content-type')||'';
+    var j=null;
+    if(ct.includes('application/json')){
+      j=await r.json();
+    }
+    if(!r.ok){
+      if(r.status===413)throw new Error('La imagen es demasiado grande para el servidor (máx 10 MB)');
+      if(j&&j.error)throw new Error(j.error);
+      throw new Error('Error al subir imagen (HTTP '+r.status+')');
+    }
+    if(!j||!j.url)throw new Error('Respuesta inválida del servidor');
+    var pBox=document.getElementById('avatar-preview-box');
+    if(pBox){
+      pBox.innerHTML='<img id="account-avatar-img" src="'+j.url+'?t='+Date.now()+'" style="width:100%;height:100%;object-fit:cover">';
+    }
+    toast('Foto de perfil actualizada','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){
+    toast('Error: '+e.message,'err');
+  }finally{
+    if(btnText)btnText.innerText='📷 Subir foto';
+    if(label)label.style.pointerEvents='auto';
+    inp.value='';
+  }
+}
+
+async function eliminarAvatarPerfil(btn){
+  if(!confirm('¿Deseás quitar tu foto de perfil?'))return;
+  btn.disabled=true;
+  try{
+    var r=await fetch('/admin/api/actualizar-perfil',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({avatar:''})});
+    var ct=r.headers.get('content-type')||'';
+    var j=ct.includes('application/json')?await r.json():null;
+    if(!r.ok||(j&&j.error))throw new Error((j&&j.error)||'Error al eliminar foto');
+    toast('Foto de perfil eliminada','ok');
+    setTimeout(function(){location.reload();},700);
+  }catch(e){
+    toast('Error: '+e.message,'err');
+  }finally{
+    btn.disabled=false;
+  }
+}
+
 async function guardarMiCuenta(btn){
   var pass=valEl('account-pass');
   var email=valEl('account-email');
@@ -4129,6 +8264,13 @@ function toggleWspNotif(chk){
 
 // --- expensas (cliente) ---
 var _expFormato='pdf';
+var _expMontoOrigen='';
+var _expMontoEditado=false;
+
+function escExp(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function elegirFormatoExp(btn,f){
   _expFormato=f;
   document.querySelectorAll('[data-exp-btn]').forEach(function(b){
@@ -4146,26 +8288,443 @@ function pickExpFile(){
   var i=document.getElementById('exp-file-input');
   if(i)i.click();
 }
-function expFileElegido(inp){
-  var n=inp.files&&inp.files[0]?inp.files[0].name:'';
+
+// --- expensas en tanda (lote múltiple) ---
+var _expTandaDatos = null;
+var _expTandaConocidas = true;
+
+function expFilesElegidos(inp) {
+  var files = inp.files;
+  if (!files || !files.length) return;
+  if (files.length === 1) {
+    var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'block';
+    var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'none';
+    _expTandaDatos = null;
+    expFileElegido(inp);
+    return;
+  }
+  activarModoTanda(files);
+}
+
+async function activarModoTanda(files) {
+  var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'none';
+  var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'block';
+  var t = document.getElementById('exp-file-nombre'); if (t) t.textContent = files.length + ' archivos seleccionados para tanda';
+  var s = document.getElementById('exp-file-sub'); if (s) { s.textContent = 'Analizando lote con Marcos...'; s.style.color = '#1E5FB4'; }
+  var st = document.getElementById('exp-tanda-status');
+  var tw = document.getElementById('exp-tanda-tabla-wrap');
+  var ac = document.getElementById('exp-tanda-acciones');
+  if (tw) tw.innerHTML = '';
+  if (ac) ac.style.display = 'none';
+
+  if (st) {
+    st.innerHTML = '<div class="exp-banner-analizando">' +
+      '<span style="font-size:22px;animation:spin 1s linear infinite">⏳</span>' +
+      '<div><div style="font-weight:700">Analizando tanda de ' + files.length + ' liquidaciones con Marcos IA...</div>' +
+      '<div style="font-size:12px;opacity:0.85">Extrayendo unidades, períodos, montos y vencimientos de cada archivo.</div></div>' +
+      '</div>';
+  }
+
+  var fd = new FormData();
+  for (var i = 0; i < files.length; i++) {
+    fd.append('archivos', files[i]);
+  }
+
+  try {
+    var r = await fetch('/admin/api/expensa-tanda-analizar', { method: 'POST', body: fd });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al analizar la tanda');
+    _expTandaDatos = j.filas || [];
+    _expTandaConocidas = j.conocidasVerificadas !== false;
+    renderTablaTanda(j.resumen, _expTandaDatos, _expTandaConocidas);
+  } catch (err) {
+    if (st) {
+      st.innerHTML = '<div class="exp-banner-error">' +
+        '<strong>Error al analizar la tanda:</strong> ' + escExp(err.message) +
+        '<div style="margin-top:6px;font-size:12px">Podés cancelar e intentar nuevamente con menos archivos o verificar el formato.</div>' +
+        '</div>';
+    }
+    if (s) { s.textContent = 'Ocurrió un error al analizar'; s.style.color = '#DC2626'; }
+  }
+}
+
+function calcularResumenTanda(filas) {
+  var ok = 0, general = 0, sin_vecino = 0, repetida = 0;
+  for (var i = 0; i < (filas || []).length; i++) {
+    var e = filas[i].estado;
+    if (e === 'ok') ok++;
+    else if (e === 'general') general++;
+    else if (e === 'sin_vecino') sin_vecino++;
+    else if (e === 'repetida') repetida++;
+  }
+  return {
+    total: (filas || []).length,
+    ok: ok,
+    general: general,
+    sin_vecino: sin_vecino,
+    repetida: repetida,
+    hayQueMirar: (sin_vecino + repetida) > 0
+  };
+}
+
+function renderTablaTanda(resumen, filas, conocidasVerificadas) {
+  var st = document.getElementById('exp-tanda-status');
+  var tw = document.getElementById('exp-tanda-tabla-wrap');
+  var ac = document.getElementById('exp-tanda-acciones');
+  var s = document.getElementById('exp-file-sub');
+
+  if (!filas || !filas.length) {
+    if (st) st.innerHTML = '<div style="padding:12px;color:#64748B">No quedan archivos en la tanda.</div>';
+    if (tw) tw.innerHTML = '';
+    if (ac) ac.style.display = 'none';
+    if (s) { s.textContent = 'Tanda vacía'; s.style.color = '#8595AD'; }
+    return;
+  }
+
+  if (s) { s.textContent = 'Revisá la tabla y confirmá la publicación abajo'; s.style.color = '#1B7A43'; }
+
+  var res = resumen || calcularResumenTanda(filas);
+
+  var htmlStatus = '';
+  if (conocidasVerificadas === false) {
+    htmlStatus += '<div class="exp-banner-advertencia">' +
+      '⚠️ <strong>No se pudo verificar la base de vecinos:</strong> Se muestran los archivos analizados. Podés corroborar las unidades a mano antes de publicar.' +
+      '</div>';
+  }
+
+  htmlStatus += '<div class="exp-pills-bar">' +
+    '<span class="exp-pill exp-pill-total">' + res.total + ' archivos</span>' +
+    '<span class="exp-pill exp-pill-ok">🟢 ' + res.ok + ' coinciden con vecinos</span>' +
+    (res.general > 0 ? '<span class="exp-pill exp-pill-general">🔵 ' + res.general + ' liquidación general</span>' : '') +
+    (res.sin_vecino > 0 ? '<span class="exp-pill exp-pill-sinvecino">🟡 ' + res.sin_vecino + ' sin vecino aún</span>' : '') +
+    (res.repetida > 0 ? '<span class="exp-pill exp-pill-repetida">🔴 ' + res.repetida + ' repetidas</span>' : '') +
+    '</div>';
+
+  if (res.repetida > 0) {
+    htmlStatus += '<div class="exp-banner-error" style="margin-bottom:12px;font-size:12px;line-height:1.4">' +
+      '⚠️ <strong>Unidades repetidas:</strong> Hay unidades duplicadas en la tanda. Si es el mismo archivo seleccionado dos veces, descartalo con el botón ✕ de la fila para no duplicar liquidaciones al vecino.' +
+      '</div>';
+  } else if (res.sin_vecino > 0) {
+    htmlStatus += '<div class="exp-banner-advertencia" style="margin-bottom:12px;font-size:12px;line-height:1.4">' +
+      'ℹ️ <strong>Unidades sin vecino registrado:</strong> Se publican normalmente y quedarán disponibles para cuando la persona se sume al portal o a Marcos. Si alguna unidad tiene un error tipográfico, podés corregirla en su casilla.' +
+      '</div>';
+  }
+
+  if (st) st.innerHTML = htmlStatus;
+
+  var htmlT = '<table class="exp-tanda-tabla">' +
+    '<thead><tr>' +
+    '<th style="padding:10px 12px">Estado</th>' +
+    '<th style="padding:10px 12px">Archivo</th>' +
+    '<th style="padding:10px 12px">Unidad / Depto</th>' +
+    '<th style="padding:10px 12px">Período</th>' +
+    '<th style="padding:10px 12px">Total ($)</th>' +
+    '<th style="padding:10px 12px">Vencimiento</th>' +
+    '<th style="padding:10px 12px;text-align:center">Quitar</th>' +
+    '</tr></thead><tbody>';
+
+  for (var i = 0; i < filas.length; i++) {
+    var f = filas[i];
+    var badge = '';
+    if (f.estado === 'ok') {
+      badge = '<span class="exp-badge exp-badge-ok" title="' + escExp(f.mensaje) + '">🟢 Coincide</span>';
+    } else if (f.estado === 'general') {
+      badge = '<span class="exp-badge exp-badge-general" title="' + escExp(f.mensaje) + '">🔵 General</span>';
+    } else if (f.estado === 'sin_vecino') {
+      badge = '<span class="exp-badge exp-badge-sinvecino" title="' + escExp(f.mensaje) + '">🟡 Sin vecino</span>';
+    } else if (f.estado === 'repetida') {
+      badge = '<span class="exp-badge exp-badge-repetida" title="' + escExp(f.mensaje) + '">🔴 Repetida</span>';
+    } else {
+      badge = '<span class="exp-badge exp-badge-listo">⚪ Listo</span>';
+    }
+
+    var montoStr = (f.monto !== null && f.monto !== undefined) ? String(f.monto) : '';
+
+    htmlT += '<tr>' +
+      '<td style="padding:8px 12px;white-space:nowrap">' + badge + '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<div class="exp-archivo-nombre" title="' + escExp(f.archivo) + '">' + escExp(f.archivo) + '</div>' +
+        (f.url ? '<a href="' + escExp(f.url) + '" target="_blank" class="exp-archivo-link">Ver archivo ↗</a>' : '') +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(f.unidad || '') + '" placeholder="General" style="height:32px;font-size:12.5px;font-weight:700;width:90px;padding:4px 8px" oninput="tandaModificarUnidad(' + i + ',this.value)" onblur="tandaRevalidarFila(' + i + ')">' +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(f.periodo || '') + '" placeholder="Período" style="height:32px;font-size:12.5px;width:120px;padding:4px 8px" oninput="tandaModificarPeriodo(' + i + ',this.value)">' +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(montoStr) + '" placeholder="0.00" style="height:32px;font-size:12.5px;width:100px;padding:4px 8px" oninput="tandaModificarMonto(' + i + ',this.value)">' +
+      '</td>' +
+      '<td style="padding:8px 12px">' +
+        '<input type="text" class="inp" value="' + escExp(f.vencimiento || '') + '" placeholder="DD/MM/AAAA" style="height:32px;font-size:12.5px;width:105px;padding:4px 8px" oninput="tandaModificarVencimiento(' + i + ',this.value)">' +
+      '</td>' +
+      '<td style="padding:8px 12px;text-align:center">' +
+        '<button type="button" onclick="quitarFilaTanda(' + i + ')" title="Descartar este archivo" class="exp-btn-quitar">✕</button>' +
+      '</td>' +
+      '</tr>';
+  }
+
+  htmlT += '</tbody></table>';
+
+  if (tw) tw.innerHTML = htmlT;
+  if (ac) {
+    ac.style.display = 'flex';
+    var btnPub = document.getElementById('btn-publicar-tanda');
+    if (btnPub) btnPub.textContent = '🚀 Confirmar y Publicar Tanda (' + filas.length + ' expensas)';
+  }
+}
+
+function tandaModificar(idx, campo, valor) {
+  if (!_expTandaDatos || !_expTandaDatos[idx]) return;
+  _expTandaDatos[idx][campo] = valor;
+  if (campo === 'monto') {
+    _expTandaDatos[idx].monto_origen = String(valor || '').trim() ? 'manual' : '';
+  }
+}
+
+function tandaModificarUnidad(idx, valor) {
+  tandaModificar(idx, 'unidad', valor);
+}
+
+function tandaModificarPeriodo(idx, valor) {
+  tandaModificar(idx, 'periodo', valor);
+}
+
+function tandaModificarMonto(idx, valor) {
+  tandaModificar(idx, 'monto', valor);
+}
+
+function tandaModificarVencimiento(idx, valor) {
+  tandaModificar(idx, 'vencimiento', valor);
+}
+
+function tandaRevalidarFila(idx) {
+  if (!_expTandaDatos || !_expTandaDatos[idx]) return;
+  var u = String(_expTandaDatos[idx].unidad || '').trim();
+  if (!u) {
+    _expTandaDatos[idx].estado = 'general';
+    _expTandaDatos[idx].mensaje = 'Liquidación general del edificio: la van a ver todos los vecinos.';
+  } else {
+    var normU = u.toLowerCase().replace(/[^a-z0-9]/g, '');
+    var esRep = false;
+    for (var i = 0; i < _expTandaDatos.length; i++) {
+      if (i === idx) continue;
+      var otherU = String(_expTandaDatos[i].unidad || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (otherU && otherU === normU) {
+        esRep = true;
+        break;
+      }
+    }
+    if (esRep) {
+      _expTandaDatos[idx].estado = 'repetida';
+      _expTandaDatos[idx].mensaje = 'Ya hay otro archivo para la unidad ' + u + ' en esta tanda.';
+    } else {
+      if (_expTandaDatos[idx].unidadDelVecino && _expTandaDatos[idx].unidadDelVecino.toLowerCase().replace(/[^a-z0-9]/g, '') === normU) {
+        _expTandaDatos[idx].estado = 'ok';
+        _expTandaDatos[idx].mensaje = 'Coincide con la unidad ' + _expTandaDatos[idx].unidadDelVecino + '.';
+      } else {
+        _expTandaDatos[idx].estado = 'sin_vecino';
+        _expTandaDatos[idx].mensaje = 'Unidad ' + u + ': no tiene vecino registrado aún.';
+      }
+    }
+  }
+  renderTablaTanda(null, _expTandaDatos, _expTandaConocidas);
+}
+
+function quitarFilaTanda(idx) {
+  if (!_expTandaDatos || !_expTandaDatos[idx]) return;
+  _expTandaDatos.splice(idx, 1);
+  renderTablaTanda(null, _expTandaDatos, _expTandaConocidas);
+}
+
+async function cancelarTanda() {
+  var archivos = (_expTandaDatos || []).map(function(f) { return f.tempName; }).filter(Boolean);
+  if (archivos.length) {
+    try {
+      await fetch('/admin/api/expensa-tanda-cancelar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archivos: archivos })
+      });
+    } catch (_) {}
+  }
+  _expTandaDatos = null;
+  var inp = document.getElementById('exp-file-input'); if (inp) inp.value = '';
+  var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'block';
+  var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'none';
+  var t = document.getElementById('exp-file-nombre'); if (t) t.textContent = 'Elegí uno o varios archivos';
+  var s = document.getElementById('exp-file-sub'); if (s) { s.textContent = 'Tocá para seleccionar 1 archivo o un lote completo (hasta 60) de expensas'; s.style.color = '#8595AD'; }
+}
+
+async function publicarTanda(btn) {
+  if (!_expTandaDatos || !_expTandaDatos.length) {
+    toast('No hay expensas para publicar en la tanda', 'err');
+    return;
+  }
+  var rep = _expTandaDatos.filter(function(f) { return f.estado === 'repetida'; });
+  if (rep.length > 0) {
+    if (!confirm('Hay ' + rep.length + ' archivo(s) con unidad repetida. Si continuás, el vecino verá varias liquidaciones para el mismo período. ¿Deseás publicar la tanda igual?')) {
+      return;
+    }
+  }
+
+  btn.disabled = true;
+  var oldText = btn.textContent;
+  btn.textContent = 'Publicando tanda...';
+
+  var mes = (document.getElementById('exp-mes') || {}).value || '';
+  var anio = (document.getElementById('exp-anio') || {}).value || '';
+
+  try {
+    var r = await fetch('/admin/api/expensa-tanda-publicar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mes: mes.trim(),
+        anio: anio.trim(),
+        formato: _expFormato,
+        filas: _expTandaDatos
+      })
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Error al publicar la tanda');
+    var n = (typeof j.guardadas === 'number') ? j.guardadas : _expTandaDatos.length;
+    if (n === 0) throw new Error('No se guardó ninguna expensa. Revisá el log del servidor.');
+    toast('Tanda de ' + n + ' expensas publicada con éxito', 'ok');
+    _expTandaDatos = null;
+    setTimeout(function() { location.reload(); }, 1000);
+  } catch (err) {
+    toast('Error: ' + err.message, 'err');
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+}
+
+async function expFileElegido(inp){
+  var file=inp.files&&inp.files[0]?inp.files[0]:null;
+  var n=file?file.name:'';
   var t=document.getElementById('exp-file-nombre');
   var s=document.getElementById('exp-file-sub');
+  var statusBox=document.getElementById('exp-ocr-status');
+  if(!file)return;
+  var sw = document.getElementById('exp-single-wrap'); if (sw) sw.style.display = 'block';
+  var tc = document.getElementById('exp-tanda-card'); if (tc) tc.style.display = 'none';
+  _expTandaDatos = null;
   if(t&&n){t.textContent=n;t.style.color='#16233B';}
-  if(s&&n){s.textContent='Archivo listo · tocá Publicar';s.style.color='#1B7A43';}
+  if(s&&n){s.textContent='Leyendo total y unidad con Marcos...';s.style.color='#1E5FB4';}
+  if(statusBox){
+    statusBox.style.display='block';
+    statusBox.style.background='#EFF6FF';
+    statusBox.style.border='1px solid #BFDBFE';
+    statusBox.style.borderRadius='8px';
+    statusBox.style.padding='10px 12px';
+    statusBox.style.color='#1E40AF';
+    statusBox.innerHTML='<span style="display:inline-block;animation:spin 1s linear infinite">⏳</span> <strong>Leyendo documento...</strong> Marcos está extrayendo el total, la unidad y el período.';
+  }
+  try{
+    var fd=new FormData();
+    fd.append('archivo',file);
+    var deptoAct=(document.getElementById('exp-depto')||{}).value||'';
+    if(deptoAct.trim())fd.append('departamento',deptoAct.trim());
+    var r=await fetch('/admin/api/expensa-analizar',{method:'POST',body:fd});
+    var j=await r.json();
+    if(j.ok&&j.lectura){
+      var lec=j.lectura;
+      var inpDepto=document.getElementById('exp-depto');
+      if(inpDepto&&!inpDepto.value.trim()&&lec.unidad){
+        inpDepto.value=lec.unidad;
+      }
+      if(lec.periodo){
+        var partes=lec.periodo.split(' ');
+        if(partes.length>=2){
+          var inpMes=document.getElementById('exp-mes');
+          var inpAnio=document.getElementById('exp-anio');
+          if(inpMes&&partes[0])inpMes.value=partes[0].toLowerCase();
+          if(inpAnio&&partes[1])inpAnio.value=partes[1];
+        }
+      }
+      var inpVto=document.getElementById('exp-vencimiento');
+      if(inpVto&&!inpVto.value.trim()&&lec.vencimiento){
+        inpVto.value=lec.vencimiento;
+      }
+      var inpMonto=document.getElementById('exp-monto');
+      if(inpMonto&&!_expMontoEditado){
+        if(lec.mostrar_monto&&lec.monto!==null&&lec.monto!==undefined){
+          inpMonto.value=lec.monto;
+          _expMontoOrigen='ocr';
+        }else{
+          inpMonto.value='';
+          _expMontoOrigen='';
+        }
+      }
+      if(statusBox){
+        if(lec.choca_la_unidad){
+          statusBox.style.background='#FEF2F2';
+          statusBox.style.border='1px solid #FECACA';
+          statusBox.style.color='#991B1B';
+          statusBox.innerHTML='⚠️ <strong>Atención con la unidad:</strong> El documento indica unidad <strong>'+escExp(lec.unidad)+'</strong> pero se cargó como <strong>'+escExp(deptoAct)+'</strong>. Revisá si es el archivo correcto antes de publicar.';
+        }else if(lec.mostrar_monto&&lec.monto!==null){
+          statusBox.style.background='#ECFDF5';
+          statusBox.style.border='1px solid #A7F3D0';
+          statusBox.style.color='#065F46';
+          var montoFmt=Number(lec.monto).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+          statusBox.innerHTML='✓ <strong>Total detectado por OCR:</strong> $ '+montoFmt+' '+(lec.unidad?'(Unidad '+escExp(lec.unidad)+')':'(Liquidación general)')+'. Podés confirmarlo o editarlo arriba antes de publicar.';
+        }else{
+          statusBox.style.background='#FFFBEB';
+          statusBox.style.border='1px solid #FDE68A';
+          statusBox.style.color='#92400E';
+          statusBox.innerHTML='ℹ️ <strong>Total no concluyente:</strong> '+escExp(lec.motivo||'No se pudo determinar el total exacto')+'. Marcos compartirá el documento completo con el vecino. Podés tipear el monto a mano o dejarlo vacío.';
+        }
+      }
+      if(s&&n){s.textContent='Documento analizado · Revisá los datos y tocá Publicar';s.style.color='#1B7A43';}
+    }else{
+      if(statusBox){
+        statusBox.style.background='#F8FAFC';
+        statusBox.style.border='1px solid #E2E8F0';
+        statusBox.style.color='#64748B';
+        statusBox.innerHTML='ℹ️ '+(escExp((j&&j.motivo)||'No se extrajo monto automáticamente'))+'. Podés tipear el total a mano o publicar el archivo tal cual.';
+      }
+      if(s&&n){s.textContent='Archivo listo · tocá Publicar';s.style.color='#1B7A43';}
+    }
+  }catch(errAnalisis){
+    if(statusBox){statusBox.style.display='none';}
+    if(s&&n){s.textContent='Archivo listo · tocá Publicar';s.style.color='#1B7A43';}
+  }
+}
+function expMontoCambiado(){
+  _expMontoEditado=true;
+  var val=(document.getElementById('exp-monto')||{}).value||'';
+  _expMontoOrigen=val.trim()?'manual':'';
 }
 async function publicarExpensa(btn){
   var mes=(document.getElementById('exp-mes')||{}).value||'';
   var anio=(document.getElementById('exp-anio')||{}).value||'';
+  var depto=(document.getElementById('exp-depto')||{}).value||'';
+  var monto=(document.getElementById('exp-monto')||{}).value||'';
+  var vencimiento=(document.getElementById('exp-vencimiento')||{}).value||'';
   var url=(document.getElementById('exp-url')||{}).value||'';
   var fileInp=document.getElementById('exp-file-input');
-  var nombre=fileInp&&fileInp.files&&fileInp.files[0]?fileInp.files[0].name:'';
+  var file=fileInp&&fileInp.files&&fileInp.files[0]?fileInp.files[0]:null;
   if(!mes.trim()||!anio.trim()){toast('Completá mes y año','err');return;}
   if(_expFormato==='link'&&!url.trim()){toast('Pegá la dirección web','err');return;}
-  if(_expFormato!=='link'&&!nombre){toast('Elegí el archivo','err');return;}
+  if(_expFormato!=='link'&&!file){toast('Elegí el archivo','err');return;}
   btn.disabled=true;var old=btn.textContent;btn.textContent='Publicando...';
   try{
-    var r=await fetch('/admin/api/expensa',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({mes:mes.trim(),anio:anio.trim(),formato:_expFormato,url:url.trim(),nombre:nombre})});
+    var formData=new FormData();
+    formData.append('mes',mes.trim());
+    formData.append('anio',anio.trim());
+    formData.append('departamento',depto.trim());
+    formData.append('monto',monto.trim());
+    formData.append('vencimiento',vencimiento.trim());
+    formData.append('monto_origen',_expMontoOrigen||(monto.trim()?'manual':''));
+    formData.append('formato',_expFormato);
+    if(_expFormato==='link'){
+      formData.append('url',url.trim());
+    }else if(file){
+      formData.append('archivo',file);
+      formData.append('nombre',file.name);
+    }
+    var r=await fetch('/admin/api/expensa',{method:'POST',body:formData});
     var j=await r.json();
     if(!r.ok||j.error)throw new Error(j.error||'Error');
     toast('Expensa publicada. Marcos ya puede compartirla.','ok');
@@ -4174,7 +8733,9 @@ async function publicarExpensa(btn){
   finally{btn.disabled=false;btn.textContent=old;}
 }
 function copiarExpensa(texto){
-  navigator.clipboard.writeText(texto).then(function(){toast('Enlace copiado','ok');},function(){toast('No se pudo copiar','err');});
+  var u=texto;
+  if(u&&typeof u==='string'&&u.charAt(0)==='/'){u=window.location.origin+u;}
+  navigator.clipboard.writeText(u).then(function(){toast('Enlace copiado al portapapeles','ok');},function(){toast('No se pudo copiar','err');});
 }
 async function quitarExpensa(btn,row){
   btn.disabled=true;
@@ -4202,6 +8763,889 @@ window.addEventListener('DOMContentLoaded', function() {
     }
   }
 });
+
+function desarmarCientificaClient(val) {
+  if (!val) return '';
+  var s = String(val).trim();
+  if (/^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s)) {
+    try {
+      var n = Number(s);
+      if (!isNaN(n) && isFinite(n)) {
+        return BigInt(Math.round(n)).toString();
+      }
+    } catch (_) {}
+  }
+  return s;
+}
+
+function abrirModalVecinoNuevo(edificio) {
+  var elEd = document.getElementById('vec-edificio');
+  if (elEd) elEd.value = edificio || '';
+  var elNom = document.getElementById('vec-nombre');
+  if (elNom) elNom.value = '';
+  var elUni = document.getElementById('vec-unidad');
+  if (elUni) elUni.value = '';
+  var elTel = document.getElementById('vec-tel');
+  if (elTel) elTel.value = '';
+  var elEmail = document.getElementById('vec-email');
+  if (elEmail) elEmail.value = '';
+  var elNotas = document.getElementById('vec-notas');
+  if (elNotas) elNotas.value = '';
+  abrirModal('modal-vecino-nuevo');
+}
+function abrirEditarVecino(row, nombre, unidad, tel, email, notas) {
+  var elRow = document.getElementById('edit-vec-row');
+  if (elRow) elRow.value = row;
+  var elNom = document.getElementById('edit-vec-nombre');
+  if (elNom) elNom.value = nombre || '';
+  var elUni = document.getElementById('edit-vec-unidad');
+  if (elUni) elUni.value = unidad || '';
+  var elTel = document.getElementById('edit-vec-tel');
+  if (elTel) elTel.value = desarmarCientificaClient(tel || '');
+  var elEmail = document.getElementById('edit-vec-email');
+  if (elEmail) elEmail.value = email || '';
+  var elNotas = document.getElementById('edit-vec-notas');
+  if (elNotas) elNotas.value = notas || '';
+  abrirModal('modal-vecino-editar');
+}
+function filtrarVecinosList(val) {
+  var q = String(val || '').toLowerCase().trim();
+  var items = document.querySelectorAll('.vecino-fila-item');
+  items.forEach(function(el) {
+    var txt = el.getAttribute('data-vecino-search') || '';
+    el.style.display = (!q || txt.indexOf(q) !== -1) ? 'flex' : 'none';
+  });
+}
+function invitarVecinoWhatsApp(nombre, tel, edificio) {
+  var cleanTel = String(tel || '').replace(/\D/g, '');
+  if (!cleanTel) {
+    toast('Este vecino no tiene teléfono cargado', 'err');
+    return;
+  }
+  var primerNombre = nombre ? String(nombre).split(' ')[0] : '';
+  var msg = '¡Hola ' + primerNombre + '! Te invitamos a acceder al Portal Web de tu edificio (' + (edificio || '') + ') en https://marcos.bienargentinos.com/vecino/login con tu teléfono ' + tel + '.';
+  var url = 'https://wa.me/' + cleanTel + '?text=' + encodeURIComponent(msg);
+  window.open(url, '_blank');
+}
+async function guardarVecinoNuevo(btn) {
+  var elEd = document.getElementById('vec-edificio');
+  var edificio = elEd ? elEd.value : '';
+  var elNom = document.getElementById('vec-nombre');
+  var nombre = elNom ? elNom.value.trim() : '';
+  var elUni = document.getElementById('vec-unidad');
+  var unidad = elUni ? elUni.value.trim() : '';
+  var elTel = document.getElementById('vec-tel');
+  var telefono = elTel ? desarmarCientificaClient(elTel.value.trim()) : '';
+  var elEmail = document.getElementById('vec-email');
+  var email = elEmail ? elEmail.value.trim() : '';
+  var elNotas = document.getElementById('vec-notas');
+  var notas = elNotas ? elNotas.value.trim() : '';
+
+  if (!nombre && !unidad) {
+    toast('Ingresá al menos el nombre o el depto', 'err');
+    return;
+  }
+  btn.disabled = true;
+  var oldTxt = btn.textContent;
+  btn.textContent = 'Guardando...';
+  try {
+    var res = await fetch('/admin/api/vecino-crear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edificio: edificio, nombre: nombre, unidad: unidad, telefono: telefono, email: email, notas: notas })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      toast('Vecino guardado con éxito', 'ok');
+      setTimeout(function() { location.reload(); }, 600);
+    } else {
+      toast('Error: ' + (data.error || 'No se pudo guardar'), 'err');
+      btn.disabled = false;
+      btn.textContent = oldTxt;
+    }
+  } catch (e) {
+    toast('Error de conexión', 'err');
+    btn.disabled = false;
+    btn.textContent = oldTxt;
+  }
+}
+async function guardarEditarVecino(btn) {
+  var elRow = document.getElementById('edit-vec-row');
+  var row = elRow ? elRow.value : '';
+  var elNom = document.getElementById('edit-vec-nombre');
+  var nombre = elNom ? elNom.value.trim() : '';
+  var elUni = document.getElementById('edit-vec-unidad');
+  var unidad = elUni ? elUni.value.trim() : '';
+  var elTel = document.getElementById('edit-vec-tel');
+  var telefono = elTel ? desarmarCientificaClient(elTel.value.trim()) : '';
+  var elEmail = document.getElementById('edit-vec-email');
+  var email = elEmail ? elEmail.value.trim() : '';
+  var elNotas = document.getElementById('edit-vec-notas');
+  var notas = elNotas ? elNotas.value.trim() : '';
+
+  btn.disabled = true;
+  var oldTxt = btn.textContent;
+  btn.textContent = 'Guardando...';
+  try {
+    var res = await fetch('/admin/api/vecino-editar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row: row, nombre: nombre, unidad: unidad, telefono: telefono, email: email, notas: notas })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      toast('Vecino actualizado', 'ok');
+      setTimeout(function() { location.reload(); }, 600);
+    } else {
+      toast('Error: ' + (data.error || 'No se pudo actualizar'), 'err');
+      btn.disabled = false;
+      btn.textContent = oldTxt;
+    }
+  } catch (e) {
+    toast('Error de conexión', 'err');
+    btn.disabled = false;
+    btn.textContent = oldTxt;
+  }
+}
+async function eliminarVecino(btn, row) {
+  if (!confirm('¿Seguro que querés quitar a este vecino del padrón?')) return;
+  btn.disabled = true;
+  try {
+    var res = await fetch('/admin/api/vecino-eliminar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row: row })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      toast('Vecino quitado', 'ok');
+      setTimeout(function() { location.reload(); }, 600);
+    } else {
+      toast('Error: ' + (data.error || 'No se pudo quitar'), 'err');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    toast('Error de conexión', 'err');
+    btn.disabled = false;
+  }
+}
+
+var _vecinosParaImportar = [];
+
+function abrirModalImportarVecinos(edificio) {
+  var elEd = document.getElementById('imp-vec-edificio');
+  if (elEd) elEd.value = edificio || '';
+  var elArea = document.getElementById('imp-vec-textarea');
+  if (elArea) elArea.value = '';
+  var elFile = document.getElementById('imp-vec-file');
+  if (elFile) elFile.value = '';
+  _vecinosParaImportar = [];
+  renderizarPreviewImportacion([]);
+  abrirModal('modal-vecinos-importar');
+}
+
+function leerArchivoVecinos(input) {
+  if (!input.files || !input.files[0]) return;
+  var file = input.files[0];
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var text = e.target.result;
+    var elArea = document.getElementById('imp-vec-textarea');
+    if (elArea) elArea.value = text;
+    procesarTextoVecinosImportar(text);
+  };
+  reader.readAsText(file);
+}
+
+function procesarTextoVecinosImportar(rawText) {
+  if (!rawText || !rawText.trim()) {
+    _vecinosParaImportar = [];
+    renderizarPreviewImportacion([]);
+    return;
+  }
+  var nl = String.fromCharCode(10);
+  var cr = String.fromCharCode(13);
+  var tab = String.fromCharCode(9);
+  var q1 = String.fromCharCode(39);
+  var q2 = String.fromCharCode(34);
+
+  var lineas = rawText.split(nl).map(function(l) { return l.replace(cr, '').trim(); }).filter(Boolean);
+  if (!lineas.length) {
+    _vecinosParaImportar = [];
+    renderizarPreviewImportacion([]);
+    return;
+  }
+
+  var primerLinea = lineas[0];
+  var sep = tab;
+  if (primerLinea.indexOf(tab) !== -1) {
+    sep = tab;
+  } else if (primerLinea.indexOf(';') !== -1) {
+    sep = ';';
+  } else if (primerLinea.indexOf(',') !== -1) {
+    sep = ',';
+  }
+
+  var resultados = [];
+  var inicioIdx = 0;
+
+  var lowerPrimera = primerLinea.toLowerCase();
+  if (lowerPrimera.indexOf('nombre') !== -1 || lowerPrimera.indexOf('depto') !== -1 || lowerPrimera.indexOf('unidad') !== -1 || lowerPrimera.indexOf('tel') !== -1 || lowerPrimera.indexOf('mail') !== -1) {
+    inicioIdx = 1;
+  }
+
+  for (var i = inicioIdx; i < lineas.length; i++) {
+    var l = lineas[i];
+    if (!l) continue;
+    var partes = l.split(sep).map(function(p) {
+      var s = p.trim();
+      if (s.startsWith(q1) || s.startsWith(q2)) s = s.slice(1);
+      if (s.endsWith(q1) || s.endsWith(q2)) s = s.slice(0, -1);
+      return s.trim();
+    });
+    if (!partes.length || (partes.length === 1 && !partes[0])) continue;
+
+    var unidad = '';
+    var nombre = '';
+    var telefono = '';
+    var email = '';
+    var notas = '';
+
+    var emailsDetectados = [];
+    var telsDetectados = [];
+    var deptoDetectado = '';
+    var otrosTextos = [];
+
+    partes.forEach(function(p) {
+      if (!p) return;
+      var cleanP = desarmarCientificaClient(p);
+      var cleanDigits = cleanP.replace(/[^0-9]/g, '');
+      if (p.indexOf('@') !== -1) {
+        emailsDetectados.push(p);
+      } else if (cleanDigits.length >= 7 && (cleanP.length <= 25 || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(p))) {
+        telsDetectados.push(cleanP);
+      } else if (!deptoDetectado && p.length <= 8 && (cleanDigits.length > 0 || p.toUpperCase() === 'PB')) {
+        deptoDetectado = p;
+      } else {
+        otrosTextos.push(p);
+      }
+    });
+
+    if (emailsDetectados.length) email = emailsDetectados[0];
+    if (telsDetectados.length) telefono = desarmarCientificaClient(telsDetectados[0]);
+
+    if (deptoDetectado) {
+      unidad = deptoDetectado;
+      nombre = otrosTextos.length ? otrosTextos.join(' ') : '';
+    } else {
+      if (partes.length === 1) {
+        nombre = partes[0];
+      } else if (partes.length === 2) {
+        unidad = partes[0];
+        nombre = partes[1];
+      } else if (partes.length >= 3) {
+        if (/^[0-9]|^[A-Z]$|^PB/i.test(partes[0])) {
+          unidad = partes[0];
+          nombre = partes[1];
+          if (!telefono) telefono = partes[2];
+          if (partes[3] && !email) email = partes[3];
+          if (partes[4]) notas = partes.slice(4).join(' ');
+        } else {
+          nombre = partes[0];
+          unidad = partes[1];
+          if (!telefono) telefono = partes[2];
+          if (partes[3] && !email) email = partes[3];
+          if (partes[4]) notas = partes.slice(4).join(' ');
+        }
+      }
+    }
+
+    if (nombre || unidad || telefono || email) {
+      resultados.push({
+        unidad: unidad,
+        nombre: nombre,
+        telefono: telefono,
+        email: email,
+        notas: notas
+      });
+    }
+  }
+
+  _vecinosParaImportar = resultados;
+  renderizarPreviewImportacion(resultados);
+}
+
+function renderizarPreviewImportacion(lista) {
+  var countEl = document.getElementById('imp-vec-count');
+  var tableEl = document.getElementById('imp-vec-preview-body');
+  var btnGuardar = document.getElementById('imp-vec-btn-guardar');
+
+  if (countEl) countEl.textContent = lista.length + ' vecinos detectados';
+  if (btnGuardar) {
+    btnGuardar.disabled = lista.length === 0;
+    btnGuardar.textContent = lista.length > 0 ? '✓ Importar ' + lista.length + ' vecinos' : 'Importar vecinos';
+  }
+
+  if (!tableEl) return;
+  if (!lista.length) {
+    tableEl.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:24px;color:#8595AD;font-size:13px">Pegá texto desde Excel o subí un CSV para previsualizar aquí.</td></tr>';
+    return;
+  }
+
+  var html = lista.slice(0, 30).map(function(v) {
+    return '<tr style="border-bottom:1px solid #F1F5FB">' +
+      '<td style="padding:8px 10px;font-weight:700;color:#1E5FB4"><span style="background:#EBF3FC;padding:2px 6px;border-radius:6px">' + (v.unidad || '—') + '</span></td>' +
+      '<td style="padding:8px 10px;font-weight:600;color:#16233B">' + (v.nombre || '—') + '</td>' +
+      '<td style="padding:8px 10px;color:#2E6FC0">' + (v.telefono || '—') + '</td>' +
+      '<td style="padding:8px 10px;color:#64748B;font-size:12px">' + (v.email || '—') + '</td>' +
+      '</tr>';
+  }).join('');
+
+  if (lista.length > 30) {
+    html += '<tr><td colspan="4" style="text-align:center;padding:8px;color:#64748B;font-size:12px;background:#F8FAFC">... y ' + (lista.length - 30) + ' departamentos más.</td></tr>';
+  }
+  tableEl.innerHTML = html;
+}
+
+async function ejecutarImportacionVecinos(btn) {
+  if (!_vecinosParaImportar || !_vecinosParaImportar.length) {
+    toast('No hay datos para importar', 'err');
+    return;
+  }
+  var elEd = document.getElementById('imp-vec-edificio');
+  var edificio = elEd ? elEd.value : '';
+  if (!edificio) {
+    toast('Falta seleccionar edificio', 'err');
+    return;
+  }
+
+  btn.disabled = true;
+  var oldTxt = btn.textContent;
+  btn.textContent = 'Importando ' + _vecinosParaImportar.length + ' vecinos...';
+
+  try {
+    var res = await fetch('/admin/api/vecinos-importar-masivo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edificio: edificio, vecinos: _vecinosParaImportar })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      toast('¡' + (data.importados || _vecinosParaImportar.length) + ' vecinos importados con éxito!', 'ok');
+      setTimeout(function() { location.reload(); }, 700);
+    } else {
+      toast('Error: ' + (data.error || 'No se pudo importar'), 'err');
+      btn.disabled = false;
+      btn.textContent = oldTxt;
+    }
+  } catch (e) {
+    toast('Error de conexión al importar', 'err');
+    btn.disabled = false;
+    btn.textContent = oldTxt;
+  }
+}
+
+// Explicit Global Attachments
+window.abrirDrawerEvento = abrirDrawerEvento;
+window.cerrarDrawerEvento = cerrarDrawerEvento;
+window.marcarEventoResuelto = marcarEventoResuelto;
+window.guardarFeedbackDrawer = guardarFeedbackDrawer;
+window.descargarResumenEvento = descargarResumenEvento;
+window.toggleFacturaEstado = toggleFacturaEstado;
+window.cambiarTabClase = cambiarTabClase;
+window.cambiarChipOrigen = cambiarChipOrigen;
+window.onBuscadorInput = onBuscadorInput;
+window.togglePopoverMenu = togglePopoverMenu;
+window.cambiarEstadoFacturaKey = cambiarEstadoFacturaKey;
+window.moverClaseFacturaKey = moverClaseFacturaKey;
+window.eliminarFacturaKey = eliminarFacturaKey;
+window.enviarConsejoFacturaKey = enviarConsejoFacturaKey;
+window.abrirModalSubirDocumento = abrirModalSubirDocumento;
+window.onFacturaArchivoSeleccionado = onFacturaArchivoSeleccionado;
+window.onClaseFacturaCambiada = onClaseFacturaCambiada;
+window.subirFacturaSubmit = subirFacturaSubmit;
+window.abrirModalEditarDocumento = abrirModalEditarDocumento;
+window.abrirModalCambiarOrigen = abrirModalCambiarOrigen;
+window.abrirModalFiltrosAvanzados = abrirModalFiltrosAvanzados;
+window.abrirModal = abrirModal;
+window.cerrarModal = cerrarModal;
+window.toast = toast;
+window.abrirModalVecinoNuevo = abrirModalVecinoNuevo;
+window.abrirEditarVecino = abrirEditarVecino;
+window.filtrarVecinosList = filtrarVecinosList;
+window.invitarVecinoWhatsApp = invitarVecinoWhatsApp;
+window.guardarVecinoNuevo = guardarVecinoNuevo;
+window.guardarEditarVecino = guardarEditarVecino;
+window.eliminarVecino = eliminarVecino;
+window.abrirModalImportarVecinos = abrirModalImportarVecinos;
+window.leerArchivoVecinos = leerArchivoVecinos;
+window.procesarTextoVecinosImportar = procesarTextoVecinosImportar;
+window.ejecutarImportacionVecinos = ejecutarImportacionVecinos;
+
+/* ===================================================================
+ * CLIENT JS: PORTERÍA, ACCESOS & PASES QR
+ * =================================================================== */
+var _currentPaseGenerado = null;
+
+function cambiarTabPorteria(tab) {
+  var bEv = document.getElementById('btn-tab-eventos');
+  var bPa = document.getElementById('btn-tab-pases');
+  var sEv = document.getElementById('seccion-auditoria-eventos');
+  var sPa = document.getElementById('seccion-auditoria-pases');
+
+  if (tab === 'pases') {
+    if (bEv) { bEv.style.background = '#fff'; bEv.style.color = '#475569'; bEv.style.border = '1px solid #DCE4F0'; }
+    if (bPa) { bPa.style.background = '#2E6FC0'; bPa.style.color = '#fff'; bPa.style.border = 'none'; }
+    if (sEv) sEv.style.display = 'none';
+    if (sPa) sPa.style.display = 'block';
+    cargarPasesQR();
+  } else {
+    if (bPa) { bPa.style.background = '#fff'; bPa.style.color = '#475569'; bPa.style.border = '1px solid #DCE4F0'; }
+    if (bEv) { bEv.style.background = '#2E6FC0'; bEv.style.color = '#fff'; bEv.style.border = 'none'; }
+    if (sPa) sPa.style.display = 'none';
+    if (sEv) sEv.style.display = 'block';
+    cargarAuditoriaAccesos();
+  }
+}
+window.cambiarTabPorteria = cambiarTabPorteria;
+
+function toggleDashPaseRecurrente(tipo) {
+  var bTemp = document.getElementById('box-dash-pase-temporal');
+  var bRec = document.getElementById('box-dash-pase-recurrente');
+  if (tipo === 'recurrente') {
+    if (bTemp) bTemp.style.display = 'none';
+    if (bRec) bRec.style.display = 'block';
+  } else {
+    if (bTemp) bTemp.style.display = 'block';
+    if (bRec) bRec.style.display = 'none';
+  }
+}
+window.toggleDashPaseRecurrente = toggleDashPaseRecurrente;
+
+function abrirModalEmitirPaseOficial() {
+  var m = document.getElementById('modal-emitir-pase-oficial');
+  if (m) {
+    var fEd = document.getElementById('filtro-auditoria-edificio');
+    var pEd = document.getElementById('dash-pase-edificio');
+    if (fEd && pEd && fEd.value && fEd.value !== 'todos') {
+      pEd.value = fEd.value;
+    }
+    abrirModal('modal-emitir-pase-oficial');
+  }
+}
+window.abrirModalEmitirPaseOficial = abrirModalEmitirPaseOficial;
+
+async function guardarPaseOficialDesdeDash(btn) {
+  var edificio = document.getElementById('dash-pase-edificio') ? document.getElementById('dash-pase-edificio').value : '';
+  var nombre = document.getElementById('dash-pase-nombre') ? document.getElementById('dash-pase-nombre').value.trim() : '';
+  var depto = document.getElementById('dash-pase-depto') ? document.getElementById('dash-pase-depto').value.trim() : '';
+  var motivo = document.getElementById('dash-pase-motivo') ? document.getElementById('dash-pase-motivo').value : 'Mantenimiento';
+  var tipoPase = document.getElementById('dash-pase-tipo') ? document.getElementById('dash-pase-tipo').value : 'temporal';
+  var duracion = document.getElementById('dash-pase-duracion') ? document.getElementById('dash-pase-duracion').value : '24h';
+
+  if (!nombre) {
+    alert('Por favor indicá el nombre del técnico o invitado.');
+    return;
+  }
+
+  var dias = [];
+  if (tipoPase === 'recurrente') {
+    document.querySelectorAll('input[name="dash-pase-dias"]:checked').forEach(function(c) {
+      dias.push(c.value);
+    });
+    if (dias.length === 0) {
+      alert('Por favor seleccioná al menos un día permitido de la semana.');
+      return;
+    }
+  }
+
+  var hDesde = document.getElementById('dash-pase-hora-desde') ? document.getElementById('dash-pase-hora-desde').value : '08:00';
+  var hHasta = document.getElementById('dash-pase-hora-hasta') ? document.getElementById('dash-pase-hora-hasta').value : '14:00';
+
+  if (btn) btn.disabled = true;
+
+  try {
+    var res = await fetch('/admin/api/pases-qr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        origen: 'dash',
+        edificio: edificio,
+        departamento: depto,
+        nombre_invitado: nombre,
+        motivo: motivo,
+        tipo_pase: tipoPase,
+        validez: duracion,
+        dias_semana: dias,
+        hora_desde: hDesde,
+        hora_hasta: hHasta
+      })
+    });
+    var data = await res.json();
+    if (data && data.ok && data.pase) {
+      cerrarModal('modal-emitir-pase-oficial');
+      _currentPaseGenerado = data.pase;
+      mostrarModalVerPaseQR(data.pase, data.qrUrl);
+      cargarAuditoriaAccesos();
+      cargarPasesQR();
+    } else {
+      alert('Error al generar pase: ' + (data.error || 'Error desconocido'));
+    }
+  } catch(e) {
+    alert('Error de conexión: ' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.guardarPaseOficialDesdeDash = guardarPaseOficialDesdeDash;
+
+function mostrarModalVerPaseQR(pase, qrUrl) {
+  var qrImg = document.getElementById('ver-pase-qr-img');
+  var pTok = document.getElementById('ver-pase-token');
+  var pTit = document.getElementById('ver-pase-titulo');
+  var pDet = document.getElementById('ver-pase-detalle');
+
+  if (qrImg) qrImg.src = qrUrl || ('https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=' + encodeURIComponent(pase.token));
+  if (pTok) pTok.textContent = pase.token;
+  if (pTit) pTit.textContent = 'Pase para ' + pase.nombre_invitado;
+  if (pDet) {
+    var vig = pase.tipo_pase === 'recurrente'
+      ? ('Recurrente: ' + ((pase.dias_semana || []).join ? pase.dias_semana.join(', ') : pase.dias_semana) + ' de ' + pase.hora_desde + ' a ' + pase.hora_hasta + ' hs')
+      : ('Válido hasta: ' + (pase.valido_hasta ? new Date(pase.valido_hasta).toLocaleString('es-AR') : '24 horas'));
+    pDet.textContent = pase.edificio + (pase.departamento ? ' (Depto ' + pase.departamento + ')' : '') + ' · ' + pase.motivo + ' · ' + vig;
+  }
+  abrirModal('modal-ver-pase-qr');
+}
+window.mostrarModalVerPaseQR = mostrarModalVerPaseQR;
+
+function compartirPaseWhatsAppDash() {
+  if (!_currentPaseGenerado) return;
+  var p = _currentPaseGenerado;
+  var qrLink = 'https://marcos.bienargentinos.com/porteria/' + encodeURIComponent(p.edificio) + '?qr=' + encodeURIComponent(p.token);
+  var txt = 'Hola ' + p.nombre_invitado + '! Te comparto tu Pase Oficial de Acceso para *' + p.edificio + '*:\\n' +
+            '🎟️ *Código:* ' + p.token + '\\n' +
+            '📋 *Motivo:* ' + p.motivo + '\\n' +
+            '📲 *Accedé al QR:* ' + qrLink + '\\n' +
+            'Al llegar al edificio, mostrá el QR frente a la cámara del tótem de portería para abrir la puerta.';
+
+  var waUrl = 'https://wa.me/?text=' + encodeURIComponent(txt);
+  window.open(waUrl, '_blank');
+}
+window.compartirPaseWhatsAppDash = compartirPaseWhatsAppDash;
+
+function copiarLinkPaseDash() {
+  if (!_currentPaseGenerado) return;
+  var p = _currentPaseGenerado;
+  var qrLink = 'https://marcos.bienargentinos.com/porteria/' + encodeURIComponent(p.edificio) + '?qr=' + encodeURIComponent(p.token);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(qrLink).then(function() {
+      toast('✓ Enlace del pase copiado al portapapeles', 'ok');
+    });
+  } else {
+    prompt('Copiá el enlace del pase:', qrLink);
+  }
+}
+window.copiarLinkPaseDash = copiarLinkPaseDash;
+
+async function cargarAuditoriaAccesos() {
+  var tbody = document.getElementById('tabla-eventos-acceso-body');
+  if (!tbody) return;
+
+  var selEd = document.getElementById('filtro-auditoria-edificio');
+  var selRan = document.getElementById('filtro-auditoria-rango');
+  var selTip = document.getElementById('filtro-auditoria-tipo');
+
+  var ed = selEd ? selEd.value : '';
+  var ran = selRan ? selRan.value : '7d';
+  var tip = selTip ? selTip.value : '';
+
+  try {
+    var url = '/admin/api/eventos-acceso?edificio=' + encodeURIComponent(ed) + '&rango=' + encodeURIComponent(ran) + '&tipo=' + encodeURIComponent(tip);
+    var res = await fetch(url);
+    var data = await res.json();
+    var eventos = (data && data.eventos) || [];
+
+    // Actualizar KPIs
+    var kpiHoy = document.getElementById('kpi-accesos-hoy');
+    var kpiAlertas = document.getElementById('kpi-alertas-hoy');
+    var hoyStr = new Date().toISOString().split('T')[0];
+    var countHoy = 0;
+    var countAlertas = 0;
+
+    eventos.forEach(function(ev) {
+      if (String(ev.fecha || '').startsWith(hoyStr)) {
+        if (ev.resultado === 'exitoso') countHoy++;
+        if (ev.resultado && ev.resultado.indexOf('rechazado') !== -1) countAlertas++;
+      }
+    });
+    if (kpiHoy) kpiHoy.textContent = countHoy;
+    if (kpiAlertas) kpiAlertas.textContent = countAlertas;
+
+    if (eventos.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:32px;text-align:center;color:#8595AD;font-size:13.5px">No se encontraron eventos de acceso para los filtros seleccionados.</td></tr>';
+      return;
+    }
+
+    var html = eventos.map(function(ev) {
+      var fDate = new Date(ev.fecha);
+      var horaFmt = fDate.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ' · ' + fDate.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      
+      var esAlerta = ev.resultado && ev.resultado.indexOf('rechazado') !== -1;
+      var filaBg = esAlerta ? '#FEF2F2' : 'transparent';
+      var filaBorder = esAlerta ? 'border-left: 4px solid #EF4444;' : '';
+
+      var badgeEstado = '';
+      if (ev.resultado === 'exitoso') {
+        badgeEstado = '<span style="font-size:11px;font-weight:800;background:#E7F4EC;color:#16A34A;padding:2px 8px;border-radius:999px;border:1px solid #C3E6D0">✓ Concedido</span>';
+      } else if (ev.resultado === 'rechazado_vencido') {
+        badgeEstado = '<span style="font-size:11px;font-weight:800;background:#FEE2E2;color:#DC2626;padding:2px 8px;border-radius:999px;border:1px solid #FCA5A5">🚨 QR Vencido</span>';
+      } else if (ev.resultado === 'rechazado_horario') {
+        badgeEstado = '<span style="font-size:11px;font-weight:800;background:#FFFBEB;color:#D97706;padding:2px 8px;border-radius:999px;border:1px solid #FDE68A">⏳ Fuera de Horario</span>';
+      } else {
+        badgeEstado = '<span style="font-size:11px;font-weight:800;background:#FEE2E2;color:#DC2626;padding:2px 8px;border-radius:999px;border:1px solid #FCA5A5">⚠️ Inválido</span>';
+      }
+
+      var tipoBadge = '<span style="font-size:11.5px;font-weight:700;color:#1E5FB4;background:#EBF3FC;padding:2px 7px;border-radius:6px">' + escapeHtml(ev.tipo_acceso || 'QR') + '</span>';
+
+      var fotoHtml = '<span style="color:#94A3B8;font-size:11.5px">Sin foto</span>';
+      if (ev.foto_seguridad) {
+        fotoHtml = '<button onclick="abrirFotoSeguridadTotem(this)" data-foto="' + escapeHtml(ev.foto_seguridad) + '" style="padding:4px 8px;border:1px solid #CBD5E1;border-radius:8px;background:#fff;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:#2E6FC0" class="hv-soft">📷 Ver Foto</button>';
+      }
+
+      return '<tr style="border-bottom:1px solid #EEF2F6;background:' + filaBg + ';' + filaBorder + '">' +
+        '<td style="padding:12px 16px;white-space:nowrap;font-weight:700;color:#1E293B">🕒 ' + horaFmt + '</td>' +
+        '<td style="padding:12px 16px;font-weight:700;color:#0F172A">' + escapeHtml(ev.edificio) + '</td>' +
+        '<td style="padding:12px 16px;color:#475569">' + escapeHtml(ev.departamento || 'Entrada Principal') + '</td>' +
+        '<td style="padding:12px 16px"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' + tipoBadge + badgeEstado + '</div></td>' +
+        '<td style="padding:12px 16px;color:#334155;line-height:1.4">' + escapeHtml(ev.detalle || '—') + '</td>' +
+        '<td style="padding:12px 16px;text-align:center">' + fotoHtml + '</td>' +
+      '</tr>';
+    }).join('');
+
+    tbody.innerHTML = html;
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:24px;text-align:center;color:#EF4444">Error cargando eventos: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+window.cargarAuditoriaAccesos = cargarAuditoriaAccesos;
+
+function abrirFotoSeguridadTotem(srcOrEl) {
+  var src = (srcOrEl && srcOrEl.dataset && srcOrEl.dataset.foto) ? srcOrEl.dataset.foto : srcOrEl;
+  var w = window.open('', '_blank');
+  if (w) {
+    w.document.write('<html><head><title>Foto de Seguridad Tótem</title></head><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh"><img src="' + src + '" style="max-width:100%;max-height:100%;object-fit:contain"></body></html>');
+  }
+}
+window.abrirFotoSeguridadTotem = abrirFotoSeguridadTotem;
+
+async function cargarPasesQR() {
+  var tbody = document.getElementById('tabla-pases-qr-body');
+  if (!tbody) return;
+
+  var selEd = document.getElementById('filtro-auditoria-edificio');
+  var ed = selEd ? selEd.value : '';
+
+  try {
+    var res = await fetch('/admin/api/pases-qr?edificio=' + encodeURIComponent(ed));
+    var data = await res.json();
+    var pases = (data && data.pases) || [];
+
+    var kpiPases = document.getElementById('kpi-pases-activos');
+    var activosCount = pases.filter(function(p) { return p.estado === 'activo'; }).length;
+    if (kpiPases) kpiPases.textContent = activosCount;
+
+    if (pases.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="padding:32px;text-align:center;color:#8595AD;font-size:13.5px">No hay pases QR registrados aún.</td></tr>';
+      return;
+    }
+
+    window._pasesQRMap = {};
+    var html = pases.map(function(p) {
+      window._pasesQRMap[p.id] = p;
+      var origenBadge = p.origen === 'edifica'
+        ? '<span style="font-size:10.5px;font-weight:800;background:#EDE9FE;color:#6D28D9;padding:2px 7px;border-radius:999px">📱 Edifica</span>'
+        : '<span style="font-size:10.5px;font-weight:800;background:#E0F2FE;color:#0369A1;padding:2px 7px;border-radius:999px">🖥️ Dash</span>';
+
+      var vigFmt = '';
+      if (p.tipo_pase === 'recurrente') {
+        var dStr = (p.dias_semana && p.dias_semana.join) ? p.dias_semana.join(', ') : String(p.dias_semana || '');
+        vigFmt = 'Recurrente: ' + dStr + ' (' + (p.hora_desde || '') + '-' + (p.hora_hasta || '') + ' hs)';
+      } else if (p.fecha_expiracion) {
+        vigFmt = 'Hasta ' + new Date(p.fecha_expiracion).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+      } else {
+        vigFmt = 'Permanente';
+      }
+
+      var estadoBadge = '';
+      if (p.estado === 'activo') {
+        estadoBadge = '<span style="font-size:11px;font-weight:800;background:#E7F4EC;color:#16A34A;padding:2px 8px;border-radius:999px">Activo</span>';
+      } else if (p.estado === 'vencido') {
+        estadoBadge = '<span style="font-size:11px;font-weight:800;background:#FEE2E2;color:#DC2626;padding:2px 8px;border-radius:999px">Vencido</span>';
+      } else if (p.estado === 'utilizado') {
+        estadoBadge = '<span style="font-size:11px;font-weight:800;background:#F1F5F9;color:#64748B;padding:2px 8px;border-radius:999px">Utilizado</span>';
+      } else {
+        estadoBadge = '<span style="font-size:11px;font-weight:800;background:#FEF2F2;color:#991B1B;padding:2px 8px;border-radius:999px">Revocado</span>';
+      }
+
+      var btnRevocar = p.estado === 'activo'
+        ? '<button onclick="revocarPaseDash(' + p.id + ')" style="padding:4px 8px;border:1px solid #FCA5A5;border-radius:6px;background:#FFF;color:#DC2626;font-size:11px;font-weight:700;cursor:pointer">Revocar</button>'
+        : '';
+
+      var btnVerQR = '<button onclick="abrirVerPaseExistente(' + p.id + ')" style="padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;color:#2E6FC0;font-size:11px;font-weight:700;cursor:pointer">Ver QR</button>';
+
+      return '<tr style="border-bottom:1px solid #EEF2F6">' +
+        '<td style="padding:12px 16px;font-family:monospace;font-weight:800;color:#1E5FB4">' + escapeHtml(p.token) + '</td>' +
+        '<td style="padding:12px 16px">' + origenBadge + '</td>' +
+        '<td style="padding:12px 16px;font-weight:700;color:#0F172A">' + escapeHtml(p.edificio) + (p.departamento ? ' <span style="font-weight:400;color:#64748B">(' + escapeHtml(p.departamento) + ')</span>' : '') + '</td>' +
+        '<td style="padding:12px 16px;font-weight:700">' + escapeHtml(p.nombre_invitado) + '</td>' +
+        '<td style="padding:12px 16px;color:#475569">' + escapeHtml(p.motivo) + '</td>' +
+        '<td style="padding:12px 16px;font-size:12px;color:#334155">' + escapeHtml(vigFmt) + '</td>' +
+        '<td style="padding:12px 16px;font-size:12px;color:#64748B">' + (p.usos_actuales || 0) + ' / ' + (p.usos_permitidos || 1) + '</td>' +
+        '<td style="padding:12px 16px">' + estadoBadge + '</td>' +
+        '<td style="padding:12px 16px;text-align:right"><div style="display:flex;justify-content:flex-end;gap:6px">' + btnVerQR + btnRevocar + '</div></td>' +
+      '</tr>';
+    }).join('');
+
+    tbody.innerHTML = html;
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="9" style="padding:24px;text-align:center;color:#EF4444">Error: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+window.cargarPasesQR = cargarPasesQR;
+
+function abrirVerPaseExistente(id) {
+  var p = (window._pasesQRMap && window._pasesQRMap[id]) ? window._pasesQRMap[id] : null;
+  if (!p) return;
+  _currentPaseGenerado = p;
+  mostrarModalVerPaseQR(_currentPaseGenerado);
+}
+window.abrirVerPaseExistente = abrirVerPaseExistente;
+
+async function revocarPaseDash(id) {
+  if (!confirm('¿Seguro que deseás revocar este pase QR? No podrá ingresar más por el tótem.')) return;
+  try {
+    var res = await fetch('/admin/api/pases-qr/revocar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id })
+    });
+    var data = await res.json();
+    if (data && data.ok) {
+      toast('✓ Pase QR revocado correctamente', 'ok');
+      cargarPasesQR();
+    } else {
+      alert('Error: ' + (data.error || 'No se pudo revocar'));
+    }
+  } catch(e) {
+    alert('Error revocando pase: ' + e.message);
+  }
+}
+window.revocarPaseDash = revocarPaseDash;
+
+function abrirModalNuevoAviso(edificio) {
+  var selEd = document.getElementById('aviso-edificio');
+  if (selEd && edificio) selEd.value = edificio;
+  var inTit = document.getElementById('aviso-titulo');
+  if (inTit) inTit.value = '';
+  var inTxt = document.getElementById('aviso-texto');
+  if (inTxt) inTxt.value = '';
+  var inTipo = document.getElementById('aviso-tipo');
+  if (inTipo) inTipo.value = 'mantenimiento';
+  var inRub = document.getElementById('aviso-rubro');
+  if (inRub) inRub.value = '';
+  var inUrg = document.getElementById('aviso-urgente');
+  if (inUrg) inUrg.checked = false;
+  var inDur = document.getElementById('aviso-duracion-tipo');
+  if (inDur) inDur.value = 'indefinido';
+  var wrapHasta = document.getElementById('aviso-hasta-wrap');
+  if (wrapHasta) wrapHasta.style.display = 'none';
+  var inHasta = document.getElementById('aviso-hasta');
+  if (inHasta) inHasta.value = '';
+  abrirModal('modal-nuevo-aviso');
+}
+window.abrirModalNuevoAviso = abrirModalNuevoAviso;
+
+function toggleAvisoDuracion() {
+  var sel = document.getElementById('aviso-duracion-tipo');
+  var wrap = document.getElementById('aviso-hasta-wrap');
+  if (wrap) wrap.style.display = (sel && sel.value === 'fecha') ? 'block' : 'none';
+}
+window.toggleAvisoDuracion = toggleAvisoDuracion;
+
+async function guardarNuevoAviso(btn) {
+  var ed = document.getElementById('aviso-edificio') ? document.getElementById('aviso-edificio').value.trim() : '';
+  var titulo = document.getElementById('aviso-titulo') ? document.getElementById('aviso-titulo').value.trim() : '';
+  var texto = document.getElementById('aviso-texto') ? document.getElementById('aviso-texto').value.trim() : '';
+  var tipo = document.getElementById('aviso-tipo') ? document.getElementById('aviso-tipo').value : 'otro';
+  var rubro = document.getElementById('aviso-rubro') ? document.getElementById('aviso-rubro').value.trim() : '';
+  var urgente = document.getElementById('aviso-urgente') ? document.getElementById('aviso-urgente').checked : false;
+  var durTipo = document.getElementById('aviso-duracion-tipo') ? document.getElementById('aviso-duracion-tipo').value : 'indefinido';
+  var hastaVal = (durTipo === 'fecha' && document.getElementById('aviso-hasta')) ? document.getElementById('aviso-hasta').value : null;
+  var rol = document.getElementById('aviso-rol') ? document.getElementById('aviso-rol').value : 'administrador';
+  var publicadoPor = document.getElementById('aviso-publicado-por') ? document.getElementById('aviso-publicado-por').value.trim() : '';
+
+  if (!ed) { toast('Falta seleccionar el edificio', 'err'); return; }
+  if (!titulo && !texto) { toast('El aviso debe contener un título o descripción', 'err'); return; }
+
+  var origText = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Publicando...'; }
+
+  try {
+    var res = await fetch('/admin/api/avisos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        edificio: ed,
+        titulo: titulo,
+        texto: texto,
+        tipo: tipo,
+        rubro: rubro || null,
+        urgente: urgente,
+        hasta: hastaVal || null,
+        publicadoPor: publicadoPor || null,
+        rol: rol || 'administrador'
+      })
+    });
+    var data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo publicar el aviso');
+
+    toast('Aviso publicado con éxito para el consorcio', 'ok');
+    cerrarModal('modal-nuevo-aviso');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch (err) {
+    toast(err.message || 'Error al publicar aviso', 'err');
+    if (btn) { btn.disabled = false; btn.innerHTML = origText; }
+  }
+}
+window.guardarNuevoAviso = guardarNuevoAviso;
+
+async function darDeBajaAviso(id, btn) {
+  if (!confirm('¿Confirmás que querés dar de baja este aviso? Dejará de mostrarse en el portal del vecino.')) return;
+  var origText = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Levantando...'; }
+  try {
+    var res = await fetch('/admin/api/avisos/' + encodeURIComponent(id) + '/levantar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    var data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo dar de baja el aviso');
+    toast('Aviso dado de baja exitosamente', 'ok');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch (err) {
+    toast(err.message || 'Error al dar de baja aviso', 'err');
+    if (btn) { btn.disabled = false; btn.innerHTML = origText; }
+  }
+}
+window.darDeBajaAviso = darDeBajaAviso;
+
+document.addEventListener('DOMContentLoaded', function() {
+  if (document.getElementById('tabla-eventos-acceso-body')) {
+    cargarAuditoriaAccesos();
+    cargarPasesQR();
+    setInterval(cargarAuditoriaAccesos, 15000); // Polling en vivo cada 15 seg
+  }
+});
 `;
 
 /* ===================================================================
@@ -4225,11 +9669,13 @@ async function cargarDatos(req) {
 
   // Edificio "actual" para la vista cliente.
   const permitidos = edificiosPermitidos(req);
+  const suyosNorm = new Set((edificiosDeLaCuenta(req) || []).map(normEdificio).filter(Boolean));
   const propios = vistaCliente(req)
-    ? edificios.filter((e) => edificiosDeLaCuenta(req).includes(e.nombre))
+    ? edificios.filter((e) => suyosNorm.has(normEdificio(e.nombre)))
     : edificios;
+  const permitidosNorm = permitidos ? new Set(permitidos.map(normEdificio).filter(Boolean)) : null;
   const curBuilding = vistaCliente(req)
-    ? (propios.find((e) => permitidos && permitidos.includes(e.nombre)) || propios[0] || {
+    ? (propios.find((e) => permitidosNorm && permitidosNorm.has(normEdificio(e.nombre))) || propios[0] || {
         nombre: 'Sin edificio asignado',
         direccion: 'Consulte con su administración',
         encargado: '—',
@@ -4271,6 +9717,15 @@ async function cargarDatos(req) {
  * VISTA DE EVENTO (fila del feed + datos del drawer)
  * =================================================================== */
 
+function limpiarTextoMedia(str) {
+  if (!str) return '';
+  let s = String(str);
+  s = s.replace(/\[AUDIO:[^\]]+\]/gi, ' ');
+  s = s.replace(/\[(IMAGEN|FOTO|VIDEO|DOC|DOCUMENTO):[^\]]+\]/gi, ' ');
+  s = s.replace(/\s{2,}/g, ' ').trim();
+  return s;
+}
+
 function vistaEvento(e, filterFn, listaEdificios) {
   const cat = clasificarEvento(e);
   const catInfo = CATEGORIAS_EVENTO[cat];
@@ -4294,13 +9749,20 @@ function vistaEvento(e, filterFn, listaEdificios) {
   }
   const edificioMostrar = dirReal || e.direccion || e.edificio || '—';
 
+  const msgLimpio = limpiarTextoMedia(e.mensaje);
+  const notasLimpias = limpiarTextoMedia(e.notas);
+  const transLimpia = limpiarTextoMedia(e.transcripcion);
+  const esAudio = Boolean(e.audio_url || e.audios_json || /\[AUDIO:/i.test(e.mensaje || '') || /\[AUDIO:/i.test(e.notas || ''));
+  const tituloFinal = msgLimpio || transLimpia || notasLimpias || (esAudio ? '🎙️ Nota de voz' : 'Evento');
+  const detalleFinal = notasLimpias || transLimpia || '';
+
   return {
     row: e._row,
     id_evento: e.id_evento || ('CASO-' + String(e._row).padStart(4, '0')),
     audios_json: e.audios_json || '',
     involucrados_json: e.involucrados_json || '',
-    titulo: truncate(e.mensaje || e.notas || 'Evento', 80),
-    detalle: truncate(e.notas || '', 150),
+    titulo: truncate(tituloFinal, 90),
+    detalle: truncate(detalleFinal, 160),
     catKey: cat, catLabel: catInfo.label, catIcon: catInfo.icon, catBg: catInfo.bg,
     urgKey: e.urgencia, urgLabel: urg.label, urgBg: urg.bg, urgFg: urg.fg,
     estKey, estLabel: est.label, estBg: est.bg, estFg: est.fg,
@@ -4322,7 +9784,13 @@ function vistaEvento(e, filterFn, listaEdificios) {
       return dias > 0 ? dias : 0;
     })(),
     feedback: e.feedback, nuevo,
+    tecnico: e.tecnico || '',
+    tel_tecnico: e.tel_tecnico || '',
+    rubro_tecnico: e.rubro_tecnico || '',
+    chat_vecino_json: e.chat_vecino_json || '',
+    chat_proveedor_json: e.chat_proveedor_json || '',
     historial_chat: e.historial_chat || '',
+    tipo: e.tipo || '',
   };
 }
 
@@ -4332,13 +9800,18 @@ function filaEvento(v, idx, chipEdificio) {
   else if (v.urgKey === 'alta') rowClass = 'ev-urgente';
   else if (v.nuevo) rowClass = 'ev-nuevo';
 
+  const esTrabajoExterno = v.catKey === 'trabajo_externo' || v.tipo === 'trabajo_externo' || /trabajo_externo|externo/i.test(v.tipo || '');
+  const badgeExternoHtml = esTrabajoExterno ? `<span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:#FEF3C7;color:#92400E;border:1px solid #F59E0B">🧾 Trabajo externo</span>` : '';
+
   return `
     <button onclick="abrirDrawerEvento(${idx})" data-evrow data-nuevo="${v.nuevo ? '1' : '0'}" data-urg="${esc(v.urgKey)}" data-est="${esc(v.estKey)}"
       style="width:100%;display:flex;align-items:flex-start;gap:14px;padding:16px 20px 16px 16px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left;font-family:inherit;position:relative" class="hv-row ${rowClass}">
       <span style="width:44px;height:44px;border-radius:12px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${v.catIcon}</span>
       <span style="flex:1;min-width:0">
         <span style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+          <span class="ev-id-badge" style="font-size:11.5px;font-weight:800;padding:2px 7px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
           <span style="font-size:15px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
+          ${badgeExternoHtml}
           <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
           ${chipEdificio ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 ${esc(v.edificio)}</span>` : ''}
           ${!chipEdificio && v.nuevo ? '<span style="font-size:11px;font-weight:800;color:#2E6FC0">● NUEVO</span>' : ''}
@@ -4363,24 +9836,27 @@ function shell(req, d, activeKey, contenido) {
 
   // --- datos del selector de edificio ---
   let selectorHtml = '';
+  const volverUrl = req.originalUrl && req.originalUrl.startsWith('/admin') ? req.originalUrl : ('/admin/' + activeKey);
+  const hrefBaseFiltro = `/admin/set-filtro?volver=${encodeURIComponent(volverUrl)}`;
   if (dueno) {
     const filtro = req.session.filtroEdificioDueno || '';
     const label = filtro || 'Todos los edificios';
     const sub = filtro
-      ? ((d.clientes.find((c) => c.edificios.includes(filtro)) || {}).nombre || '')
+      ? ((clienteDelEdificio(d.clientes, filtro) || {}).nombre || '')
       : `${d.edificios.length} consorcios activos`;
     const filas = [
       { label: 'Todos los edificios', sub: `${d.edificios.length} consorcios`, val: '', activo: !filtro },
       ...d.edificios.map((e) => ({
         label: e.nombre,
-        sub: `${(d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar'}${e.unidades ? ' · ' + e.unidades + ' un.' : ''}`,
+        sub: `${(clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar'}${e.unidades ? ' · ' + e.unidades + ' un.' : ''}`,
         val: e.nombre, activo: filtro === e.nombre,
       })),
     ];
-    selectorHtml = selectorEdificioHtml(label, sub, 'Filtrar por edificio', filas, '/admin/set-filtro');
+    selectorHtml = selectorEdificioHtml(label, sub, 'Filtrar por edificio', filas, hrefBaseFiltro);
   } else {
     const cur = d.curBuilding;
-    const todos = !req.session.edificioActivo;
+    const activoActual = preview ? req.session.previewEdificioActivo : req.session.edificioActivo;
+    const todos = !activoActual;
     const label = todos ? 'Todos los edificios' : (cur ? cur.nombre : 'Sin edificio');
     const sub = todos ? `${d.propios.length} edificios` : (cur ? (cur.zona || cur.direccion || '') : '');
     const filas = [
@@ -4393,7 +9869,7 @@ function shell(req, d, activeKey, contenido) {
       })),
     ];
     selectorHtml = d.propios.length > 1
-      ? selectorEdificioHtml(label, sub, 'Tus edificios', filas, '/admin/set-filtro')
+      ? selectorEdificioHtml(label, sub, 'Tus edificios', filas, hrefBaseFiltro)
       : `<div style="display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border:1px solid #E1E7F1;border-radius:11px;background:#F7F9FC">
           <span style="font-size:15px">🏢</span>
           <span style="text-align:left;line-height:1.15">
@@ -4453,6 +9929,10 @@ function shell(req, d, activeKey, contenido) {
   const userInitial = String(displayName || 'M').split(' ').filter(Boolean).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join('');
   const userGrad = dueno ? 'linear-gradient(140deg,#17408B,#2E6FC0)' : 'linear-gradient(140deg,#B4841C,#D99B1F)';
   const userMeta = dueno ? `Dueño del sistema · ${d.edificios.length} edificios` : `Administrador · ${d.propios.length} edificio${d.propios.length === 1 ? '' : 's'}`;
+  const userAvatar = (!dueno && d.clienteActual && d.clienteActual.avatar) ? d.clienteActual.avatar : '';
+  const userAvatarHtml = userAvatar
+    ? `<img src="${esc(userAvatar)}" alt="${esc(displayName)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:1.5px solid #2E6FC0;flex-shrink:0" onerror="this.onerror=null;this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='flex';"><span style="width:36px;height:36px;border-radius:50%;background:${userGrad};color:#fff;display:none;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">${esc(userInitial)}</span>`
+    : `<span style="width:36px;height:36px;border-radius:50%;background:${userGrad};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">${esc(userInitial)}</span>`;
 
   // --- nav ---
   const nuevosCliente = filtrarPorEdificio(d.eventos, req).filter((e) => estadoNormalizado(e.estado) !== 'resuelto').length;
@@ -4461,6 +9941,8 @@ function shell(req, d, activeKey, contenido) {
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
     { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosCliente },
     { key: 'edificio', icon: '🏢', label: 'Mi Edificio', href: '/admin/mi-edificio' },
+    { key: 'avisos', icon: '📢', label: 'Avisos al Edificio', href: '/admin/avisos' },
+    { key: 'porteria_accesos', icon: '🚪', label: 'Control de Accesos & Portería', href: '/admin/accesos-porteria' },
     { key: 'proveedores', icon: '🧰', label: 'Proveedores', href: '/admin/proveedores' },
     { key: 'facturas', icon: '🧾', label: 'Facturas/Fotos', href: '/admin/archivos' },
     { key: 'expensas', icon: '📑', label: 'Expensas', href: '/admin/expensas' },
@@ -4470,6 +9952,8 @@ function shell(req, d, activeKey, contenido) {
   const navDueno = [
     { key: 'resumen', icon: '📊', label: 'Resumen', href: '/admin' },
     { key: 'eventos', icon: '🔔', label: 'Eventos', href: '/admin/eventos', badge: nuevosDueno },
+    { key: 'avisos', icon: '📢', label: 'Avisos al Edificio', href: '/admin/avisos' },
+    { key: 'porteria_accesos', icon: '🚪', label: 'Control de Accesos & Portería', href: '/admin/accesos-porteria' },
     { key: 'consumos', icon: '📈', label: 'Consumos', href: '/admin/consumos' },
     { key: 'facturas', icon: '🧾', label: 'Facturas/Fotos', href: '/admin/archivos' },
     { key: 'edificios', icon: '👥', label: 'Clientes', href: '/admin/clientes' },
@@ -4480,11 +9964,23 @@ function shell(req, d, activeKey, contenido) {
   const navHtml = nav.map((n) => {
     const active = n.key === activeKey;
     return `
-      <a href="${n.href}" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;border-radius:11px;background:${active ? '#EAF1FB' : 'transparent'};color:${active ? '#17408B' : '#475569'};font-weight:${active ? '800' : '600'};font-size:14.5px;text-align:left;position:relative" class="hv-soft">
-        <span style="font-size:17px;width:22px;text-align:center">${n.icon}</span>
-        <span style="flex:1">${n.label}</span>
+      <a href="${n.href}" data-tour="nav-${n.key}" style="display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;border-radius:10px;background:${active ? '#EAF1FB' : 'transparent'};color:${active ? '#17408B' : '#475569'};font-weight:${active ? '800' : '600'};font-size:14px;text-align:left;position:relative;flex-shrink:0" class="hv-soft">
+        <span style="font-size:16px;width:22px;text-align:center">${n.icon}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.label}</span>
         ${n.badge ? `<span style="min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#E5484D;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${n.badge}</span>` : ''}
       </a>`;
+  }).join('');
+
+  const mobileNavHtml = nav.map((n) => {
+    const active = n.key === activeKey;
+    return `
+    <a href="${n.href}" data-tour="nav-${n.key}" class="${active ? 'active' : ''}">
+      <span class="nav-icon">
+        ${n.icon}
+        ${n.badge ? `<span class="nav-badge">${n.badge}</span>` : ''}
+      </span>
+      <span class="nav-label">${n.label}</span>
+    </a>`;
   }).join('');
 
   const previewBanner = preview ? `
@@ -4509,7 +10005,7 @@ function shell(req, d, activeKey, contenido) {
         <div style="padding:12px;max-height:60vh;overflow-y:auto">
           ${d.clientes.map((c) => `
             <a href="/admin/preview?cliente=${encodeURIComponent(c.usuario)}" style="width:100%;display:flex;align-items:center;gap:13px;padding:13px;border:1px solid #EEF1F6;background:#fff;border-radius:12px;text-align:left;margin-bottom:8px" class="hv-selbtn">
-              <span style="width:44px;height:44px;border-radius:11px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;flex-shrink:0">${esc(c.nombre.charAt(0).toUpperCase())}</span>
+              <span style="width:44px;height:44px;border-radius:11px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;flex-shrink:0;overflow:hidden">${c.avatar ? `<img src="${esc(c.avatar)}" alt="${esc(c.nombre)}" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='${esc(c.nombre.charAt(0).toUpperCase())}'">` : esc(c.nombre.charAt(0).toUpperCase())}</span>
               <span style="flex:1;min-width:0">
                 <span style="display:block;font-size:15px;font-weight:800;color:#16233B">${esc(c.nombre)}</span>
                 <span style="display:block;font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.edificios.join(', ') || 'Sin edificios')}</span>
@@ -4530,8 +10026,27 @@ function shell(req, d, activeKey, contenido) {
 <html lang="es-AR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0F326A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Marcos IA">
+<link rel="apple-touch-icon" href="/admin/assets/logo.png">
+<link rel="icon" type="image/png" href="/admin/assets/logo.png">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Marcos IA · Panel</title>
+<script>
+  window.abrirDrawerEvento = window.abrirDrawerEvento || function(idx) {
+    if (window._abrirDrawerEventoImpl) return window._abrirDrawerEventoImpl(idx);
+    console.warn('abrirDrawerEvento llamado antes de cargar script cliente completado', idx);
+  };
+  window.cerrarDrawerEvento = window.cerrarDrawerEvento || function() {
+    if (window._cerrarDrawerEventoImpl) return window._cerrarDrawerEventoImpl();
+  };
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
@@ -4539,6 +10054,7 @@ function shell(req, d, activeKey, contenido) {
 <script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js"></script>
 <style>${CSS}</style>
 <script>(function(){if(localStorage.getItem('marcos_theme')==='dark'){document.documentElement.classList.add('dark-theme');document.addEventListener('DOMContentLoaded',function(){if(document.body)document.body.classList.add('dark-theme');});}})();</script>
+<script>${CLIENT_JS}</script>
 </head>
 <body class="${''}">
 <div style="min-height:100vh;display:flex;flex-direction:column">
@@ -4553,18 +10069,23 @@ function shell(req, d, activeKey, contenido) {
     <div style="flex:1"></div>
     ${notifHtml}
     <div style="position:relative">
-      <button onclick="toggleMenu('menu-user')" style="display:flex;align-items:center;gap:10px;height:44px;padding:0 8px 0 6px;border:1px solid transparent;border-radius:12px;background:none;cursor:pointer" class="hv-soft">
-        <span style="width:36px;height:36px;border-radius:50%;background:${userGrad};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px">${esc(userInitial)}</span>
+      <button onclick="toggleMenu('menu-user', event)" style="display:flex;align-items:center;gap:10px;height:44px;padding:0 8px 0 6px;border:1px solid transparent;border-radius:12px;background:none;cursor:pointer" class="hv-soft">
+        ${userAvatarHtml}
         <span style="text-align:left;line-height:1.15" class="username">
           <span style="display:block;font-size:13.5px;font-weight:700;color:#16233B">${esc(displayName)}</span>
           <span style="display:block;font-size:11px;color:#8595AD">${esc(userSub)}</span>
         </span>
         <span style="color:#8595AD;font-size:11px">▾</span>
       </button>
-      <div id="menu-user" class="menu-pop" style="position:absolute;top:52px;right:0;width:220px;background:#fff;border:1px solid #E4E9F1;border-radius:14px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);padding:7px;z-index:50;animation:mPop .16s ease both">
-        <div style="padding:10px 11px 12px;border-bottom:1px solid #EEF1F6;margin-bottom:6px">
-          <div style="font-size:14px;font-weight:700">${esc(displayName)}</div>
-          <div style="font-size:12px;color:#8595AD">${esc(userMeta)}</div>
+      <div id="menu-user" class="menu-pop" style="position:absolute;top:52px;right:0;width:240px;background:#fff;border:1px solid #E4E9F1;border-radius:14px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);padding:7px;z-index:50;animation:mPop .16s ease both">
+        <div style="padding:10px 11px 12px;border-bottom:1px solid #EEF1F6;margin-bottom:6px;display:flex;align-items:center;gap:10px">
+          <div style="width:38px;height:38px;border-radius:50%;overflow:hidden;flex-shrink:0;background:${userGrad};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:14px;border:1.5px solid #2E6FC0">
+            ${userAvatar ? `<img src="${esc(userAvatar)}" alt="${esc(displayName)}" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='${esc(userInitial)}'">` : esc(userInitial)}
+          </div>
+          <div style="min-width:0;flex:1">
+            <div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(displayName)}</div>
+            <div style="font-size:12px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(userMeta)}</div>
+          </div>
         </div>
         ${verComoCliente}
         <a href="https://bienargentinos.com" target="_blank" style="width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:9px;cursor:pointer;font-size:14px;color:#2E6FC0;font-weight:700;display:block;text-decoration:none" class="hv-soft">🌐&nbsp;&nbsp;BienArgentinos.com ↗</a>
@@ -4577,15 +10098,15 @@ function shell(req, d, activeKey, contenido) {
 
   <div style="flex:1;display:flex;align-items:stretch">
     <!-- SIDEBAR -->
-    <nav class="sidebar-nav" style="width:236px;flex-shrink:0;background:#fff;border-right:1px solid #E4E9F1;padding:18px 14px;position:sticky;top:64px;height:calc(100vh - 64px);display:flex;flex-direction:column;gap:4px">
-      <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9AA7BD;padding:6px 12px 8px">Menú</div>
+    <nav class="sidebar-nav" style="width:236px;flex-shrink:0;background:#fff;border-right:1px solid #E4E9F1;padding:14px 10px 24px;position:sticky;top:64px;height:calc(100vh - 64px);display:flex;flex-direction:column;gap:3px;overflow-y:auto;overflow-x:hidden;box-sizing:border-box">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9AA7BD;padding:4px 10px 6px">Menú</div>
       ${navHtml}
-      <div style="flex:1"></div>
+      <div style="flex:1;min-height:12px"></div>
       ${dueno ? '' : `
-      <div style="margin:0 6px;padding:14px;background:linear-gradient(155deg,#0F326A,#2E6FC0);border-radius:14px;color:#fff">
-        <div style="font-size:13px;font-weight:800;margin-bottom:4px">¿Necesitás algo?</div>
-        <div style="font-size:12.5px;color:rgba(255,255,255,.8);line-height:1.45;margin-bottom:10px">Tu consorcio está siendo atendido las 24 horas.</div>
-        <a href="${sugerenciaHref}" style="display:flex;align-items:center;justify-content:center;width:100%;height:36px;border-radius:9px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:13px">Enviar sugerencia</a>
+      <div class="sidebar-help-card" style="margin:8px 4px 0;padding:12px 14px;background:linear-gradient(155deg,#0F326A,#2E6FC0);border-radius:14px;color:#fff;flex-shrink:0">
+        <div style="font-size:13px;font-weight:800;margin-bottom:3px">¿Necesitás algo?</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.8);line-height:1.4;margin-bottom:8px">Tu consorcio está siendo atendido las 24 horas.</div>
+        <a href="${sugerenciaHref}" style="display:flex;align-items:center;justify-content:center;width:100%;height:34px;border-radius:9px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:12.5px">Enviar sugerencia</a>
       </div>`}
     </nav>
 
@@ -4595,37 +10116,7 @@ function shell(req, d, activeKey, contenido) {
     </main>
   <!-- BARRA DE NAVEGACION INFERIOR PARA MOVIL -->
   <div class="mobile-bottom-nav">
-    <a href="/admin" class="${activeKey === 'resumen' ? 'active' : ''}">
-      <span class="nav-icon">📊</span>
-      <span class="nav-label">Resumen</span>
-    </a>
-    <a href="/admin/mi-edificio" class="${activeKey === 'edificio' ? 'active' : ''}">
-      <span class="nav-icon">🏢</span>
-      <span class="nav-label">Edificio</span>
-    </a>
-    <a href="/admin/eventos" class="${activeKey === 'eventos' ? 'active' : ''}">
-      <span class="nav-icon">📋</span>
-      <span class="nav-label">Eventos</span>
-    </a>
-    ${dueno ? `
-    <a href="/admin/clientes" class="${activeKey === 'clientes' ? 'active' : ''}">
-      <span class="nav-icon">👥</span>
-      <span class="nav-label">Clientes</span>
-    </a>
-    <a href="/admin/suscripciones" class="${activeKey === 'suscripciones' ? 'active' : ''}">
-      <span class="nav-icon">💳</span>
-      <span class="nav-label">Planes</span>
-    </a>
-    ` : `
-    <a href="/admin/archivos" class="${activeKey === 'archivos' ? 'active' : ''}">
-      <span class="nav-icon">🧾</span>
-      <span class="nav-label">Facturas</span>
-    </a>
-    <a href="/admin/sugerencias" class="${activeKey === 'sugerencias' ? 'active' : ''}">
-      <span class="nav-icon">💡</span>
-      <span class="nav-label">Ideas</span>
-    </a>
-    `}
+    ${mobileNavHtml}
   </div>
 </div>
 <div id="toast" class="toast"></div>
@@ -4658,6 +10149,24 @@ ${(() => {
           <div style="font-size:12.5px;color:#8595AD;margin-top:2px">${esc(userMeta)}</div>
         </div>
         <div style="padding:20px 24px">
+          ${dueno ? '' : `
+          <div style="display:flex;align-items:center;gap:16px;background:#F8FAFD;padding:14px 16px;border-radius:14px;border:1px solid #E4E9F1;margin-bottom:18px">
+            <div id="avatar-preview-box" style="position:relative;width:58px;height:58px;border-radius:50%;overflow:hidden;flex-shrink:0;background:${userGrad};display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:800;border:2px solid #2E6FC0;box-shadow:0 2px 8px rgba(46,111,192,.2)">
+              ${userAvatar ? `<img id="account-avatar-img" src="${esc(userAvatar)}" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='<span id=\\'account-avatar-init\\'>${esc(userInitial)}</span>'">` : `<span id="account-avatar-init">${esc(userInitial)}</span>`}
+            </div>
+            <div style="flex:1">
+              <div style="font-size:13.5px;font-weight:700;color:#16233B;margin-bottom:2px">Foto de perfil</div>
+              <div style="font-size:12px;color:#8595AD;margin-bottom:8px">Cargá una foto o logo para personalizar tu cuenta en el panel.</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <label style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid #2E6FC0;border-radius:8px;background:#EAF1FB;color:#1E5FB4;font-size:12.5px;font-weight:700;cursor:pointer" class="hv-blue">
+                  <span id="account-avatar-btn-text">📷 Subir foto</span>
+                  <input type="file" id="account-avatar-file" accept="image/png,image/jpeg,image/webp,image/gif,image/jpg,.png,.jpg,.jpeg,.webp,.gif" style="display:none" onchange="subirAvatarPerfil(this)">
+                </label>
+                ${userAvatar ? `<button type="button" onclick="eliminarAvatarPerfil(this)" style="height:32px;padding:0 10px;border:1px solid #FCA5A5;border-radius:8px;background:#FEF2F2;color:#DC2626;font-size:12px;font-weight:700;cursor:pointer" class="hv-red">Eliminar</button>` : ''}
+              </div>
+            </div>
+          </div>
+          `}
           <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email de contacto</div>
           <input id="account-email" value="${esc(currentEmail)}" placeholder="tuemail@ejemplo.com" class="inp" style="margin-bottom:14px">
           
@@ -4718,7 +10227,7 @@ ${(() => {
 })()}
 
 <!-- Widget Asistente Virtual AC -->
-<div id="ac-ai-widget-container" data-tour="ai-widget" style="position:fixed;bottom:24px;left:24px;z-index:9999;font-family:'Hanken Grotesk',sans-serif">
+<div id="ac-ai-widget-container" data-tour="ai-widget" style="position:fixed;top:12px;left:370px;z-index:9999;font-family:'Hanken Grotesk',sans-serif">
   <!-- Ventana Chat Desplegable -->
   <div id="ac-ai-chat-box" style="display:none;flex-direction:column;width:340px;height:460px;background:#ffffff;border:1px solid #DCE4F0;border-radius:18px;box-shadow:0 12px 32px rgba(16,35,59,.22);overflow:hidden;margin-bottom:12px">
     <div style="background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
@@ -4751,8 +10260,8 @@ ${(() => {
   </div>
 
   <!-- Botón Flotante Principal -->
-  <button onclick="toggleAsistenteWidget()" style="height:48px;padding:0 18px;border:none;border-radius:999px;background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;font-weight:800;font-size:14px;box-shadow:0 8px 24px rgba(23,64,139,.35);cursor:pointer;display:flex;align-items:center;gap:8px;transition:all .2s ease" class="hv-navy">
-    <span style="font-size:18px">✨</span> Asistente IA
+  <button id="ac-ai-trigger-btn" onclick="toggleAsistenteWidget()" onmouseenter="if(window.initDragAsistenteWidget)window.initDragAsistenteWidget()" onmousedown="if(window.initDragAsistenteWidget)window.initDragAsistenteWidget()" style="height:40px;padding:0 16px;border:none;border-radius:999px;background:linear-gradient(135deg,#17408B,#2E6FC0);color:#ffffff;font-weight:800;font-size:14px;box-shadow:0 4px 12px rgba(23,64,139,.25);cursor:grab;display:flex;align-items:center;gap:7px;user-select:none;touch-action:none" class="hv-navy">
+    <span style="font-size:17px">✨</span> Asistente IA
   </button>
 </div>
 
@@ -4775,7 +10284,6 @@ ${(() => {
     document.body.appendChild(d);
   };
 </script>
-<script>${CLIENT_JS}</script>
 </body>
 </html>`;
 }
@@ -4945,7 +10453,9 @@ router.get('/login', (req, res) => {
 
 router.post('/login', async (req, res) => {
   const { user, pass } = req.body || {};
-  if (user === ADMIN_USER && pass === ADMIN_PASS) {
+  // `entraAlPanel` devuelve false cuando no hay `DASHBOARD_PASS` configurada, **incluso con el
+  // campo vacío**: sin ese cuidado, "no hay contraseña" y "acertó la contraseña" serían lo mismo.
+  if (require('./credenciales').entraAlPanel(user, pass)) {
     req.session.authed = true;
     req.session.role = 'dueno';
     req.session.user = user;
@@ -5000,10 +10510,12 @@ router.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/admin/login'));
 });
 
-/* ===================================================================
- * A partir de aca todo requiere autenticacion.
- * =================================================================== */
-
+router.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 router.use(requireAuth);
 
 // Selector de edificio (ambos roles).
@@ -5014,11 +10526,13 @@ router.get('/set-filtro', (req, res) => {
   } else if (enPreview(req)) {
     // en preview el selector cambia el edificio activo del preview
     const propios = req.session.previewEdificios || [];
-    req.session.previewEdificioActivo = propios.includes(edificio) ? edificio : undefined;
+    const match = propios.find((p) => normEdificio(p) === normEdificio(edificio));
+    req.session.previewEdificioActivo = edificio ? match : undefined;
   } else {
     const propios = req.session.edificios || [];
-    if (!edificio || propios.includes(edificio)) {
-      req.session.edificioActivo = edificio || undefined;
+    const match = propios.find((p) => normEdificio(p) === normEdificio(edificio));
+    if (!edificio || match) {
+      req.session.edificioActivo = edificio ? (match || edificio) : undefined;
     }
   }
   const volver = req.query.volver && String(req.query.volver).startsWith('/admin') ? req.query.volver : '/admin';
@@ -5058,7 +10572,7 @@ router.get('/', async (req, res) => {
     if (esDueno(req)) {
       // ---------- RESUMEN DUEÑO ----------
       const filtro = req.session.filtroEdificioDueno;
-      const edVisibles = filtro ? d.edificios.filter((e) => e.nombre === filtro) : d.edificios;
+      const edVisibles = filtro ? d.edificios.filter((e) => normEdificio(e.nombre) === normEdificio(filtro)) : d.edificios;
       const evVisibles = filtrarPorEdificio(d.eventos, req);
       
       const usarReciente = !!filtro;
@@ -5089,7 +10603,7 @@ router.get('/', async (req, res) => {
         // En el listado general de todos los edificios, mostramos novedades de 24 hs
         const nuevos = ev.filter((x) => esDe24Horas(parseFecha(x.fecha))).length;
         const urg = ev.filter((x) => x.urgencia === 'alta' && estadoNormalizado(x.estado) !== 'resuelto').length;
-        const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
+        const cliente = (clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar';
         return `
           <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/eventos')}"
             style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px;cursor:pointer" class="hv-card">
@@ -5169,6 +10683,7 @@ router.get('/', async (req, res) => {
           <span style="width:40px;height:40px;border-radius:11px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${v.catIcon}</span>
           <span style="flex:1;min-width:0">
             <span style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+              <span class="ev-id-badge" style="font-size:11px;font-weight:800;padding:2px 6px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
               <span style="font-size:14.5px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
               <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
               <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#EEF2F8;color:#5A6B85">🏢 ${esc(v.edificio)}</span>
@@ -5265,11 +10780,17 @@ router.get('/', async (req, res) => {
     // feed de novedades (o ultimos eventos si no hay nuevos hoy)
     const feedVistas = (novedades.length ? novedades : vistas).slice(0, 4);
     const idxOffset = 0;
-    const novHtml = feedVistas.map((v, i) => `
-      <button onclick="abrirDrawerEvento(${i})" style="width:100%;display:flex;align-items:flex-start;gap:13px;padding:15px 20px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left" class="hv-row">
+    const novHtml = feedVistas.map((v, i) => {
+      let rowClass = 'ev-normal';
+      if (v.estKey === 'resuelto') rowClass = 'ev-resuelto';
+      else if (v.urgKey === 'alta') rowClass = 'ev-urgente';
+      else if (v.nuevo) rowClass = 'ev-nuevo';
+      return `
+      <button onclick="abrirDrawerEvento(${i})" style="width:100%;display:flex;align-items:flex-start;gap:13px;padding:15px 20px 15px 16px;border:none;border-bottom:1px solid #F1F4F9;background:none;cursor:pointer;text-align:left" class="hv-row ${rowClass}">
         <span style="width:40px;height:40px;border-radius:11px;background:${v.catBg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${v.catIcon}</span>
         <span style="flex:1;min-width:0">
           <span style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+            <span class="ev-id-badge" style="font-size:11px;font-weight:800;padding:2px 6px;border-radius:6px;background:#F1F5F9;color:#64748B;font-family:monospace;letter-spacing:-.01em;border:1px solid #E2E8F0">${esc(v.id_evento)}</span>
             <span style="font-size:14.5px;font-weight:700;color:#16233B">${esc(v.titulo)}</span>
             <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${v.urgBg};color:${v.urgFg}">${v.urgLabel}</span>
           </span>
@@ -5279,7 +10800,8 @@ router.get('/', async (req, res) => {
           </span>
         </span>
         <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:${v.estBg};color:${v.estFg};flex-shrink:0;margin-top:2px">${v.estLabel}</span>
-      </button>`).join('');
+      </button>`;
+    }).join('');
 
     // estado del edificio por tipo
     const tipoBreak = Object.keys(CATEGORIAS_EVENTO).map((k) => ({
@@ -5302,6 +10824,22 @@ router.get('/', async (req, res) => {
         if (f.moneda === 'USD') usdTotal += n;
         else if (f.moneda === 'ARS' || !f.moneda) arsTotal += n;
       });
+    } catch (_) {}
+
+    // ingresos por reservas aranceladas de amenities aprobadas
+    let ingresosAmenitiesTotal = 0;
+    try {
+      const { pool } = require('./db-pg');
+      if (pool && cur) {
+        const qAmIng = `SELECT COALESCE(SUM(NULLIF(regexp_replace(monto, '[^0-9.]', '', 'g'), '')::numeric), 0) AS total 
+                        FROM reservas_amenities 
+                        WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) 
+                          AND estado_pago = 'aprobado'`;
+        const resAmIng = await pool.query(qAmIng, [cur.nombre, '%' + cur.nombre + '%']);
+        if (resAmIng && resAmIng.rows && resAmIng.rows[0]) {
+          ingresosAmenitiesTotal = parseFloat(resAmIng.rows[0].total) || 0;
+        }
+      }
     } catch (_) {}
 
     const contenido = `
@@ -5338,19 +10876,27 @@ router.get('/', async (req, res) => {
               <a href="/admin/archivos" style="display:flex;align-items:center;justify-content:center;width:100%;height:38px;border:1px solid #E1E7F1;border-radius:10px;background:#F7F9FC;color:#2E6FC0;font-weight:700;font-size:13px" class="hv-soft">Ver Facturas y Fotos →</a>
             </div>
             <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px">
-              <div style="font-size:15px;font-weight:800;margin-bottom:4px">📊 Gastos del Consorcio</div>
-              <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px;line-height:1.4">Total acumulado de servicios y facturas (Pesos y Dólares)</div>
+              <div style="font-size:15px;font-weight:800;margin-bottom:4px">📊 Gastos y Balance del Consorcio</div>
+              <div style="font-size:12.5px;color:#8595AD;margin-bottom:12px;line-height:1.4">Total acumulado de servicios, facturas e ingresos por amenities</div>
               <div style="display:flex;gap:10px;margin-bottom:10px">
-                <div style="flex:1;background:#EAF1FB;border-radius:12px;padding:12px 14px" class="box-ars">
-                  <div style="font-size:11px;font-weight:800;color:#2E6FC0;letter-spacing:.04em">PESOS (ARS)</div>
+                <a href="/admin/archivos" style="flex:1;background:#EAF1FB;border-radius:12px;padding:12px 14px;border:1px solid #D4E2F6;text-decoration:none" class="box-ars box-hover-link" title="Ver Facturas y Gastos del Consorcio">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+                    <div style="font-size:11px;font-weight:800;color:#2E6FC0;letter-spacing:.04em">GASTOS (ARS)</div>
+                    <span style="font-size:13px;color:#2E6FC0;font-weight:800">↗</span>
+                  </div>
                   <div style="font-size:19px;font-weight:800;color:#17408B;letter-spacing:-.02em">$${Math.round(arsTotal).toLocaleString('es-AR')}</div>
-                </div>
-                <div style="flex:1;background:#E7F4EC;border-radius:12px;padding:12px 14px" class="box-usd">
-                  <div style="font-size:11px;font-weight:800;color:#1B7A43;letter-spacing:.04em">DÓLARES (USD)</div>
-                  <div style="font-size:19px;font-weight:800;color:#14532D;letter-spacing:-.02em">USD $${Math.round(usdTotal).toLocaleString('es-AR')}</div>
-                </div>
+                  <div style="font-size:11px;font-weight:700;color:#4B82C8;margin-top:4px">Ver facturas →</div>
+                </a>
+                <a href="/admin/mi-edificio#seccion-amenities" style="flex:1;background:#E7F4EC;border-radius:12px;padding:12px 14px;border:1px solid #C8E6D3;text-decoration:none" class="box-usd box-hover-link" title="Ver Amenities y Reservas del Edificio">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+                    <div style="font-size:11px;font-weight:800;color:#1B7A43;letter-spacing:.04em">INGRESOS AMENITIES</div>
+                    <span style="font-size:13px;color:#1B7A43;font-weight:800">↗</span>
+                  </div>
+                  <div style="font-size:19px;font-weight:800;color:#14532D;letter-spacing:-.02em">+$${Math.round(ingresosAmenitiesTotal).toLocaleString('es-AR')}</div>
+                  <div style="font-size:11px;font-weight:700;color:#2E8552;margin-top:4px">Ver reservas →</div>
+                </a>
               </div>
-              <div style="font-size:11.5px;color:#8595AD;line-height:1.35">💡 Se calcula automáticamente de los comprobantes y facturas que Marcos procesa en la sección <strong>Facturas/Fotos</strong> de este edificio.</div>
+              <div style="font-size:11.5px;color:#8595AD;line-height:1.35">💡 Incluye gastos de servicios procesados en <strong>Facturas/Fotos</strong> y cobros confirmados de reservas de amenities del edificio.</div>
             </div>
           </div>
         </div>
@@ -5683,23 +11229,25 @@ router.get('/mi-edificio', async (req, res) => {
       }).join('')
       : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">Todavía no asignaste proveedores a este edificio. Elegí de tu lista abajo.</div>';
 
-    // Opciones para asignar: los de la maestra que no estan ya asignados.
-    const yaAsignados = new Set(asignados.map((a) => String(a.proveedor).trim().toLowerCase()));
-    const disponibles = maestros.filter((m) => !yaAsignados.has(String(m.nombre).trim().toLowerCase()));
-    const optMaestros = disponibles.length
-      ? disponibles.map((m) => `<option value="${esc(m.nombre)}">${esc(m.rubro)} · ${esc(m.nombre)}${m.telefono ? ' (' + esc(m.telefono) + ')' : ''}</option>`).join('')
+    // Opciones para asignar: proveedores maestros con soporte de múltiples rubros por edificio.
+    const optMaestros = maestros.length
+      ? maestros.map((m) => `<option value="${esc(m.nombre)}" data-rubros="${esc(m.rubro || 'Otro')}">${esc(m.nombre)}${m.telefono ? ' (' + esc(m.telefono) + ')' : ''}</option>`).join('')
       : '';
+    const primerRubroStr = maestros.length ? String(maestros[0].rubro || 'Otro') : 'Otro';
+    const rubrosIniciales = primerRubroStr.split(',').map((s) => s.trim()).filter(Boolean);
+    if (!rubrosIniciales.length) rubrosIniciales.push('Otro');
+    const optRubros = rubrosIniciales.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
     const optPrioridad = PRIORIDADES.map((p) => `<option value="${p.key}">${p.label}</option>`).join('');
 
     const asignarBloque = maestros.length ? `
       <div style="border-top:1px dashed #E4E9F1;padding-top:16px">
         <div style="font-size:13px;font-weight:800;color:#334259;margin-bottom:10px">Asignar un proveedor de tu lista a este edificio</div>
-        ${disponibles.length ? `
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-          <div style="flex:1;min-width:200px">${label('Proveedor')}<select id="asig-prov" class="inp" style="height:44px">${optMaestros}</select></div>
-          <div style="width:170px">${label('Prioridad')}<select id="asig-prio" class="inp" style="height:44px">${optPrioridad}</select></div>
+          <div style="flex:1;min-width:180px">${label('Proveedor')}<select id="asig-prov" class="inp" style="height:44px" onchange="actualizarRubrosAsignacion()">${optMaestros}</select></div>
+          <div style="flex:1;min-width:150px">${label('Rubro')}<select id="asig-rubro" class="inp" style="height:44px">${optRubros}</select></div>
+          <div style="width:160px">${label('Prioridad')}<select id="asig-prio" class="inp" style="height:44px">${optPrioridad}</select></div>
           <button onclick="asignarProveedor(this,'${escJs(cur.nombre)}')" style="height:44px;padding:0 20px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Asignar</button>
-        </div>` : '<div style="font-size:13px;color:#8595AD">Ya asignaste todos tus proveedores a este edificio.</div>'}
+        </div>
       </div>` : `
       <div style="border-top:1px dashed #E4E9F1;padding-top:16px;font-size:13.5px;color:#8595AD">
         Todavía no tenés proveedores en tu lista. Cargalos una vez con el botón de arriba y después asignalos a cada edificio.
@@ -5728,9 +11276,12 @@ router.get('/mi-edificio', async (req, res) => {
     // Bloques organizados temáticamente
     const bloqueBaseHtml = `
       <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-          <span style="font-size:20px">🏢</span>
-          <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Información Base e Identidad</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:20px">🏢</span>
+            <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Información Base e Identidad</h2>
+          </div>
+          <button type="button" onclick="darDeBajaEdificioCliente('${escJs(cur.nombre)}')" style="font-size:12.5px;font-weight:700;color:#DC2626;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:6px 12px;cursor:pointer" class="hv-red">✕ Dar de baja de mi cuenta</button>
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
           ${solicitarRow('🏢', 'nombre', 'Consorcio', cur.nombre)}
@@ -5739,61 +11290,11 @@ router.get('/mi-edificio', async (req, res) => {
           ${solicitarRow('🧾', 'cuit', 'CUIT del edificio', cur.cuit)}
           ${editRow('🗺️', 'zona', cur.zona, 'Zona / barrio', 'Barrio, ciudad')}
           ${editRow('🏠', 'unidades', cur.unidades, 'Unidades funcionales', 'Cantidad')}
+          ${editRow('🚗', 'cocheras', cur.cocheras, 'Cocheras y Cortesía', 'Ej: 22 fijas + 4 de cortesía', 'Cantidad de cocheras fijas del edificio y cocheras de cortesía para visitas.')}
           ${solicitarRow('👔', 'administrador', 'Administrador', cur.administrador)}
           ${solicitarRow('📞', 'telefonos', 'Tel. administración', cur.telefonos)}
-          ${solicitarRow('💳', 'plan', 'Plan Contratado', cur.plan, 'border:2px solid #F59E0B !important;box-shadow:0 0 12px rgba(245,158,11,.25) !important;')}
         </div>
       </div>`;
-
-    function parseStaffList(namesStr, telsStr) {
-      if (!namesStr && !telsStr) return [];
-      const rawNames = String(namesStr || '').split(/,|\n|;/).map(s => s.trim()).filter(Boolean);
-      const rawTels = String(telsStr || '').split(/,|\n|;/).map(s => s.trim()).filter(Boolean);
-      const res = [];
-
-      for (let i = 0; i < rawNames.length; i++) {
-        let str = rawNames[i];
-        let tel = rawTels[i] || (rawTels.length === 1 ? rawTels[0] : '—');
-        let estado = 'activo';
-        let horario = '';
-
-        const isScheduleFragment = /^(L-V|Sáb|Dom|Lun|Mar|Mié|Jue|Vie|\d{1,2}:)/i.test(str.replace(/^[^a-z0-9]+/i, ''));
-        if (isScheduleFragment && res.length > 0) {
-          const cleanHor = str.replace(/\[[^\]]*\]/g, '').replace(/\]/g, '').replace(/^[^a-z0-9]+/i, '').trim();
-          if (cleanHor) {
-            res[res.length - 1].horario = (res[res.length - 1].horario === 'Sin horario' || !res[res.length - 1].horario)
-              ? cleanHor
-              : res[res.length - 1].horario + ' · ' + cleanHor;
-          }
-          continue;
-        }
-
-        const matchMeta = str.match(/\[(activo|licencia|vacaciones)?\s*\|?\s*([^\]]*)\]/i);
-        if (matchMeta) {
-          if (matchMeta[1]) estado = matchMeta[1].toLowerCase();
-          if (matchMeta[2]) horario = matchMeta[2].trim();
-          str = str.replace(/\[[^\]]*\]/g, '').trim();
-        }
-
-        const matchTel = str.match(/\(([^)]+)\)/);
-        if (matchTel && (!tel || tel === '—')) {
-          tel = matchTel[1].trim();
-          str = str.replace(/\([^)]+\)/g, '').trim();
-        }
-
-        str = str.replace(/\[|\]/g, '').trim();
-
-        if (str || tel !== '—') {
-          res.push({
-            nombre: str || 'Personal',
-            tel: tel || '—',
-            estado: estado || 'activo',
-            horario: horario || 'Sin horario'
-          });
-        }
-      }
-      return res;
-    }
 
     function renderStaffCards(namesStr, telsStr, fieldKey, icon, labelTitle, edNombre, edRow) {
       const list = parseStaffList(namesStr, telsStr);
@@ -5858,15 +11359,119 @@ router.get('/mi-edificio', async (req, res) => {
         ${renderStaffCards(cur.tel_seguridad, '', 'seguridad', '🛡️', 'Personal de Portería y Seguridad Entrada', cur.nombre, cur._row)}
       </div>`;
 
-    const bloqueEspaciosHtml = `
+    let accesosEdificio = [];
+    try {
+      const { buscarAccesosEdificio } = require('./datos');
+      accesosEdificio = await buscarAccesosEdificio(cur.nombre);
+    } catch (_) {}
+
+    const renderFilasAccesosHtml = (lista) => {
+      if (!lista || !lista.length) {
+        return `<div style="text-align:center;padding:24px 16px;color:#8595AD;font-size:13.5px;font-style:italic">No hay instalaciones o accesos cargados para este edificio. Escribí una descripción arriba o usá el botón + Añadir.</div>`;
+      }
+      const filas = lista.map((a) => {
+        const origHtml = a.origen
+          ? `<span class="acceso-origen-tag" style="font-size:10px;font-weight:600;color:#64748B;background:#F1F5FB;border:1px solid #E2E8F0;padding:2px 7px;border-radius:6px;margin-left:6px" title="Origen del dato">${esc(a.origen)}</span>`
+          : '';
+        return `
+          <tr style="border-bottom:1px solid #EEF1F6">
+            <td style="padding:12px 14px;vertical-align:top">
+              <div style="font-size:13.5px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+                <span>${esc(a.lugar || '—')}</span>
+                ${origHtml}
+              </div>
+            </td>
+            <td style="padding:12px 14px;vertical-align:top;color:#334259;font-weight:600">${esc(a.ubicacion || '—')}</td>
+            <td style="padding:12px 14px;vertical-align:top;color:#334259">${esc(a.quienAbre || a.quien_abre || '—')}</td>
+            <td style="padding:12px 14px;vertical-align:top;color:#2E6FC0;font-weight:700">${esc(a.telefono || '—')}</td>
+            <td style="padding:12px 14px;vertical-align:top;color:#334259">${esc(a.tipoAcceso || a.tipo_acceso || '—')}</td>
+            <td style="padding:12px 14px;vertical-align:top;color:#64748B;font-size:12.5px">${esc(a.notas || '—')}</td>
+            <td style="padding:12px 14px;vertical-align:top;text-align:right">
+              <button data-lugar="${esc(a.lugar || '')}" onclick="quitarAcceso(this.dataset.lugar)" style="font-size:12.5px;font-weight:700;color:#EF4444;background:none;border:none;cursor:pointer;padding:4px 8px" class="hv-red">Quitar</button>
+            </td>
+          </tr>`;
+      }).join('');
+
+      return `
+        <div style="overflow-x:auto;border:1px solid #E7ECF3;border-radius:12px;background:#fff" class="tbl-wrap">
+          <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+            <thead>
+              <tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em" class="tbl-head-row">
+                <th style="padding:12px 14px">Lugar / Instalación</th>
+                <th style="padding:12px 14px">Dónde está</th>
+                <th style="padding:12px 14px">Quién abre</th>
+                <th style="padding:12px 14px">Teléfono</th>
+                <th style="padding:12px 14px">Tipo de acceso</th>
+                <th style="padding:12px 14px">Notas</th>
+                <th style="padding:12px 14px;text-align:right">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filas}
+            </tbody>
+          </table>
+        </div>`;
+    };
+
+    const bloqueAccesosHtml = `
       <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-          <span style="font-size:20px">🛋️</span>
-          <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Espacios Comunes, Horarios y Cocheras</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:20px">🔑</span>
+            <div>
+              <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Instalaciones y Accesos</h2>
+            </div>
+          </div>
+          <button onclick="abrirModalAccesoNuevo('${escJs(cur.nombre)}')" style="display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 14px;border:none;border-radius:999px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13px;cursor:pointer" class="hv-primary">+ Añadir</button>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
-          ${editRow('📅', 'horario_sum', cur.horario_sum, 'Horario SUM / Reglamento', 'Ej: 10 a 24hs · seña $15.000')}
-          ${editRow('🚗', 'cocheras', cur.cocheras, 'Cocheras', 'Ej: 22 fijas + 4 de cortesía')}
+
+        <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:14px;padding:16px 18px;margin-bottom:18px">
+          <div style="font-size:13.5px;font-weight:800;color:#16233B;margin-bottom:4px;display:flex;align-items:center;gap:6px">
+            <span>🗣️</span> <span>Descripción hablada / relato del edificio</span>
+          </div>
+          <p style="font-size:12.5px;color:#64748B;margin:0 0 10px">Escribí en un párrafo cómo están distribuidas las instalaciones y llaves. Marcos IA extraerá automáticamente cada lugar y completará la tabla abajo.</p>
+          <textarea id="accesos-relato-texto" class="inp" style="width:100%;height:80px;resize:vertical;margin-bottom:10px;font-size:13px" placeholder="Contame cómo es el edificio: dónde están la sala de máquinas, los medidores, el tablero, las bombas, la llave de gas, y quién tiene la llave de cada una."></textarea>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <div id="accesos-relato-msg" style="font-size:13px;font-weight:700;color:#1B7A43;display:none;background:#E7F4EC;padding:6px 12px;border-radius:8px;border:1px solid #A3D9B1"></div>
+            <button onclick="guardarRelatoAccesos(this)" style="height:38px;padding:0 18px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13px;cursor:pointer;margin-left:auto" class="hv-primary">Guardar descripción</button>
+          </div>
+        </div>
+
+        <div id="tabla-accesos-container">
+          ${renderFilasAccesosHtml(accesosEdificio)}
+        </div>
+      </div>`;
+
+    const modalAccesoNuevoHtml = `
+      <div id="modal-acceso-nuevo" class="modal-overlay" onclick="cerrarModal('modal-acceso-nuevo')">
+        <div class="modal-box" style="max-width:500px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Instalaciones y Accesos</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🔑 Añadir Instalación o Acceso</div>
+          </div>
+          <div style="padding:20px 24px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Lugar / Instalación <span style="color:#EF4444">*</span></div>
+            <input id="acc-lugar" class="inp" placeholder="Ej: Sala de máquinas, Llave de gas, Tablero principal" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Dónde está (Ubicación)</div>
+            <input id="acc-ubicacion" class="inp" placeholder="Ej: Subsuelo al fondo, Pasillo de entrada" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Quién abre / Tiene la llave</div>
+            <input id="acc-quien-abre" class="inp" placeholder="Ej: Encargado, Portería, Administración" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Teléfono de contacto</div>
+            <input id="acc-tel" class="inp" placeholder="Ej: 5491155554444" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Tipo de acceso</div>
+            <input id="acc-tipo" class="inp" placeholder="Ej: Llave física, Combinación, Candado, Libre" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas / Observaciones (opcional)</div>
+            <input id="acc-notas" class="inp" placeholder="Ej: Llave duplicada en administración">
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-acceso-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarAccesoNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar instalación</button>
+          </div>
         </div>
       </div>`;
 
@@ -5929,6 +11534,581 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
+    let vecinos = [];
+    try {
+      const { rows: vRows } = await readTab(TAB_VECINOS);
+      vecinos = vRows.map(mapVecino).filter((v) => cur && compararEdificios(v.edificio, cur.nombre) && v.estado !== 'eliminado');
+      if (cur && cur.nombre && vecinos.length > 0) {
+        (async () => {
+          try {
+            const { pool } = require('./db-pg');
+            if (pool) {
+              for (const v of vecinos) {
+                const dep = v.departamento || v.unidad || '';
+                if (!dep && !v.nombre) continue;
+                const resUpd = await pool.query(
+                  `UPDATE vecinos SET nombre = $1, telefono = $2, email = $3, notas = $4, estado = 'activo'
+                   WHERE (LOWER(edificio) = LOWER($5) OR LOWER(edificio) LIKE LOWER($6))
+                     AND LOWER(departamento) = LOWER($7)`,
+                  [v.nombre || '', v.telefono || '', v.email || '', v.notas || '', cur.nombre, '%' + cur.nombre + '%', dep]
+                );
+                if (resUpd.rowCount === 0) {
+                  await pool.query(
+                    `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+                     VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+                    [cur.nombre, v.nombre || '', dep, v.telefono || '', v.email || '', v.notas || '']
+                  );
+                }
+              }
+            }
+          } catch (_) {}
+        })();
+      }
+    } catch (_) {}
+
+    const vecinosFilas = vecinos.length ? vecinos.map((v, idx) => {
+      const waTel = String(v.telefono || '').replace(/\D/g, '');
+      const idUsuario = '#VEC-' + String(v._row || idx + 1).padStart(3, '0');
+      return `
+        <div class="vecino-fila-item" data-vecino-search="${esc((v.nombre + ' ' + (v.unidad || '') + ' ' + (v.telefono || '') + ' ' + (v.email || '')).toLowerCase())}" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
+          <span style="font-size:12.5px;font-weight:800;background:#EBF3FC;color:#1E5FB4;padding:4px 10px;border-radius:8px;border:1px solid #BFDBFE;letter-spacing:.02em">
+            ${esc(v.unidad || 'S/D')}
+          </span>
+          <div style="flex:1;min-width:140px">
+            <div style="font-size:14.5px;font-weight:700;color:#16233B">${esc(v.nombre || 'Sin nombre')}</div>
+            <div style="font-size:12px;color:#8595AD">${esc(v.email ? v.email : 'Sin email')}${v.notas ? ' · ' + esc(v.notas) : ''}</div>
+          </div>
+          <div style="font-size:12px;font-weight:700;color:#64748B;background:#F1F5F9;padding:4px 8px;border-radius:6px">
+            ${esc(idUsuario)}
+          </div>
+          <div style="font-size:13.5px;font-weight:700;color:#2E6FC0;min-width:110px">
+            ${waTel ? `<a href="https://wa.me/${esc(waTel)}" target="_blank" style="color:#2E6FC0;text-decoration:none;display:inline-flex;align-items:center;gap:4px">💬 ${esc(v.telefono)}</a>` : '<span style="color:#94A3B8">Sin teléfono</span>'}
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            ${waTel ? `<button onclick="invitarVecinoWhatsApp('${escJs(v.nombre)}','${escJs(v.telefono)}','${escJs(cur.nombre)}')" class="btn-edit-sm hv-soft" style="color:#15803D;background:#DCFCE7;border-color:#86EFAC;font-weight:700" title="Enviar enlace de acceso al portal por WhatsApp">📱 Invitar</button>` : ''}
+            <button onclick="abrirEditarVecino(${v._row},'${escJs(v.nombre)}','${escJs(v.unidad || '')}','${escJs(v.telefono || '')}','${escJs(v.email || '')}','${escJs(v.notas || '')}')" class="btn-edit-sm hv-soft">Editar</button>
+            <button onclick="eliminarVecino(this,${v._row})" class="btn-remove-sm hv-red">Quitar</button>
+          </div>
+        </div>`;
+    }).join('') : '<div style="font-size:13.5px;color:#8595AD;padding:6px 2px">Todavía no hay vecinos registrados para este edificio. Agregá el primer vecino o importá el padrón.</div>';
+
+    const vecinosCard = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+          <div>
+            <div style="font-size:16px;font-weight:800;color:#16233B">👥 Padrón de Vecinos y Unidades Funcionales (${vecinos.length})</div>
+            <p style="font-size:13px;color:#8595AD;margin:2px 0 0">Listado de propietarios e inquilinos registrados para atención 24/7 y acceso a la Web App del consorcio.</p>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <a href="/porteria/cartel/${encodeURIComponent(cur.nombre)}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border:1px solid #DCE4F0;border-radius:999px;background:#F8FAFD;color:#0F326A;font-weight:700;font-size:13px;text-decoration:none" class="hv-soft">🔔 Cartel Portería QR</a>
+            <button onclick="abrirModalImportarVecinos('${escJs(cur.nombre)}')" style="height:36px;padding:0 14px;border:1px solid #DCE4F0;border-radius:999px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">📥 Importar padrón</button>
+            <button onclick="abrirModalVecinoNuevo('${escJs(cur.nombre)}')" style="height:36px;padding:0 14px;border:none;border-radius:999px;background:#2E6FC0;color:#fff;font-weight:700;font-size:13px;cursor:pointer">+ Agregar vecino</button>
+          </div>
+        </div>
+        ${vecinos.length > 3 ? `
+        <div style="margin:12px 0">
+          <input id="busc-vecinos-inp" oninput="filtrarVecinosList(this.value)" class="inp" placeholder="🔍 Buscar por nombre, departamento, teléfono o email..." style="height:38px;font-size:13.5px;margin:0">
+        </div>` : '<div style="margin-bottom:12px"></div>'}
+        <div id="lista-vecinos-wrap" style="display:flex;flex-direction:column;gap:10px;max-height:480px;overflow-y:auto;padding-right:6px">${vecinosFilas}</div>
+      </div>`;
+
+    let amenitiesEdificio = [];
+    let reservasEdificio = [];
+    try {
+      const { pool } = require('./db-pg');
+      if (pool && cur) {
+        const qAm = `SELECT * FROM edificio_amenities WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) AND activo = TRUE ORDER BY id ASC`;
+        const resAm = await pool.query(qAm, [cur.nombre, '%' + cur.nombre + '%']);
+        if (resAm && resAm.rows) amenitiesEdificio = resAm.rows;
+
+        const qR = `SELECT * FROM reservas_amenities WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) ORDER BY fecha DESC, hora_desde ASC, id DESC LIMIT 50`;
+        const resR = await pool.query(qR, [cur.nombre, '%' + cur.nombre + '%']);
+        if (resR && resR.rows) reservasEdificio = resR.rows;
+      }
+    } catch (_) {}
+
+    const totalReservas = reservasEdificio.length;
+    const porRevisarCount = reservasEdificio.filter(r => r.estado_pago === 'comprobante_subido' && r.estado !== 'cancelada').length;
+    const aprobadasCount = reservasEdificio.filter(r => r.estado_pago === 'aprobado' && r.estado !== 'cancelada').length;
+    const pendientesCount = reservasEdificio.filter(r => (r.estado_pago === 'pendiente' || !r.estado_pago) && Number(r.monto) > 0 && r.estado !== 'cancelada').length;
+
+    const amenitiesCard = `
+      <div id="seccion-amenities" style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:16px;scroll-margin-top:80px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+          <div>
+            <div style="font-size:16px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:6px">
+              <span>🏊</span> <span>Amenities y Espacios Comunes (${amenitiesEdificio.length || 'Estándar'})</span>
+            </div>
+            <p style="font-size:13px;color:#8595AD;margin:2px 0 0">Espacios disponibles para reserva por horas desde la Web App del Vecino (SUM, Piscina, Gimnasio, Parrilla, Quincho, etc.).</p>
+          </div>
+          <button onclick="abrirModalAmenityNuevo('${escJs(cur ? cur.nombre : '')}')" style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:none;border-radius:999px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13px;cursor:pointer" class="hv-primary">
+            <span>+ Agregar Amenity</span>
+          </button>
+        </div>
+
+        <!-- Badges de Amenities Configurados -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:18px">
+          ${amenitiesEdificio.length ? amenitiesEdificio.map(a => `
+            <div style="display:flex;flex-direction:column;justify-content:space-between;padding:12px 14px;border:1px solid #E2E8F0;border-radius:12px;background:#F8FAFD;gap:10px">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <span style="font-size:24px">${esc(a.icono || '🎉')}</span>
+                  <div>
+                    <div style="font-size:14px;font-weight:800;color:#0F172A">${esc(a.nombre)}</div>
+                    <div style="font-size:12px;color:#64748B">⏰ ${esc(a.hora_apertura || '08:00')} a ${esc(a.hora_cierre || '23:00')} hs · Cap. ${esc(a.capacidad || 20)} pers.</div>
+                    <div style="font-size:11.5px;font-weight:700;margin-top:3px">
+                      ${a.arancelado && Number(a.precio) > 0 ? `<span style="color:#D97706;background:#FEF3C7;padding:2px 8px;border-radius:6px">💰 Arancel: $${Number(a.precio).toLocaleString('es-AR')} ${a.tipo_arancel === 'por_reserva' ? 'fijo (por reserva)' : '/ hora'}</span>` : `<span style="color:#15803D;background:#DCFCE7;padding:2px 8px;border-radius:6px">🟢 Sin costo adicional</span>`}
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:4px">
+                  <button onclick="abrirModalAmenityEditar(${a.id}, '${escJs(a.nombre)}', '${escJs(a.icono || '🎉')}', '${escJs(a.hora_apertura || '08:00')}', '${escJs(a.hora_cierre || '23:00')}', ${a.capacidad || 20}, '${escJs(a.descripcion || '')}', '${escJs(a.reglamento || '')}', ${a.arancelado ? 'true' : 'false'}, ${Number(a.precio) || 0}, '${escJs(a.tipo_arancel || 'por_hora')}')" style="border:1px solid #CBD5E1;background:#fff;color:#2E6FC0;font-size:11.5px;font-weight:700;border-radius:6px;padding:3px 8px;cursor:pointer" class="hv-blue">✏️ Editar</button>
+                  <button onclick="eliminarAmenity(${a.id}, '${escJs(a.nombre)}')" style="border:none;background:none;color:#EF4444;font-size:13px;font-weight:700;cursor:pointer;padding:4px" title="Eliminar amenity">✕</button>
+                </div>
+              </div>
+              <div style="background:#fff;border:1px solid #EEF2F6;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#475569;line-height:1.4">
+                <div style="font-weight:700;color:#0F326A;margin-bottom:2px">📜 Reglamento / Normas:</div>
+                <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.reglamento ? esc(a.reglamento) : '<em style="color:#94A3B8">Sin reglamento específico cargado. Usa normas generales.</em>'}</div>
+              </div>
+            </div>
+          `).join('') : `
+            <div style="grid-column:1/-1;padding:12px 14px;background:#F8FAFD;border:1px dashed #CBD5E1;border-radius:10px;font-size:12.5px;color:#64748B">
+              💡 <em>Catálogo estándar activo (SUM, Parrilla, Pileta, Gimnasio, Cochera de Cortesía, Laundry). Podés agregar espacios personalizados con horarios y reglamentos propios usando el botón <strong>+ Agregar Amenity</strong>.</em>
+            </div>
+          `}
+        </div>
+
+        <!-- Historial y Gestión de Reservas -->
+        <div style="border-top:1px solid #EEF1F6;padding-top:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+            <div style="font-size:14px;font-weight:800;color:#16233B;display:flex;align-items:center;gap:6px">
+              <span>📅</span> <span>Reservas de Amenities (${totalReservas})</span>
+              ${porRevisarCount > 0 ? `<span style="font-size:11px;font-weight:800;background:#FEF3C7;color:#B45309;padding:2px 8px;border-radius:999px;border:1px solid #FCD34D">⚠️ ${porRevisarCount} por revisar</span>` : ''}
+            </div>
+            <!-- Filtros Rápidos -->
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button type="button" class="tab-reserva-amenity" data-tab="todas" onclick="filtrarReservasAmenities('todas')" style="padding:4px 10px;border-radius:8px;font-size:11.5px;font-weight:700;border:1px solid #1E5FB4;background:#1E5FB4;color:#fff;cursor:pointer">Todas (${totalReservas})</button>
+              <button type="button" class="tab-reserva-amenity" data-tab="revisar" onclick="filtrarReservasAmenities('revisar')" style="padding:4px 10px;border-radius:8px;font-size:11.5px;font-weight:700;border:1px solid #CBD5E1;background:#F8FAFC;color:#475569;cursor:pointer">⏳ Por Revisar (${porRevisarCount})</button>
+              <button type="button" class="tab-reserva-amenity" data-tab="aprobadas" onclick="filtrarReservasAmenities('aprobadas')" style="padding:4px 10px;border-radius:8px;font-size:11.5px;font-weight:700;border:1px solid #CBD5E1;background:#F8FAFC;color:#475569;cursor:pointer">✅ Aprobadas (${aprobadasCount})</button>
+              <button type="button" class="tab-reserva-amenity" data-tab="pendientes" onclick="filtrarReservasAmenities('pendientes')" style="padding:4px 10px;border-radius:8px;font-size:11.5px;font-weight:700;border:1px solid #CBD5E1;background:#F8FAFC;color:#475569;cursor:pointer">⚠️ Sin Pagar (${pendientesCount})</button>
+            </div>
+          </div>
+
+          ${reservasEdificio.length ? `
+          <div style="display:flex;flex-direction:column;gap:8px;max-height:360px;overflow-y:auto;padding-right:2px">
+            ${reservasEdificio.map(r => {
+              const montoNum = Number(r.monto || 0);
+              const esGratis = montoNum <= 0;
+              const estadoPago = r.estado_pago || (esGratis ? 'no_requiere' : 'pendiente');
+              const esCancelada = r.estado === 'cancelada';
+
+              return `
+              <div class="fila-reserva-amenity" data-estado-pago="${esc(estadoPago)}" data-estado-reserva="${esc(r.estado || 'confirmada')}" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid ${estadoPago === 'comprobante_subido' && !esCancelada ? '#93C5FD' : '#E2E8F0'};border-radius:10px;background:${estadoPago === 'comprobante_subido' && !esCancelada ? '#F0F7FF' : '#fff'};gap:10px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:10px;min-width:260px;flex:1">
+                  <span style="font-size:20px">🎉</span>
+                  <div>
+                    <div style="font-size:13px;font-weight:800;color:#0F172A">
+                      ${esc(r.amenity)} · <span style="color:#1E5FB4">${esc(r.departamento || 'Depto')} (${esc(r.nombre_vecino || 'Vecino')})</span>
+                    </div>
+                    <div style="font-size:12px;color:#64748B">
+                      📆 ${esc(r.fecha)} · ⏰ <strong>${esc(r.hora_desde || '00:00')} a ${esc(r.hora_hasta || '00:00')} hs</strong>${r.notas ? ' · 📝 ' + esc(r.notas) : ''}
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                  ${esCancelada ? `
+                    <span style="font-size:11px;font-weight:800;background:#FEE2E2;color:#991B1B;padding:3px 8px;border-radius:6px">✕ Cancelada</span>
+                  ` : esGratis ? `
+                    <span style="font-size:11px;font-weight:700;color:#15803D;background:#DCFCE7;padding:3px 8px;border-radius:6px">🟢 Sin costo</span>
+                    <button onclick="cancelarReservaAdmin(${r.id}, '${escJs(r.amenity)}', '${escJs(r.fecha)}', '${escJs(r.hora_desde || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#64748B;font-size:11px;padding:3px 7px;border-radius:6px;cursor:pointer" title="Cancelar reserva">✕</button>
+                  ` : estadoPago === 'aprobado' ? `
+                    <span style="font-size:11px;font-weight:800;background:#DCFCE7;color:#15803D;padding:3px 8px;border-radius:6px">✅ Aprobado ($${montoNum.toLocaleString('es-AR')})</span>
+                    ${r.comprobante_url ? `<button onclick="abrirModalRevisarComprobante(${r.id}, '${escJs(r.amenity)}', '${escJs(r.departamento || '')}', '${escJs(r.nombre_vecino || '')}', '${escJs(r.telefono || '')}', '${escJs(r.fecha || '')}', '${escJs((r.hora_desde || '') + ' a ' + (r.hora_hasta || ''))}', ${montoNum}, '${escJs(r.comprobante_url || '')}', '${escJs(estadoPago)}', '${escJs(r.motivo_rechazo || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;cursor:pointer">👁️ Comprobante</button>` : ''}
+                    <button onclick="cancelarReservaAdmin(${r.id}, '${escJs(r.amenity)}', '${escJs(r.fecha)}', '${escJs(r.hora_desde || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#64748B;font-size:11px;padding:3px 7px;border-radius:6px;cursor:pointer" title="Cancelar reserva">✕</button>
+                  ` : estadoPago === 'comprobante_subido' ? `
+                    <span style="font-size:11px;font-weight:800;background:#E0F2FE;color:#0369A1;padding:3px 8px;border-radius:6px">🧾 Comprobante Recibido</span>
+                    <button onclick="abrirModalRevisarComprobante(${r.id}, '${escJs(r.amenity)}', '${escJs(r.departamento || '')}', '${escJs(r.nombre_vecino || '')}', '${escJs(r.telefono || '')}', '${escJs(r.fecha || '')}', '${escJs((r.hora_desde || '') + ' a ' + (r.hora_hasta || ''))}', ${montoNum}, '${escJs(r.comprobante_url || '')}', '${escJs(estadoPago)}', '${escJs(r.motivo_rechazo || '')}')" style="border:none;background:linear-gradient(135deg,#1E5FB4,#2E6FC0);color:#fff;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:6px;cursor:pointer;box-shadow:0 2px 6px rgba(30,95,180,0.25)">🔍 Revisar Comprobante</button>
+                    <button onclick="cambiarEstadoPagoReserva(${r.id}, 'aprobado')" style="border:none;background:#15803D;color:#fff;font-size:11px;font-weight:700;padding:4px 8px;border-radius:6px;cursor:pointer" title="Aprobar rápidamente">✓</button>
+                    <button onclick="cancelarReservaAdmin(${r.id}, '${escJs(r.amenity)}', '${escJs(r.fecha)}', '${escJs(r.hora_desde || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#64748B;font-size:11px;padding:3px 7px;border-radius:6px;cursor:pointer" title="Cancelar reserva">✕</button>
+                  ` : estadoPago === 'rechazado' ? `
+                    <span style="font-size:11px;font-weight:800;background:#FEE2E2;color:#DC2626;padding:3px 8px;border-radius:6px" title="${esc(r.motivo_rechazo || 'Comprobante observado')}">❌ Rechazado ($${montoNum.toLocaleString('es-AR')})</span>
+                    ${r.comprobante_url ? `<button onclick="abrirModalRevisarComprobante(${r.id}, '${escJs(r.amenity)}', '${escJs(r.departamento || '')}', '${escJs(r.nombre_vecino || '')}', '${escJs(r.telefono || '')}', '${escJs(r.fecha || '')}', '${escJs((r.hora_desde || '') + ' a ' + (r.hora_hasta || ''))}', ${montoNum}, '${escJs(r.comprobante_url || '')}', '${escJs(estadoPago)}', '${escJs(r.motivo_rechazo || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#1E5FB4;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;cursor:pointer">👁️ Detalle</button>` : ''}
+                    <button onclick="cancelarReservaAdmin(${r.id}, '${escJs(r.amenity)}', '${escJs(r.fecha)}', '${escJs(r.hora_desde || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#64748B;font-size:11px;padding:3px 7px;border-radius:6px;cursor:pointer" title="Cancelar reserva">✕</button>
+                  ` : `
+                    <span style="font-size:11px;font-weight:800;background:#FEF3C7;color:#92400E;padding:3px 8px;border-radius:6px">⏳ Pendiente ($${montoNum.toLocaleString('es-AR')})</span>
+                    <button onclick="marcarPagoManual(${r.id}, '${escJs(r.amenity)}', ${montoNum})" style="border:1px solid #16A34A;background:#F0FDF4;color:#16A34A;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;cursor:pointer" title="Registrar pago recibido en mano o transferencia directa">💵 Pago Manual</button>
+                    <button onclick="cancelarReservaAdmin(${r.id}, '${escJs(r.amenity)}', '${escJs(r.fecha)}', '${escJs(r.hora_desde || '')}')" style="border:1px solid #CBD5E1;background:#fff;color:#64748B;font-size:11px;padding:3px 7px;border-radius:6px;cursor:pointer" title="Cancelar reserva">✕</button>
+                  `}
+                </div>
+              </div>`;
+            }).join('')}
+          </div>` : '<div style="font-size:12.5px;color:#8595AD;padding:4px 0">No hay reservas registradas para este edificio todavía.</div>'}
+        </div>
+      </div>`;
+
+    const modalAmenityNuevoHtml = `
+      <div id="modal-amenity-nuevo" class="modal-overlay" onclick="cerrarModal('modal-amenity-nuevo')">
+        <div class="modal-box" style="max-width:520px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Espacios Comunes</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏊 Añadir Amenity al Edificio</div>
+          </div>
+          <div style="padding:20px 24px;max-height:75vh;overflow-y:auto">
+            <input type="hidden" id="amenity-nuevo-edificio" value="${esc(cur ? cur.nombre : '')}">
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Nombre del espacio común</label>
+              <input id="amenity-nuevo-nombre" placeholder="Ej: SUM, Piscina, Gimnasio, Coworking, Cancha de Tenis" class="inp">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Ícono</label>
+                <select id="amenity-nuevo-icono" class="inp">
+                  <option value="🎉">🎉 Salón / SUM</option>
+                  <option value="🥩">🥩 Parrilla / Quincho</option>
+                  <option value="🏊">🏊 Piscina / Solarium</option>
+                  <option value="🏋️">🏋️ Gimnasio</option>
+                  <option value="🧺">🧺 Laundry / Lavadero</option>
+                  <option value="💼">💼 Coworking / Sala</option>
+                  <option value="🚗">🚗 Cochera de Cortesía / Estacionamiento</option>
+                  <option value="🎾">🎾 Cancha de Paddle / Tenis</option>
+                  <option value="🌅">🌅 Terraza / Rooftop</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Capacidad (personas)</label>
+                <input type="number" id="amenity-nuevo-capacidad" value="20" min="1" max="500" class="inp">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Horario Apertura</label>
+                <input type="time" id="amenity-nuevo-apertura" value="08:00" class="inp">
+              </div>
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Horario Cierre</label>
+                <input type="time" id="amenity-nuevo-cierre" value="23:00" class="inp">
+              </div>
+            </div>
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Descripción o Equipamiento</label>
+              <textarea id="amenity-nuevo-desc" placeholder="Ej: Aire acondicionado, vajilla para 30 personas, heladera y parrilla." class="inp" style="height:55px;resize:vertical"></textarea>
+            </div>
+            <div class="modal-subcard" style="background:#F1F5FB;border:1px solid #DCE4F0;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13.5px;font-weight:800;color:#0F326A">
+                <input type="checkbox" id="amenity-nuevo-arancelado" onchange="document.getElementById('box-precio-nuevo').style.display=this.checked?'block':'none'" style="width:18px;height:18px">
+                <span class="txt-subcard-title">¿Requiere pago / arancel de reserva o seña?</span>
+              </label>
+              <div id="box-precio-nuevo" style="display:none;margin-top:10px">
+                <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:10px">
+                  <div>
+                    <label class="modal-field-label" style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto ($ ARS)</label>
+                    <input type="number" id="amenity-nuevo-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp">
+                  </div>
+                  <div>
+                    <label class="modal-field-label" style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Modalidad de Cobro</label>
+                    <select id="amenity-nuevo-tipo-arancel" class="inp">
+                      <option value="por_hora">⏱️ Por Hora (horas × monto)</option>
+                      <option value="por_reserva">🎟️ Fijo por Reserva (tarifa plana)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style="margin-bottom:14px">
+              <label class="modal-section-title" style="font-size:13.5px;font-weight:800;color:#0F326A;display:block;margin-bottom:4px">📜 Reglamento y Normas del Sector</label>
+              <div class="modal-hint-text" style="font-size:11.5px;color:#64748B;margin-bottom:6px">Marcos IA usará estas reglas para responder dudas específicas de vecinos (música, depósitos, limpieza, etc.).</div>
+              <textarea id="amenity-nuevo-reglamento" placeholder="Ej: Música permitida hasta 01:00 hs. Seña de $15.000 para limpieza. Dejar vajilla limpia. Prohibido fumar adentro." class="inp" style="height:80px;resize:vertical"></textarea>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;padding:0 24px 20px">
+            <button onclick="cerrarModal('modal-amenity-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarAmenityNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar Amenity</button>
+          </div>
+        </div>
+      </div>`;
+
+    const modalAmenityEditarHtml = `
+      <div id="modal-amenity-editar" class="modal-overlay" onclick="cerrarModal('modal-amenity-editar')">
+        <div class="modal-box" style="max-width:520px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Espacios Comunes</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Amenity & Reglamento</div>
+          </div>
+          <div style="padding:20px 24px;max-height:75vh;overflow-y:auto">
+            <input type="hidden" id="amenity-edit-id">
+            <input type="hidden" id="amenity-edit-edificio" value="${esc(cur ? cur.nombre : '')}">
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Nombre del espacio común</label>
+              <input id="amenity-edit-nombre" class="inp">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Ícono</label>
+                <select id="amenity-edit-icono" class="inp">
+                  <option value="🎉">🎉 Salón / SUM</option>
+                  <option value="🥩">🥩 Parrilla / Quincho</option>
+                  <option value="🏊">🏊 Piscina / Solarium</option>
+                  <option value="🏋️">🏋️ Gimnasio</option>
+                  <option value="🧺">🧺 Laundry / Lavadero</option>
+                  <option value="💼">💼 Coworking / Sala</option>
+                  <option value="🚗">🚗 Cochera de Cortesía / Estacionamiento</option>
+                  <option value="🎾">🎾 Cancha de Paddle / Tenis</option>
+                  <option value="🌅">🌅 Terraza / Rooftop</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Capacidad (personas)</label>
+                <input type="number" id="amenity-edit-capacidad" class="inp">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Horario Apertura</label>
+                <input type="time" id="amenity-edit-apertura" class="inp">
+              </div>
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Horario Cierre</label>
+                <input type="time" id="amenity-edit-cierre" class="inp">
+              </div>
+            </div>
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Descripción o Equipamiento</label>
+              <textarea id="amenity-edit-desc" class="inp" style="height:55px;resize:vertical"></textarea>
+            </div>
+            <div class="modal-subcard" style="background:#F1F5FB;border:1px solid #DCE4F0;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13.5px;font-weight:800;color:#0F326A">
+                <input type="checkbox" id="amenity-edit-arancelado" onchange="document.getElementById('box-precio-edit').style.display=this.checked?'block':'none'" style="width:18px;height:18px">
+                <span class="txt-subcard-title">¿Requiere pago / arancel de reserva o seña?</span>
+              </label>
+              <div id="box-precio-edit" style="display:none;margin-top:10px">
+                <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:10px">
+                  <div>
+                    <label class="modal-field-label" style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Monto ($ ARS)</label>
+                    <input type="number" id="amenity-edit-precio" value="0" min="0" step="500" placeholder="Ej: 15000" class="inp">
+                  </div>
+                  <div>
+                    <label class="modal-field-label" style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Modalidad de Cobro</label>
+                    <select id="amenity-edit-tipo-arancel" class="inp">
+                      <option value="por_hora">⏱️ Por Hora (horas × monto)</option>
+                      <option value="por_reserva">🎟️ Fijo por Reserva (tarifa plana)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style="margin-bottom:14px">
+              <label class="modal-section-title" style="font-size:13.5px;font-weight:800;color:#0F326A;display:block;margin-bottom:4px">📜 Reglamento y Normas del Sector</label>
+              <div class="modal-hint-text" style="font-size:11.5px;color:#64748B;margin-bottom:6px">Marcos IA usará estas reglas para responder dudas específicas de vecinos (música, depósitos, limpieza, gorro de pileta, etc.).</div>
+              <textarea id="amenity-edit-reglamento" placeholder="Ej: Música permitida hasta 01:00 hs. Seña de $15.000 para limpieza. Prohibido fumar adentro. Dejar vajilla limpia." class="inp" style="height:80px;resize:vertical"></textarea>
+            </div>
+          </div>
+          <div style="padding:16px 24px;border-top:1px solid #EEF1F6;display:flex;gap:10px">
+            <button onclick="cerrarModal('modal-amenity-editar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarAmenityEditado(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar Cambios</button>
+          </div>
+        </div>
+      </div>`;
+
+    const modalRevisarComprobanteHtml = `
+      <div id="modal-revisar-comprobante-reserva" class="modal-overlay" onclick="cerrarModal('modal-revisar-comprobante-reserva')">
+        <div class="modal-box" style="max-width:700px;width:100%" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Auditoría de Pagos</div>
+              <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🔍 Comprobante de Reserva de Amenity</div>
+            </div>
+            <button onclick="cerrarModal('modal-revisar-comprobante-reserva')" style="border:none;background:#F1F5F9;color:#64748B;font-size:18px;font-weight:700;width:32px;height:32px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+          </div>
+          
+          <div style="padding:20px 24px;max-height:75vh;overflow-y:auto">
+            <input type="hidden" id="rev-comp-id">
+
+            <!-- Ficha de Datos de la Reserva -->
+            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Amenity / Espacio</div>
+                  <div id="rev-comp-amenity" style="font-size:14px;font-weight:800;color:#0F172A;margin-top:2px">-</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Vecino y Unidad</div>
+                  <div id="rev-comp-vecino" style="font-size:14px;font-weight:800;color:#1E5FB4;margin-top:2px">-</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Fecha y Horario</div>
+                  <div id="rev-comp-fecha-horario" style="font-size:13.5px;font-weight:700;color:#334155;margin-top:2px">-</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Monto de la Reserva</div>
+                  <div id="rev-comp-monto" style="font-size:16px;font-weight:800;color:#059669;margin-top:2px">$0</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Estado Actual</div>
+                  <div id="rev-comp-estado-actual" style="margin-top:3px">-</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase">Contacto Vecino</div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+                    <span id="rev-comp-tel" style="font-size:13px;font-weight:700;color:#334155">-</span>
+                    <a id="rev-comp-btn-wa" href="#" target="_blank" style="display:none;align-items:center;gap:4px;font-size:11px;font-weight:800;background:#25D366;color:#fff;padding:2px 8px;border-radius:6px;text-decoration:none">
+                      <span>💬 WhatsApp</span>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Previsualización de Comprobante -->
+            <div style="margin-bottom:16px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <div style="font-size:13px;font-weight:800;color:#0F172A">📄 Comprobante Adjunto:</div>
+                <a id="rev-comp-link-open" href="#" target="_blank" style="font-size:12px;font-weight:700;color:#1E5FB4;text-decoration:underline">↗️ Abrir en pestaña nueva</a>
+              </div>
+              <div style="background:#0F172A;border-radius:12px;overflow:hidden;min-height:240px;max-height:380px;display:flex;align-items:center;justify-content:center;position:relative;border:1px solid #CBD5E1">
+                <img id="rev-comp-preview-img" src="" alt="Comprobante" style="max-width:100%;max-height:380px;object-fit:contain;display:none">
+                <iframe id="rev-comp-preview-pdf" src="" style="width:100%;height:380px;border:none;display:none"></iframe>
+              </div>
+            </div>
+
+            <!-- Caja de Rechazo (Oculta por defecto) -->
+            <div id="rev-comp-box-rechazo" style="display:none;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:12px;padding:14px 16px;margin-bottom:10px">
+              <div style="font-size:13px;font-weight:800;color:#991B1B;margin-bottom:6px">❌ Indicar Motivo del Rechazo:</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+                <button type="button" onclick="setMotivoRapido('Comprobante ilegible o borroso')" style="font-size:11px;padding:3px 8px;border:1px solid #FCA5A5;background:#fff;border-radius:6px;cursor:pointer;color:#991B1B">Ilegible / Borroso</button>
+                <button type="button" onclick="setMotivoRapido('Monto transferido no coincide con el total')" style="font-size:11px;padding:3px 8px;border:1px solid #FCA5A5;background:#fff;border-radius:6px;cursor:pointer;color:#991B1B">Monto no coincide</button>
+                <button type="button" onclick="setMotivoRapido('Transferencia aún no acreditada en la cuenta bancaria')" style="font-size:11px;padding:3px 8px;border:1px solid #FCA5A5;background:#fff;border-radius:6px;cursor:pointer;color:#991B1B">No acreditada</button>
+                <button type="button" onclick="setMotivoRapido('Falta número de operación o comprobante truncado')" style="font-size:11px;padding:3px 8px;border:1px solid #FCA5A5;background:#fff;border-radius:6px;cursor:pointer;color:#991B1B">Faltan datos</button>
+              </div>
+              <textarea id="rev-comp-motivo" placeholder="Escribí una breve explicación para el vecino..." style="width:100%;box-sizing:border-box;border:1px solid #F87171;border-radius:8px;padding:8px 10px;font-size:12.5px;min-height:60px;font-family:inherit;resize:vertical"></textarea>
+            </div>
+          </div>
+
+          <div style="padding:14px 24px;border-top:1px solid #EEF1F6;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <button type="button" onclick="cerrarModal('modal-revisar-comprobante-reserva')" style="padding:10px 16px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Cerrar</button>
+            <div style="display:flex;align-items:center;gap:10px">
+              <button type="button" onclick="rechazarPagoDesdeModal(this)" style="padding:10px 16px;border:1px solid #EF4444;border-radius:10px;background:#FEF2F2;color:#DC2626;font-weight:700;font-size:13px;cursor:pointer">✕ Rechazar Comprobante</button>
+              <button type="button" onclick="aprobarPagoDesdeModal(this)" style="padding:10px 20px;border:none;border-radius:10px;background:#15803D;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;box-shadow:0 2px 6px rgba(21,128,61,0.3)">✓ Aprobar Pago</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    const modalVecinosImportarHtml = `
+      <div id="modal-vecinos-importar" class="modal-overlay" onclick="cerrarModal('modal-vecinos-importar')">
+        <div class="modal-box" style="max-width:620px" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Padrón de Vecinos</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">📥 Importar Padrón desde Excel / CSV</div>
+          </div>
+          <div style="padding:20px 24px;max-height:75vh;overflow-y:auto">
+            <input type="hidden" id="imp-vec-edificio">
+            
+            <div style="background:#F1F5FB;border:1px solid #DCE5F2;border-radius:12px;padding:12px 14px;font-size:12.5px;color:#334259;margin-bottom:16px;line-height:1.4">
+              💡 <strong>Instrucciones:</strong> Podés subir un archivo <code>.csv</code> exportado de Excel o copiar las celdas directamente en tu planilla y pegarlas abajo.<br>
+              <strong>Columnas recomendadas:</strong> Unidad / Depto · Nombre · Teléfono · Email
+            </div>
+
+            <div style="margin-bottom:14px">
+              <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Opción A: Subir archivo (.csv / .txt)</div>
+              <input type="file" id="imp-vec-file" accept=".csv,.txt" onchange="leerArchivoVecinos(this)" class="inp" style="padding:8px">
+            </div>
+
+            <div style="margin-bottom:16px">
+              <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Opción B: Pegar datos de Excel (Ctrl+V)</div>
+              <textarea id="imp-vec-textarea" oninput="procesarTextoVecinosImportar(this.value)" class="inp" placeholder="Ejemplo:&#10;1° A	Juan Pérez	1155551111	juan@gmail.com&#10;1° B	María Gómez	1155552222	maria@gmail.com&#10;2° A	Carlos Sosa	1155553333	carlos@gmail.com" style="height:110px;font-family:monospace;font-size:12px"></textarea>
+            </div>
+
+            <div style="margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
+              <div style="font-size:13px;font-weight:800;color:#16233B">Previsualización de datos</div>
+              <div id="imp-vec-count" style="font-size:12px;font-weight:700;color:#2E6FC0">0 vecinos detectados</div>
+            </div>
+
+            <div style="border:1px solid #E2E8F0;border-radius:10px;overflow:hidden;max-height:190px;overflow-y:auto;background:#fff">
+              <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:left">
+                <thead>
+                  <tr style="background:#F8FAFC;border-bottom:1px solid #E2E8F0;color:#64748B">
+                    <th style="padding:8px 10px">Unidad</th>
+                    <th style="padding:8px 10px">Nombre</th>
+                    <th style="padding:8px 10px">Teléfono</th>
+                    <th style="padding:8px 10px">Email</th>
+                  </tr>
+                </thead>
+                <tbody id="imp-vec-preview-body">
+                  <tr><td colspan="4" style="text-align:center;padding:24px;color:#8595AD;font-size:13px">Pegá texto desde Excel o subí un CSV para previsualizar aquí.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6">
+            <button onclick="cerrarModal('modal-vecinos-importar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button id="imp-vec-btn-guardar" onclick="ejecutarImportacionVecinos(this)" disabled style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Importar vecinos</button>
+          </div>
+        </div>
+      </div>`;
+
+    const modalVecinoNuevoHtml = `
+      <div id="modal-vecino-nuevo" class="modal-overlay" onclick="cerrarModal('modal-vecino-nuevo')">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Padrón de Vecinos</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">👥 Agregar Vecino</div>
+          </div>
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
+            <input type="hidden" id="vec-edificio">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
+            <input id="vec-nombre" class="inp" placeholder="Ej: Lucía Gómez" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Unidad Funcional / Departamento</div>
+            <input id="vec-unidad" class="inp" placeholder="Ej: 4° B" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Teléfono WhatsApp</div>
+            <input id="vec-tel" class="inp" placeholder="Ej: +54 9 11 5555 4444" style="margin-bottom:4px">
+            <div style="font-size:11.5px;color:#64748B;margin-bottom:14px">⚠️ Incluir +54 para WhatsApp y acceso web.</div>
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email (opcional)</div>
+            <input id="vec-email" class="inp" placeholder="ejemplo@correo.com" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas / Observaciones (opcional)</div>
+            <input id="vec-notas" class="inp" placeholder="Ej: Inquilino / Propietario">
+          </div>
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
+            <button onclick="cerrarModal('modal-vecino-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarVecinoNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar vecino</button>
+          </div>
+        </div>
+      </div>`;
+
+    const modalVecinoEditarHtml = `
+      <div id="modal-vecino-editar" class="modal-overlay" onclick="cerrarModal('modal-vecino-editar')">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Padrón de Vecinos</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Vecino</div>
+          </div>
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
+            <input type="hidden" id="edit-vec-row">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
+            <input id="edit-vec-nombre" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Unidad / Departamento</div>
+            <input id="edit-vec-unidad" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Teléfono WhatsApp</div>
+            <input id="edit-vec-tel" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Email (opcional)</div>
+            <input id="edit-vec-email" class="inp" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
+            <input id="edit-vec-notas" class="inp">
+          </div>
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
+            <button onclick="cerrarModal('modal-vecino-editar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarEditarVecino(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
+          </div>
+        </div>
+      </div>`;
+
     let consejo = [];
     try {
       const { rows: cRows } = await readTab(TAB_CONSEJO);
@@ -5963,12 +12143,12 @@ router.get('/mi-edificio', async (req, res) => {
 
     const modalConsejoNuevoHtml = `
       <div id="modal-consejo-nuevo" class="modal-overlay" onclick="cerrarModal('modal-consejo-nuevo')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Consejo de Administración</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏛️ Agregar Integrante</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="cons-edificio">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
             <input id="cons-nombre" class="inp" placeholder="Ej: Roberto Gómez" style="margin-bottom:14px">
@@ -5994,7 +12174,7 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas / Observaciones (opcional)</div>
             <input id="cons-notas" class="inp" placeholder="Ej: tiene firma autorizada">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-consejo-nuevo')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarConsejoNuevo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar integrante</button>
           </div>
@@ -6003,12 +12183,12 @@ router.get('/mi-edificio', async (req, res) => {
 
     const modalConsejoEditarHtml = `
       <div id="modal-consejo-editar" class="modal-overlay" onclick="cerrarModal('modal-consejo-editar')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Consejo de Administración</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Integrante</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="edit-cons-row">
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre y apellido</div>
             <input id="edit-cons-nombre" class="inp" style="margin-bottom:14px">
@@ -6034,7 +12214,7 @@ router.get('/mi-edificio', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
             <input id="edit-cons-notas" class="inp">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-consejo-editar')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarEditarConsejo(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
           </div>
@@ -6067,33 +12247,22 @@ router.get('/mi-edificio', async (req, res) => {
               <option value="vacaciones">🔵 Vacaciones</option>
             </select>
 
-            <div style="font-size:13px;font-weight:700;color:#16233B;margin-bottom:8px">Horarios de Trabajo / Atención (3 Turnos)</div>
-            <div style="font-size:12px;color:#64748B;margin-bottom:12px">Especificá los rangos horarios exactos para que Marcos IA sepa cuándo está disponible.</div>
+            <div style="font-size:13.5px;font-weight:800;color:#16233B;margin-bottom:4px">🗓️ Días y Franjas Horarias de Atención</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:12px">Configurá los días y turnos exactos (ej: limpieza 2 o 3 veces por semana, turnos cortados con descansos, rotaciones de seguridad, etc.).</div>
 
-            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:12px">
-              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Lun a Vie (1° Turno)</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="time" id="staff-inp-lv1a" class="inp" style="height:40px;width:auto">
-                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
-                <input type="time" id="staff-inp-lv1b" class="inp" style="height:40px;width:auto">
-              </div>
+            <div id="staff-turnos-container" style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px"></div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+              <button type="button" onclick="agregarStaffTurno()" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border:1.5px dashed #2E6FC0;border-radius:10px;background:#F0F6FF;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-blue">
+                <span>➕ Añadir otro turno / franja horaria</span>
+              </button>
             </div>
 
-            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:12px">
-              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Lun a Vie (2° Turno / Cortado - Opcional)</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="time" id="staff-inp-lv2a" class="inp" style="height:40px;width:auto">
-                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
-                <input type="time" id="staff-inp-lv2b" class="inp" style="height:40px;width:auto">
-              </div>
-            </div>
-
-            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:14px">
-              <div style="font-size:12.5px;font-weight:700;color:#2E6FC0;margin-bottom:6px">🗓️ Sábados (Opcional)</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="time" id="staff-inp-saba" class="inp" style="height:40px;width:auto">
-                <span style="font-size:13px;color:#64748B;font-weight:700">a</span>
-                <input type="time" id="staff-inp-sabb" class="inp" style="height:40px;width:auto">
+            <div style="background:#F1F5FB;border:1px solid #DCE5F2;border-radius:10px;padding:10px 14px;font-size:12.5px;color:#334259;display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-size:16px;flex-shrink:0">🕒</span>
+              <div style="min-width:0;flex:1">
+                <span style="font-weight:700;color:#1E293B">Resumen de horarios:</span>
+                <span id="staff-horario-preview-txt" style="font-weight:700;color:#2E6FC0;margin-left:4px">Sin horario</span>
               </div>
             </div>
           </div>
@@ -6104,13 +12273,13 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
-    const modalNuevoEdificio = modalAltaEdificioHtml('Nuevo edificio');
+    const modalNuevoEdificio = modalAltaEdificioHtml('Nuevo edificio', null, planesList);
 
     const contenido = `
       <div style="animation:mFade .3s ease both">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:12px">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">${esc(cur ? cur.nombre : 'Mi Edificio')}</h1>
+            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.01em;margin:0">${esc(cur ? cur.nombre : 'Mi Edificio')}</h1>
             ${selectorEdificioHtml(cur ? cur.nombre : 'Elegí edificio', 'Cambiar edificio', 'Mis Edificios', d.propios.map((x) => ({ label: x.nombre, sub: x.direccion, val: x.nombre, activo: cur && x.nombre === cur.nombre })), '/admin/set-filtro?volver=' + encodeURIComponent('/admin/mi-edificio'))}
             <button onclick="abrirModalPlanesAc('${escJs(cur ? cur.nombre : '')}')" style="height:34px;padding:0 13px;border:1px solid #C9D5E8;border-radius:999px;background:#EAF1FB;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" class="hv-blue">
               <span>💳 Plan: <strong>${esc(cur ? cur.plan : 'Base')}</strong></span>
@@ -6127,7 +12296,9 @@ router.get('/mi-edificio', async (req, res) => {
         ${pendHtml}
         ${bloqueBaseHtml}
         ${bloqueServiciosHtml}
-        ${bloqueEspaciosHtml}
+        ${bloqueAccesosHtml}
+        ${vecinosCard}
+        ${amenitiesCard}
         ${consejoCard}
         ${proveedoresCard}
       </div>
@@ -6135,9 +12306,16 @@ router.get('/mi-edificio', async (req, res) => {
       ${modalEncargadoHorario}
       ${modalEditarCampo}
       ${modalNuevoEdificio}
+      ${modalVecinoNuevoHtml}
+      ${modalVecinoEditarHtml}
+      ${modalVecinosImportarHtml}
       ${modalConsejoNuevoHtml}
       ${modalConsejoEditarHtml}
       ${modalStaffEditHtml}
+      ${modalAccesoNuevoHtml}
+      ${modalAmenityNuevoHtml}
+      ${modalAmenityEditarHtml}
+      ${modalRevisarComprobanteHtml}
       ${modalPlanesAcHtml(planesList, d.propios)}
       <script>window.__CUR_BUILDING__=${JSON.stringify(cur)};window.__EDIFICIOS__=${JSON.stringify(d.propios)};window.__ES_DUENO__=false;</script>`;
 
@@ -6166,33 +12344,112 @@ router.get('/proveedores', async (req, res) => {
     } catch (_) {}
 
     const label = (t) => `<div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;letter-spacing:.02em;margin-bottom:6px">${t}</div>`;
-    const filas = maestros.length ? maestros.map((m) => `
-      <div style="display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid #E7ECF3;border-radius:12px;background:#fff;flex-wrap:wrap">
-        <span class="rubro-badge ${getRubroClass(m.rubro)}">${esc(m.rubro)}</span>
+
+    // Los datos de cobro, y sobre todo el aviso de cambio pendiente. Un cambio de CBU que llegó
+    // por WhatsApp NO se aplicó: acá se aprueba o se rechaza. Hasta entonces sigue vigente el
+    // anterior, que es lo que evita que a alguien le desvíen el pago del mes.
+    const bloqueCobro = (m) => {
+      const tienePendiente = Boolean(m.cbu_pendiente || m.alias_pendiente);
+      const ult4 = (c) => { const d = String(c || '').replace(/\D/g, ''); return d.length >= 4 ? d.slice(-4) : ''; };
+
+      const vigente = (m.cbu || m.alias_cbu)
+        ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:#334259">
+             <span style="font-weight:700;color:#8595AD">Cobra en:</span>
+             ${m.cbu ? `<span title="${esc(m.cbu)}">CBU ····${esc(ult4(m.cbu))}</span>` : ''}
+             ${m.alias_cbu ? `<span style="font-weight:700;color:#2E6FC0">${esc(m.alias_cbu)}</span>` : ''}
+             ${m.titular ? `<span style="color:#64748B">a nombre de ${esc(m.titular)}</span>` : ''}
+           </div>`
+        : `<div style="font-size:12.5px;color:#8595AD">Sin datos de cobro cargados. Marcos los toma solo cuando el proveedor se los manda.</div>`;
+
+      const pendiente = tienePendiente
+        ? `<div style="margin-top:10px;background:#FFF7ED;border:1px solid #FDBA74;border-radius:10px;padding:11px 13px">
+             <div style="font-size:12.5px;font-weight:800;color:#9A3412;margin-bottom:4px">🔐 Pidió cambiar su cuenta — NO se aplicó</div>
+             <div style="font-size:12.5px;color:#7C2D12;line-height:1.5">
+               Nuevo: ${m.cbu_pendiente ? `CBU ····${esc(ult4(m.cbu_pendiente))}` : ''} ${m.alias_pendiente ? `alias <b>${esc(m.alias_pendiente)}</b>` : ''}<br>
+               ${m.cbu_pendiente_desde ? `<span style="color:#9A3412">Desde ${esc(m.cbu_pendiente_desde)}.</span> ` : ''}
+               Sigue vigente la cuenta anterior hasta que usted decida.
+             </div>
+             <div style="font-size:12px;color:#7C2D12;margin-top:8px;background:#FFEDD5;border-radius:8px;padding:8px 10px">
+               ⚠️ Antes de aprobar, confirmelo con el proveedor <b>llamándolo al número de siempre</b>, no respondiendo al mensaje. Desviar un pago cambiando el CBU es el fraude más común que hay.
+             </div>
+             <div style="display:flex;gap:8px;margin-top:10px">
+               <button onclick="resolverCambioCobro(this,${m._row},true)" style="height:36px;padding:0 14px;border:none;border-radius:9px;background:#15803D;color:#fff;font-weight:700;font-size:13px;cursor:pointer" class="hv-primary">Aprobar cambio</button>
+               <button onclick="resolverCambioCobro(this,${m._row},false)" style="height:36px;padding:0 14px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#334259;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Rechazar</button>
+             </div>
+           </div>`
+        : '';
+
+      return `<div style="flex-basis:100%;margin-top:10px;padding-top:10px;border-top:1px dashed #E7ECF3">
+                ${vigente}${pendiente}
+              </div>`;
+    };
+
+    const filas = maestros.length ? maestros.map((m) => {
+      const rubrosLista = String(m.rubro || 'Otro').split(',').map((s) => s.trim()).filter(Boolean);
+      const badgesRubro = (rubrosLista.length ? rubrosLista : ['Otro'])
+        .map((r) => `<span class="rubro-badge ${getRubroClass(r)}">${esc(r)}</span>`)
+        .join(' ');
+      return `
+      <div style="display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid ${(m.cbu_pendiente || m.alias_pendiente) ? '#FDBA74' : '#E7ECF3'};border-radius:12px;background:#fff;flex-wrap:wrap">
+        <div style="display:inline-flex;gap:6px;flex-wrap:wrap">${badgesRubro}</div>
         <div style="flex:1;min-width:140px">
           <div style="font-size:14.5px;font-weight:700">${esc(m.nombre || '—')}</div>
           ${m.notas ? `<div style="font-size:12px;color:#8595AD">${esc(m.notas)}</div>` : ''}
         </div>
         <div style="font-size:14px;font-weight:700;color:#2E6FC0">${esc(m.telefono || '—')}</div>
         <div style="display:flex;gap:6px">
+          <button onclick="abrirDatosCobro(${m._row},'${escJs(m.nombre)}','${escJs(m.cbu || '')}','${escJs(m.alias_cbu || '')}','${escJs(m.titular || '')}','${escJs(m.cuit || '')}')" class="btn-edit hv-soft">🏦 Cobro</button>
           <button onclick="abrirEditarProveedor(${m._row},'${escJs(m.rubro)}','${escJs(m.nombre)}','${escJs(m.telefono)}','${escJs(m.notas || '')}')" class="btn-edit hv-soft">Editar</button>
           <button onclick="quitarProveedor(this,${m._row})" class="btn-remove hv-red">Quitar</button>
         </div>
-      </div>`).join('') : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
+        ${bloqueCobro(m)}
+      </div>`;
+    }).join('') : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Tu lista está vacía. Agregá tu primer proveedor abajo.</div>';
 
     const rubroOptions = RUBROS_PROVEEDOR.map((r) => `<option value="${r}">${r}</option>`).join('');
 
+    const RUBRO_ICONOS = {
+      'Electricista': '⚡',
+      'Plomero': '🔧',
+      'Gasista': '🔥',
+      'Cerrajero': '🔑',
+      'Portería': '🚪',
+      'CCTV': '📹',
+      'Control de acceso': '💳',
+      'Albañilería': '🧱',
+      'Ascensores': '🛗',
+      'Refrigeración': '❄️',
+      'Pintor': '🎨',
+      'Limpieza': '🧹',
+      'Seguridad': '🛡️',
+      'Otro': '📦'
+    };
+
+    function renderRubroChipsHtml(selectId, containerId) {
+      return `<div id="${containerId}" class="chips-rubros-wrap">` +
+        RUBROS_PROVEEDOR.map((r) => {
+          const ico = RUBRO_ICONOS[r] || '🛠️';
+          return `<button type="button" class="chip-rubro" data-rubro="${r}" onclick="toggleRubroChip('${selectId}','${r}',this)">` +
+            `<span class="chip-icon">${ico}</span>` +
+            `<span>${r}</span>` +
+            `<span class="chip-check">✓</span>` +
+            `</button>`;
+        }).join('') +
+        `</div>`;
+    }
+
     const modalEditarProveedorHtml = `
       <div id="modal-editar-proveedor" class="modal-overlay" onclick="cerrarModal('modal-editar-proveedor')">
-        <div class="modal-box" style="max-width:480px" onclick="stopEv(event)">
-          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Lista Maestra de Proveedores</div>
             <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">✏️ Editar Proveedor</div>
           </div>
-          <div style="padding:20px 24px">
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
             <input type="hidden" id="edit-prov-row">
-            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Rubro / Especialidad</div>
-            <select id="edit-prov-rubro" class="inp" style="margin-bottom:14px">${rubroOptions}</select>
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:2px">Rubro(s) — tocá para seleccionar uno o varios:</div>
+            ${renderRubroChipsHtml('edit-prov-rubro', 'chips-edit-prov-rubro')}
+            <select id="edit-prov-rubro" class="inp" multiple style="display:none">${rubroOptions}</select>
 
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nombre / Empresa</div>
             <input id="edit-prov-nombre" class="inp" style="margin-bottom:14px">
@@ -6204,9 +12461,46 @@ router.get('/proveedores', async (req, res) => {
             <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Notas (opcional)</div>
             <input id="edit-prov-notas" class="inp" placeholder="Ej: Atiende 24hs">
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
             <button onclick="cerrarModal('modal-editar-proveedor')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
             <button onclick="guardarEditarProveedor(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar cambios</button>
+          </div>
+        </div>
+      </div>`;
+
+    // Carga o corrección a mano de los datos de cobro. El CBU se verifica del lado del servidor
+    // con los dígitos verificadores: un número mal tipeado acá termina en un pago rechazado.
+    const modalDatosCobroHtml = `
+      <div id="modal-datos-cobro" class="modal-overlay" onclick="cerrarModal('modal-datos-cobro')">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Datos de cobro</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏦 <span id="cobro-nombre">Proveedor</span></div>
+          </div>
+          <div style="padding:20px 24px;max-height:65vh;overflow-y:auto;flex:1;min-height:0">
+            <input type="hidden" id="cobro-row">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">CBU (22 dígitos)</div>
+            <input id="cobro-cbu" class="inp" inputmode="numeric" placeholder="0070059930004567890123" style="margin-bottom:4px">
+            <div style="font-size:11.5px;color:#64748B;margin-bottom:14px">Se verifica antes de guardar. Si está mal escrito, no se acepta.</div>
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Alias</div>
+            <input id="cobro-alias" class="inp" placeholder="Ej: juan.perez.arg" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Titular de la cuenta</div>
+            <input id="cobro-titular" class="inp" placeholder="Puede no ser el mismo que el proveedor" style="margin-bottom:14px">
+
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">CUIT / CUIL (opcional)</div>
+            <input id="cobro-cuit" class="inp" inputmode="numeric" placeholder="20304050607">
+
+            <div style="margin-top:14px;background:#F1F5FB;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#5A6B85;line-height:1.5">
+              Marcos también toma estos datos cuando el proveedor se los manda por WhatsApp. Si ya
+              había otros cargados, ese cambio queda esperando su aprobación en vez de aplicarse solo.
+            </div>
+          </div>
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6;flex-shrink:0">
+            <button onclick="cerrarModal('modal-datos-cobro')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarDatosCobro(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-op">Guardar</button>
           </div>
         </div>
       </div>`;
@@ -6221,9 +12515,15 @@ router.get('/proveedores', async (req, res) => {
 
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px">
           <div style="font-size:15px;font-weight:800;margin-bottom:14px">Agregar proveedor a mi lista</div>
-          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;margin-bottom:14px">
-            <div>${label('Rubro')}<select id="prov-rubro" class="inp" style="height:44px">${rubroOptions}</select></div>
-            <div>${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:44px" placeholder="Ej: Gastón, Plomería del Oeste"></div>
+          
+          <div style="margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:2px">Rubro(s) — tocá para seleccionar uno o varios:</div>
+            ${renderRubroChipsHtml('prov-rubro', 'chips-prov-rubro')}
+            <select id="prov-rubro" class="inp" multiple style="display:none">${rubroOptions}</select>
+          </div>
+
+          <div style="margin-bottom:14px">
+            ${label('Nombre / empresa')}<input id="prov-nombre" class="inp" style="height:44px" placeholder="Ej: Gastón, Plomería del Oeste">
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
             <div>
@@ -6233,10 +12533,38 @@ router.get('/proveedores', async (req, res) => {
             </div>
             <div>${label('Notas (opcional)')}<input id="prov-notas" class="inp" style="height:44px" placeholder="Ej: tiene llave del edificio"></div>
           </div>
+
+          <!-- Datos de cobro en el alta: si ya los tenés a mano, se cargan de una. Al ser la
+               primera carga no hay cambio que aprobar, se aplican directo. Después Marcos los
+               toma solo si el proveedor se los manda, y ahí sí un cambio queda pendiente. -->
+          <details style="margin-bottom:16px;border:1px solid #E7ECF3;border-radius:12px;background:#F8FAFD">
+            <summary style="padding:12px 14px;cursor:pointer;font-size:13.5px;font-weight:700;color:#334259;list-style:none">
+              🏦 Datos de cobro <span style="font-weight:500;color:#8595AD">— opcional, si ya los tenés</span>
+            </summary>
+            <div style="padding:0 14px 14px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                <div>
+                  ${label('CBU')}
+                  <input id="prov-cbu" class="inp" style="height:44px" inputmode="numeric" placeholder="22 dígitos">
+                  <div style="font-size:11.5px;color:#64748B;margin-top:3px">Se verifica antes de guardar.</div>
+                </div>
+                <div>${label('Alias')}<input id="prov-alias" class="inp" style="height:44px" placeholder="Ej: gaston.plomeria"></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div>
+                  ${label('Titular de la cuenta')}
+                  <input id="prov-titular" class="inp" style="height:44px" placeholder="Puede no ser el proveedor">
+                </div>
+                <div>${label('CUIT / CUIL')}<input id="prov-cuit" class="inp" style="height:44px" inputmode="numeric" placeholder="20304050607"></div>
+              </div>
+            </div>
+          </details>
+
           <button onclick="agregarProveedor(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">+ Agregar a mi lista</button>
         </div>
       </div>
-      ${modalEditarProveedorHtml}`;
+      ${modalEditarProveedorHtml}
+      ${modalDatosCobroHtml}`;
 
     res.send(shell(req, d, 'proveedores', contenido));
   } catch (e) {
@@ -6248,54 +12576,946 @@ router.get('/proveedores', async (req, res) => {
  * FACTURAS / FOTOS
  * =================================================================== */
 
+/* ===================================================================
+ * FACTURAS Y FOTOS — CONTRATO DE API REST Y VISTA HI-FI
+ * =================================================================== */
+
+const { pool: pgPool } = require('./db-pg');
+
+async function queryPg(sql, params) {
+  return await pgPool.query(sql, params);
+}
+
+async function obtenerEdificiosPermitidosUsuario(req) {
+  if (esDueno(req)) {
+    return { es_dueno: true, edificios: null };
+  }
+  const usuario = (req.session && (req.session.user || req.session.usuario)) || (enPreview(req) ? req.session.previewOwner : null);
+  if (!usuario) {
+    const sesEdificios = (req.session && req.session.edificios) ? (Array.isArray(req.session.edificios) ? req.session.edificios : String(req.session.edificios).split(',').map(s => s.trim())) : [];
+    return { es_dueno: false, edificios: sesEdificios };
+  }
+  try {
+    const clientRes = await queryPg('SELECT edificios FROM clientes WHERE lower(usuario) = lower($1)', [usuario]);
+    let edificiosRaw = '';
+    if (clientRes && clientRes.rows && clientRes.rows[0]) {
+      edificiosRaw = clientRes.rows[0].edificios || '';
+    } else if (req.session && req.session.edificios) {
+      edificiosRaw = Array.isArray(req.session.edificios) ? req.session.edificios.join(',') : String(req.session.edificios);
+    }
+    const lista = String(edificiosRaw).split(',').map(s => s.trim()).filter(Boolean);
+    return { es_dueno: false, edificios: lista };
+  } catch (e) {
+    const lista = (req.session && req.session.edificios) ? (Array.isArray(req.session.edificios) ? req.session.edificios : String(req.session.edificios).split(',').map(s => s.trim())) : [];
+    return { es_dueno: false, edificios: lista };
+  }
+}
+
+/**
+ * Misma normalización que la función `marcos_norm` de PostgreSQL, para poder decidir del lado de
+ * Node exactamente igual que decide la base.
+ */
+function normEdificio(txt) {
+  return String(txt || '')
+    .replace(/[ÁÉÍÓÚÜÑáéíóúüñ]/g, c => 'AEIOUUNaeiouun'['ÁÉÍÓÚÜÑáéíóúüñ'.indexOf(c)])
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Expande la lista de edificios de un cliente a TODAS las formas en que ese mismo edificio puede
+ * estar escrito: su nombre, su dirección y sus alias, tal como los tiene cargados `edificios`.
+ *
+ * POR QUÉ EXISTE: el filtro de permisos comparaba el nombre exacto, y fallaba cuando la factura
+ * decía "San Patricio 159" y la ficha del cliente decía "SAN PATRICIO". El parche a eso fue pasar
+ * a una coincidencia parcial en las dos direcciones (`LIKE '%...%'`), y eso abre un agujero que en
+ * este sistema no es aceptable: un cliente con "San Patricio" cargado pasaba a ver también las
+ * facturas -- con importes -- de "San Patricio 270", que puede ser de OTRO administrador.
+ *
+ * La forma correcta de tolerar las variantes no es aflojar la comparación, sino saber de antemano
+ * cuáles son las variantes legítimas de CADA edificio. Para eso están los alias. Así el filtro
+ * vuelve a ser una igualdad exacta contra un conjunto conocido.
+ *
+ * Ante la duda se estrecha, nunca se ensancha: si un nombre del cliente podría corresponder a más
+ * de un edificio, no se expande -- se deja tal cual y solo va a coincidir consigo mismo.
+ */
+async function expandirEdificiosPermitidos(lista) {
+  const originales = (lista || []).map(s => String(s || '').trim()).filter(Boolean);
+  if (originales.length === 0) return [];
+
+  const formas = new Set(originales);
+
+  let filas = [];
+  try {
+    const r = await queryPg('SELECT edificio, direccion, aliases FROM edificios');
+    filas = (r && r.rows) || [];
+  } catch (e) {
+    // Sin la tabla de edificios no hay cómo expandir. Se devuelven los nombres tal cual: el
+    // cliente verá de menos, nunca de más.
+    console.error('No se pudieron expandir los edificios permitidos:', e.message);
+    return Array.from(formas);
+  }
+
+  const formasDe = f => [
+    f.edificio,
+    f.direccion,
+    ...String(f.aliases || '').split(',').map(a => a.trim())
+  ].filter(Boolean);
+
+  for (const nombre of originales) {
+    const n = normEdificio(nombre);
+    if (!n) continue;
+
+    // Primero, coincidencia exacta contra el nombre, la dirección o algún alias.
+    let candidatas = filas.filter(f => formasDe(f).some(v => normEdificio(v) === n));
+
+    // Si no hubo exacta, se admite que el nombre del cliente sea una parte del edificio -- pero
+    // solo si apunta a UN edificio. Si apunta a varios es ambiguo, y ampliar sería justamente
+    // dejarle ver el de otro administrador.
+    if (candidatas.length === 0) {
+      candidatas = filas.filter(f => formasDe(f).some(v => {
+        const vn = normEdificio(v);
+        return vn && (vn.includes(n) || n.includes(vn));
+      }));
+      if (candidatas.length !== 1) {
+        if (candidatas.length > 1) {
+          console.warn(`[Permisos] "${nombre}" podría ser ${candidatas.length} edificios distintos. No se expande: se usa tal cual.`);
+        }
+        continue;
+      }
+    }
+
+    for (const f of candidatas) {
+      for (const v of formasDe(f)) formas.add(v);
+    }
+  }
+
+  return Array.from(formas);
+}
+
+async function esEdificioPermitido(edificioFactura, scope) {
+  if (!edificioFactura) return false;
+  if (scope.es_dueno) return true;
+  if (!scope.edificios || scope.edificios.length === 0) return false;
+  const permitidos = await expandirEdificiosPermitidos(scope.edificios);
+  const normFact = normEdificio(edificioFactura);
+  return permitidos.some(p => normEdificio(p) === normFact);
+}
+
+async function resolverEdificioCanonico(edificioNombre) {
+  if (!edificioNombre || edificioNombre.toLowerCase() === 'todos') return 'todos';
+  const norm = edificioNombre.trim().toLowerCase();
+  try {
+    const res = await queryPg('SELECT edificio, aliases FROM edificios');
+    if (res && res.rows) {
+      for (const row of res.rows) {
+        if (row.edificio && row.edificio.trim().toLowerCase() === norm) {
+          return row.edificio;
+        }
+        if (row.aliases) {
+          const aliases = String(row.aliases).split(',').map(a => a.trim().toLowerCase());
+          if (aliases.includes(norm)) {
+            return row.edificio;
+          }
+        }
+      }
+    }
+  } catch(e){}
+  return edificioNombre;
+}
+
+// ── GET /api/facturas ──
+router.get('/api/facturas', async (req, res) => {
+  try {
+    const scope = await obtenerEdificiosPermitidosUsuario(req);
+    const qEdificio = req.query.edificio || 'todos';
+
+    let edificiosFiltro = null;
+    if (!scope.es_dueno) {
+      if (!scope.edificios || scope.edificios.length === 0) {
+        return res.json({
+          alcance: { edificios: [], es_dueno: false },
+          totales: { total_facturas: 0, total_proveedor: 0, total_gasto_fijo: 0, monto_pendiente_total: "0.00", monto_pendiente_total_texto: "$0,00", sin_importe: 0 },
+          grupos: []
+        });
+      }
+      if (qEdificio !== 'todos') {
+        const canon = await resolverEdificioCanonico(qEdificio);
+        const normCanon = canon.toLowerCase();
+        const estaPermitido = scope.edificios.some(e => e.toLowerCase() === normCanon);
+        if (!estaPermitido) {
+          console.warn(`[ACCESO DENEGADO] Usuario ${req.session.usuario} intentó acceder a edificio no permitido: ${qEdificio}`);
+          return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Edificio no permitido' });
+        }
+        edificiosFiltro = [canon];
+      } else {
+        edificiosFiltro = scope.edificios;
+      }
+    } else {
+      if (qEdificio !== 'todos') {
+        const canon = await resolverEdificioCanonico(qEdificio);
+        edificiosFiltro = [canon];
+      }
+    }
+
+    const { clase, origen, estado, categoria, proveedor, tipo, q, desde, hasta, orden = 'fecha_desc', page = 1, page_size = 25 } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const pageSizeNum = Math.min(100, Math.max(10, parseInt(page_size, 10) || 25));
+
+    let whereClauses = ["coalesce(f.eliminada, '') <> 'si'"];
+    let params = [];
+    let paramIdx = 1;
+
+    if (edificiosFiltro && edificiosFiltro.length > 0) {
+      // Igualdad exacta contra TODAS las formas conocidas de los edificios de este cliente (su
+      // nombre, su dirección y sus alias). Ver `expandirEdificiosPermitidos`: la tolerancia a las
+      // variantes viene de conocer los alias, no de aflojar la comparación -- con una comparación
+      // parcial, un cliente podía ver las facturas de un edificio de otro administrador.
+      const formasPermitidas = await expandirEdificiosPermitidos(edificiosFiltro);
+      whereClauses.push(`marcos_norm(f.edificio) = ANY(SELECT marcos_norm(x) FROM unnest($${paramIdx}::text[]) AS x)`);
+      params.push(formasPermitidas);
+      paramIdx++;
+    }
+
+    if (clase) {
+      whereClauses.push(`coalesce(f.clase, 'Proveedor') = $${paramIdx}`);
+      params.push(clase);
+      paramIdx++;
+    }
+
+    if (origen) {
+      whereClauses.push(`coalesce(f.origen, 'Administrador') = $${paramIdx}`);
+      params.push(origen);
+      paramIdx++;
+    }
+
+    if (estado) {
+      whereClauses.push(`f.estado = $${paramIdx}`);
+      params.push(estado);
+      paramIdx++;
+    }
+
+    if (categoria) {
+      whereClauses.push(`f.categoria = $${paramIdx}`);
+      params.push(categoria);
+      paramIdx++;
+    }
+
+    if (proveedor) {
+      whereClauses.push(`f.proveedor = $${paramIdx}`);
+      params.push(proveedor);
+      paramIdx++;
+    }
+
+    if (tipo) {
+      whereClauses.push(`coalesce(f.tipo, 'Factura PDF') = $${paramIdx}`);
+      params.push(tipo);
+      paramIdx++;
+    }
+
+    if (q && q.trim()) {
+      whereClauses.push(`marcos_norm(coalesce(f.concepto,'') || ' ' || coalesce(f.proveedor,'') || ' ' || coalesce(f.numero_factura,'') || ' ' || coalesce(f.edificio,'')) LIKE '%' || marcos_norm($${paramIdx}) || '%'`);
+      params.push(q.trim());
+      paramIdx++;
+    }
+
+    if (desde) {
+      whereClauses.push(`f.fecha_iso >= $${paramIdx}::timestamptz`);
+      params.push(desde);
+      paramIdx++;
+    }
+
+    if (hasta) {
+      whereClauses.push(`f.fecha_iso <= $${paramIdx}::timestamptz`);
+      params.push(hasta);
+      paramIdx++;
+    }
+
+    const whereSql = whereClauses.join(' AND ');
+
+    let orderSql = 'f.fecha_iso DESC NULLS LAST';
+    if (orden === 'fecha_asc') orderSql = 'f.fecha_iso ASC NULLS LAST';
+    else if (orden === 'monto_desc') orderSql = 'f.monto_num DESC NULLS LAST';
+    else if (orden === 'monto_asc') orderSql = 'f.monto_num ASC NULLS LAST';
+
+    const queryTotales = `
+      SELECT
+        count(*)::int AS total_facturas,
+        count(*) FILTER (WHERE coalesce(f.clase, 'Proveedor') = 'Proveedor')::int AS total_proveedor,
+        count(*) FILTER (WHERE coalesce(f.clase, 'Proveedor') = 'Gasto fijo')::int AS total_gasto_fijo,
+        count(*) FILTER (WHERE f.monto_num IS NULL)::int AS sin_importe,
+        coalesce(sum(f.monto_num) FILTER (WHERE f.estado = 'Pendiente'), 0) AS monto_pendiente_total
+      FROM facturas f
+      WHERE ${whereSql}
+    `;
+    const resTotales = await queryPg(queryTotales, params);
+    const totRow = (resTotales && resTotales.rows) ? resTotales.rows[0] : {};
+    const montoPendTotalNum = parseFloat(totRow.monto_pendiente_total || 0);
+
+    const clasesDef = [];
+    if (!clase) {
+      clasesDef.push({ clase: 'Proveedor', titulo: 'Proveedores' });
+      clasesDef.push({ clase: 'Gasto fijo', titulo: 'Gastos fijos del edificio' });
+    } else if (clase === 'Proveedor') {
+      clasesDef.push({ clase: 'Proveedor', titulo: 'Proveedores' });
+    } else if (clase === 'Gasto fijo') {
+      clasesDef.push({ clase: 'Gasto fijo', titulo: 'Gastos fijos del edificio' });
+    }
+
+    const gruposRes = [];
+
+    for (const cDef of clasesDef) {
+      const groupWhereSql = `${whereSql} AND coalesce(f.clase, 'Proveedor') = '${cDef.clase}'`;
+      const groupTotQuery = `
+        SELECT
+          count(*)::int AS conteo,
+          count(*) FILTER (WHERE f.estado = 'Pendiente')::int AS pendientes,
+          coalesce(sum(f.monto_num) FILTER (WHERE f.estado = 'Pendiente'), 0) AS monto_pendiente
+        FROM facturas f
+        WHERE ${groupWhereSql}
+      `;
+      const gTot = (await queryPg(groupTotQuery, params)).rows[0] || {};
+      const conteo = gTot.conteo || 0;
+
+      if (conteo === 0) continue;
+
+      const totalPaginas = Math.ceil(conteo / pageSizeNum);
+      const offset = (pageNum - 1) * pageSizeNum;
+
+      const itemsQuery = `
+        SELECT f.*,
+               cg.icono AS categoria_icono,
+               coalesce(ed.direccion, '') AS edificio_direccion,
+               coalesce(pa.telefono, prov.telefono, '') AS proveedor_telefono
+        FROM facturas f
+        LEFT JOIN categorias_gasto cg ON cg.categoria = f.categoria AND cg.clase = f.clase
+        LEFT JOIN edificios ed ON marcos_norm(ed.edificio) = marcos_norm(f.edificio)
+        LEFT JOIN proveedores prov ON marcos_norm(prov.nombre) = marcos_norm(f.proveedor)
+        LEFT JOIN proveedor_asignaciones pa ON marcos_norm(pa.edificio) = marcos_norm(f.edificio)
+                                           AND marcos_norm(pa.proveedor) = marcos_norm(f.proveedor)
+                                           AND pa.prioridad = 'primera'
+        WHERE ${groupWhereSql}
+        ORDER BY ${orderSql}
+        LIMIT ${pageSizeNum} OFFSET ${offset}
+      `;
+      const itemsRows = (await queryPg(itemsQuery, params)).rows || [];
+
+      const itemsFormatted = itemsRows.map(f => {
+        let fechaTexto = f.fecha;
+        if (f.fecha_iso) {
+          const d = new Date(f.fecha_iso);
+          if (!isNaN(d.getTime())) {
+            const dia = d.getDate();
+            const mes = d.getMonth() + 1;
+            const horaStr = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true });
+            fechaTexto = `${dia}/${mes} · ${horaStr.toLowerCase()}`;
+          }
+        }
+        return {
+          factura_key: f.factura_key || `${f.edificio}|${f.numero_factura}|${f.fecha}`,
+          clase: f.clase || 'Proveedor',
+          tipo: f.tipo || 'Factura PDF',
+          categoria: f.categoria,
+          categoria_icono: f.categoria_icono || (f.clase === 'Gasto fijo' ? 'ph-lightning' : 'ph-wrench'),
+          concepto: f.concepto,
+          numero_factura: f.numero_factura || 'Sin comprobante',
+          edificio: f.edificio,
+          edificio_direccion: f.edificio_direccion || '',
+          direccion_factura: f.direccion_factura || '',
+          proveedor: f.proveedor || '—',
+          proveedor_telefono: f.proveedor_telefono || '',
+          fecha: f.fecha,
+          fecha_texto: fechaTexto,
+          monto: f.monto || 'Según comprobante',
+          monto_num: f.monto_num != null ? String(f.monto_num) : null,
+          estado: f.estado || 'Pendiente',
+          fecha_pago: f.fecha_pago || '',
+          origen: f.origen || 'Administrador',
+          origen_nombre: f.origen_nombre || '',
+          url_archivo: f.url_archivo || '',
+          codigo_caso: f.codigo_caso || f.id_evento || '',
+          id_evento: f.id_evento || f.codigo_caso || '',
+          requiere_revision: f.requiere_revision || 'no'
+        };
+      });
+
+      const montoPendGroupNum = parseFloat(gTot.monto_pendiente || 0);
+
+      gruposRes.push({
+        clase: cDef.clase,
+        titulo: cDef.titulo,
+        conteo: conteo,
+        pendientes: gTot.pendientes || 0,
+        monto_pendiente: montoPendGroupNum.toFixed(2),
+        monto_pendiente_texto: '$' + montoPendGroupNum.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        page: pageNum,
+        page_size: pageSizeNum,
+        total_paginas: totalPaginas,
+        items: itemsFormatted
+      });
+    }
+
+    res.json({
+      alcance: { edificios: scope.edificios, es_dueno: scope.es_dueno },
+      totales: {
+        total_facturas: totRow.total_facturas || 0,
+        total_proveedor: totRow.total_proveedor || 0,
+        total_gasto_fijo: totRow.total_gasto_fijo || 0,
+        monto_pendiente_total: montoPendTotalNum.toFixed(2),
+        monto_pendiente_total_texto: '$' + montoPendTotalNum.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        sin_importe: totRow.sin_importe || 0
+      },
+      grupos: gruposRes
+    });
+  } catch (err) {
+    console.error('Error en GET /api/facturas:', err);
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al consultar facturas' });
+  }
+});
+
+// ── GET /api/categorias-gasto ──
+router.get('/api/categorias-gasto', async (req, res) => {
+  try {
+    const { clase } = req.query;
+    let sql = 'SELECT * FROM categorias_gasto WHERE activo = \'si\'';
+    const params = [];
+    if (clase) {
+      sql += ' AND clase = $1';
+      params.push(clase);
+    }
+    sql += ' ORDER BY orden ASC';
+    const r = await queryPg(sql, params);
+    res.json(r.rows || []);
+  } catch (err) {
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al consultar categorías' });
+  }
+});
+
+// ── GET /api/proveedores ──
+router.get('/api/proveedores', async (req, res) => {
+  try {
+    const { edificio } = req.query;
+    if (edificio && edificio !== 'todos') {
+      const sql = `
+        SELECT p.nombre, p.rubro, coalesce(pa.telefono, p.telefono, '') as telefono, pa.prioridad
+        FROM proveedores p
+        LEFT JOIN proveedor_asignaciones pa ON marcos_norm(pa.proveedor) = marcos_norm(p.nombre) AND marcos_norm(pa.edificio) = marcos_norm($1)
+        ORDER BY CASE WHEN pa.prioridad = 'primera' THEN 1 WHEN pa.prioridad = 'segunda' THEN 2 WHEN pa.prioridad = 'urgencias' THEN 3 ELSE 4 END, p.nombre ASC
+      `;
+      const r = await queryPg(sql, [edificio]);
+      return res.json(r.rows || []);
+    }
+    const r = await queryPg('SELECT nombre, rubro, telefono FROM proveedores ORDER BY nombre ASC');
+    res.json(r.rows || []);
+  } catch (err) {
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al consultar proveedores' });
+  }
+});
+
+// ── PATCH /api/facturas/:factura_key ──
+router.patch('/api/facturas/:factura_key', async (req, res) => {
+  try {
+    const { factura_key } = req.params;
+    const body = req.body || {};
+
+    const camposPermitidos = ['clase', 'categoria', 'proveedor', 'origen', 'origen_nombre', 'estado', 'monto', 'concepto', 'numero_factura', 'fecha', 'codigo_caso'];
+    for (const key of Object.keys(body)) {
+      if (!camposPermitidos.includes(key)) {
+        return res.status(400).json({ error: 'campo_no_editable', campo: key, mensaje: `El campo ${key} no es editable` });
+      }
+    }
+
+    const sel = await queryPg('SELECT * FROM facturas WHERE factura_key = $1 AND coalesce(eliminada, \'\') <> \'si\'', [factura_key]);
+    if (!sel.rows || sel.rows.length === 0) {
+      return res.status(404).json({ error: 'no_encontrado', mensaje: 'Factura no encontrada' });
+    }
+    const existente = sel.rows[0];
+
+    const scope = await obtenerEdificiosPermitidosUsuario(req);
+    const okPermiso = await esEdificioPermitido(existente.edificio, scope);
+    if (!okPermiso) {
+      return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Sin permiso para editar esta factura' });
+    }
+
+    const updates = [];
+    const updateParams = [];
+    let pIdx = 1;
+    const auditoriaRows = [];
+    const usuarioLog = (req.session && (req.session.user || req.session.usuario)) || 'admin';
+
+    for (const field of camposPermitidos) {
+      if (body[field] !== undefined && body[field] !== existente[field]) {
+        let valNuevo = body[field];
+        if (field === 'estado') {
+          if (valNuevo !== 'Pendiente' && valNuevo !== 'Pagada') {
+            return res.status(400).json({ error: 'estado_invalido', mensaje: 'Estado debe ser Pendiente o Pagada' });
+          }
+          if (valNuevo === 'Pagada') {
+            const hoyStr = new Date().toLocaleDateString('es-AR');
+            updates.push(`fecha_pago = $${pIdx}`);
+            updateParams.push(hoyStr);
+            pIdx++;
+          } else {
+            updates.push(`fecha_pago = $${pIdx}`);
+            updateParams.push('');
+            pIdx++;
+          }
+        }
+        if (field === 'codigo_caso') {
+          updates.push(`codigo_caso = $${pIdx}`);
+          updateParams.push(valNuevo);
+          pIdx++;
+          updates.push(`id_evento = $${pIdx}`);
+          updateParams.push(valNuevo);
+          pIdx++;
+        } else {
+          updates.push(`${field} = $${pIdx}`);
+          updateParams.push(valNuevo);
+          pIdx++;
+        }
+
+        auditoriaRows.push({
+          factura_key,
+          usuario: usuarioLog,
+          accion: field === 'clase' ? 'reclasificar' : (field === 'estado' ? 'estado' : 'editar'),
+          campo: field,
+          valor_anterior: String(existente[field] || ''),
+          valor_nuevo: String(valNuevo || '')
+        });
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.json(existente);
+    }
+
+    updates.push(`requiere_revision = 'no'`);
+
+    updateParams.push(factura_key);
+    const updateSql = `UPDATE facturas SET ${updates.join(', ')} WHERE factura_key = $${pIdx} RETURNING *`;
+    const updatedRes = await queryPg(updateSql, updateParams);
+    const facturaActualizada = updatedRes.rows[0];
+
+    for (const aud of auditoriaRows) {
+      await queryPg(
+        'INSERT INTO facturas_auditoria (factura_key, usuario, accion, campo, valor_anterior, valor_nuevo) VALUES ($1, $2, $3, $4, $5, $6)',
+        [aud.factura_key, aud.usuario, aud.accion, aud.campo, aud.valor_anterior, aud.valor_nuevo]
+      );
+    }
+
+    await queryPg(
+      'INSERT INTO sheets_sync_cola (factura_key, operacion) VALUES ($1, \'update\')',
+      [facturaActualizada.factura_key]
+    );
+
+    res.json(facturaActualizada);
+  } catch (err) {
+    console.error('Error en PATCH /api/facturas/:factura_key:', err);
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al actualizar factura' });
+  }
+});
+
+// ── DELETE /api/facturas/:factura_key ──
+router.delete('/api/facturas/:factura_key', async (req, res) => {
+  try {
+    const { factura_key } = req.params;
+    const sel = await queryPg('SELECT * FROM facturas WHERE factura_key = $1 AND coalesce(eliminada, \'\') <> \'si\'', [factura_key]);
+    if (!sel.rows || sel.rows.length === 0) {
+      return res.status(404).json({ error: 'no_encontrado', mensaje: 'Factura no encontrada' });
+    }
+    const existente = sel.rows[0];
+
+    const scope = await obtenerEdificiosPermitidosUsuario(req);
+    const okPermiso = await esEdificioPermitido(existente.edificio, scope);
+    if (!okPermiso) {
+      return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Sin permiso para eliminar esta factura' });
+    }
+
+    await queryPg('UPDATE facturas SET eliminada = \'si\' WHERE factura_key = $1', [factura_key]);
+
+    const usuarioLog = (req.session && (req.session.user || req.session.usuario)) || 'admin';
+    await queryPg(
+      'INSERT INTO facturas_auditoria (factura_key, usuario, accion, campo, valor_anterior, valor_nuevo) VALUES ($1, $2, \'eliminar\', \'eliminada\', \'\', \'si\')',
+      [factura_key, usuarioLog]
+    );
+
+    await queryPg('INSERT INTO sheets_sync_cola (factura_key, operacion) VALUES ($1, \'delete\')', [factura_key]);
+
+    res.status(204).send();
+  } catch (err) {
+    console.error('Error en DELETE /api/facturas/:factura_key:', err);
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al eliminar factura' });
+  }
+});
+
+// ── GET /api/facturas/:factura_key/archivo ──
+router.get('/api/facturas/:factura_key/archivo', async (req, res) => {
+  try {
+    const { factura_key } = req.params;
+    const sel = await queryPg('SELECT * FROM facturas WHERE factura_key = $1 AND coalesce(eliminada, \'\') <> \'si\'', [factura_key]);
+    if (!sel.rows || sel.rows.length === 0) {
+      return res.status(404).json({ error: 'no_encontrado', mensaje: 'Archivo no encontrado' });
+    }
+    const f = sel.rows[0];
+    if (!f.url_archivo) {
+      return res.status(404).json({ error: 'no_encontrado', mensaje: 'Sin URL de archivo' });
+    }
+    const descargar = req.query.descargar === '1';
+    if (descargar) {
+      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(f.url_archivo)}"`);
+    }
+    res.redirect(f.url_archivo);
+  } catch (err) {
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al servir archivo' });
+  }
+});
+
+// ── POST /api/facturas/:factura_key/enviar-consejo ──
+router.post('/api/facturas/:factura_key/enviar-consejo', async (req, res) => {
+  try {
+    const { factura_key } = req.params;
+    const sel = await queryPg('SELECT * FROM facturas WHERE factura_key = $1 AND coalesce(eliminada, \'\') <> \'si\'', [factura_key]);
+    if (!sel.rows || sel.rows.length === 0) {
+      return res.status(404).json({ error: 'no_encontrado', mensaje: 'Factura no encontrada' });
+    }
+    const usuarioLog = (req.session && (req.session.user || req.session.usuario)) || 'admin';
+    await queryPg(
+      'INSERT INTO facturas_auditoria (factura_key, usuario, accion, campo, valor_anterior, valor_nuevo) VALUES ($1, $2, \'enviar_consejo\', \'envio\', \'\', \'enviado\')',
+      [factura_key, usuarioLog]
+    );
+    res.status(202).json({ ok: true, mensaje: 'Enviado al consejo' });
+  } catch (err) {
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al enviar comprobante' });
+  }
+});
+
+// ── POST /api/facturas ──
+router.post('/api/facturas', uploadMulter.single('archivo'), async (req, res) => {
+  try {
+    const { edificio, clase, concepto, fecha, origen, proveedor, categoria, numero_factura, monto, origen_nombre, codigo_caso } = req.body || {};
+
+    const origenUsar = origen || 'Administrador';
+    if (!edificio || !clase || !concepto || !req.file) {
+      return res.status(400).json({ error: 'param_invalido', mensaje: 'Faltan campos requeridos (edificio, clase, concepto, archivo)' });
+    }
+
+    const scope = await obtenerEdificiosPermitidosUsuario(req);
+    if (!scope.es_dueno && scope.edificios) {
+      const normEd = edificio.toLowerCase();
+      const permitido = scope.edificios.some(e => e.toLowerCase() === normEd);
+      if (!permitido) {
+        return res.status(403).json({ error: 'acceso_denegado', mensaje: 'Edificio no permitido' });
+      }
+    }
+
+    let categoriaUsar = categoria || '';
+    if (clase === 'Gasto fijo' && !categoriaUsar && !proveedor) {
+      categoriaUsar = 'Servicios generales';
+    }
+
+    const mime = req.file.mimetype;
+    const allowedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/heic', 'image/webp'];
+    if (!allowedMimes.includes(mime)) {
+      return res.status(415).json({ error: 'formato_invalido', mensaje: 'Formato de archivo no permitido' });
+    }
+
+    let tipo = req.body.tipo;
+    if (!tipo) {
+      if (mime === 'application/pdf') tipo = 'Factura PDF';
+      else if (mime.startsWith('image/')) tipo = 'Foto';
+      else tipo = 'Otro';
+    }
+
+    const webPath = `/archivos/facturas/${req.file.filename}`;
+    const fechaUsar = fecha || new Date().toLocaleString('es-AR');
+    const montoUsar = (monto && monto.trim()) ? monto.trim() : 'Según comprobante';
+
+    const insQuery = `
+      INSERT INTO facturas (edificio, clase, concepto, fecha, origen, proveedor, categoria, numero_factura, monto, origen_nombre, codigo_caso, id_evento, tipo, url_archivo, url, estado, requiere_revision)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'Pendiente', 'no')
+      RETURNING *
+    `;
+    const insRes = await queryPg(insQuery, [
+      edificio, clase, concepto, fechaUsar, origenUsar, proveedor || '', categoriaUsar, numero_factura || 'Sin comprobante', montoUsar, origen_nombre || '', codigo_caso || '', codigo_caso || '', tipo, webPath, webPath
+    ]);
+    const nuevaFactura = insRes.rows[0];
+
+    const usuarioLog = (req.session && (req.session.user || req.session.usuario)) || 'admin';
+    await queryPg(
+      'INSERT INTO facturas_auditoria (factura_key, usuario, accion, campo, valor_anterior, valor_nuevo) VALUES ($1, $2, \'crear\', \'todas\', \'\', \'creado\')',
+      [nuevaFactura.factura_key, usuarioLog]
+    );
+
+    await queryPg('INSERT INTO sheets_sync_cola (factura_key, operacion) VALUES ($1, \'insert\')', [nuevaFactura.factura_key]);
+
+    res.status(201).json(nuevaFactura);
+  } catch (err) {
+    console.error('Error en POST /api/facturas:', err);
+    res.status(500).json({ error: 'error_interno', mensaje: 'Error al crear factura' });
+  }
+});
+
+
+// ── VISTA PRINCIPAL HI-FI: GET /admin/archivos ──
 router.get('/archivos', async (req, res) => {
   try {
     const d = await cargarDatos(req);
     const dueno = esDueno(req);
-    const { rows } = await readTab(TAB_ARCHIVOS);
-    const facturas = filtrarPorEdificio(rows.map(mapFactura), req)
-      .sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
+    const scope = await obtenerEdificiosPermitidosUsuario(req);
 
-    const monStyle = (m) => (m === 'USD' ? { bg: '#E7F4EC', fg: '#1B7A43' } : m === 'EUR' ? { bg: '#E9EEFB', fg: '#2C55A8' } : { bg: '#EEF2F8', fg: '#5A6B85' });
-    const cards = facturas.map((f) => {
-      const mon = monStyle(f.moneda);
-      const pagada = /pagad/i.test(f.estado);
-      const thumbBg = f.tipo === 'Foto' ? 'linear-gradient(135deg,#E7F4EC,#D5EADD)' : 'linear-gradient(135deg,#EAF1FB,#DCE9FA)';
-      const abrir = f.url && /^https?:/i.test(f.url) ? `onclick="window.open('${escJs(f.url)}','_blank')" style="cursor:pointer"` : '';
-      return `
-        <div ${abrir ? abrir.replace('style="cursor:pointer"', '') : ''} style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden${abrir ? ';cursor:pointer' : ''}">
-          <div style="height:120px;background:${thumbBg};display:flex;align-items:center;justify-content:center;position:relative">
-            <span style="font-size:40px">${f.tipo === 'Foto' ? '🖼️' : '🧾'}</span>
-            <span style="position:absolute;top:10px;left:10px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.9);color:#334259">${f.tipo}</span>
-            <span style="position:absolute;top:10px;right:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:${mon.bg};color:${mon.fg}">${f.moneda}</span>
-          </div>
-          <div style="padding:14px 16px">
-            ${dueno ? `<span style="display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EEF2F8;color:#5A6B85;margin-bottom:8px">🏢 ${esc(f.edificio)}</span>` : ''}
-            <div style="font-size:15px;font-weight:700;margin-bottom:2px">${esc(truncate(f.concepto, 60))}</div>
-            <div style="font-size:13px;color:#8595AD;margin-bottom:12px">${esc(f.proveedor)} · ${esc(fechaCorta(parseFecha(f.fecha)) || f.fecha)}</div>
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <span style="font-size:19px;font-weight:800;letter-spacing:-.02em">${esc(f.monto || '—')}</span>
-              <span style="font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:${pagada ? '#E7F4EC' : '#FBF3DE'};color:${pagada ? '#1B7A43' : '#8A6410'}">${esc(f.estado || 'Pendiente')}</span>
+    const contenido = `
+      <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+      <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+      <style>
+        .facturas-page-container {
+          padding: 24px 28px 48px;
+          font-family: inherit;
+          color: #0F172A;
+          font-size: 14.5px;
+          animation: mFade .3s ease both;
+        }
+        .btn-factura-sec {
+          display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+          padding: 8px 16px; border-radius: 10px; border: 1px solid #CBD5E1;
+          background: #FFFFFF; color: #334155; font-weight: 600; font-size: 13px; cursor: pointer;
+          transition: all .15s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .btn-factura-sec:hover { background: #F8FAFC; border-color: #94A3B8; color: #0F172A; }
+        .btn-factura-pri {
+          display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+          padding: 8px 16px; border-radius: 10px; border: none;
+          background: linear-gradient(180deg, #2E6FC0, #1E5FB4); color: #FFFFFF; font-weight: 700; font-size: 13px; cursor: pointer;
+          transition: all .15s ease; box-shadow: 0 2px 4px rgba(30,95,180,0.25);
+        }
+        .btn-factura-pri:hover { background: linear-gradient(180deg, #1E5FB4, #17408B); }
+        .input-factura-search {
+          width: 100%; box-sizing: border-box; background: #FFFFFF;
+          border: 1px solid #CBD5E1; border-radius: 10px;
+          color: #0F172A; font-size: 13.5px; padding: 9px 12px 9px 34px; outline: none; transition: border-color .15s ease;
+        }
+        .input-factura-search:focus-visible { border-color: #2E6FC0; box-shadow: 0 0 0 3px rgba(46,111,192,0.15); }
+        .row-item-hover { background: #FFFFFF; border: 1px solid #E2E8F0; transition: all .15s ease; }
+        .row-item-hover:hover { background: #F8FAFC !important; border-color: #CBD5E1 !important; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+        .popover-facturas-menu {
+          position: absolute; right: 0; top: calc(100% + 6px); z-index: 9999; width: 232px;
+          padding: 6px; background: #FFFFFF; border: 1px solid #E2E8F0;
+          border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 1px; text-align: left;
+        }
+        .popover-item-btn {
+          appearance: none; background: transparent; border: 0; cursor: pointer; display: flex;
+          align-items: center; gap: 9px; padding: 8px 10px; border-radius: 6px;
+          font-size: 13px; color: #334155; font-family: inherit; font-weight: 500; text-align: left; width: 100%; box-sizing: border-box; transition: background .12s ease;
+        }
+        .popover-item-btn:hover { background: #F1F5F9; color: #0F172A; }
+        .popover-item-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      </style>
+
+      <div class="facturas-page-container">
+        <!-- Header -->
+        <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 20px;">
+          <div>
+            <div style="font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 800; color: #2E6FC0; margin-bottom: 6px;">Archivo de comprobantes</div>
+            <h2 id="facturas-titulo-edificio" style="font-size: 26px; font-weight: 800; color: #0F172A; letter-spacing: -0.02em; margin: 0 0 6px;">Facturas y Fotos · Cargando...</h2>
+            <div style="font-size: 14px; color: #64748B; max-width: 640px;">
+              Comprobantes de proveedores y de gastos fijos de todos los consorcios. Separá por tipo de gasto y por quién lo cargó para encontrarlos más rápido.
             </div>
           </div>
-        </div>`;
-    }).join('');
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button type="button" class="btn-factura-sec" onclick="abrirModalFiltrosAvanzados()"><i class="ph ph-funnel" style="font-size: 16px; color: #475569;"></i>Filtros avanzados</button>
+            <button type="button" class="btn-factura-pri" onclick="abrirModalSubirDocumento()" title="Subir factura en PDF o foto de comprobante"><i class="ph ph-upload-simple" style="font-size: 16px;"></i>Subir Factura o Foto</button>
+          </div>
+        </div>
 
-    const filtroDueno = req.session.filtroEdificioDueno;
-    const contenido = `
-      <div style="animation:mFade .3s ease both">
-        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Facturas y Fotos${dueno ? ` · ${filtroDueno ? esc(filtroDueno) : 'Todos los edificios'}` : ''}</h1>
-        <p style="color:#64748B;font-size:15px;margin:0 0 20px">${dueno ? 'Comprobantes y archivos de todos los consorcios. Usá el filtro de arriba para acotar por edificio.' : 'Comprobantes y archivos que vecinos y proveedores enviaron por WhatsApp, ordenados por Marcos.'}</p>
-        ${facturas.length
-          ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">${cards}</div>`
-          : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Este edificio todavía no tiene comprobantes cargados.</div>'}
-      </div>`;
+        <!-- Totales Bar -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 24px;">
+          <div class="factura-card-metric" style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+            <div class="metric-title" style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: #64748B;">Comprobantes archivados</div>
+            <div id="tot-archivados" class="metric-value" style="font-size: 24px; font-weight: 800; color: #0F172A; margin-top: 4px;">—</div>
+          </div>
+          <div class="factura-card-metric" style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+            <div class="metric-title" style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: #64748B;">Proveedores</div>
+            <div id="tot-proveedores" class="metric-value" style="font-size: 24px; font-weight: 800; color: #0F172A; margin-top: 4px;">—</div>
+          </div>
+          <div class="factura-card-metric" style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+            <div class="metric-title" style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: #64748B;">Gastos fijos</div>
+            <div id="tot-fijos" class="metric-value" style="font-size: 24px; font-weight: 800; color: #0F172A; margin-top: 4px;">—</div>
+          </div>
+          <div class="factura-card-metric" style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+            <div class="metric-title" style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: #64748B;">Pendiente de pago</div>
+            <div id="tot-pendiente" class="metric-value" style="font-size: 24px; font-weight: 800; color: #D97706; margin-top: 4px;">—</div>
+          </div>
+        </div>
 
-    res.send(shell(req, d, 'facturas', contenido));
+        <!-- Filter Controls -->
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px;">
+          <div style="display: inline-flex; border: 1px solid #E2E8F0; border-radius: 10px; background: #FFFFFF; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+            <button id="tab-clase-todos" type="button" onclick="cambiarTabClase('')" style="appearance: none; background: #2E6FC0; border: 0; cursor: pointer; padding: 9px 16px; font-weight: 700; font-size: 13px; color: #FFFFFF; display: inline-flex; align-items: center; gap: 7px; transition: all .15s ease;">
+              <i class="ph ph-squares-four" style="font-size: 15px;"></i><span>Todos</span>
+            </button>
+            <button id="tab-clase-proveedor" type="button" onclick="cambiarTabClase('Proveedor')" style="appearance: none; background: #FFFFFF; border: 0; border-left: 1px solid #E2E8F0; cursor: pointer; padding: 9px 16px; font-weight: 600; font-size: 13px; color: #475569; display: inline-flex; align-items: center; gap: 7px; transition: all .15s ease;">
+              <i class="ph ph-wrench" style="font-size: 15px;"></i><span>Proveedores</span>
+            </button>
+            <button id="tab-clase-fijo" type="button" onclick="cambiarTabClase('Gasto fijo')" style="appearance: none; background: #FFFFFF; border: 0; border-left: 1px solid #E2E8F0; cursor: pointer; padding: 9px 16px; font-weight: 600; font-size: 13px; color: #475569; display: inline-flex; align-items: center; gap: 7px; transition: all .15s ease;">
+              <i class="ph ph-lightning" style="font-size: 15px;"></i><span>Gastos fijos</span>
+            </button>
+          </div>
+
+          <div style="position: relative; flex: 1 1 240px; max-width: 360px;">
+            <i class="ph ph-magnifying-glass" style="position: absolute; left: 11px; top: 50%; transform: translateY(-50%); font-size: 16px; color: #94A3B8;"></i>
+            <input id="input-busqueda-q" class="input-factura-search" type="text" placeholder="Buscar por concepto, proveedor o N° de factura" oninput="onBuscadorInput(this.value)">
+          </div>
+        </div>
+
+        <!-- Chips "Cargado por" -->
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;">
+          <span style="font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: #64748B; margin-right: 2px;">Cargado por</span>
+          <button id="chip-origen-todos" type="button" onclick="cambiarChipOrigen('')" style="appearance: none; cursor: pointer; background: #1E408B; border: 1px solid #1E408B; border-radius: 999px; padding: 5px 14px; font-size: 12.5px; font-weight: 700; color: #FFFFFF; display: inline-flex; align-items: center; gap: 6px; transition: all .15s ease;">
+            <span>Todos</span>
+          </button>
+          <button id="chip-origen-encargado" type="button" onclick="cambiarChipOrigen('Encargado')" style="appearance: none; cursor: pointer; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 999px; padding: 5px 14px; font-size: 12.5px; font-weight: 600; color: #475569; display: inline-flex; align-items: center; gap: 6px; transition: all .15s ease;">
+            <i class="ph ph-user-gear" style="font-size: 14px;"></i><span>Encargado</span>
+          </button>
+          <button id="chip-origen-consejo" type="button" onclick="cambiarChipOrigen('Consejo')" style="appearance: none; cursor: pointer; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 999px; padding: 5px 14px; font-size: 12.5px; font-weight: 600; color: #475569; display: inline-flex; align-items: center; gap: 6px; transition: all .15s ease;">
+            <i class="ph ph-users-three" style="font-size: 14px;"></i><span>Consejo de consorcio</span>
+          </button>
+          <button id="chip-origen-admin" type="button" onclick="cambiarChipOrigen('Administrador')" style="appearance: none; cursor: pointer; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 999px; padding: 5px 14px; font-size: 12.5px; font-weight: 600; color: #475569; display: inline-flex; align-items: center; gap: 6px; transition: all .15s ease;">
+            <i class="ph ph-briefcase" style="font-size: 14px;"></i><span>Administrador</span>
+          </button>
+        </div>
+
+        <!-- Content Container -->
+        <div id="facturas-grupos-container">
+          <!-- Renderizado dinámico desde API -->
+        </div>
+      </div>
+    `;
+
+    res.send(shell(req, d, 'facturas', contenido + modalSubirDocumentoHtml(d)));
   } catch (e) {
     res.status(500).send(paginaError(e));
   }
 });
+
+function modalSubirDocumentoHtml(d) {
+  const edList = (d && (d.propios && d.propios.length ? d.propios : d.edificios)) || [];
+  const curEd = (d && d.curBuilding && d.curBuilding.nombre) ? d.curBuilding.nombre : '';
+
+  let edOptions = edList.map((e) => {
+    const n = typeof e === 'string' ? e : (e.nombre || '');
+    const sel = curEd && n && n.toLowerCase() === curEd.toLowerCase() ? ' selected' : '';
+    return `<option value="${esc(n)}"${sel}>${esc(n)}</option>`;
+  }).join('');
+
+  if (!edOptions) {
+    edOptions = '<option value="Edificio Principal">Edificio Principal</option>';
+  }
+
+  return `
+    <div id="modal-subir-documento" class="modal-overlay" onclick="cerrarModal('modal-subir-documento')">
+      <div class="modal-box" style="max-width:540px" onclick="stopEv(event)">
+        <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+          <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Archivo de Comprobantes</div>
+          <div style="font-size:19px;font-weight:800;letter-spacing:-.01em;color:#0F172A">📤 Subir Factura, Comprobante o Foto</div>
+          <div style="font-size:12.5px;color:#64748B;margin-top:3px">Subí facturas oficiales en PDF, o fotos de tickets, remitos y comprobantes de compras o arreglos.</div>
+        </div>
+        <div style="padding:20px 24px;max-height:76vh;overflow-y:auto">
+          <!-- Dropzone / Selector de archivo o foto -->
+          <div style="margin-bottom:16px">
+            <input type="file" id="factura-subir-archivo" accept=".pdf,image/*,.jpg,.jpeg,.png,.webp,.heic" onchange="onFacturaArchivoSeleccionado(this)" style="display:none">
+            <div onclick="document.getElementById('factura-subir-archivo').click()" style="border:2px dashed #CBD5E1;border-radius:14px;padding:20px 16px;text-align:center;background:#F8FAFD;cursor:pointer;transition:all .15s ease" class="hv-soft" id="factura-subir-dropzone">
+              <div id="factura-subir-droptext">
+                <div style="font-size:32px;margin-bottom:6px">📄 📸</div>
+                <div style="font-size:14px;font-weight:700;color:#1E3A8A;margin-bottom:4px">Hacé clic para seleccionar Factura (PDF) o Foto (JPG/PNG)</div>
+                <div style="font-size:12px;color:#64748B">Acepta archivos PDF de servicios o fotos de boletas y tickets (hasta 20 MB)</div>
+              </div>
+              <div id="factura-subir-preview" style="display:none;flex-direction:column;align-items:center;gap:8px">
+                <img id="factura-subir-imgprev" src="" style="display:none;max-height:100px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1);object-fit:contain">
+                <div id="factura-subir-filename" style="font-size:13.5px;font-weight:700;color:#0F172A;word-break:break-all"></div>
+                <div id="factura-subir-typebadge"></div>
+                <span style="font-size:11.5px;color:#2E6FC0;font-weight:700;text-decoration:underline;margin-top:2px">Cambiar archivo</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Edificio -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Edificio o Consorcio *</label>
+            <select id="factura-subir-edificio" class="inp">
+              ${edOptions}
+            </select>
+          </div>
+
+          <!-- Tipo y Clase -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+            <div>
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Tipo de comprobante *</label>
+              <select id="factura-subir-tipo" class="inp">
+                <option value="Factura PDF">📄 Factura PDF</option>
+                <option value="Foto">📸 Foto (Ticket / Remito)</option>
+                <option value="Recibo">🧾 Recibo de Pago</option>
+                <option value="Presupuesto">📋 Presupuesto</option>
+                <option value="Otro">📎 Otro Comprobante</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Clase de gasto *</label>
+              <select id="factura-subir-clase" class="inp" onchange="onClaseFacturaCambiada(this.value)">
+                <option value="Proveedor">🔧 Proveedor / Reparación</option>
+                <option value="Gasto fijo">⚡ Gasto Fijo / Servicio</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Concepto -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Concepto o Detalle *</label>
+            <input id="factura-subir-concepto" placeholder="Ej: Factura Edenor consorcio, Compra repuestos ferretería..." class="inp">
+          </div>
+
+          <!-- Proveedor / Servicio y Categoría -->
+          <div style="display:grid;grid-template-columns:1.2fr 0.8fr;gap:12px;margin-bottom:14px">
+            <div>
+              <label id="label-subir-proveedor" style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Proveedor o Empresa</label>
+              <input id="factura-subir-proveedor" placeholder="Ej: Edenor, Ferretería El Puente, Otis" class="inp">
+            </div>
+            <div>
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Categoría / Rubro</label>
+              <input id="factura-subir-categoria" placeholder="Ej: Electricidad, Gas, Plomería..." class="inp">
+            </div>
+          </div>
+
+          <!-- Monto y N° Comprobante -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+            <div>
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Importe ($ ARS / USD)</label>
+              <input id="factura-subir-monto" placeholder="Ej: 35000 (o vacío)" class="inp">
+            </div>
+            <div>
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">N° Factura / Ticket</label>
+              <input id="factura-subir-numero" placeholder="Ej: B-0001-00049214" class="inp">
+            </div>
+          </div>
+
+          <!-- Origen / Quién lo cargó -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Cargado por</label>
+            <select id="factura-subir-origen" class="inp">
+              <option value="Administrador" selected>👔 Administrador</option>
+              <option value="Encargado">👷 Encargado</option>
+              <option value="Consejo">👥 Consejo de Propietarios</option>
+              <option value="Proveedor">🔧 Proveedor</option>
+            </select>
+          </div>
+        </div>
+        <div style="padding:14px 24px;border-top:1px solid #EEF1F6;display:flex;justify-content:flex-end;gap:10px;background:#FAFCFF">
+          <button type="button" onclick="cerrarModal('modal-subir-documento')" style="height:38px;padding:0 16px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Cancelar</button>
+          <button type="button" id="btn-subir-factura-enviar" onclick="subirFacturaSubmit()" style="height:38px;padding:0 18px;border:none;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:13px;cursor:pointer" class="hv-primary">📤 Subir Comprobante</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
 
 /* ===================================================================
  * EXPENSAS (cliente)
@@ -6305,10 +13525,72 @@ router.get('/expensas', async (req, res) => {
   if (esDueno(req)) return res.redirect('/admin');
   try {
     const d = await cargarDatos(req);
+    const permitidos = edificiosPermitidos(req) || [];
+    const activo = enPreview(req) ? req.session.previewEdificioActivo : req.session.edificioActivo;
     const cur = d.curBuilding;
+    // Edificio destino para publicaciones: si hay activo se usa ese, sino el primer permitido o cur.nombre
+    const edTarget = activo || (permitidos.length ? permitidos[0] : (cur ? cur.nombre : ''));
+
     const { rows } = await readTab(TAB_EXPENSAS);
-    const expensas = rows.map(mapExpensa)
-      .filter((x) => cur && compararEdificios(x.edificio, cur.nombre) && x.estado !== 'eliminada')
+    const todasLasExpensas = rows.map(mapExpensa).filter((x) => x.estado !== 'eliminada');
+
+    // Si el cliente administra varios edificios y todavía no eligió ninguno (estado "Todos los edificios"),
+    // se le presenta un grid de tarjetas para que elija a qué edificio le va a gestionar o subir expensas.
+    if (!activo && d.propios.length > 1) {
+      const hoy = new Date();
+      const mesActual = hoy.toLocaleString('es-AR', { month: 'long' });
+      const anioActual = hoy.getFullYear();
+      const periodoMesActual = `${mesActual.charAt(0).toUpperCase()}${mesActual.slice(1)} ${anioActual}`;
+
+      const cards = d.propios.map((e) => {
+        const expEdificio = todasLasExpensas.filter((x) => compararEdificios(x.edificio, e.nombre));
+        const expMes = expEdificio.filter((x) => (x.periodo || '').toLowerCase().includes(mesActual.toLowerCase()));
+
+        let statusBadge = '';
+        if (expMes.length > 0) {
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ ${esc(expMes[0].periodo || periodoMesActual)} · ${expMes.length} publicadas</span>`;
+        } else if (expEdificio.length > 0) {
+          const ult = expEdificio[0];
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#FEF3C7;color:#92400E">⏳ ${esc(ult.periodo || '')} · sin publicar este mes</span>`;
+        } else {
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#F1F5F9;color:#64748B">Sin expensas publicadas</span>`;
+        }
+
+        return `
+          <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/expensas')}"
+            style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px;text-decoration:none;transition:transform .15s ease,box-shadow .15s ease" class="hv-card">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">
+              <span style="width:44px;height:44px;border-radius:12px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏢</span>
+              ${statusBadge}
+            </div>
+            <div style="font-size:16.5px;font-weight:800;color:#16233B;letter-spacing:-.01em;margin-bottom:4px">${esc(e.nombre)}</div>
+            <div style="font-size:13px;color:#8595AD;margin-bottom:14px">${esc(e.direccion || e.nombre)}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#1E5FB4">
+              <span>Gestionar expensas</span>
+              <span>→</span>
+            </div>
+          </a>`;
+      }).join('');
+
+      const contenido = `
+        <div style="animation:mFade .3s ease both;max-width:880px">
+          <div style="margin-bottom:24px">
+            <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px">Expensas</h1>
+            <p style="color:#64748B;font-size:15px;margin:0">Elegí a qué edificio querés subirle o consultarle las expensas.</p>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-bottom:26px">
+            ${cards}
+          </div>
+        </div>`;
+
+      return res.send(shell(req, d, 'expensas', contenido));
+    }
+
+    const expensas = todasLasExpensas
+      .filter((x) => {
+        if (activo) return compararEdificios(x.edificio, activo);
+        return permitidos.some((p) => compararEdificios(x.edificio, p));
+      })
       .sort((a, b) => b._row - a._row);
 
     const tipoExp = (f) => (f === 'link'
@@ -6321,33 +13603,76 @@ router.get('/expensas', async (req, res) => {
       <div style="display:flex;flex-direction:column;gap:12px">
         ${expensas.map((x) => {
           const t = tipoExp(x.formato);
-          const copiable = x.url || x.nombre;
+          const esLink = x.formato === 'link' || /^https?:\/\//i.test(x.url || '');
+          const archivoNombre = path.basename(x.url || x.nombre || '');
+          const verUrl = esLink ? x.url : (archivoNombre ? `/admin/api/expensa-archivo/${encodeURIComponent(archivoNombre)}` : (x.url || ''));
+          const copiable = verUrl || x.url || x.nombre;
+          const montoNum = x.monto !== '' && x.monto !== null && !isNaN(Number(x.monto)) ? Number(x.monto) : null;
+          const montoFmt = montoNum !== null ? montoNum.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (x.monto ? esc(x.monto) : '');
           return `
           <div style="display:flex;align-items:center;gap:15px;background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 18px;flex-wrap:wrap">
             <span style="width:46px;height:46px;border-radius:12px;background:${t.bg};display:flex;align-items:center;justify-content:center;font-size:21px;flex-shrink:0">${t.icon}</span>
             <div style="flex:1;min-width:170px">
-              <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span style="font-size:15.5px;font-weight:800">${esc(x.periodo)}</span>
                 <span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:${t.bg};color:${t.fg}">${t.label}</span>
+                ${d.propios.length > 1 ? `<span style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EAF1FB;color:#1E5FB4">🏢 ${esc(x.edificio)}</span>` : ''}
+                ${x.departamento ? `<span style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#EDE9FE;color:#5B21B6">Unidad: ${esc(x.departamento)}</span>` : `<span style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#F1F5F9;color:#475569">General (edificio)</span>`}
+                ${montoFmt ? `<span style="font-size:12px;font-weight:800;padding:2px 9px;border-radius:999px;background:#ECFDF5;color:#065F46">$ ${montoFmt}${x.monto_origen === 'ocr' ? ' <span style="font-size:9.5px;font-weight:600;opacity:0.8">(OCR)</span>' : ''}</span>` : ''}
+                ${x.vencimiento ? `<span style="font-size:11.5px;color:#64748B">Vence: ${esc(x.vencimiento)}</span>` : ''}
               </div>
-              <div style="font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px">${esc(x.url || x.nombre || '')}</div>
+              <div style="font-size:12.5px;color:#8595AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px;margin-top:2px">${esc(x.nombre || archivoNombre || x.url || '')}</div>
             </div>
             <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ Marcos puede compartirla</span>
             <div style="display:flex;gap:8px">
+              ${verUrl ? `<a href="${esc(verUrl)}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#F8FAFD;color:#1E5FB4;font-weight:700;font-size:12.5px;text-decoration:none" class="hv-soft">👁️ Ver</a>` : ''}
               <button onclick="copiarExpensa('${escJs(copiable)}')" style="height:36px;padding:0 13px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-soft">🔗 Copiar</button>
               <button onclick="quitarExpensa(this,${x._row})" style="height:36px;padding:0 13px;border:1px solid #EEDCDC;border-radius:9px;background:#fff;color:#C0392B;font-weight:700;font-size:12.5px;cursor:pointer" class="hv-red">Quitar</button>
             </div>
           </div>`;
         }).join('')}
       </div>`
-      : '<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">Todavía no publicaste expensas para este edificio.</div>';
+      : `<div style="text-align:center;padding:36px 20px;background:#fff;border:1px dashed #DDE3EE;border-radius:14px;color:#8595AD;font-size:14px">${esc(activo ? `Todavía no publicaste expensas para ${activo}.` : (d.propios.length > 1 ? 'Todavía no publicaste expensas para ninguno de tus edificios.' : 'Todavía no publicaste expensas para este edificio.'))}</div>`;
+
+    let filtroEdificiosHtml = '';
+    if (d.propios.length > 1) {
+      const expensasPropias = todasLasExpensas.filter((x) => permitidos.some((p) => compararEdificios(x.edificio, p)));
+      filtroEdificiosHtml = `
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+          <span style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase">Filtrar por:</span>
+          <a href="/admin/set-filtro?edificio=&volver=${encodeURIComponent('/admin/expensas')}"
+            style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;font-size:12.5px;font-weight:700;text-decoration:none;${!activo ? 'background:#1E5FB4;color:#fff' : 'background:#F1F5F9;color:#475569;border:1px solid #E2E8F0'}">
+            Todos (${expensasPropias.length})
+          </a>
+          ${d.propios.map((p) => {
+            const sel = activo && normEdificio(p.nombre) === normEdificio(activo);
+            const count = todasLasExpensas.filter((x) => compararEdificios(x.edificio, p.nombre)).length;
+            return `
+              <a href="/admin/set-filtro?edificio=${encodeURIComponent(p.nombre)}&volver=${encodeURIComponent('/admin/expensas')}"
+                style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;font-size:12.5px;font-weight:700;text-decoration:none;${sel ? 'background:#1E5FB4;color:#fff' : 'background:#F1F5F9;color:#475569;border:1px solid #E2E8F0'}">
+                🏢 ${esc(p.nombre)} <span style="opacity:0.8;font-size:11px">(${count})</span>
+              </a>`;
+          }).join('')}
+        </div>`;
+    }
 
     const contenido = `
       <div style="animation:mFade .3s ease both;max-width:820px">
-        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Expensas</h1>
-        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Subí las expensas del mes de ${esc(cur ? cur.nombre : '')}. <strong style="color:#334259">Marcos queda habilitado para compartirlas</strong> con los vecinos que las pidan por WhatsApp, o para enviarlas cuando vos se lo indiques.</p>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+          <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">Expensas</h1>
+          ${d.propios.length > 1 ? `
+            <a href="/admin/set-filtro?edificio=&volver=${encodeURIComponent('/admin/expensas')}"
+              style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#1E5FB4;font-size:13px;font-weight:700;text-decoration:none" class="hv-soft">
+              🏢 Cambiar de edificio
+            </a>` : ''}
+        </div>
+        <p style="color:#64748B;font-size:15px;margin:0 0 20px">Subí las expensas del mes de <strong>${esc(edTarget || 'tu edificio')}</strong>. <strong style="color:#334259">Marcos queda habilitado para compartirlas</strong> con los vecinos que las pidan por WhatsApp, o para enviarlas cuando vos se lo indiques.</p>
+        ${filtroEdificiosHtml}
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:26px">
-          <div style="font-size:15px;font-weight:800;margin-bottom:14px">Publicar nueva expensa</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+            <div style="font-size:15px;font-weight:800">Publicar nueva expensa</div>
+            ${edTarget ? `<span style="font-size:12px;font-weight:700;color:#1E5FB4;background:#EAF1FB;padding:4px 10px;border-radius:8px">Destino: 🏢 ${esc(edTarget)}</span>` : ''}
+          </div>
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
             <div style="flex:1;min-width:130px">
               <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Mes</div>
@@ -6358,25 +13683,52 @@ router.get('/expensas', async (req, res) => {
               <input id="exp-anio" class="inp" style="height:44px" value="${new Date().getFullYear()}">
             </div>
           </div>
-          <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Formato</div>
-          <div style="display:flex;gap:9px;margin-bottom:16px;flex-wrap:wrap">
-            <button data-exp-btn onclick="elegirFormatoExp(this,'pdf')" style="height:40px;padding:0 16px;border:1px solid #17408B;border-radius:10px;background:#17408B;color:#fff;font-weight:700;font-size:13.5px;cursor:pointer">📄 PDF</button>
-            <button data-exp-btn onclick="elegirFormatoExp(this,'imagen')" style="height:40px;padding:0 16px;border:1px solid #DDE3EE;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13.5px;cursor:pointer">🖼️ Imagen</button>
-            <button data-exp-btn onclick="elegirFormatoExp(this,'link')" style="height:40px;padding:0 16px;border:1px solid #DDE3EE;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13.5px;cursor:pointer">🔗 Link web</button>
-          </div>
-          <div id="exp-link-wrap" style="display:none">
-            <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Dirección web</div>
-            <input id="exp-url" placeholder="https://..." class="inp" style="margin-bottom:16px">
-          </div>
           <div id="exp-file-wrap" onclick="pickExpFile()" style="display:flex;align-items:center;gap:13px;border:1.5px dashed #C9D5E8;border-radius:12px;padding:16px;background:#F7F9FC;cursor:pointer;margin-bottom:16px" class="hv-bluedash">
             <span style="width:44px;height:44px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📎</span>
             <div style="flex:1">
-              <div id="exp-file-nombre" style="font-size:14.5px;font-weight:700;color:#334259">Elegí el archivo</div>
-              <div id="exp-file-sub" style="font-size:12.5px;color:#8595AD">Tocá para seleccionar el PDF o la imagen de las expensas</div>
+              <div id="exp-file-nombre" style="font-size:14.5px;font-weight:700;color:#334259">Elegí uno o varios archivos</div>
+              <div id="exp-file-sub" style="font-size:12.5px;color:#8595AD">Tocá para seleccionar 1 archivo o un lote completo (hasta 60) de expensas</div>
             </div>
-            <input id="exp-file-input" type="file" accept=".pdf,image/*" style="display:none" onchange="expFileElegido(this)">
+            <input id="exp-file-input" type="file" accept=".pdf,image/*" multiple style="display:none" onchange="expFilesElegidos(this)">
           </div>
-          <button onclick="publicarExpensa(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">Publicar para Marcos</button>
+
+          <!-- Modo Individual -->
+          <div id="exp-single-wrap">
+            <div style="margin-bottom:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase">Unidad / Departamento <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+                <span style="font-size:11.5px;color:#64748B">Vacío = liquidación general del consorcio</span>
+              </div>
+              <input id="exp-depto" class="inp" style="height:44px" placeholder="Ej: 1° A, 4B, PB 2 (dejar vacío si es la liquidación general)">
+              <div style="font-size:11.5px;color:#8595AD;margin-top:4px">Si ponés una unidad, solo la verá el vecino de ese departamento en su portal y por WhatsApp.</div>
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+              <div style="flex:1;min-width:140px">
+                <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Total a pagar ($) <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+                <input id="exp-monto" class="inp" style="height:44px" placeholder="Ej: 85420.50 (se extrae al subir o podés escribirlo)" oninput="expMontoCambiado()">
+              </div>
+              <div style="flex:1;min-width:140px">
+                <div style="font-size:12px;font-weight:700;color:#8595AD;text-transform:uppercase;margin-bottom:6px">Vencimiento <span style="font-weight:400;text-transform:none">(opcional)</span></div>
+                <input id="exp-vencimiento" class="inp" style="height:44px" placeholder="DD/MM/AAAA">
+              </div>
+            </div>
+            <div id="exp-ocr-status" style="display:none;margin-bottom:16px;font-size:12.5px;line-height:1.4"></div>
+            <button id="btn-exp-single" onclick="publicarExpensa(this)" style="height:46px;padding:0 24px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">Publicar para Marcos</button>
+          </div>
+
+          <!-- Modo Tanda / Lote Múltiple -->
+          <div id="exp-tanda-card" class="exp-tanda-card" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <div class="exp-tanda-titulo">📦 Revisión de tanda de expensas</div>
+              <button type="button" onclick="cancelarTanda()" class="exp-tanda-btn-cancelar hv-soft">✕ Cancelar tanda</button>
+            </div>
+            <div id="exp-tanda-status" style="margin-bottom:16px"></div>
+            <div id="exp-tanda-tabla-wrap" style="overflow-x:auto;margin-bottom:16px"></div>
+            <div id="exp-tanda-acciones" style="display:none;justify-content:flex-end;gap:10px">
+              <button type="button" onclick="cancelarTanda()" class="exp-btn-accion-cancelar hv-soft">Cancelar</button>
+              <button id="btn-publicar-tanda" type="button" onclick="publicarTanda(this)" style="height:44px;padding:0 24px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">🚀 Confirmar y Publicar Tanda</button>
+            </div>
+          </div>
         </div>
         <div style="font-size:15px;font-weight:800;margin-bottom:12px">Expensas publicadas</div>
         ${listHtml}
@@ -6385,6 +13737,411 @@ router.get('/expensas', async (req, res) => {
     res.send(shell(req, d, 'expensas', contenido));
   } catch (e) {
     res.status(500).send(paginaError(e));
+  }
+});
+
+/* ===================================================================
+ * AVISOS DEL EDIFICIO (comunicados oficiales al consorcio)
+ * =================================================================== */
+
+function formatearFechaAviso(d) {
+  if (!d) return '';
+  try {
+    const f = new Date(d);
+    if (isNaN(f.getTime())) return String(d);
+    return f.toLocaleString('es-AR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch (e) {
+    return String(d);
+  }
+}
+
+function badgeTipoAviso(tipo) {
+  const t = String(tipo || '').toLowerCase();
+  if (t === 'corte') {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#FEE2E2;color:#991B1B;border:1px solid #FECACA">🚰 Corte programado</span>';
+  }
+  if (t === 'mantenimiento') {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#FEF3C7;color:#92400E;border:1px solid #FDE68A">🔧 Mantenimiento</span>';
+  }
+  if (t === 'fumigacion') {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#E0E7FF;color:#3730A3;border:1px solid #C7D2FE">🪲 Fumigación</span>';
+  }
+  if (t === 'obra') {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#FFEDD5;color:#9A3412;border:1px solid #FED7AA">🔨 Obra / Reparación</span>';
+  }
+  if (t === 'seguridad') {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0">🛡️ Seguridad</span>';
+  }
+  return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:#EAF1FB;color:#1E5FB4;border:1px solid #D4E2F6">ℹ️ General</span>';
+}
+
+async function obtenerAvisosPanel(edificio) {
+  if (!edificio || !String(edificio).trim()) return { vigentes: [], historico: [] };
+  try {
+    const { pool: p, avisosVigentesDeEdificio } = require('./db-pg');
+    if (!p || p.sinBase) return { vigentes: [], historico: [] };
+    const vigentes = await avisosVigentesDeEdificio(edificio);
+    const resAll = await p.query(
+      `SELECT * FROM avisos
+        WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))
+        ORDER BY created_at DESC
+        LIMIT 50`,
+      [edificio]
+    );
+    const todos = resAll.rows || [];
+    const vigentesIds = new Set((vigentes || []).map((v) => v.id));
+    const historico = todos.filter((a) => !vigentesIds.has(a.id));
+    return { vigentes: vigentes || [], historico };
+  } catch (err) {
+    console.warn('[obtenerAvisosPanel] Info/Aviso de PostgreSQL:', err.message);
+    return { vigentes: [], historico: [] };
+  }
+}
+
+router.get('/avisos', async (req, res) => {
+  try {
+    const d = await cargarDatos(req);
+    const permitidos = edificiosPermitidos(req) || [];
+    const activo = enPreview(req) ? req.session.previewEdificioActivo : req.session.edificioActivo;
+    const cur = d.curBuilding;
+    const edTarget = activo || (permitidos.length ? permitidos[0] : (cur ? cur.nombre : ''));
+
+    // Si tiene varios edificios y ninguno activo, mostrar grid de selección
+    if (!activo && d.propios.length > 1) {
+      const cards = await Promise.all(d.propios.map(async (e) => {
+        const { vigentes } = await obtenerAvisosPanel(e.nombre);
+        const count = vigentes.length;
+        let statusBadge = '';
+        if (count > 0) {
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#FEF3C7;color:#92400E">📢 ${count} aviso${count === 1 ? '' : 's'} activo${count === 1 ? '' : 's'}</span>`;
+        } else {
+          statusBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:#E7F4EC;color:#1B7A43">✓ Sin avisos vigentes</span>`;
+        }
+        return `
+          <a href="/admin/set-filtro?edificio=${encodeURIComponent(e.nombre)}&volver=${encodeURIComponent('/admin/avisos')}"
+            style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px;text-decoration:none;transition:transform .15s ease,box-shadow .15s ease" class="hv-card">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">
+              <span style="width:44px;height:44px;border-radius:12px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏢</span>
+              ${statusBadge}
+            </div>
+            <div style="font-size:16.5px;font-weight:800;color:#16233B;letter-spacing:-.01em;margin-bottom:4px">${esc(e.nombre)}</div>
+            <div style="font-size:13px;color:#8595AD;margin-bottom:14px">${esc(e.direccion || e.nombre)}${e.unidades ? ' · ' + esc(e.unidades) + ' un.' : ''}</div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#1E5FB4">
+              <span>Gestionar comunicados</span>
+              <span style="font-size:15px">→</span>
+            </div>
+          </a>`;
+      }));
+
+      const contenido = `
+        <div style="max-width:1120px;margin:0 auto">
+          <div style="margin-bottom:24px">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Comunicados oficiales</div>
+            <div style="font-size:24px;font-weight:800;color:#16233B;letter-spacing:-.02em;margin-bottom:6px">Avisos del Edificio</div>
+            <div style="font-size:14px;color:#64748B;line-height:1.5">Elegí un consorcio para ver sus avisos vigentes, el historial o publicar un nuevo comunicado para los vecinos.</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">
+            ${cards.join('')}
+          </div>
+        </div>`;
+
+      return res.send(shell(req, d, 'avisos', contenido));
+    }
+
+    // Edificio seleccionado
+    const { vigentes, historico } = await obtenerAvisosPanel(edTarget);
+
+    let vigentesHtml = '';
+    if (vigentes.length === 0) {
+      vigentesHtml = `
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:36px 24px;text-align:center;margin-bottom:28px">
+          <div style="width:54px;height:54px;border-radius:50%;background:#E7F4EC;color:#1B7A43;font-size:26px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px">✓</div>
+          <div style="font-size:16px;font-weight:800;color:#16233B;margin-bottom:6px">No hay avisos vigentes en este edificio</div>
+          <div style="font-size:13.5px;color:#64748B;max-width:440px;margin:0 auto 18px;line-height:1.45">Todos los servicios funcionan con normalidad y no hay cortes programados ni obras anunciadas actualmente.</div>
+          <button type="button" onclick="abrirModalNuevoAviso('${esc(edTarget)}')"
+            style="display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:10px;background:#2E6FC0;color:#fff;font-weight:700;font-size:13.5px;border:none;cursor:pointer" class="hv-primary">
+            <span>+ Publicar Nuevo Aviso</span>
+          </button>
+        </div>`;
+    } else {
+      vigentesHtml = `
+        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:28px">
+          ${vigentes.map((a) => {
+            const tipoBadge = badgeTipoAviso(a.tipo);
+            const urgBadge = a.urgente ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#DC2626;color:#fff;letter-spacing:.02em">🚨 URGENTE</span>' : '';
+            const rubBadge = a.rubro ? `<span style="font-size:11.5px;font-weight:700;color:#64748B;background:#F1F5F9;padding:3px 9px;border-radius:8px">🏷️ ${esc(a.rubro)}</span>` : '';
+            const vigencia = a.hasta ? `⏳ Hasta el ${formatearFechaAviso(a.hasta)}` : '📌 Hasta nuevo aviso';
+
+            return `
+              <div style="background:#fff;border:1px solid ${a.urgente ? '#FCA5A5' : '#E7ECF3'};border-radius:16px;padding:18px 22px;box-shadow:${a.urgente ? '0 4px 14px rgba(220,38,38,0.08)' : 'none'}">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    ${tipoBadge}
+                    ${urgBadge}
+                    ${rubBadge}
+                  </div>
+                  <div style="font-size:12px;font-weight:700;color:${a.hasta ? '#B45309' : '#047857'};background:${a.hasta ? '#FEF3C7' : '#ECFDF5'};padding:4px 10px;border-radius:8px">
+                    ${vigencia}
+                  </div>
+                </div>
+
+                <div style="font-size:17.5px;font-weight:800;color:#16233B;letter-spacing:-.01em;margin-bottom:8px">
+                  ${esc(a.titulo || 'Comunicado oficial')}
+                </div>
+
+                <div style="font-size:14px;color:#334259;line-height:1.55;white-space:pre-wrap;background:#F8FAFC;padding:12px 16px;border-radius:10px;border:1px solid #E2E8F0;margin-bottom:14px">
+                  ${esc(a.texto)}
+                </div>
+
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding-top:10px;border-top:1px solid #F1F5F9">
+                  <div style="font-size:12.5px;color:#64748B">
+                    Publicado por: <strong style="color:#1E293B">${esc(a.publicado_por || 'Administración')}</strong> (${esc(a.publicado_rol || 'administrador')}) · ${formatearFechaAviso(a.desde || a.created_at)}
+                  </div>
+                  <button type="button" onclick="darDeBajaAviso(${a.id}, this)"
+                    style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:1px solid #FCA5A5;background:#FFF5F5;color:#B91C1C;font-size:12.5px;font-weight:700;border-radius:8px;cursor:pointer" class="hv-soft" title="Dar de baja aviso">
+                    <span>✓ Dar de baja aviso</span>
+                  </button>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>`;
+    }
+
+    let historicoHtml = '';
+    if (historico.length === 0) {
+      historicoHtml = '<div style="font-size:13px;color:#8595AD;padding:14px 0">No hay avisos anteriores en el historial de este edificio.</div>';
+    } else {
+      historicoHtml = `
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;text-align:left">
+            <thead>
+              <tr style="border-bottom:1.5px solid #E2E8F0;color:#64748B;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">
+                <th style="padding:10px 12px">Fecha</th>
+                <th style="padding:10px 12px">Tipo</th>
+                <th style="padding:10px 12px">Título / Detalle</th>
+                <th style="padding:10px 12px">Publicó</th>
+                <th style="padding:10px 12px">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${historico.map((h) => {
+                const estBadge = h.estado === 'levantado'
+                  ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#F1F5F9;color:#64748B">Levantado</span>'
+                  : '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#FEF3C7;color:#92400E">Vencido</span>';
+                return `
+                  <tr style="border-bottom:1px solid #F1F5F9;color:#334259">
+                    <td style="padding:10px 12px;white-space:nowrap;color:#64748B;font-size:12px">${formatearFechaAviso(h.created_at)}</td>
+                    <td style="padding:10px 12px;white-space:nowrap">${badgeTipoAviso(h.tipo)}</td>
+                    <td style="padding:10px 12px">
+                      <div style="font-weight:700;color:#1E293B">${esc(h.titulo || 'Sin título')}</div>
+                      <div style="font-size:12px;color:#64748B;max-width:480px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(h.texto)}</div>
+                    </td>
+                    <td style="padding:10px 12px;white-space:nowrap;font-size:12px;color:#64748B">${esc(h.publicado_por || '')} <span style="font-size:11px;color:#94A3B8">(${esc(h.publicado_rol || '')})</span></td>
+                    <td style="padding:10px 12px;white-space:nowrap">${estBadge}</td>
+                  </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    const modalNuevoAvisoHtml = `
+      <div id="modal-nuevo-aviso" class="modal-overlay" onclick="cerrarModal('modal-nuevo-aviso')">
+        <div class="modal-box" style="max-width:540px;max-height:92vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Comunicado oficial</div>
+            <div style="font-size:20px;font-weight:800;color:#16233B;letter-spacing:-.01em">📢 Publicar Aviso al Consorcio</div>
+          </div>
+          
+          <div style="padding:20px 24px;overflow-y:auto;flex:1;min-height:0">
+            <div style="margin-bottom:14px">
+              <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Edificio de destino</label>
+              <select id="aviso-edificio" class="inp" style="height:42px;font-weight:700">
+                ${(permitidos.length ? permitidos : (d.propios.map(p => p.nombre))).map(e => `<option value="${esc(e)}" ${normEdificio(e) === normEdificio(edTarget) ? 'selected' : ''}>${esc(e)}</option>`).join('')}
+              </select>
+            </div>
+
+            <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+              <div style="flex:1;min-width:180px">
+                <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Tipo de aviso</label>
+                <select id="aviso-tipo" class="inp" style="height:42px">
+                  <option value="mantenimiento" selected>🔧 Mantenimiento</option>
+                  <option value="corte">🚰 Corte programado</option>
+                  <option value="fumigacion">🪲 Fumigación</option>
+                  <option value="obra">🔨 Obra / Reparación</option>
+                  <option value="seguridad">🛡️ Seguridad</option>
+                  <option value="otro">ℹ️ Comunicado general</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:180px">
+                <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Rubro afectado <span style="font-weight:400;color:#8595AD">(opcional)</span></label>
+                <select id="aviso-rubro" class="inp" style="height:42px">
+                  <option value="">Ninguno / General</option>
+                  ${RUBROS_PROVEEDOR.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Título del aviso</label>
+              <input id="aviso-titulo" class="inp" placeholder="Ej: Corte de agua por mantenimiento de bombas" style="height:42px">
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Mensaje para los vecinos</label>
+              <textarea id="aviso-texto" class="inp" style="min-height:90px;padding:10px 12px;line-height:1.45" placeholder="Explicá el motivo, áreas afectadas y horarios..."></textarea>
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Vigencia del aviso</label>
+              <select id="aviso-duracion-tipo" class="inp" style="height:42px" onchange="toggleAvisoDuracion()">
+                <option value="indefinido" selected>📌 Hasta nuevo aviso (queda activo hasta que lo des de baja)</option>
+                <option value="fecha">⏳ Con fecha y hora de finalización (se apaga automáticamente)</option>
+              </select>
+            </div>
+
+            <div id="aviso-hasta-wrap" style="display:none;margin-bottom:14px">
+              <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Fecha y hora de finalización</label>
+              <input id="aviso-hasta" type="datetime-local" class="inp" style="height:42px">
+              <div style="font-size:11.5px;color:#8595AD;margin-top:4px">Al llegar esta fecha y hora, el aviso se levantará solo del portal del vecino.</div>
+            </div>
+
+            <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+              <div style="flex:1;min-width:180px">
+                <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Firma / Publicado por</label>
+                <input id="aviso-publicado-por" class="inp" style="height:42px" value="${esc(d.clienteActual ? d.clienteActual.nombre : (req.session.user || 'Administración'))}">
+              </div>
+              <div style="flex:1;min-width:180px">
+                <label style="font-size:12.5px;font-weight:700;color:#334259;display:block;margin-bottom:5px">Rol</label>
+                <select id="aviso-rol" class="inp" style="height:42px">
+                  <option value="administrador" selected>Administrador</option>
+                  <option value="encargado">Encargado</option>
+                  <option value="consejo">Consejo</option>
+                  <option value="seguridad">Seguridad / Portería</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="background:#FFF5F5;border:1px solid #FECACA;border-radius:10px;padding:12px 14px">
+              <label style="display:flex;align-items:center;gap:9px;font-size:13px;font-weight:700;color:#991B1B;cursor:pointer">
+                <input type="checkbox" id="aviso-urgente" style="width:17px;height:17px;cursor:pointer">
+                <span>🚨 Marcar como comunicado URGENTE</span>
+              </label>
+              <div style="font-size:11.5px;color:#B91C1C;margin-top:4px;margin-left:26px">
+                Los avisos urgentes se muestran arriba de todo con alerta roja destacada en el Portal del Vecino.
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:11px;padding:16px 24px;border-top:1px solid #EEF1F6;flex-shrink:0">
+            <button type="button" onclick="cerrarModal('modal-nuevo-aviso')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button type="button" id="btn-guardar-aviso" onclick="guardarNuevoAviso(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Publicar Aviso</button>
+          </div>
+        </div>
+      </div>`;
+
+    const contenido = `
+      <div style="max-width:1040px;margin:0 auto">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:24px;flex-wrap:wrap">
+          <div>
+            ${d.propios.length > 1 ? `<a href="/admin/set-filtro?edificio=&volver=${encodeURIComponent('/admin/avisos')}" style="display:inline-flex;align-items:center;gap:4px;font-size:12.5px;font-weight:700;color:#2E6FC0;text-decoration:none;margin-bottom:6px">← Ver todos los consorcios</a>` : ''}
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Comunicados oficiales</div>
+            <div style="font-size:24px;font-weight:800;color:#16233B;letter-spacing:-.02em;margin-bottom:4px">Avisos · ${esc(edTarget)}</div>
+            <div style="font-size:13.5px;color:#64748B;line-height:1.45;max-width:620px">Publicá comunicados para los vecinos. Aparecen al instante en el Inicio del Portal del Vecino y por WhatsApp.</div>
+          </div>
+          <button type="button" onclick="abrirModalNuevoAviso('${esc(edTarget)}')"
+            style="display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 20px;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;border:none;cursor:pointer;box-shadow:0 2px 8px rgba(46,111,192,0.25)" class="hv-primary">
+            <span>+ Publicar Nuevo Aviso</span>
+          </button>
+        </div>
+
+        <div style="font-size:15.5px;font-weight:800;color:#16233B;margin-bottom:12px;display:flex;align-items:center;gap:8px">
+          <span>Avisos Vigentes</span>
+          <span style="font-size:12px;font-weight:700;background:#EAF1FB;color:#2E6FC0;padding:2px 8px;border-radius:999px">${vigentes.length}</span>
+        </div>
+        ${vigentesHtml}
+
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 24px;margin-bottom:32px">
+          <div style="font-size:15px;font-weight:800;color:#16233B;margin-bottom:4px">Historial de Comunicados Anteriores</div>
+          <div style="font-size:12.5px;color:#64748B;margin-bottom:16px">Registro de avisos finalizados o levantados de este consorcio.</div>
+          ${historicoHtml}
+        </div>
+
+        ${modalNuevoAvisoHtml}
+      </div>`;
+
+    res.send(shell(req, d, 'avisos', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+// ── POST /api/avisos ──
+router.post('/api/avisos', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, titulo, texto, tipo, rubro, urgente, hasta, publicadoPor, rol } = req.body || {};
+    const permitidos = edificiosPermitidos(req) || [];
+    if (!edificio) return res.status(400).json({ error: 'Falta el edificio' });
+    if (!permitidos.some((e) => normEdificio(e) === normEdificio(edificio))) {
+      return res.status(403).json({ error: 'No tenés permisos para publicar avisos en este edificio' });
+    }
+    if (!String(texto || titulo || '').trim()) {
+      return res.status(400).json({ error: 'El aviso no puede estar vacío' });
+    }
+
+    const { publicarAviso, ROLES_QUE_AVISAN } = require('./db-pg');
+    const rolNorm = String(rol || 'administrador').trim().toLowerCase();
+    if (!ROLES_QUE_AVISAN.includes(rolNorm)) {
+      return res.status(400).json({ error: `Rol no autorizado. Solo: ${ROLES_QUE_AVISAN.join(', ')}` });
+    }
+
+    let hastaFecha = null;
+    if (hasta) {
+      hastaFecha = new Date(hasta);
+      if (isNaN(hastaFecha.getTime())) hastaFecha = null;
+    }
+
+    const nuevoAviso = await publicarAviso({
+      edificio: String(edificio).trim(),
+      titulo: String(titulo || '').trim() || null,
+      texto: String(texto || titulo || '').trim(),
+      tipo: tipo || 'otro',
+      rubro: rubro || null,
+      urgente: !!urgente,
+      hasta: hastaFecha,
+      publicadoPor: String(publicadoPor || req.session.user || 'Administración').trim(),
+      rol: rolNorm,
+      origen: 'panel',
+    });
+
+    res.json({ ok: true, aviso: nuevoAviso });
+  } catch (err) {
+    console.error('Error en POST /api/avisos:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/avisos/:id/levantar ──
+router.post('/api/avisos/:id/levantar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { id } = req.params;
+    const idNum = parseInt(id, 10);
+    if (!idNum) return res.status(400).json({ error: 'ID de aviso inválido' });
+
+    const { levantarAviso } = require('./db-pg');
+    const avisoLevantado = await levantarAviso(idNum);
+    res.json({ ok: true, aviso: avisoLevantado });
+  } catch (err) {
+    console.error('Error en POST /api/avisos/:id/levantar:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -6460,7 +14217,7 @@ router.get('/consumos', async (req, res) => {
     const d = await cargarDatos(req);
     const cards = d.edificios.map((e) => {
       const ev = d.eventos.filter((x) => compararEdificios(x.edificio, e.nombre)).length;
-      const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
+      const cliente = (clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar';
       const plan = PLAN_STYLE(e.plan);
       return `
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px 20px;margin-bottom:14px">
@@ -6533,7 +14290,7 @@ router.get('/clientes', async (req, res) => {
 
     const filaEdificioHtml = (e, mostrarCliente) => {
       const plan = PLAN_STYLE(e.plan);
-      const cliente = (d.clientes.find((c) => c.edificios.includes(e.nombre)) || {}).nombre || 'Sin asignar';
+      const cliente = (clienteDelEdificio(d.clientes, e.nombre) || {}).nombre || 'Sin asignar';
       return `
         <div style="display:flex;align-items:center;gap:16px;background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:15px 18px;flex-wrap:wrap">
           <span style="width:44px;height:44px;border-radius:11px;background:#EAF1FB;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🏢</span>
@@ -6556,6 +14313,7 @@ router.get('/clientes', async (req, res) => {
           </div>
           <span style="font-size:12px;font-weight:800;padding:5px 12px;border-radius:999px;background:${plan.bg};color:${plan.fg}">Plan ${esc(e.plan)}</span>
           <button onclick="abrirEditar(${e._row},'${escJs(e.nombre)}','${escJs(e.encargado)}','${escJs(e.plan)}','${escJs(e.direccion || '')}','${escJs(e.cuit || '')}','${escJs(e.unidades || '')}','${escJs(e.zona || '')}','${escJs(e.aliases || '')}')" style="height:38px;padding:0 16px;border:1px solid #DCE4F0;border-radius:9px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">Editar</button>
+          <button onclick="abrirModalAsignarAdmin('${escJs(e.nombre)}','${escJs(cliente)}','${escJs((clienteDelEdificio(d.clientes, e.nombre) || {}).usuario || '')}')" style="height:38px;padding:0 14px;border:1px solid #DCE4F0;border-radius:9px;background:#F8FAFD;color:#17408B;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">👤 Asignar</button>
         </div>`;
     };
 
@@ -6563,12 +14321,12 @@ router.get('/clientes', async (req, res) => {
     if (vista === 'todos') {
       cuerpo = `<div style="display:flex;flex-direction:column;gap:12px">${d.edificios.map((e) => filaEdificioHtml(e, true)).join('')}</div>`;
     } else if (clienteSel) {
-      const mis = d.edificios.filter((e) => clienteSel.edificios.includes(e.nombre));
+      const mis = edificiosDeCliente(d.edificios, clienteSel);
       const unidades = mis.reduce((a, e) => a + (Number(e.unidades) || 0), 0);
       cuerpo = `
         <a href="/admin/clientes" style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border:1px solid #E1E7F1;border-radius:9px;background:#fff;color:#5A6B85;font-weight:700;font-size:13px;margin-bottom:16px" class="hv-soft">← Clientes</a>
         <div style="display:flex;align-items:center;gap:14px;background:linear-gradient(120deg,#0F326A,#2E6FC0);border-radius:16px;padding:18px 22px;color:#fff;margin-bottom:18px;flex-wrap:wrap">
-          <span style="width:52px;height:52px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;flex-shrink:0">${esc(clienteSel.nombre.charAt(0).toUpperCase())}</span>
+          <span style="width:52px;height:52px;border-radius:13px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;flex-shrink:0;overflow:hidden">${clienteSel.avatar ? `<img src="${esc(clienteSel.avatar)}" alt="${esc(clienteSel.nombre)}" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='${esc(clienteSel.nombre.charAt(0).toUpperCase())}'">` : esc(clienteSel.nombre.charAt(0).toUpperCase())}</span>
           <div style="flex:1;min-width:180px">
             <div style="font-size:20px;font-weight:800;letter-spacing:-.01em">${esc(clienteSel.nombre)}</div>
             <div style="font-size:13.5px;color:rgba(255,255,255,.82)">${mis.length} edificio${mis.length === 1 ? '' : 's'}${unidades ? ' · ' + unidades + ' unidades' : ''}</div>
@@ -6583,7 +14341,7 @@ router.get('/clientes', async (req, res) => {
         </div>`;
     } else {
       const cards = d.clientes.map((c) => {
-        const mis = d.edificios.filter((e) => c.edificios.includes(e.nombre));
+        const mis = edificiosDeCliente(d.edificios, c);
         const unidades = mis.reduce((a, e) => a + (Number(e.unidades) || 0), 0);
         const plus = mis.filter((e) => e.plan === 'Plus').length;
         const base = mis.length - plus;
@@ -6591,7 +14349,7 @@ router.get('/clientes', async (req, res) => {
         return `
           <a href="/admin/clientes?cliente=${encodeURIComponent(c.usuario)}" style="display:block;text-align:left;background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:18px" class="hv-card">
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
-              <span style="width:46px;height:46px;border-radius:12px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;flex-shrink:0">${esc(c.nombre.charAt(0).toUpperCase())}</span>
+              <span style="width:46px;height:46px;border-radius:12px;background:linear-gradient(140deg,#17408B,#2E6FC0);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;flex-shrink:0;overflow:hidden">${c.avatar ? `<img src="${esc(c.avatar)}" alt="${esc(c.nombre)}" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='${esc(c.nombre.charAt(0).toUpperCase())}'">` : esc(c.nombre.charAt(0).toUpperCase())}</span>
               <div style="flex:1;min-width:0">
                 <div style="font-size:16px;font-weight:800;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.nombre)}</div>
                 <div style="font-size:12.5px;color:#8595AD">${mis.length} edificios · ${unidades} un.</div>
@@ -6713,9 +14471,12 @@ router.get('/clientes', async (req, res) => {
               <span>Como dueño, estos cambios se escriben <strong>directo</strong> en la planilla, sin pasar por aprobación.</span>
             </div>
           </div>
-          <div style="display:flex;gap:11px;padding:0 24px 22px">
-            <button onclick="cerrarModal('modal-editar')" style="flex:1;height:46px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
-            <button onclick="guardarEditar(this)" style="flex:1.4;height:46px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Guardar cambios</button>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:11px;padding:0 24px 22px">
+            <button type="button" onclick="eliminarEdificioModal(this)" style="height:46px;padding:0 16px;border:1px solid #FCA5A5;border-radius:11px;background:#FEF2F2;color:#DC2626;font-weight:700;font-size:13.5px;cursor:pointer" class="hv-red" title="Eliminar edificio definitivamente y sanear en cascada">🗑️ Eliminar edificio</button>
+            <div style="display:flex;gap:11px;flex:1;justify-content:flex-end">
+              <button onclick="cerrarModal('modal-editar')" style="height:46px;padding:0 18px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+              <button onclick="guardarEditar(this)" style="height:46px;padding:0 22px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-op">Guardar cambios</button>
+            </div>
           </div>
         </div>
       </div>`;
@@ -6764,9 +14525,34 @@ router.get('/clientes', async (req, res) => {
       </div>`;
 
 
+    const modalAsignarAdminHtml = `
+      <div id="modal-asignar-admin" class="modal-overlay" onclick="cerrarModal('modal-asignar-admin')">
+        <div class="modal-box" style="max-width:440px;max-height:85vh;overflow-y:auto" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Asignación de Edificio</div>
+            <div id="asig-edificio-nombre" style="font-size:19px;font-weight:800;letter-spacing:-.01em"></div>
+          </div>
+          <div style="padding:20px 24px">
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Administrador asignado actualmente</div>
+            <div id="asig-admin-actual" style="font-size:14px;font-weight:600;color:#64748B;background:#F1F4F9;padding:10px 12px;border-radius:10px;margin-bottom:16px"></div>
+            <div style="font-size:13px;font-weight:700;color:#334259;margin-bottom:6px">Nuevo administrador / cliente</div>
+            <select id="asig-nuevo-admin" class="inp" style="margin-bottom:18px;height:44px">
+              ${d.clientes.map((c) => `<option value="${esc(c.usuario)}">${esc(c.nombre)} (@${esc(c.usuario)})</option>`).join('')}
+            </select>
+            <div style="font-size:12.5px;color:#64748B;line-height:1.4">
+              ℹ️ Al transferir el edificio, se actualizará la planilla y la base de datos automáticamente. El administrador seleccionado podrá gestionarlo de inmediato desde su panel.
+            </div>
+          </div>
+          <div style="display:flex;gap:11px;padding:0 24px 22px">
+            <button onclick="cerrarModal('modal-asignar-admin')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button id="btn-confirmar-asig" onclick="guardarAsignacionAdmin(this)" style="flex:1.4;height:44px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">Guardar asignación</button>
+          </div>
+        </div>
+      </div>`;
+
     const contenido = `
       <div style="animation:mFade .3s ease both">${encabezado}${cuerpo}</div>
-      ${modalCliente}${modalClienteEditar}${modalEdificio}${modalEditar}${modalColaboradoresHtml}${modalColaboradorNuevoHtml}`;
+      ${modalCliente}${modalClienteEditar}${modalEdificio}${modalEditar}${modalAsignarAdminHtml}${modalColaboradoresHtml}${modalColaboradorNuevoHtml}`;
 
     res.send(shell(req, d, 'edificios', contenido));
   } catch (e) {
@@ -7094,14 +14880,89 @@ function columnLetter(n) {
   return s;
 }
 
+function letterToColumnNumber(letter) {
+  let col = 0;
+  const str = String(letter || '').toUpperCase().replace(/[^A-Z]/g, '');
+  for (let i = 0; i < str.length; i++) {
+    col = col * 26 + (str.charCodeAt(i) - 64);
+  }
+  return col || 1;
+}
+
+async function ensureGridDimensions(tabName, colIndex, rowIndex) {
+  try {
+    const sheets = await getSheetsClient();
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    const normTab = String(tabName || '').toLowerCase().trim();
+    const sheetObj = (meta.data.sheets || []).find((s) => s.properties && String(s.properties.title || '').toLowerCase().trim() === normTab);
+    if (!sheetObj) return;
+
+    const props = sheetObj.properties.gridProperties || {};
+    const currentCols = props.columnCount || 26;
+    const currentRows = props.rowCount || 1000;
+    const sheetId = sheetObj.properties.sheetId;
+
+    const reqs = [];
+    if (colIndex > currentCols) {
+      reqs.push({
+        updateSheetProperties: {
+          properties: {
+            sheetId: sheetId,
+            gridProperties: {
+              columnCount: Math.max(colIndex + 5, currentCols + 5)
+            }
+          },
+          fields: 'gridProperties.columnCount'
+        }
+      });
+    }
+
+    if (rowIndex > currentRows) {
+      reqs.push({
+        updateSheetProperties: {
+          properties: {
+            sheetId: sheetId,
+            gridProperties: {
+              rowCount: Math.max(rowIndex + 100, currentRows + 500)
+            }
+          },
+          fields: 'gridProperties.rowCount'
+        }
+      });
+    }
+
+    if (reqs.length > 0) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: { requests: reqs }
+      });
+    }
+  } catch (err) {
+    console.warn(`[ensureGridDimensions] Aviso al expandir rejilla para ${tabName}:`, err.message);
+  }
+}
+
 async function writeCell(tabName, col, row, value) {
   await ensureSheetExists(tabName).catch(() => {});
+  const colNum = typeof col === 'number' ? col : letterToColumnNumber(col);
+  const colStr = typeof col === 'number' ? columnLetter(col) : col;
+  const rowNum = Number(row) || 1;
+  await ensureGridDimensions(tabName, colNum, rowNum).catch(() => {});
   const sheets = await getSheetsClient();
+  let valToSend = value;
+  if (typeof valToSend === 'string' && valToSend.trim()) {
+    const s = valToSend.trim();
+    if (!s.startsWith("'")) {
+      if (/^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s) || /^\+\d{6,}$/.test(s) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(s.replace(/[\s\-]/g, '')))) {
+        valToSend = "'" + desarmarNotacionCientifica(s);
+      }
+    }
+  }
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `${tabName}!${col}${row}`,
+    range: `${tabName}!${colStr}${rowNum}`,
     valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [[value]] },
+    requestBody: { values: [[valToSend]] },
   });
 }
 
@@ -7136,11 +14997,22 @@ async function appendRow(tabName, rowData) {
   let existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
   if (existingHeaders.length === 0) {
     const headers = Object.keys(rowData);
+    const rowValues = headers.map((k) => {
+      let val = rowData[k] !== undefined && rowData[k] !== null ? rowData[k] : '';
+      if (typeof val === 'string' && val.trim()) {
+        const s = val.trim();
+        const key = normalizeKey(k);
+        if (!s.startsWith("'") && (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s) || /^\+\d{6,}$/.test(s) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(s.replace(/[\s\-]/g, ''))))) {
+          val = "'" + desarmarNotacionCientifica(s);
+        }
+      }
+      return val;
+    });
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: `${tabName}!A1`,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [headers, headers.map((k) => rowData[k] || '')] },
+      requestBody: { values: [headers, rowValues] },
     });
     return;
   }
@@ -7157,13 +15029,87 @@ async function appendRow(tabName, rowData) {
   const values = existingHeaders.map((h) => {
     const key = normalizeKey(h);
     const match = Object.keys(rowData).find((k) => normalizeKey(k) === key || k === h);
-    return match !== undefined ? rowData[match] : '';
+    let val = match !== undefined && rowData[match] !== null ? rowData[match] : '';
+    if (typeof val === 'string' && val.trim()) {
+      const s = val.trim();
+      if (!s.startsWith("'") && (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(s) || /^\+\d{6,}$/.test(s) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(s.replace(/[\s\-]/g, ''))))) {
+        val = "'" + desarmarNotacionCientifica(s);
+      }
+    }
+    return val;
   });
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
     range: `${tabName}!A1`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [values] },
+  });
+}
+
+async function appendRows(tabName, rowsArray) {
+  if (!rowsArray || !rowsArray.length) return;
+  await ensureSheetExists(tabName).catch(() => {});
+  const sheets = await getSheetsClient();
+  let res;
+  try {
+    res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${tabName}!1:1`,
+    });
+  } catch (_) {
+    res = null;
+  }
+  let existingHeaders = (res && res.data && res.data.values && res.data.values[0]) || [];
+  if (existingHeaders.length === 0) {
+    const headers = Object.keys(rowsArray[0]);
+    const valuesMatrix = [headers].concat(rowsArray.map((r) => headers.map((k) => {
+      let val = r[k] !== undefined && r[k] !== null ? String(r[k]) : '';
+      if (val.trim() && !val.startsWith("'")) {
+        const key = normalizeKey(k);
+        if (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(val) || /^\+\d{6,}$/.test(val) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(val.replace(/[\s\-]/g, '')))) {
+          val = "'" + desarmarNotacionCientifica(val);
+        }
+      }
+      return val;
+    })));
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: `${tabName}!A1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: valuesMatrix },
+    });
+    return;
+  }
+
+  const allKeys = new Set();
+  rowsArray.forEach((r) => Object.keys(r).forEach((k) => allKeys.add(k)));
+  const sinMatch = Array.from(allKeys).filter((k) =>
+    !existingHeaders.some((h) => normalizeKey(h) === normalizeKey(k) || k === h));
+  for (const k of sinMatch) {
+    const col = columnLetter(existingHeaders.length + 1);
+    await ensureHeader(tabName, col, k, false);
+    existingHeaders = existingHeaders.concat([k]);
+  }
+
+  const valuesMatrix = rowsArray.map((r) => {
+    return existingHeaders.map((h) => {
+      const key = normalizeKey(h);
+      const match = Object.keys(r).find((k) => normalizeKey(k) === key || k === h);
+      let val = match !== undefined && r[match] !== null ? String(r[match]) : '';
+      if (val.trim() && !val.startsWith("'")) {
+        if (/telefono|tel|celular|phone|whatsapp/i.test(key) || /^[0-9]+(\.[0-9]+)?[eE]\+[0-9]+$/i.test(val) || /^\+\d{6,}$/.test(val) || (tabName === TAB_VECINOS && /^\d{8,}$/.test(val.replace(/[\s\-]/g, '')))) {
+          val = "'" + desarmarNotacionCientifica(val);
+        }
+      }
+      return val;
+    });
+  });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: `${tabName}!A1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: valuesMatrix },
   });
 }
 
@@ -7336,7 +15282,510 @@ router.post('/api/evento-resolver', async (req, res) => {
   }
 });
 
+/* ===================================================================
+ * CONTROL DE ACCESOS & PORTERÍA (PASES QR Y AUDITORÍA EN VIVO)
+ * =================================================================== */
+
+router.get('/accesos-porteria', async (req, res) => {
+  try {
+    const d = await cargarDatos(req);
+    const dueno = esDueno(req);
+    const permitidos = edificiosPermitidos(req) || [];
+    const curEd = d.curBuilding ? d.curBuilding.nombre : (permitidos[0] || 'Todos');
+
+    const edList = dueno ? d.edificios : d.propios;
+    const edOptions = [
+      '<option value="todos">Todos los edificios</option>',
+      ...edList.map(e => `<option value="${esc(e.nombre)}"${(!dueno && e.nombre === curEd) ? ' selected' : ''}>${esc(e.nombre)}</option>`)
+    ].join('');
+
+    const contenido = `
+      <div style="animation:mFade .3s ease both">
+        <!-- Header con selector y botones de acción -->
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span style="font-size:24px">🚪</span>
+              <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0;color:#16233B">Control de Accesos & Portería</h1>
+              <span style="font-size:11px;font-weight:800;background:#E7F4EC;color:#1B7A43;padding:3px 9px;border-radius:999px;border:1px solid #C3E6D0">En Vivo</span>
+            </div>
+            <p style="color:#64748B;font-size:14.5px;margin:0">Auditoría en tiempo real de timbres, aperturas, pases QR y alertas de seguridad tomadas por el tótem.</p>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <button onclick="cargarAuditoriaAccesos()" style="height:42px;padding:0 16px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#2E6FC0;font-weight:700;font-size:13.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" class="hv-soft">
+              🔄 Actualizar
+            </button>
+            <button onclick="abrirModalEmitirPaseOficial()" style="height:42px;padding:0 18px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" class="hv-primary">
+              🎟️ + Emitir Pase Oficial
+            </button>
+          </div>
+        </div>
+
+        <!-- KPIs de Portería -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:22px">
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+            <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Accesos Totales Hoy</div>
+            <div id="kpi-accesos-hoy" style="font-size:26px;font-weight:800;color:#16233B">--</div>
+            <div style="font-size:12px;color:#16A34A;font-weight:600;margin-top:2px">✓ Aperturas autorizadas</div>
+          </div>
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+            <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Pases QR Activos</div>
+            <div id="kpi-pases-activos" style="font-size:26px;font-weight:800;color:#2E6FC0">--</div>
+            <div style="font-size:12px;color:#64748B;margin-top:2px">Vecinos + Oficiales</div>
+          </div>
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+            <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Alertas / QR Denegados</div>
+            <div id="kpi-alertas-hoy" style="font-size:26px;font-weight:800;color:#DC2626">--</div>
+            <div style="font-size:12px;color:#DC2626;font-weight:700;margin-top:2px">⚠️ Vencidos o no reconocidos</div>
+          </div>
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:14px;padding:16px 18px">
+            <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Tótem & Relé ESP32</div>
+            <div style="font-size:18px;font-weight:800;color:#16A34A;display:flex;align-items:center;gap:6px;margin-top:6px">
+              <span style="width:10px;height:10px;border-radius:50%;background:#16A34A;display:inline-block"></span> Online (Listo)
+            </div>
+            <div style="font-size:12px;color:#64748B;margin-top:2px">Sondeo de apertura activo</div>
+          </div>
+        </div>
+
+        <!-- Filtros y Selector -->
+        <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:4px;display:block">Filtrar por Edificio</label>
+            <select id="filtro-auditoria-edificio" class="inp" style="height:40px;font-size:13.5px" onchange="cargarAuditoriaAccesos()">
+              ${edOptions}
+            </select>
+          </div>
+          <div style="flex:1;min-width:160px">
+            <label style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:4px;display:block">Rango de Fechas</label>
+            <select id="filtro-auditoria-rango" class="inp" style="height:40px;font-size:13.5px" onchange="cargarAuditoriaAccesos()">
+              <option value="hoy">Hoy</option>
+              <option value="7d" selected>Últimos 7 días</option>
+              <option value="30d">Últimos 30 días</option>
+              <option value="todos">Histórico Completo</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:160px">
+            <label style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:4px;display:block">Tipo de Evento</label>
+            <select id="filtro-auditoria-tipo" class="inp" style="height:40px;font-size:13.5px" onchange="cargarAuditoriaAccesos()">
+              <option value="">Todos los tipos</option>
+              <option value="QR">Código QR</option>
+              <option value="Timbre Atendido">Timbre Atendido</option>
+              <option value="SOS">SOS / Emergencia</option>
+              <option value="Manual">Apertura Manual</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Sub-Pestañas: 1. Eventos en Vivo / 2. Pases QR Emitidos -->
+        <div style="display:flex;gap:10px;margin-bottom:16px;border-bottom:1px solid #E2E8F0;padding-bottom:10px">
+          <button id="btn-tab-eventos" onclick="cambiarTabPorteria('eventos')" style="height:36px;padding:0 18px;border-radius:999px;border:none;background:#2E6FC0;color:#fff;font-weight:700;font-size:13px;cursor:pointer">
+            📋 Eventos de Acceso y Tótem
+          </button>
+          <button id="btn-tab-pases" onclick="cambiarTabPorteria('pases')" style="height:36px;padding:0 18px;border-radius:999px;border:1px solid #DCE4F0;background:#fff;color:#475569;font-weight:700;font-size:13px;cursor:pointer" class="hv-soft">
+            🎟️ Pases QR Emitidos (Vigentes e Históricos)
+          </button>
+        </div>
+
+        <!-- SECCIÓN 1: TABLA DE EVENTOS DE ACCESO -->
+        <div id="seccion-auditoria-eventos" style="display:block">
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(16,35,59,.04)">
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+                <thead>
+                  <tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em">
+                    <th style="padding:14px 16px">Fecha / Hora</th>
+                    <th style="padding:14px 16px">Edificio</th>
+                    <th style="padding:14px 16px">Depto / Destino</th>
+                    <th style="padding:14px 16px">Tipo & Estado</th>
+                    <th style="padding:14px 16px">Detalle del Acceso</th>
+                    <th style="padding:14px 16px;text-align:center">Foto Tótem</th>
+                  </tr>
+                </thead>
+                <tbody id="tabla-eventos-acceso-body">
+                  <tr>
+                    <td colspan="6" style="padding:32px;text-align:center;color:#8595AD;font-size:13.5px">Cargando eventos de portería...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECCIÓN 2: TABLA DE PASES QR EMITIDOS -->
+        <div id="seccion-auditoria-pases" style="display:none">
+          <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(16,35,59,.04)">
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+                <thead>
+                  <tr style="background:#F8FAFD;border-bottom:1px solid #E7ECF3;color:#8595AD;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em">
+                    <th style="padding:14px 16px">Token QR</th>
+                    <th style="padding:14px 16px">Origen</th>
+                    <th style="padding:14px 16px">Edificio / Depto</th>
+                    <th style="padding:14px 16px">Invitado / Proveedor</th>
+                    <th style="padding:14px 16px">Motivo / Tipo</th>
+                    <th style="padding:14px 16px">Vigencia / Horario</th>
+                    <th style="padding:14px 16px">Usos</th>
+                    <th style="padding:14px 16px">Estado</th>
+                    <th style="padding:14px 16px;text-align:right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="tabla-pases-qr-body">
+                  <tr>
+                    <td colspan="9" style="padding:32px;text-align:center;color:#8595AD;font-size:13.5px">Cargando lista de pases...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- MODAL EMISIÓN DE PASE OFICIAL (DASH) -->
+      <div id="modal-emitir-pase-oficial" class="modal-overlay" onclick="cerrarModal('modal-emitir-pase-oficial')">
+        <div class="modal-box" style="max-width:540px;max-height:90vh;display:flex;flex-direction:column" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Panel de Administración</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em;color:#0F172A">🎟️ Emitir Pase Oficial de Consorcio</div>
+          </div>
+
+          <div style="padding:20px 24px;max-height:68vh;overflow-y:auto;flex:1;min-height:0">
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Edificio Destino *</label>
+              <select id="dash-pase-edificio" class="inp" style="height:42px">
+                ${edList.map(e => `<option value="${esc(e.nombre)}">${esc(e.nombre)}</option>`).join('')}
+              </select>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Nombre del Proveedor / Técnico *</label>
+                <input id="dash-pase-nombre" class="inp" placeholder="Ej: Darío Mecánico / ServiElev">
+              </div>
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Depto / Destino</label>
+                <input id="dash-pase-depto" class="inp" placeholder="Ej: Sala de Máquinas / 1A">
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Motivo del Ingreso *</label>
+                <select id="dash-pase-motivo" class="inp" style="height:42px">
+                  <option value="Mantenimiento">🔧 Mantenimiento / Técnico</option>
+                  <option value="Limpieza">🧹 Empresa de Limpieza</option>
+                  <option value="Inspección">📋 Inspección / Auditoría</option>
+                  <option value="Servicio">⚡ Servicio Público (Luz/Gas/Agua)</option>
+                  <option value="Encomienda">📦 Encomienda Grande / Mudanza</option>
+                  <option value="Visita">👤 Visita Autorizada Consorcio</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Tipo de Pase *</label>
+                <select id="dash-pase-tipo" class="inp" style="height:42px" onchange="toggleDashPaseRecurrente(this.value)">
+                  <option value="temporal">Temporal (Visita / Guardia)</option>
+                  <option value="recurrente">Recurrente (Días fijos y horario)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Vigencia Temporal -->
+            <div id="box-dash-pase-temporal" style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Duración del Pase</label>
+              <select id="dash-pase-duracion" class="inp" style="height:42px">
+                <option value="2h">2 Horas</option>
+                <option value="4h">4 Horas</option>
+                <option value="12h">12 Horas</option>
+                <option value="24h" selected>Todo el día (24 Horas)</option>
+                <option value="7d">7 Días corridos</option>
+              </select>
+            </div>
+
+            <!-- Configuración Recurrente (días de semana y horario) -->
+            <div id="box-dash-pase-recurrente" style="display:none;background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+              <div style="font-size:12.5px;font-weight:800;color:#1E5FB4;margin-bottom:8px">📅 Días permitidos de la semana</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+                ${['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'].map(d => `
+                  <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;padding:4px 9px;border-radius:8px;background:#fff;border:1px solid #CBD5E1;cursor:pointer">
+                    <input type="checkbox" name="dash-pase-dias" value="${d}"> ${d}
+                  </label>
+                `).join('')}
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <div>
+                  <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Desde Hora</label>
+                  <input id="dash-pase-hora-desde" class="inp" type="time" value="08:00" style="height:38px">
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Hasta Hora</label>
+                  <input id="dash-pase-hora-hasta" class="inp" type="time" value="14:00" style="height:38px">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="padding:16px 24px 22px;border-top:1px solid #EEF1F6;display:flex;gap:10px;flex-shrink:0">
+            <button onclick="cerrarModal('modal-emitir-pase-oficial')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#334259;font-weight:700;font-size:14px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarPaseOficialDesdeDash(this)" style="flex:1.4;height:44px;border:none;border-radius:10px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14px;cursor:pointer" class="hv-primary">🎟️ Generar Pase QR</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL VISUALIZAR PASE QR GENERADO CON WHATSAPP -->
+      <div id="modal-ver-pase-qr" class="modal-overlay" onclick="cerrarModal('modal-ver-pase-qr')">
+        <div class="modal-box" style="max-width:440px;text-align:center" onclick="stopEv(event)">
+          <div style="padding:20px 24px 14px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:800;color:#16A34A;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">✓ Pase Generado con Éxito</div>
+            <div id="ver-pase-titulo" style="font-size:18px;font-weight:800;color:#0F172A">Pase de Acceso Oficial</div>
+          </div>
+
+          <div style="padding:22px 24px">
+            <div style="background:#fff;border:2px solid #E2E8F0;border-radius:16px;padding:16px;display:inline-block;margin-bottom:14px;box-shadow:0 4px 14px rgba(0,0,0,0.06)">
+              <img id="ver-pase-qr-img" src="" alt="Código QR" style="width:220px;height:220px;display:block">
+            </div>
+
+            <div id="ver-pase-token" style="font-size:18px;font-weight:900;letter-spacing:.08em;color:#1E5FB4;font-family:monospace;margin-bottom:8px">PASS-XXXXXXXX</div>
+            <div id="ver-pase-detalle" style="font-size:13px;color:#64748B;line-height:1.4;margin-bottom:18px">Válido para ingresar por el tótem del consorcio.</div>
+
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <button id="btn-compartir-wa-dash" onclick="compartirPaseWhatsAppDash()" style="width:100%;height:44px;border:none;border-radius:11px;background:#25D366;color:#fff;font-weight:800;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+                💬 Compartir por WhatsApp
+              </button>
+              <button onclick="copiarLinkPaseDash()" style="width:100%;height:40px;border:1px solid #CBD5E1;border-radius:11px;background:#fff;color:#334155;font-weight:700;font-size:13px;cursor:pointer">
+                🔗 Copiar Enlace del Pase
+              </button>
+            </div>
+          </div>
+
+          <div style="padding:12px 24px 18px;border-top:1px solid #EEF1F6">
+            <button onclick="cerrarModal('modal-ver-pase-qr')" style="width:100%;height:40px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13px;cursor:pointer">Cerrar</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    res.send(shell(req, d, 'porteria_accesos', contenido));
+  } catch (e) {
+    res.status(500).send(paginaError(e));
+  }
+});
+
+// API REST: Listado de eventos de acceso para la tabla de auditoría en vivo
+router.get('/api/eventos-acceso', async (req, res) => {
+  try {
+    const { edificio, rango, tipo } = req.query || {};
+    let desde = null;
+    const now = new Date();
+
+    if (rango === 'hoy') {
+      desde = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    } else if (rango === '7d') {
+      const d7 = new Date(now);
+      d7.setDate(d7.getDate() - 7);
+      desde = d7.toISOString();
+    } else if (rango === '30d') {
+      const d30 = new Date(now);
+      d30.setDate(d30.getDate() - 30);
+      desde = d30.toISOString();
+    }
+
+    const { obtenerEventosAcceso } = require('./db-pg');
+    const eventos = await obtenerEventosAcceso({
+      edificio: (edificio && edificio !== 'todos') ? edificio : null,
+      desde,
+      tipo_acceso: tipo || null,
+      limite: 150
+    });
+
+    res.json({ ok: true, eventos });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// API REST: Pases QR (Creación desde Dash o Edifica)
+router.post('/api/pases-qr', async (req, res) => {
+  try {
+    const {
+      origen = 'dash',
+      edificio,
+      departamento = '',
+      nombre_invitado,
+      motivo = 'Visita',
+      validez = '24h',
+      valido_hasta: customValidoHasta,
+      tipo_pase = 'temporal',
+      dias_semana = [],
+      hora_desde = null,
+      hora_hasta = null,
+      creado_por = ''
+    } = req.body || {};
+
+    if (!edificio || !nombre_invitado) {
+      return res.status(400).json({ ok: false, error: 'Edificio y nombre del invitado son requeridos' });
+    }
+
+    // Generar token: PASS- + 8 caracteres alfanuméricos en mayúsculas
+    const crypto = require('crypto');
+    const token = 'PASS-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+
+    const now = new Date();
+    let validoHasta = null;
+
+    if (customValidoHasta) {
+      validoHasta = new Date(customValidoHasta);
+    } else if (tipo_pase === 'recurrente') {
+      // Recurrente válido por 6 meses por defecto
+      const f6 = new Date(now);
+      f6.setMonth(f6.getMonth() + 6);
+      validoHasta = f6;
+    } else {
+      const msMap = {
+        '2h': 2 * 3600 * 1000,
+        '4h': 4 * 3600 * 1000,
+        '12h': 12 * 3600 * 1000,
+        '24h': 24 * 3600 * 1000,
+        '7d': 7 * 24 * 3600 * 1000,
+        'todo_el_dia': 24 * 3600 * 1000
+      };
+      const extraMs = msMap[validez] || (24 * 3600 * 1000);
+      validoHasta = new Date(now.getTime() + extraMs);
+    }
+
+    const usosPermitidos = (tipo_pase === 'recurrente') ? 999 : 1;
+
+    const { crearPaseQR } = require('./db-pg');
+    const nuevoPase = await crearPaseQR({
+      token,
+      origen: origen === 'edifica' ? 'edifica' : 'dash',
+      edificio,
+      departamento,
+      creado_por_nombre: creado_por || (req.session && req.session.user ? req.session.user : 'Administración'),
+      nombre_invitado,
+      motivo,
+      tipo_pase,
+      valido_desde: now,
+      valido_hasta: validoHasta,
+      dias_semana: Array.isArray(dias_semana) ? dias_semana : [],
+      hora_desde,
+      hora_hasta,
+      usos_permitidos: usosPermitidos
+    });
+
+    res.json({
+      ok: true,
+      pase: nuevoPase,
+      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(token)}`
+    });
+  } catch (e) {
+    console.error('Error creando pase QR:', e);
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// API REST: Listado de pases QR emitidos
+router.get('/api/pases-qr', async (req, res) => {
+  try {
+    const { edificio, depto } = req.query || {};
+    const { listarPasesEdificio, pool } = require('./db-pg');
+
+    // > [!CAUTION]
+    // > **Sin `edificio`, esta consulta devolvía los últimos 150 pases de TODOS los edificios, con
+    // > sus tokens.** Cuando el endpoint estaba sin autenticación eso era el agujero más directo de
+    // > todos: para entrar a un edificio no hacía falta crear un pase, alcanzaba con leer uno que ya
+    // > funcionaba. Y de paso salían nombres de visitantes y departamentos, que son datos de
+    // > personas que nunca aceptaron nada.
+    //
+    // El volcado completo queda SOLO para una sesión del panel. La app tiene que decir de qué
+    // edificio pregunta: su clave es compartida y no identifica a ningún cliente en particular.
+    if (req.esAppExterna && (!edificio || edificio === 'todos')) {
+      return res.status(400).json({
+        ok: false,
+        error: 'falta_edificio',
+        mensaje: 'La app tiene que indicar de qué edificio pide los pases.',
+      });
+    }
+
+    let pases = [];
+    if (edificio && edificio !== 'todos') {
+      pases = await listarPasesEdificio(edificio, depto || null);
+    } else {
+      const r = await pool.query('SELECT * FROM pases_qr ORDER BY created_at DESC LIMIT 150');
+      pases = r.rows;
+    }
+
+    res.json({ ok: true, pases });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// API REST: Revocar Pase QR
+router.post('/api/pases-qr/revocar', async (req, res) => {
+  try {
+    const { id, token } = req.body || {};
+    const { revocarPaseQR } = require('./db-pg');
+    const revocado = await revocarPaseQR(id || token);
+    if (!revocado) return res.status(404).json({ ok: false, error: 'Pase no encontrado' });
+    res.json({ ok: true, pase: revocado });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+router.post('/api/factura-estado', async (req, res) => {
+  try {
+    const { row, estado } = req.body || {};
+    if (!row || isNaN(Number(row))) return res.status(400).json({ error: 'Fila inválida' });
+
+    const rowNum = Number(row);
+    const { rows } = await readTab(TAB_ARCHIVOS);
+    const facturas = rows.map(mapFactura);
+    const f = facturas.find((x) => x._row === rowNum);
+    if (!f) return res.status(404).json({ error: 'Comprobante no encontrado' });
+
+    // Verificar permisos por edificio
+    if (!esDueno(req)) {
+      const permitidos = edificiosPermitidos(req);
+      if (!permitidos || !permitidos.includes(f.edificio)) {
+        return res.status(403).json({ error: 'Sin permiso para este edificio' });
+      }
+    }
+
+    const nuevoEstado = String(estado).toLowerCase() === 'pagada' ? 'Pagada' : 'Pendiente';
+    const plan = await findOrPlanColumn(TAB_ARCHIVOS, ['estado', 'status', 'pago']);
+    if (plan.create) await ensureHeader(TAB_ARCHIVOS, plan.col, 'estado', false);
+
+    await writeCell(TAB_ARCHIVOS, plan.col, rowNum, nuevoEstado);
+    res.json({ ok: true, estado: nuevoEstado });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
 // Edicion directa de la ficha de un edificio (dueño, modal).
+/**
+ * TODAS las columnas de la planilla que son ese mismo campo, no solo la primera.
+ *
+ * POR QUÉ. La tab `EDIFICIOS` tiene el nombre del consorcio escrito en dos columnas, `edificio` y
+ * `nombre`, que son alias del mismo dato. Pero el panel las lee en un orden (`edificio` primero) y
+ * el motor de Marcos en el otro (`nombre` primero, ver `listarEdificiosConocidos` en sheets.js).
+ *
+ * Mientras se escribía solo en la primera que apareciera, cada corrección dejaba la otra columna
+ * con el valor viejo, y el valor que se veía dependía de quién estaba mirando. Así fue como el
+ * apóstrofe de "san patricio 27'0 casa" se corrigió desde el panel y volvió a aparecer solo: nunca
+ * se había ido, estaba en la otra columna.
+ *
+ * Si no existe ninguna, se planifica crearla con el nombre canónico.
+ */
+function columnasDelCampo(headers, candidates) {
+  const columnas = headers
+    .map((h, i) => (candidates.includes(h) ? columnLetter(i + 1) : null))
+    .filter(Boolean);
+  return { columnas, crear: columnas.length === 0 };
+}
+
 const EDIFICIO_FIELDS = {
   nombre: ['edificio', 'nombre', 'consorcio'],
   direccion: ['direccion', 'domicilio'],
@@ -7367,22 +15816,69 @@ router.post('/api/edificio', async (req, res) => {
     const body = req.body || {};
     const row = Number(body.row);
     if (!row || isNaN(row)) return res.status(400).json({ error: 'Fila invalida' });
-    const { headers } = await readTab(TAB_EDIFICIOS);
+    const { headers, rows } = await readTab(TAB_EDIFICIOS);
+    const existing = rows.find(r => Number(r._row) === row);
+    const nombreAnterior = existing ? (pick(existing, EDIFICIO_FIELDS.nombre) || '') : '';
+
     let workingHeaders = headers.slice();
     for (const field of Object.keys(EDIFICIO_FIELDS)) {
       if (body[field] === undefined) continue;
       const candidates = EDIFICIO_FIELDS[field];
-      let idx = workingHeaders.findIndex((h) => candidates.includes(h));
-      let col;
-      if (idx >= 0) col = columnLetter(idx + 1);
-      else {
-        col = columnLetter(workingHeaders.length + 1);
+      // Se escribe en TODAS las columnas que son este campo, no en la primera que aparezca:
+      // ver la nota de `columnasDelCampo`.
+      let { columnas, crear } = columnasDelCampo(workingHeaders, candidates);
+      if (crear) {
+        const col = columnLetter(workingHeaders.length + 1);
         await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
         workingHeaders.push(candidates[0]);
+        columnas = [col];
       }
-      await writeCell(TAB_EDIFICIOS, col, row, body[field]);
+      for (const col of columnas) await writeCell(TAB_EDIFICIOS, col, row, body[field]);
     }
-    res.json({ ok: true });
+
+    let cambios = 0;
+    let fallidos = 0;
+    const nombreNuevo = typeof body.nombre === 'string' ? body.nombre.trim() : '';
+    if (nombreNuevo && nombreAnterior && normEdificio(nombreNuevo) !== normEdificio(nombreAnterior)) {
+      const { renombrarEdificio } = require('./renombrar-edificio');
+      const r = await renombrarEdificio({ viejo: nombreAnterior, nuevo: nombreNuevo, aplicar: true });
+      cambios = r.cambios || 0;
+      fallidos = r.fallidos || 0;
+    }
+
+    res.json({ ok: true, cambios, fallidos });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/edificio-eliminar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, cliente, eliminar_definitivo } = req.body || {};
+    if (!edificio) return res.status(400).json({ error: 'Falta el nombre del edificio' });
+
+    const permitidos = edificiosPermitidos(req) || [];
+    const dueno = esDueno(req);
+
+    // Si es cliente (AC), solo puede eliminar/desvincular edificios de su cartera
+    if (!dueno) {
+      const tienePermiso = permitidos.some((p) => normEdificio(p) === normEdificio(edificio));
+      if (!tienePermiso) return res.status(403).json({ error: 'No tenés permisos sobre este edificio' });
+    }
+
+    const { eliminarEdificio } = require('./eliminar-edificio');
+    const cliObjetivo = dueno ? (cliente || null) : (enPreview(req) ? req.session.previewOwner : req.session.user);
+    const esBorradoTotal = dueno ? (eliminar_definitivo !== false) : false;
+
+    const r = await eliminarEdificio({
+      edificio,
+      cliente: cliObjetivo,
+      eliminarDeEdificios: esBorradoTotal,
+      aplicar: true
+    });
+
+    res.json({ ok: true, cambios: r.cambios, fallidos: r.fallidos });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -7620,12 +16116,27 @@ router.post('/api/cliente-editar', async (req, res) => {
 // Actualizar perfil de mi cuenta (dueño o cliente)
 router.post('/api/actualizar-perfil', async (req, res) => {
   try {
-    const { pass, email, wsp, notif_email, notif_wsp } = req.body || {};
+    const { pass, email, wsp, notif_email, notif_wsp, avatar } = req.body || {};
     const currentUser = req.session.user;
     if (!currentUser) return res.status(401).json({ error: 'No autenticado' });
 
     if (esDuenoReal(req)) {
-      if (pass) process.env.ADMIN_PASS = pass;
+      // > [!CAUTION]
+      // > **Cambiar la contraseña desde el panel nunca funcionó.** Escribía en `ADMIN_PASS` y el
+      // > login lee `DASHBOARD_PASS`: dos nombres distintos para la misma cosa. Y aunque el nombre
+      // > hubiera coincidido, `process.env` vive en RAM — PM2 reinicia seguido y volvía la vieja.
+      // > Devolvía `{ok:true}` igual, que es lo que lo hacía invisible.
+      //
+      // Ahora se aplica de verdad para esta corrida Y se dice que no sobrevive al reinicio. Que la
+      // contraseña quede de verdad es escribirla en el `.env`, y eso lo hace una persona.
+      if (pass) {
+        process.env.DASHBOARD_PASS = pass;
+        return res.json({
+          ok: true,
+          temporal: true,
+          mensaje: 'Cambiada solo hasta el próximo reinicio. Para que quede, ponela en DASHBOARD_PASS del .env del servidor.'
+        });
+      }
       res.json({ ok: true });
     } else {
       const { rows: cliRows, headers: cliHeaders } = await readTab(TAB_CLIENTES);
@@ -7647,9 +16158,49 @@ router.post('/api/actualizar-perfil', async (req, res) => {
       await saveField(['whatsapp', 'wsp', 'telefono_wsp', 'telefono'], wsp, 'wsp');
       await saveField(['notif_email'], notif_email !== undefined ? (notif_email ? 'si' : 'no') : undefined, 'notif_email');
       await saveField(['notif_wsp'], notif_wsp !== undefined ? (notif_wsp ? 'si' : 'no') : undefined, 'notif_wsp');
+      await saveField(['avatar', 'foto', 'foto_perfil', 'imagen_perfil'], avatar, 'avatar');
+
+      if (avatar !== undefined) {
+        try {
+          await queryPg('UPDATE clientes SET avatar = $1 WHERE lower(usuario) = lower($2)', [avatar || null, currentUser]);
+        } catch (_) {}
+      }
 
       res.json({ ok: true });
     }
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Subir foto / avatar de perfil
+router.post('/api/subir-avatar', uploadAvatarMulter.single('avatar'), async (req, res) => {
+  try {
+    const currentUser = req.session.user;
+    if (!currentUser) return res.status(401).json({ error: 'No autenticado' });
+    if (!req.file) return res.status(400).json({ error: 'No se envió ninguna imagen' });
+
+    const avatarUrl = '/archivos/avatars/' + req.file.filename;
+
+    if (!esDuenoReal(req)) {
+      const { rows: cliRows, headers: cliHeaders } = await readTab(TAB_CLIENTES);
+      const c = cliRows.map(mapCliente).find((x) => x.usuario === currentUser);
+      if (c) {
+        let workingHeaders = cliHeaders.slice();
+        const saveField = async (candidates, value, defaultName) => {
+          let idx = workingHeaders.findIndex((h) => candidates.includes(h));
+          let col = idx >= 0 ? columnLetter(idx + 1) : columnLetter(workingHeaders.length + 1);
+          if (idx < 0) { await ensureHeader(TAB_CLIENTES, col, defaultName, false); workingHeaders.push(defaultName); }
+          await writeCell(TAB_CLIENTES, col, c._row, value);
+        };
+        await saveField(['avatar', 'foto', 'foto_perfil', 'imagen_perfil'], avatarUrl, 'avatar');
+        try {
+          await queryPg('UPDATE clientes SET avatar = $1 WHERE lower(usuario) = lower($2)', [avatarUrl, currentUser]);
+        } catch (_) {}
+      }
+    }
+
+    res.json({ ok: true, url: avatarUrl });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -7679,15 +16230,71 @@ router.post('/api/edificio-nuevo', async (req, res) => {
     }
 
     const { rows: edRows, headers: edHeaders } = await readTab(TAB_EDIFICIOS);
-    if (edRows.map(mapEdificio).some((e) => e.nombre.toLowerCase() === String(nombre).toLowerCase())) {
-      return res.status(400).json({ error: 'Ya existe un edificio con ese nombre' });
+    const yaExiste = edRows.map(mapEdificio).find((e) => normEdificio(e.nombre) === normEdificio(nombre));
+
+    // ── UN EDIFICIO QUE YA EXISTE PERO NO ES DE NADIE ────────────────────────────────────────
+    //
+    // Antes acá se cortaba con "Ya existe un edificio con ese nombre" y no había otra pantalla
+    // para asignarlo: el edificio quedaba suelto, visible para el dueño, sin forma de ponerlo
+    // bajo su administrador. Pasa siempre que un edificio se carga antes que su cliente, o
+    // después de un renombre.
+    //
+    // Si no lo tiene nadie, se asigna. Si ya lo tiene otro, se dice quién -- moverlo de
+    // administrador es una decisión, no un efecto secundario de tocar "Agregar".
+    if (yaExiste) {
+      const { rows: cliRowsChk } = await readTab(TAB_CLIENTES);
+      const clientes = cliRowsChk.map(mapCliente);
+      const dueñoActual = clienteDelEdificio(clientes, yaExiste.nombre);
+
+      if (dueñoActual && dueñoActual.usuario !== clienteUsuario) {
+        return res.status(409).json({
+          error: `"${yaExiste.nombre}" ya está asignado a ${dueñoActual.nombre}. ` +
+                 `Si hay que pasarlo a otro administrador, primero sacáselo a ${dueñoActual.nombre}.`,
+        });
+      }
+      if (dueñoActual) {
+        return res.status(409).json({ error: `"${yaExiste.nombre}" ya está en la lista de ${dueñoActual.nombre}.` });
+      }
+      if (!clienteObj) {
+        return res.status(409).json({ error: `"${yaExiste.nombre}" ya existe. Elegí a qué administrador asignarlo.` });
+      }
+
+      const nuevaLista = [...clienteObj.edificios, yaExiste.nombre].join(', ');
+      const colAsig = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
+      if (colAsig.create) await ensureHeader(TAB_CLIENTES, colAsig.col, 'edificios', false);
+      await writeCell(TAB_CLIENTES, colAsig.col, clienteObj._row, nuevaLista);
+
+      if (!dueno && req.session) {
+        if (!req.session.edificios) req.session.edificios = [];
+        if (!req.session.edificios.some((e) => normEdificio(e) === normEdificio(yaExiste.nombre))) {
+          req.session.edificios.push(yaExiste.nombre);
+        }
+        await new Promise((resolve) => req.session.save(resolve));
+      }
+
+      console.log(`🏢 "${yaExiste.nombre}" ya existía sin asignar: se asignó a ${clienteObj.nombre} (${clienteObj.usuario}).`);
+      return res.json({
+        ok: true, asignado: true,
+        mensaje: `"${yaExiste.nombre}" ya estaba cargado, así que lo asigné a ${clienteObj.nombre} en vez de crearlo de nuevo.`,
+      });
     }
 
     const adminHeader = edHeaders.find((h) => ['admin_nombre', 'administrador', 'admin'].includes(h)) || 'administrador';
 
+    let planAsignar = plan;
+    if (!planAsignar || planAsignar === 'Base' || planAsignar === 'Plan Base') {
+      const edExistentes = edRows.map(mapEdificio).filter((e) => (clienteObj?.edificios || []).some((p) => normEdificio(p) === normEdificio(e.nombre)));
+      const corpExistente = edExistentes.find((e) => String(e.plan || '').toLowerCase().includes('corporativo'));
+      if (corpExistente && corpExistente.plan) {
+        planAsignar = corpExistente.plan;
+      } else {
+        planAsignar = plan || 'Base';
+      }
+    }
+
     await appendRow(TAB_EDIFICIOS, {
       nombre: nombre, edificio: nombre, direccion: direccion || '', zona: zona || '',
-      unidades: unidades || '', encargado: encargado || '', plan: plan || 'Base',
+      unidades: unidades || '', encargado: encargado || '', plan: planAsignar,
       [adminHeader]: nombreAdmin
     });
 
@@ -7713,6 +16320,156 @@ router.post('/api/edificio-nuevo', async (req, res) => {
       }
     }
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Asignación / traspaso de edificio a un administrador (dueño o colaboradores del sistema).
+router.post('/api/edificio-asignar-admin', async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Solo administradores del sistema' });
+  try {
+    const { edificio, nuevo_usuario } = req.body || {};
+    if (!edificio) return res.status(400).json({ error: 'Falta el nombre del edificio' });
+    if (!nuevo_usuario) return res.status(400).json({ error: 'Falta el administrador de destino' });
+
+    const { rows: edRows } = await readTab(TAB_EDIFICIOS);
+    const edObj = edRows.map(mapEdificio).find((e) => normEdificio(e.nombre) === normEdificio(edificio));
+    if (!edObj) return res.status(404).json({ error: 'No se encontró el edificio en el sistema' });
+
+    const { rows: cliRows } = await readTab(TAB_CLIENTES);
+    const clientes = cliRows.map(mapCliente);
+    const targetCli = clientes.find((c) => c.usuario === nuevo_usuario);
+    if (!targetCli) return res.status(404).json({ error: 'No se encontró el administrador de destino' });
+
+    const edNombreReal = edObj.nombre;
+    const colEdificiosCli = await findOrPlanColumn(TAB_CLIENTES, ['edificios', 'edificio']);
+
+    // 1. Quitar el edificio de cualquier otro cliente que lo tuviera asignado
+    for (const c of clientes) {
+      if (c.usuario !== nuevo_usuario) {
+        const tiene = (c.edificios || []).some((e) => normEdificio(e) === normEdificio(edNombreReal));
+        if (tiene) {
+          const filtrados = (c.edificios || []).filter((e) => normEdificio(e) !== normEdificio(edNombreReal));
+          if (colEdificiosCli && !colEdificiosCli.create) {
+            await writeCell(TAB_CLIENTES, colEdificiosCli.col, c._row, filtrados.join(', '));
+          }
+          try {
+            await queryPg('UPDATE clientes SET edificios = $1 WHERE lower(usuario) = lower($2)', [filtrados.join(', '), c.usuario]);
+          } catch (_) {}
+        }
+      }
+    }
+
+    // 2. Agregar el edificio al nuevo administrador
+    const yaLoTiene = (targetCli.edificios || []).some((e) => normEdificio(e) === normEdificio(edNombreReal));
+    let nuevaLista = targetCli.edificios || [];
+    if (!yaLoTiene) {
+      nuevaLista = [...nuevaLista, edNombreReal];
+      if (colEdificiosCli) {
+        if (colEdificiosCli.create) await ensureHeader(TAB_CLIENTES, colEdificiosCli.col, 'edificios', false);
+        await writeCell(TAB_CLIENTES, colEdificiosCli.col, targetCli._row, nuevaLista.join(', '));
+      }
+      try {
+        await queryPg('UPDATE clientes SET edificios = $1 WHERE lower(usuario) = lower($2)', [nuevaLista.join(', '), targetCli.usuario]);
+      } catch (_) {}
+    }
+
+    // 3. Actualizar la columna administrador en EDIFICIOS
+    const colAdminEd = await findOrPlanColumn(TAB_EDIFICIOS, ['admin_nombre', 'administrador', 'admin']);
+    if (colAdminEd) {
+      if (colAdminEd.create) await ensureHeader(TAB_EDIFICIOS, colAdminEd.col, 'administrador', false);
+      await writeCell(TAB_EDIFICIOS, colAdminEd.col, edObj._row, targetCli.nombre);
+    }
+    try {
+      await queryPg('UPDATE edificios SET admin_nombre = $1 WHERE marcos_norm(edificio) = marcos_norm($2)', [targetCli.nombre, edNombreReal]);
+    } catch (_) {}
+
+    res.json({ ok: true, edificio: edNombreReal, nuevo_admin: targetCli.nombre, nuevo_usuario: targetCli.usuario });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Adherir / gestionar edificios en el paquete corporativo contratado (cliente o dueño).
+router.post('/api/adherir-plan-corporativo', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { plan, cupos, seleccionados, excluidos, motivo } = req.body || {};
+    if (!plan) return res.status(400).json({ error: 'Falta el nombre del plan' });
+    if (!Array.isArray(seleccionados) || seleccionados.length === 0) {
+      return res.status(400).json({ error: 'Seleccioná al menos un edificio' });
+    }
+
+    const permitidos = edificiosPermitidos(req);
+    const dueno = esDueno(req);
+    const limiteCupos = Number(cupos) || 5;
+
+    if (seleccionados.length > limiteCupos) {
+      return res.status(400).json({ error: `El cupo máximo del plan es ${limiteCupos} edificios` });
+    }
+
+    const { rows: edRows } = await readTab(TAB_EDIFICIOS);
+    const planFormatted = plan.includes('Paquete Corporativo') ? plan : `${plan} (Paquete Corporativo)`;
+
+    // Verificar si el cliente ya tiene contratado este plan corporativo en sus edificios
+    const edificiosDelCliente = dueno ? edRows.map(mapEdificio) : edRows.map(mapEdificio).filter((e) => permitidos && permitidos.some((p) => normEdificio(p) === normEdificio(e.nombre)));
+    const yaTienePlanContratado = edificiosDelCliente.some((e) => String(e.plan || '').toLowerCase().includes(normEdificio(plan)) || String(e.plan || '').toLowerCase().includes('corporativo'));
+
+    // Si ya lo tiene contratado o es el dueño, se aplica DIRECTAMENTE sin esperar aprobación
+    if (yaTienePlanContratado || dueno) {
+      const colPlan = await findOrPlanColumn(TAB_EDIFICIOS, ['plan']);
+
+      for (const nombreEd of seleccionados) {
+        const edRow = edRows.map(mapEdificio).find((e) => normEdificio(e.nombre) === normEdificio(nombreEd));
+        if (edRow && colPlan) {
+          if (colPlan.create) await ensureHeader(TAB_EDIFICIOS, colPlan.col, 'plan', false);
+          await writeCell(TAB_EDIFICIOS, colPlan.col, edRow._row, planFormatted);
+          try {
+            await queryPg('UPDATE edificios SET plan = $1 WHERE marcos_norm(edificio) = marcos_norm($2)', [planFormatted, edRow.nombre]);
+          } catch (_) {}
+        }
+      }
+
+      if (Array.isArray(excluidos)) {
+        for (const nombreEd of excluidos) {
+          const edRow = edRows.map(mapEdificio).find((e) => normEdificio(e.nombre) === normEdificio(nombreEd));
+          if (edRow && colPlan && String(edRow.plan || '').toLowerCase().includes('corporativo')) {
+            await writeCell(TAB_EDIFICIOS, colPlan.col, edRow._row, 'Plan Base');
+            try {
+              await queryPg("UPDATE edificios SET plan = 'Plan Base' WHERE marcos_norm(edificio) = marcos_norm($1)", [edRow.nombre]);
+            } catch (_) {}
+          }
+        }
+      }
+
+      return res.json({
+        ok: true,
+        directo: true,
+        mensaje: `¡Se asignaron los ${seleccionados.length} edificios a tu ${plan} exitosamente!`
+      });
+    }
+
+    // Si no tiene el plan contratado todavía, se genera la solicitud para el administrador del sistema
+    const usuario = req.session.user;
+    const edDesc = `Paquete Corporativo (${seleccionados.length} edificios)`;
+    await appendRow(TAB_SOLICITUDES, {
+      fecha: new Date().toLocaleString('es-AR'),
+      usuario,
+      edificio: edDesc,
+      campo: 'plan',
+      valor_actual: '',
+      valor_nuevo: planFormatted,
+      motivo: motivo || `Solicitud de adhesión a ${planFormatted}`,
+      estado: 'pendiente',
+      motivo_rechazo: ''
+    });
+
+    res.json({
+      ok: true,
+      directo: false,
+      mensaje: '¡Solicitud de Paquete Corporativo enviada con éxito! Será activada a la brevedad.'
+    });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -7831,14 +16588,23 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
       targetEdificios = [edificio];
     }
 
+    let celdasEscritas = 0;
+
     if (campo) {
       const candidates = EDIFICIO_FIELDS[campo] || [campo];
-      let colIdx = edHeaders.findIndex((h) => candidates.includes(h));
-      let col;
-      if (colIdx >= 0) col = columnLetter(colIdx + 1);
-      else {
-        col = columnLetter(edHeaders.length + 1);
+
+      // Se escribe en TODAS las columnas equivalentes que existan, no en la primera.
+      //
+      // Bug real: la planilla tiene `nombre` y `edificio`, que son el mismo dato. Al aprobar un
+      // cambio de nombre se escribía en `nombre` -- la primera de la lista -- pero el resto del
+      // sistema lee `edificio`. El valor quedaba guardado, la solicitud figuraba "aplicada", y en
+      // pantalla no cambiaba nada. Escribir en las dos las mantiene sincronizadas, que es lo que
+      // se esperaba desde el principio: son alias de un mismo campo, no campos distintos.
+      const { columnas, crear } = columnasDelCampo(edHeaders, candidates);
+      if (crear) {
+        const col = columnLetter(edHeaders.length + 1);
         await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
+        columnas.push(col);
       }
 
       for (const edNom of targetEdificios) {
@@ -7846,17 +16612,56 @@ router.post('/api/aprobar-solicitud', async (req, res) => {
           compararEdificios(r.edificio || r.nombre || '', edNom)
         );
         for (const edRow of matchingEdRows) {
-          if (edRow) {
+          if (!edRow) continue;
+          for (const col of columnas) {
             await writeCell(TAB_EDIFICIOS, col, edRow._row, valor_nuevo);
+            celdasEscritas++;
           }
         }
       }
     }
 
+    // ── RENOMBRAR UN EDIFICIO ES RENOMBRARLO EN TODOS LADOS ─────────────────────────────────
+    //
+    // El nombre del consorcio no vive solo en `EDIFICIOS`: está copiado como texto en cada
+    // vecino, cada evento, cada factura, cada asignación de proveedor y en la lista de edificios
+    // del cliente. Ese texto es la única forma que tiene el sistema de relacionar las filas: no
+    // hay un id.
+    //
+    // Cambiarlo en `EDIFICIOS` y en ningún otro lado parte el edificio en dos. Las filas viejas
+    // siguen diciendo "san patricio 27'0 casa", el panel las muestra tal cual, y el apóstrofe
+    // "vuelve solo" -- nunca se había ido, estaba en las otras pestañas.
+    if (campo === 'nombre' && valor_nuevo) {
+      const { renombrarEdificio } = require('./renombrar-edificio');
+      let totalCambios = 0;
+      for (const viejo of targetEdificios) {
+        if (normEdificio(viejo) === normEdificio(valor_nuevo)) continue;
+        const r = await renombrarEdificio({ viejo, nuevo: valor_nuevo, aplicar: true });
+        totalCambios += (r.cambios || 0);
+      }
+      if (totalCambios) {
+        console.log(`[Solicitud ${row}] "${targetEdificios.join(', ')}" → "${valor_nuevo}": ${totalCambios} referencia(s) actualizadas fuera de EDIFICIOS.`);
+      }
+    }
+
+    // Si no se escribió nada, la solicitud NO se marca como aplicada.
+    //
+    // Pasó de verdad con un "Paquete Corporativo (3 edificios)": ese texto no es el nombre de
+    // ningún edificio, así que no coincidió con ninguna fila, no se escribió una sola celda, y
+    // la solicitud igual quedó "aplicada". El dueño la vio resuelta y nunca se enteró de que el
+    // cambio no existía. Un fracaso silencioso es peor que un error.
+    if (campo && celdasEscritas === 0) {
+      console.warn(`[Solicitud ${row}] No se aplicó nada: "${edificio}" no coincide con ningún edificio cargado.`);
+      return res.status(409).json({
+        error: `No encontré ningún edificio que coincida con "${edificio}", así que no cambié nada. ` +
+               `Revisá que el nombre del edificio en la solicitud sea el mismo que figura en la planilla.`,
+      });
+    }
+
     const planEstado = await findOrPlanColumn(TAB_SOLICITUDES, ['estado']);
     if (planEstado.create) await ensureHeader(TAB_SOLICITUDES, planEstado.col, 'estado', false);
     await writeCell(TAB_SOLICITUDES, planEstado.col, Number(row), 'aplicada');
-    res.json({ ok: true, edificiosActualizados: targetEdificios });
+    res.json({ ok: true, edificiosActualizados: targetEdificios, celdasEscritas });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -7898,27 +16703,393 @@ router.post('/api/responder-sugerencia', async (req, res) => {
   }
 });
 
-// Publicar expensa (cliente). El archivo en si no se sube todavia: se
-// registra nombre/periodo/link para que Marcos sepa que existe y pueda
-// compartir el link. El almacenamiento de PDFs es trabajo del motor.
-router.post('/api/expensa', async (req, res) => {
+// Servir archivo de expensa protegido. Solo accesible por el dueño o clientes con permiso sobre el edificio.
+router.get('/api/expensa-archivo/:nombre', async (req, res) => {
+  const nombreParam = path.basename(req.params.nombre || '');
+  if (!nombreParam) return res.status(400).json({ error: 'Falta nombre' });
+
+  // Verificar sesión del panel
+  if (!req.session || (!req.session.role && !req.session.user)) {
+    return res.status(401).json({ error: 'No hay sesión activa' });
+  }
+
+  const { puedeVerExpensa, rutaDelArchivo } = require('./expensa-privada');
+  const permitidos = edificiosDeLaCuenta(req).length ? edificiosDeLaCuenta(req) : (edificiosPermitidos(req) || []);
+  const quien = esDueno(req)
+    ? { rol: 'dueno' }
+    : { rol: 'consorcio', edificios: permitidos };
+
+  let expensa = null;
+  // 1. Buscar en PostgreSQL
+  try {
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `SELECT * FROM expensas 
+                 WHERE (url LIKE $1 ESCAPE '=' OR nombre = $2 OR url = $3)
+                   AND estado != 'eliminada' 
+                 ORDER BY id DESC LIMIT 1`;
+      const safeLike = '%' + nombreParam.replace(/([_%])/g, '=$1');
+      const resPg = await pool.query(q, [safeLike, nombreParam, '/archivos/expensas/' + nombreParam]);
+      if (resPg.rows && resPg.rows.length) {
+        expensa = resPg.rows[0];
+      }
+    }
+  } catch (errPg) {
+    console.warn('Error buscando expensa en PG:', errPg.message);
+  }
+
+  // 2. Fallback a Google Sheets si no se encontró en PG
+  if (!expensa) {
+    try {
+      const { rows } = await readTab(TAB_EXPENSAS);
+      expensa = rows.map(mapExpensa).find((x) => {
+        if (x.estado === 'eliminada') return false;
+        const u = path.basename(x.url || '');
+        const n = path.basename(x.nombre || '');
+        return u === nombreParam || n === nombreParam || (x.url && x.url.endsWith(nombreParam));
+      });
+    } catch (_) {}
+  }
+
+  if (!expensa) {
+    return res.status(404).json({ error: 'Expensa no encontrada' });
+  }
+
+  const { puede, motivo } = puedeVerExpensa({ expensa, quien });
+  if (!puede) {
+    return res.status(403).json({ error: motivo || 'No tenés permiso para ver esta expensa' });
+  }
+
+  const ruta = rutaDelArchivo(expensa.url || nombreParam);
+  if (!ruta || !fs.existsSync(ruta)) {
+    return res.status(404).json({ error: 'No se encontró el archivo físico en el servidor' });
+  }
+
+  res.sendFile(ruta);
+});
+
+// Analizar expensa con IA para previsualizar unidad, total y vencimiento antes de publicar.
+router.post('/api/expensa-analizar', uploadExpensasMulter.single('archivo'), async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+  const fs = require('fs');
+  if (!req.file) return res.status(400).json({ error: 'Falta archivo' });
+  try {
+    const { leerExpensa } = require('./expensa-documento');
+    const departamento = (req.body && req.body.departamento) || '';
+    const lectura = await leerExpensa({
+      filePath: req.file.path,
+      mimeType: req.file.mimetype,
+      unidadEsperada: departamento,
+    });
+    // Limpiamos el archivo temporal de análisis para no dejar huérfanos en disco
+    try {
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    } catch (_) {}
+    res.json({ ok: true, lectura });
+  } catch (e) {
+    try {
+      if (req.file && req.file.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    } catch (_) {}
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Analizar una tanda múltiple de liquidaciones de expensas (hasta 60 archivos).
+router.post('/api/expensa-tanda-analizar', uploadExpensasMulter.array('archivos', 60), async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: 'No se recibieron archivos' });
+
+  // > [!CAUTION]
+  // > **El edificio sale del PERMISO, nunca del cuerpo del pedido, y con varios no se adivina.**
+  //
+  // Acá habia un `|| (req.body && req.body.edificio)` de respaldo. Con un cliente sin edificios
+  // asignados --el estado normal de uno recien creado-- ese respaldo ganaba, y el edificio pasaba
+  // a ser lo que viniera escrito en el pedido: se podia publicar una expensa dentro del consorcio
+  // de otro administrador, con el monto que fuera, y los vecinos de ese edificio la veian. Es
+  // exactamente lo que paso con `/api/pases-qr`.
+  //
+  // Sacar ese respaldo dejo `permitidos[0] || ''`, que **tampoco alcanza**: con el selector en
+  // "Todos los edificios" eso es el primero de la lista, no el que el cliente tiene en la cabeza.
+  // Las dos reglas viven juntas en `edificioParaEscribir`.
+  const { edificio, motivo } = edificioParaEscribir(req);
+  if (!edificio) return res.status(400).json({ error: motivo });
+
+  const { leerExpensa } = require('./expensa-documento');
+  const lecturas = [];
+
+  for (const f of files) {
+    try {
+      const lectura = await leerExpensa({
+        filePath: f.path,
+        mimeType: f.mimetype,
+        unidadEsperada: '',
+      });
+      lecturas.push({
+        archivo: f.originalname || f.filename,
+        tempName: f.filename,
+        url: '/archivos/expensas/' + f.filename,
+        unidad: (lectura && lectura.ok && lectura.unidad) ? lectura.unidad : '',
+        periodo: (lectura && lectura.ok && lectura.periodo) ? lectura.periodo : '',
+        vencimiento: (lectura && lectura.ok && lectura.vencimiento) ? lectura.vencimiento : '',
+        monto: (lectura && lectura.ok && lectura.mostrar_monto && lectura.monto !== null) ? lectura.monto : null,
+        monto_origen: (lectura && lectura.ok && lectura.mostrar_monto && lectura.monto !== null) ? 'ocr' : '',
+        mostrar_monto: lectura && lectura.ok ? lectura.mostrar_monto : false,
+        motivo: (lectura && lectura.motivo) || '',
+        es_expensa: lectura && lectura.ok ? (lectura.es_expensa !== false) : false,
+      });
+    } catch (errLec) {
+      console.warn(`Error leyendo archivo ${f.originalname}:`, errLec.message);
+      lecturas.push({
+        archivo: f.originalname || f.filename,
+        tempName: f.filename,
+        url: '/archivos/expensas/' + f.filename,
+        unidad: '',
+        periodo: '',
+        vencimiento: '',
+        monto: null,
+        monto_origen: '',
+        mostrar_monto: false,
+        motivo: 'No se pudo leer el archivo',
+        es_expensa: false,
+      });
+    }
+  }
+
+  const { unidadesConVecino, revisarTanda, resumenTanda } = require('./unidades-edificio');
+  const conocidas = await unidadesConVecino(edificio);
+  const filasRevisadas = revisarTanda(lecturas, conocidas || []);
+  const resumen = resumenTanda(filasRevisadas);
+
+  res.json({
+    ok: true,
+    edificio,
+    conocidasVerificadas: conocidas !== null,
+    resumen,
+    filas: filasRevisadas.map((fr, idx) => ({
+      ...lecturas[idx],
+      estado: fr.estado,
+      mensaje: fr.mensaje,
+      unidadDelVecino: fr.unidadDelVecino || '',
+    })),
+  });
+});
+
+// Confirmar y publicar una tanda de expensas en Google Sheets y PostgreSQL.
+router.post('/api/expensa-tanda-publicar', async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+
+  const { mes, anio, formato, filas } = req.body || {};
+  if (!filas || !Array.isArray(filas) || !filas.length) {
+    return res.status(400).json({ error: 'No hay filas para publicar' });
+  }
+
+  // El edificio sale del PERMISO, nunca del cuerpo del pedido, y con varios no se adivina.
+  // Las dos reglas, y por qué, en `edificioParaEscribir`.
+  const { edificio, motivo } = edificioParaEscribir(req);
+  if (!edificio) return res.status(400).json({ error: motivo });
+
+  const fecha = new Date().toLocaleString('es-AR');
+  const perDefault = (mes && anio) ? `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}` : '';
+  const { montoANumero } = require('./expensa-documento');
+
+  let guardadas = 0;
+  for (const item of filas) {
+    const tempName = path.basename(item.tempName || item.url || '');
+    if (!tempName) continue;
+
+    const rutaFisica = path.join(__dirname, 'almacenamiento', 'expensas', tempName);
+    if (!fs.existsSync(rutaFisica)) {
+      console.warn(`Archivo físico no encontrado para tanda: ${rutaFisica}`);
+    }
+
+    const url = '/archivos/expensas/' + tempName;
+    const deptoFinal = String(item.unidad || item.departamento || '').trim();
+    const vencimientoFinal = String(item.vencimiento || '').trim();
+    const periodoFinal = String(item.periodo || perDefault).trim();
+    const formFinal = item.formato || formato || (tempName.endsWith('.pdf') ? 'pdf' : 'imagen');
+    const nombreFinal = item.archivo || item.nombre || tempName;
+
+    const montoFinal = montoANumero(item.monto);
+    const montoOrigenFinal = item.monto_origen === 'ocr' ? 'ocr' : (montoFinal !== null ? 'manual' : '');
+
+    try {
+      await appendRow(TAB_EXPENSAS, {
+        fecha,
+        edificio,
+        periodo: periodoFinal,
+        formato: formFinal,
+        nombre: nombreFinal,
+        url,
+        estado: 'publicada',
+        departamento: deptoFinal,
+        monto: montoFinal !== null ? montoFinal : '',
+        vencimiento: vencimientoFinal,
+        monto_origen: montoOrigenFinal,
+      });
+
+      // Sincronizar en PostgreSQL expensas
+      const { pool } = require('./db-pg');
+      if (pool && edificio) {
+        await pool.query(
+          `INSERT INTO expensas (fecha, edificio, periodo, formato, nombre, url, estado, departamento, monto, vencimiento, monto_origen)
+           VALUES ($1, $2, $3, $4, $5, $6, 'publicada', $7, $8, $9, $10)`,
+          [
+            fecha,
+            edificio,
+            periodoFinal,
+            formFinal,
+            nombreFinal,
+            url,
+            deptoFinal || null,
+            montoFinal !== null ? montoFinal : null,
+            vencimientoFinal || null,
+            montoOrigenFinal || null
+          ]
+        );
+      }
+      guardadas++;
+    } catch (errItem) {
+      console.error(`Error guardando expensa en tanda (${nombreFinal}):`, errItem.message);
+    }
+  }
+
+  const fallidas = filas.length - guardadas;
+  if (guardadas === 0) {
+    return res.status(500).json({ ok: false, error: 'No se pudo guardar ninguna expensa. Revisá la conexión y permisos.', guardadas: 0, fallidas });
+  }
+  res.json({ ok: true, guardadas, fallidas });
+});
+
+// Cancelar una tanda de expensas descartando los archivos temporales no confirmados.
+router.post('/api/expensa-tanda-cancelar', async (req, res) => {
+  if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
+  if (bloquearSiPreview(req, res)) return;
+
+  const archivos = (req.body && req.body.archivos) || [];
+  for (const a of archivos) {
+    const safeName = path.basename(String(a || ''));
+    if (safeName && safeName.startsWith('expensa_')) {
+      const ruta = path.join(__dirname, 'almacenamiento', 'expensas', safeName);
+      try {
+        if (fs.existsSync(ruta)) fs.unlinkSync(ruta);
+      } catch (_) {}
+    }
+  }
+  res.json({ ok: true });
+});
+
+// Publicar expensa (cliente). Soporta archivo físico (PDF/imagen) vía Multer
+// y guarda en almacenamiento permanente (/archivos/expensas/...) sincronizando
+// tanto en Google Sheets como en PostgreSQL (tabla expensas con 11 columnas).
+router.post('/api/expensa', uploadExpensasMulter.single('archivo'), async (req, res) => {
   if (esDueno(req)) return res.status(403).json({ error: 'Solo clientes' });
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { mes, anio, formato, url, nombre } = req.body || {};
+    const { mes, anio, formato, departamento, monto, vencimiento, monto_origen } = req.body || {};
+    let url = (req.body && req.body.url) || '';
+    let nombre = (req.body && req.body.nombre) || '';
+
     if (!mes || !anio) return res.status(400).json({ error: 'Falta el período' });
-    const permitidos = edificiosPermitidos(req) || [];
-    const edificio = permitidos[0] || '';
+
+    if (req.file) {
+      url = '/archivos/expensas/' + req.file.filename;
+      nombre = req.file.originalname || req.file.filename;
+    }
+
+    // Con varios edificios y ninguno elegido no se adivina: ver `edificioParaEscribir`.
+    const { edificio, motivo } = edificioParaEscribir(req);
+    if (!edificio) return res.status(400).json({ error: motivo });
+
+    const fecha = new Date().toLocaleString('es-AR');
+    const periodo = `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}`;
+    const formFinal = formato || (req.file && req.file.mimetype && req.file.mimetype.startsWith('image/') ? 'imagen' : 'pdf');
+
+    const { leerExpensa, montoANumero } = require('./expensa-documento');
+    let deptoFinal = String(departamento || '').trim();
+    let vencimientoFinal = String(vencimiento || '').trim();
+    let montoFinal = null;
+    let montoOrigenFinal = '';
+
+    if (monto !== undefined && monto !== null && String(monto).trim() !== '') {
+      montoFinal = montoANumero(monto);
+      montoOrigenFinal = monto_origen === 'ocr' ? 'ocr' : 'manual';
+    } else if (req.file) {
+      try {
+        const lectura = await leerExpensa({
+          filePath: req.file.path,
+          mimeType: req.file.mimetype,
+          unidadEsperada: deptoFinal,
+        });
+        if (lectura && lectura.ok) {
+          if (!deptoFinal && lectura.unidad && !lectura.choca_la_unidad) {
+            deptoFinal = lectura.unidad;
+          }
+          if (!vencimientoFinal && lectura.vencimiento) {
+            vencimientoFinal = lectura.vencimiento;
+          }
+          if (lectura.mostrar_monto && lectura.monto !== null && lectura.monto !== undefined) {
+            montoFinal = lectura.monto;
+            montoOrigenFinal = 'ocr';
+          }
+        }
+      } catch (errLec) {
+        console.warn('Error leyendo expensa al publicar:', errLec.message);
+      }
+    }
+
     await appendRow(TAB_EXPENSAS, {
-      fecha: new Date().toLocaleString('es-AR'),
+      fecha,
       edificio,
-      periodo: `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${anio}`,
-      formato: formato || 'pdf',
-      nombre: nombre || '',
-      url: url || '',
+      periodo,
+      formato: formFinal,
+      nombre,
+      url,
       estado: 'publicada',
+      departamento: deptoFinal,
+      monto: montoFinal !== null && montoFinal !== undefined ? montoFinal : '',
+      vencimiento: vencimientoFinal,
+      monto_origen: montoOrigenFinal,
     });
-    res.json({ ok: true });
+
+    // Sincronizar en PostgreSQL expensas
+    try {
+      const { pool } = require('./db-pg');
+      if (pool && edificio) {
+        await pool.query(
+          `INSERT INTO expensas (fecha, edificio, periodo, formato, nombre, url, estado, departamento, monto, vencimiento, monto_origen)
+           VALUES ($1, $2, $3, $4, $5, $6, 'publicada', $7, $8, $9, $10)`,
+          [
+            fecha,
+            edificio,
+            periodo,
+            formFinal,
+            nombre,
+            url,
+            deptoFinal || null,
+            montoFinal !== null ? montoFinal : null,
+            vencimientoFinal || null,
+            montoOrigenFinal || null
+          ]
+        );
+      }
+    } catch (errPg) {
+      console.warn('Error sincronizando expensa en PostgreSQL:', errPg.message);
+    }
+
+    res.json({
+      ok: true,
+      url,
+      nombre,
+      departamento: deptoFinal,
+      monto: montoFinal,
+      vencimiento: vencimientoFinal,
+      monto_origen: montoOrigenFinal
+    });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -7929,10 +17100,33 @@ router.post('/api/expensa-quitar', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
     const { row } = req.body || {};
-    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+    if (!row) return res.status(400).json({ error: 'Falta fila' });
+
+    let expActual = null;
+    try {
+      const { rows } = await readTab(TAB_EXPENSAS);
+      expActual = rows.find((x) => Number(x._row) === Number(row));
+    } catch (_) {}
+
     const plan = await findOrPlanColumn(TAB_EXPENSAS, ['estado']);
     if (plan.create) await ensureHeader(TAB_EXPENSAS, plan.col, 'estado', false);
     await writeCell(TAB_EXPENSAS, plan.col, Number(row), 'eliminada');
+
+    // Sincronizar en PostgreSQL expensas
+    try {
+      const { pool } = require('./db-pg');
+      if (pool && expActual && expActual.edificio) {
+        await pool.query(
+          `UPDATE expensas SET estado = 'eliminada'
+           WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
+             AND (url = $3 OR (periodo = $4 AND COALESCE(departamento, '') = COALESCE($5, '')))`,
+          [expActual.edificio, '%' + expActual.edificio + '%', expActual.url || '', expActual.periodo || '', expActual.departamento || '']
+        );
+      }
+    } catch (errPg) {
+      console.warn('Error sincronizando expensa eliminada en PostgreSQL:', errPg.message);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -7975,15 +17169,15 @@ async function guardarCamposEdificio(edRow, headers, body, fieldsMap) {
   for (const field of Object.keys(fieldsMap)) {
     if (body[field] === undefined) continue;
     const candidates = fieldsMap[field];
-    let idx = workingHeaders.findIndex((h) => candidates.includes(h));
-    let col;
-    if (idx >= 0) col = columnLetter(idx + 1);
-    else {
-      col = columnLetter(workingHeaders.length + 1);
+    // Igual que en /api/edificio: todas las columnas que son este campo, no solo la primera.
+    let { columnas, crear } = columnasDelCampo(workingHeaders, candidates);
+    if (crear) {
+      const col = columnLetter(workingHeaders.length + 1);
       await ensureHeader(TAB_EDIFICIOS, col, candidates[0], false);
       workingHeaders.push(candidates[0]);
+      columnas = [col];
     }
-    await writeCell(TAB_EDIFICIOS, col, edRow._row, body[field]);
+    for (const col of columnas) await writeCell(TAB_EDIFICIOS, col, edRow._row, body[field]);
   }
 }
 
@@ -8021,11 +17215,28 @@ function clienteDeSesion(req) {
 router.post('/api/proveedor', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { rubro, nombre, telefono, notas } = req.body || {};
+    const { rubro, nombre, telefono, notas, cbu, alias, titular, cuit } = req.body || {};
     let cliente = clienteDeSesion(req);
     if (!cliente && esDueno(req)) cliente = req.session.user;
     if (!cliente) return res.status(400).json({ error: 'Solo clientes cargan su lista' });
     if (!nombre && !telefono) return res.status(400).json({ error: 'Cargá nombre o teléfono' });
+
+    // Los datos de cobro son opcionales en el alta, pero si vienen se verifican igual que
+    // cuando los manda el proveedor por WhatsApp: un CBU mal tipeado acá termina en un pago
+    // rechazado, y es más barato frenarlo ahora que descubrirlo el día que hay que pagar.
+    const cbuLimpio = String(cbu || '').replace(/\D/g, '');
+    if (cbuLimpio) {
+      const { validarCBU } = require('./cbu');
+      const chequeo = validarCBU(cbuLimpio);
+      if (!chequeo.valido) return res.status(400).json({ error: `Ese CBU no es válido: ${chequeo.motivo}` });
+    }
+    const aliasLimpio = String(alias || '').trim();
+    if (aliasLimpio) {
+      const { validarAlias } = require('./cbu');
+      const chequeo = validarAlias(aliasLimpio);
+      if (!chequeo.valido) return res.status(400).json({ error: `Ese alias no es válido: ${chequeo.motivo}` });
+    }
+
     await appendRow(TAB_PROVEEDORES, {
       cliente,
       rubro: rubro || 'Otro',
@@ -8033,6 +17244,11 @@ router.post('/api/proveedor', async (req, res) => {
       telefono: telefono || '',
       notas: notas || '',
       estado: 'activo',
+      cbu: cbuLimpio,
+      alias_cbu: aliasLimpio.toLowerCase(),
+      titular: String(titular || '').trim(),
+      cuit: String(cuit || '').replace(/\D/g, ''),
+      cbu_actualizado: (cbuLimpio || aliasLimpio) ? new Date().toLocaleString('es-AR') : '',
     });
     res.json({ ok: true });
   } catch (e) {
@@ -8077,11 +17293,119 @@ router.post('/api/proveedor-editar', async (req, res) => {
     if (cTel.create) await ensureHeader(TAB_PROVEEDORES, cTel.col, 'telefono', false);
     if (cNotas.create) await ensureHeader(TAB_PROVEEDORES, cNotas.col, 'notas', false);
 
+    const nombreViejo = String(prov.nombre || '').trim();
+    const nombreNuevo = nombre !== undefined ? String(nombre).trim() : nombreViejo;
+
     if (rubro !== undefined) await writeCell(TAB_PROVEEDORES, cRubro.col, Number(row), rubro);
     if (nombre !== undefined) await writeCell(TAB_PROVEEDORES, cNombre.col, Number(row), nombre);
     if (telefono !== undefined) await writeCell(TAB_PROVEEDORES, cTel.col, Number(row), telefono);
     if (notas !== undefined) await writeCell(TAB_PROVEEDORES, cNotas.col, Number(row), notas);
 
+    let cambios = 0;
+    let fallidos = 0;
+
+    if (nombreNuevo && nombreViejo && nombreNuevo !== nombreViejo) {
+      const { renombrarProveedor } = require('./renombrar-proveedor');
+      const resRenombrar = await renombrarProveedor({
+        viejo: nombreViejo,
+        nuevo: nombreNuevo,
+        aplicar: true,
+      });
+      cambios = resRenombrar.cambios || 0;
+      fallidos = resRenombrar.fallidos || 0;
+    }
+
+    res.json({ ok: true, cambios, fallidos });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// ── DATOS DE COBRO DEL PROVEEDOR ────────────────────────────────────────────────────────────
+//
+// El navegador ya tenía la pantalla y llamaba a estas dos rutas, pero del lado del servidor no
+// existían: guardar los datos de cobro daba 404 y el mensaje de error no decía por qué. Lo
+// encontró `verificar-antes-de-subir.js`, que compara lo que el front pide contra lo que el back
+// ofrece.
+router.post('/api/proveedor-datos-cobro', async (req, res) => {
+  if (!esDueno(req) && !vistaCliente(req)) return res.status(403).json({ error: 'Sin permiso' });
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row, cbu, alias, titular, cuit } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+    if (!cbu && !alias) return res.status(400).json({ error: 'Hace falta el CBU o el alias' });
+
+    const { rows } = await readTab(TAB_PROVEEDORES);
+    const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
+    if (!prov) return res.status(404).json({ error: 'Proveedor no encontrado' });
+
+    // El CBU trae dos dígitos verificadores. Si no cierran, NO se guarda: son 22 números y un
+    // dígito cambiado manda el pago a otra cuenta sin que nadie lo note.
+    const { validarCBU, validarAlias } = require('./cbu');
+    let cbuOk = '';
+    if (cbu) {
+      const v = validarCBU(cbu);
+      if (!v.valido) return res.status(400).json({ error: `Ese CBU no verifica (${v.motivo || 'los dígitos no cierran'}). Revisalo o cargá el alias, que es más corto y se lee mejor.` });
+      cbuOk = v.cbu;
+    }
+    let aliasOk = '';
+    if (alias) {
+      const v = validarAlias(alias);
+      if (!v.valido) return res.status(400).json({ error: `Ese alias no tiene el formato de un alias bancario (${v.motivo || 'formato inválido'}).` });
+      aliasOk = v.alias;
+    }
+
+    const columnas = {
+      cbu: ['cbu'], alias_cbu: ['alias_cbu', 'alias'], titular: ['titular'],
+      cuit: ['cuit'], cbu_actualizado: ['cbu_actualizado'],
+    };
+    const valores = {
+      cbu: cbuOk, alias_cbu: aliasOk, titular: titular || '', cuit: cuit || '',
+      cbu_actualizado: new Date().toLocaleString('es-AR'),
+    };
+
+    for (const campo of Object.keys(columnas)) {
+      if (valores[campo] === '' && campo !== 'cbu_actualizado') continue;
+      const c = await findOrPlanColumn(TAB_PROVEEDORES, columnas[campo]);
+      if (c.create) await ensureHeader(TAB_PROVEEDORES, c.col, columnas[campo][0], false);
+      await writeCell(TAB_PROVEEDORES, c.col, Number(row), valores[campo]);
+    }
+
+    console.log(`🏦 Datos de cobro cargados desde el panel para "${prov.nombre || 'proveedor'}".`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Aprobar o rechazar el cambio de cuenta que un proveedor pidió por WhatsApp.
+//
+// Cambiar el CBU de un proveedor es el fraude más común que existe: alguien se mete en la
+// conversación, dice "cambié de banco, anotá este otro", y el pago del mes se va a otra cuenta.
+// Por eso el cambio NO se aplica solo: queda pendiente y lo decide una persona acá.
+router.post('/api/proveedor-cambio-cobro', async (req, res) => {
+  if (!esDueno(req) && !vistaCliente(req)) return res.status(403).json({ error: 'Sin permiso' });
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row, aprobar } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Fila inválida' });
+
+    const { rows } = await readTab(TAB_PROVEEDORES);
+    const prov = rows.map(mapProveedor).find((p) => p._row === Number(row));
+    if (!prov) return res.status(404).json({ error: 'Proveedor no encontrado' });
+
+    // La lógica vive en sheets.js, que es la misma que usa Marcos: acá no se duplica el criterio
+    // de qué pisa a qué.
+    const { resolverCambioBancario } = require('./datos');
+    const r = await resolverCambioBancario({
+      nombre: prov.nombre || '',
+      telefono: prov.telefono || '',
+      aprobar: Boolean(aprobar),
+    });
+    // `resolverCambioBancario` devuelve el porqué en `motivo`, no en `error`.
+    if (!r?.ok) return res.status(400).json({ error: r?.motivo ? `No se pudo: ${r.motivo}.` : 'No había ningún cambio pendiente para resolver.' });
+
+    console.log(`🏦 Cambio de cuenta de "${prov.nombre}" ${aprobar ? 'APROBADO' : 'rechazado'} desde el panel.`);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -8091,7 +17415,7 @@ router.post('/api/proveedor-editar', async (req, res) => {
 router.post('/api/proveedor-asignar', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
-    const { proveedor, prioridad, edificio: reqEdificio } = req.body || {};
+    const { proveedor, prioridad, rubro: reqRubro, edificio: reqEdificio } = req.body || {};
     let cliente = clienteDeSesion(req);
     if (!cliente && esDueno(req)) {
       cliente = req.session.user;
@@ -8110,10 +17434,13 @@ router.post('/api/proveedor-asignar', async (req, res) => {
 
     if (!m) return res.status(404).json({ error: 'Ese proveedor no está en tu lista' });
 
+    const rubroElegido = String(reqRubro || m.rubro || 'Otro').trim();
+
     const { rows: aRows } = await readTab(TAB_ASIGNACIONES);
     const existente = aRows.map(mapAsignacion).find((a) =>
-      compararEdificios(a.edificio, edificio) &&
-      String(a.proveedor).trim().toLowerCase() === String(proveedor).trim().toLowerCase()
+      normEdificio(a.edificio) === normEdificio(edificio) &&
+      normEdificio(a.proveedor) === normEdificio(proveedor) &&
+      normEdificio(a.rubro || '') === normEdificio(rubroElegido)
     );
 
     if (existente) {
@@ -8130,19 +17457,49 @@ router.post('/api/proveedor-asignar', async (req, res) => {
       await writeCell(TAB_ASIGNACIONES, cPrio.col, existente._row, prioridad || 'primera');
       await writeCell(TAB_ASIGNACIONES, cEst.col, existente._row, 'activo');
       await writeCell(TAB_ASIGNACIONES, cTel.col, existente._row, m.telefono || '');
-      await writeCell(TAB_ASIGNACIONES, cRub.col, existente._row, m.rubro || 'Otro');
-      return res.json({ ok: true });
+      await writeCell(TAB_ASIGNACIONES, cRub.col, existente._row, rubroElegido);
+    } else {
+      await appendRow(TAB_ASIGNACIONES, {
+        cliente: cliente || '',
+        edificio,
+        proveedor: m.nombre,
+        rubro: rubroElegido,
+        telefono: m.telefono || '',
+        prioridad: prioridad || 'primera',
+        estado: 'activo',
+      });
     }
 
-    await appendRow(TAB_ASIGNACIONES, {
-      cliente: cliente || '',
-      edificio,
-      proveedor: m.nombre,
-      rubro: m.rubro || 'Otro',
-      telefono: m.telefono || '',
-      prioridad: prioridad || 'primera',
-      estado: 'activo',
-    });
+    // Sincronizar en PostgreSQL (proveedor_asignaciones)
+    // Se pliegan acentos con translate() en SQL para coincidir con la normalización de Sheets.
+    // Si PostgreSQL falla, el error NO se silencia: burbujea al catch y devuelve 500.
+    const normCli = normEdificio(cliente || '');
+    const normEd = normEdificio(edificio);
+    const normProv = normEdificio(m.nombre);
+    const normRub = normEdificio(rubroElegido);
+
+    const existentePg = await queryPg(`
+      SELECT id FROM proveedor_asignaciones
+      WHERE translate(lower(trim(coalesce(cliente, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
+        AND translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
+        AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
+        AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $4
+      LIMIT 1
+    `, [normCli, normEd, normProv, normRub]);
+
+    if (existentePg && existentePg.rows && existentePg.rows.length > 0) {
+      await queryPg(`
+        UPDATE proveedor_asignaciones
+        SET prioridad = $1, estado = 'activo', telefono = $2
+        WHERE id = $3
+      `, [prioridad || 'primera', m.telefono || '', existentePg.rows[0].id]);
+    } else {
+      await queryPg(`
+        INSERT INTO proveedor_asignaciones (cliente, edificio, proveedor, rubro, telefono, prioridad, estado)
+        VALUES ($1, $2, $3, $4, $5, $6, 'activo')
+      `, [cliente || '', edificio, m.nombre, rubroElegido, m.telefono || '', prioridad || 'primera']);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -8160,6 +17517,32 @@ router.post('/api/proveedor-desasignar', async (req, res) => {
     const plan = await findOrPlanColumn(TAB_ASIGNACIONES, ['estado']);
     if (plan.create) await ensureHeader(TAB_ASIGNACIONES, plan.col, 'estado', false);
     await writeCell(TAB_ASIGNACIONES, plan.col, Number(row), 'eliminado');
+
+    // Sincronizar en PostgreSQL (proveedor_asignaciones)
+    const normCliDesasig = normEdificio(a.cliente || clienteDeSesion(req) || '');
+    const normEdDesasig = normEdificio(a.edificio || '');
+    const normProvDesasig = normEdificio(a.proveedor || '');
+    const normRubDesasig = normEdificio(a.rubro || '');
+
+    if (normCliDesasig) {
+      await queryPg(`
+        UPDATE proveedor_asignaciones
+        SET estado = 'eliminado'
+        WHERE translate(lower(trim(coalesce(cliente, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
+          AND translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
+          AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
+          AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $4
+      `, [normCliDesasig, normEdDesasig, normProvDesasig, normRubDesasig]);
+    } else {
+      await queryPg(`
+        UPDATE proveedor_asignaciones
+        SET estado = 'eliminado'
+        WHERE translate(lower(trim(coalesce(edificio, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $1
+          AND translate(lower(trim(coalesce(proveedor, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $2
+          AND translate(lower(trim(coalesce(rubro, ''))), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') = $3
+      `, [normEdDesasig, normProvDesasig, normRubDesasig]);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -8243,6 +17626,207 @@ router.post('/api/consejo-quitar', async (req, res) => {
   }
 });
 
+router.post('/api/vecino-crear', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, nombre, unidad, telefono, email, notas } = req.body || {};
+    if (!edificio) return res.status(400).json({ error: 'Falta edificio' });
+    const cleanTel = normalizarTelefonoParaGuardar(telefono);
+    await appendRow(TAB_VECINOS, {
+      edificio: edificio || '',
+      nombre: nombre || '',
+      departamento: unidad || '',
+      unidad: unidad || '',
+      telefono: cleanTel ? ("'" + cleanTel) : '',
+      email: email || '',
+      notas: notas || '',
+      estado: 'activo',
+    });
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        await pool.query(
+          `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+           VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+          [edificio || '', nombre || '', unidad || '', cleanTel || '', email || '', notas || '']
+        );
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecino-crear en PostgreSQL:', errPg.message);
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/vecino-editar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row, nombre, unidad, telefono, email, notas } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Falta fila' });
+    const cNombre = await findOrPlanColumn(TAB_VECINOS, ['nombre', 'vecino']);
+    const cUnidad = await findOrPlanColumn(TAB_VECINOS, ['departamento', 'unidad', 'depto']);
+    const cTel = await findOrPlanColumn(TAB_VECINOS, ['telefono', 'tel']);
+    const cEmail = await findOrPlanColumn(TAB_VECINOS, ['email', 'mail']);
+    const cNotas = await findOrPlanColumn(TAB_VECINOS, ['notas', 'observaciones']);
+
+    if (cNombre.create) await ensureHeader(TAB_VECINOS, cNombre.col, 'nombre', false);
+    if (cUnidad.create) await ensureHeader(TAB_VECINOS, cUnidad.col, 'departamento', false);
+    if (cTel.create) await ensureHeader(TAB_VECINOS, cTel.col, 'telefono', false);
+    if (cEmail.create) await ensureHeader(TAB_VECINOS, cEmail.col, 'email', false);
+    if (cNotas.create) await ensureHeader(TAB_VECINOS, cNotas.col, 'notas', false);
+
+    const cleanTel = telefono !== undefined ? normalizarTelefonoParaGuardar(telefono) : undefined;
+
+    if (nombre !== undefined) await writeCell(TAB_VECINOS, cNombre.col, Number(row), nombre);
+    if (unidad !== undefined) await writeCell(TAB_VECINOS, cUnidad.col, Number(row), unidad);
+    if (cleanTel !== undefined) await writeCell(TAB_VECINOS, cTel.col, Number(row), cleanTel ? ("'" + cleanTel) : '');
+    if (email !== undefined) await writeCell(TAB_VECINOS, cEmail.col, Number(row), email);
+    if (notas !== undefined) await writeCell(TAB_VECINOS, cNotas.col, Number(row), notas);
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        const { rows: vRows } = await readTab(TAB_VECINOS);
+        const vecinoActual = vRows.find((v) => Number(v._row) === Number(row));
+        if (vecinoActual && vecinoActual.edificio) {
+          const edif = vecinoActual.edificio;
+          const depto = unidad || vecinoActual.departamento || vecinoActual.unidad || '';
+          const resUpd = await pool.query(
+            `UPDATE vecinos SET nombre = COALESCE($1, nombre),
+                               departamento = COALESCE($2, departamento),
+                               telefono = COALESCE($3, telefono),
+                               email = COALESCE($4, email),
+                               notas = COALESCE($5, notas),
+                               estado = 'activo'
+             WHERE (LOWER(edificio) = LOWER($6) OR LOWER(edificio) LIKE LOWER($7))
+               AND (LOWER(departamento) = LOWER($8) OR (telefono IS NOT NULL AND telefono != '' AND telefono = $9))`,
+            [
+              nombre !== undefined ? nombre : null,
+              unidad !== undefined ? unidad : null,
+              cleanTel !== undefined ? cleanTel : null,
+              email !== undefined ? email : null,
+              notas !== undefined ? notas : null,
+              edif,
+              '%' + edif + '%',
+              depto,
+              vecinoActual.telefono || ''
+            ]
+          );
+          if (resUpd.rowCount === 0) {
+            await pool.query(
+              `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+               VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+              [edif, nombre || vecinoActual.nombre || '', depto, cleanTel || vecinoActual.telefono || '', email || vecinoActual.email || '', notas || vecinoActual.notas || '']
+            );
+          }
+        }
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecino-editar en PostgreSQL:', errPg.message);
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/vecino-eliminar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { row } = req.body || {};
+    if (!row) return res.status(400).json({ error: 'Falta fila' });
+
+    let vecinoActual = null;
+    try {
+      const { rows: vRows } = await readTab(TAB_VECINOS);
+      vecinoActual = vRows.find((v) => Number(v._row) === Number(row));
+    } catch (_) {}
+
+    const plan = await findOrPlanColumn(TAB_VECINOS, ['estado']);
+    if (plan.create) await ensureHeader(TAB_VECINOS, plan.col, 'estado', false);
+    await writeCell(TAB_VECINOS, plan.col, Number(row), 'eliminado');
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool && vecinoActual && vecinoActual.edificio) {
+        const depto = vecinoActual.departamento || vecinoActual.unidad || '';
+        await pool.query(
+          `UPDATE vecinos SET estado = 'eliminado'
+           WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2))
+             AND (LOWER(departamento) = LOWER($3) OR (telefono IS NOT NULL AND telefono != '' AND telefono = $4))`,
+          [vecinoActual.edificio, '%' + vecinoActual.edificio + '%', depto, vecinoActual.telefono || '']
+        );
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecino-eliminar en PostgreSQL:', errPg.message);
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/vecinos-importar-masivo', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, vecinos } = req.body || {};
+    if (!edificio) return res.status(400).json({ error: 'Falta edificio' });
+    if (!Array.isArray(vecinos) || vecinos.length === 0) {
+      return res.status(400).json({ error: 'No se recibieron vecinos para importar' });
+    }
+
+    const rows = vecinos.map((v) => {
+      const cleanTel = normalizarTelefonoParaGuardar(v.telefono);
+      return {
+        edificio: edificio || '',
+        nombre: v.nombre || '',
+        departamento: v.unidad || v.departamento || '',
+        unidad: v.unidad || v.departamento || '',
+        telefono: cleanTel ? ("'" + cleanTel) : '',
+        email: v.email || '',
+        notas: v.notas || '',
+        estado: 'activo',
+      };
+    });
+
+    await appendRows(TAB_VECINOS, rows);
+
+    try {
+      const { pool } = require('./db-pg');
+      if (pool) {
+        for (const r of rows) {
+          const cleanTel = r.telefono.replace(/^'/, '');
+          const resUpd = await pool.query(
+            `UPDATE vecinos SET nombre = $1, telefono = $2, email = $3, notas = $4, estado = 'activo'
+             WHERE (LOWER(edificio) = LOWER($5) OR LOWER(edificio) LIKE LOWER($6))
+               AND LOWER(departamento) = LOWER($7)`,
+            [r.nombre, cleanTel, r.email, r.notas, edificio, '%' + edificio + '%', r.departamento]
+          );
+          if (resUpd.rowCount === 0) {
+            await pool.query(
+              `INSERT INTO vecinos (edificio, nombre, departamento, telefono, email, notas, estado)
+               VALUES ($1, $2, $3, $4, $5, $6, 'activo')`,
+              [edificio, r.nombre, r.departamento, cleanTel, r.email, r.notas]
+            );
+          }
+        }
+      }
+    } catch (errPg) {
+      console.error('Error sincronizando vecinos-importar-masivo en PostgreSQL:', errPg.message);
+    }
+
+    res.json({ ok: true, importados: rows.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
 router.post('/api/servicio-gastos-toggle', async (req, res) => {
   if (bloquearSiPreview(req, res)) return;
   try {
@@ -8264,8 +17848,229 @@ router.post('/api/servicio-gastos-toggle', async (req, res) => {
   }
 });
 
+// --- NUEVOS ENDPOINTS DE BASE DE DATOS Y VISOR DE CHATS ---
+router.get('/api/mensajes', async (req, res) => {
+  try {
+    const { eventoId, telefono } = req.query || {};
+    // PostgreSQL es la base oficial del sistema: el motor escribe el chat ahí (db-pg), no en el
+    // SQLite de db.js. Apuntar a db.js dejaba este visor vacío para siempre.
+    const { obtenerHistorialMensajes, obtenerHistorialChatTelefono } = require('./db-pg');
+    if (eventoId) {
+      const msgs = await obtenerHistorialMensajes(eventoId);
+      return res.json({ ok: true, mensajes: msgs });
+    }
+    if (telefono) {
+      const msgs = await obtenerHistorialChatTelefono(telefono);
+      return res.json({ ok: true, mensajes: msgs });
+    }
+    res.json({ ok: true, mensajes: [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.get('/api/busqueda-global', async (req, res) => {
+  try {
+    const { q } = req.query || {};
+    const { busquedaGlobal } = require('./db-pg');
+    const resBusqueda = await busquedaGlobal(q);
+    res.json({ ok: true, resultados: resBusqueda });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// ── ENDPOINTS GESTIÓN DE AMENITIES POR EDIFICIO (CLIENTE / ADMIN) ──
+router.post('/api/edificio-amenity-guardar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio, tipo_arancel } = req.body || {};
+    if (!edificio || !nombre) {
+      return res.status(400).json({ error: 'Faltan datos obligatorios (edificio, nombre)' });
+    }
+
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `INSERT INTO edificio_amenities (edificio, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio, tipo_arancel, activo, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, NOW()) RETURNING id`;
+      const result = await pool.query(q, [
+        edificio,
+        nombre,
+        icono || '🎉',
+        hora_apertura || '08:00',
+        hora_cierre || '23:00',
+        Number(capacidad) || 20,
+        descripcion || '',
+        reglamento || '',
+        Boolean(arancelado),
+        Number(precio) || 0,
+        tipo_arancel === 'por_reserva' ? 'por_reserva' : 'por_hora'
+      ]);
+      return res.json({ ok: true, mensaje: 'Amenity configurado con éxito', id: result.rows[0].id });
+    }
+    res.json({ ok: true, mensaje: 'Amenity registrado' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/edificio-amenity-editar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { id, nombre, icono, hora_apertura, hora_cierre, capacidad, descripcion, reglamento, arancelado, precio, tipo_arancel } = req.body || {};
+    if (!id || !nombre) {
+      return res.status(400).json({ error: 'Faltan datos obligatorios (id, nombre)' });
+    }
+
+    const { pool } = require('./db-pg');
+    if (pool) {
+      const q = `UPDATE edificio_amenities 
+                 SET nombre = $1, icono = $2, hora_apertura = $3, hora_cierre = $4, capacidad = $5, descripcion = $6, reglamento = $7, arancelado = $8, precio = $9, tipo_arancel = $10
+                 WHERE id = $11`;
+      await pool.query(q, [
+        nombre,
+        icono || '🎉',
+        hora_apertura || '08:00',
+        hora_cierre || '23:00',
+        Number(capacidad) || 20,
+        descripcion || '',
+        reglamento || '',
+        Boolean(arancelado),
+        Number(precio) || 0,
+        tipo_arancel === 'por_reserva' ? 'por_reserva' : 'por_hora',
+        id
+      ]);
+      return res.json({ ok: true, mensaje: 'Amenity y reglamento actualizados con éxito' });
+    }
+    res.json({ ok: true, mensaje: 'Amenity actualizado' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/edificio-amenity-eliminar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { id } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'ID de amenity requerido' });
+
+    const { pool } = require('./db-pg');
+    if (pool) {
+      await pool.query('UPDATE edificio_amenities SET activo = FALSE WHERE id = $1', [id]);
+    }
+    res.json({ ok: true, mensaje: 'Amenity eliminado' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/reserva-amenity-pago', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { id, estado_pago, motivo_rechazo } = req.body || {};
+    if (!id || !estado_pago) return res.status(400).json({ error: 'ID y estado_pago requeridos' });
+
+    const { pool } = require('./db-pg');
+    let reservaActualizada = null;
+    if (pool) {
+      const qUp = `UPDATE reservas_amenities 
+                   SET estado_pago = $1, 
+                       motivo_rechazo = $2 
+                   WHERE id = $3 
+                   RETURNING id, edificio, amenity, departamento, nombre_vecino, telefono, fecha, hora_desde, hora_hasta, monto, comprobante_url`;
+      const resReserva = await pool.query(qUp, [estado_pago, motivo_rechazo || null, id]);
+      if (resReserva && resReserva.rows && resReserva.rows[0]) {
+        reservaActualizada = resReserva.rows[0];
+        const compUrl = reservaActualizada.comprobante_url;
+        if (compUrl) {
+          await pool.query('UPDATE facturas SET estado = $1 WHERE url = $2', [estado_pago, compUrl]).catch(() => {});
+        }
+      }
+    }
+
+    // Notificar al vecino por WhatsApp si tiene teléfono
+    if (reservaActualizada && reservaActualizada.telefono) {
+      try {
+        const marcosOps = require('./agentes/marcos-ops');
+        if (marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
+          const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+          const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
+          const amNombre = reservaActualizada.amenity || 'el espacio común';
+          const fechaStr = reservaActualizada.fecha ? String(reservaActualizada.fecha).split('T')[0] : '';
+          const horaStr = (reservaActualizada.hora_desde || '') + ' a ' + (reservaActualizada.hora_hasta || '') + ' hs';
+
+          let msgVecino = '';
+          if (estado_pago === 'aprobado') {
+            msgVecino = `✅ *PAGO DE RESERVA APROBADO*\n\n` +
+              `Hola ${reservaActualizada.nombre_vecino || ''}, te confirmamos que tu comprobante de pago para la reserva de *${amNombre}* ha sido verificado y aprobado por la administración.\n\n` +
+              `📅 *Fecha:* ${fechaStr}\n` +
+              `⏰ *Horario:* ${horaStr}\n\n` +
+              `¡Que disfrutes del espacio común!`;
+          } else if (estado_pago === 'rechazado') {
+            msgVecino = `⚠️ *COMPROBANTE DE RESERVA OBSERVADO*\n\n` +
+              `Hola ${reservaActualizada.nombre_vecino || ''}, la administración ha revisado tu comprobante de reserva para *${amNombre}* (${fechaStr} ${horaStr}) pero no pudo ser aprobado.\n\n` +
+              `📝 *Motivo:* ${motivo_rechazo || 'Comprobante no válido o ilegible'}\n\n` +
+              `👉 Por favor ingresá al Portal del Vecino para adjuntar un nuevo comprobante o comunicate con la administración.`;
+          }
+          if (msgVecino) {
+            await marcosOps.enviarWhatsApp(reservaActualizada.telefono, msgVecino, phoneId, token).catch(() => {});
+          }
+        }
+      } catch (_) {}
+    }
+
+    res.json({ ok: true, mensaje: 'Estado de pago actualizado con éxito' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.post('/api/reserva-amenity-cancelar', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { id } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'ID de reserva requerido' });
+
+    const { pool } = require('./db-pg');
+    let reserva = null;
+    if (pool) {
+      const resR = await pool.query(
+        `UPDATE reservas_amenities 
+         SET estado = 'cancelada', 
+             notas = COALESCE(notas, '') || ' [Cancelada por administración]' 
+         WHERE id = $1 
+         RETURNING id, edificio, amenity, departamento, nombre_vecino, telefono, fecha, hora_desde, hora_hasta`,
+        [id]
+      );
+      if (resR && resR.rows && resR.rows[0]) {
+        reserva = resR.rows[0];
+      }
+    }
+
+    if (reserva && reserva.telefono) {
+      try {
+        const marcosOps = require('./agentes/marcos-ops');
+        if (marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
+          const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+          const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
+          const fechaStr = reserva.fecha ? String(reserva.fecha).split('T')[0] : '';
+          const msgCancel = `ℹ️ *RESERVA DE AMENITY CANCELADA*\n\n` +
+            `Hola ${reserva.nombre_vecino || ''}, tu reserva de *${reserva.amenity || 'amenity'}* para el ${fechaStr} (${reserva.hora_desde} a ${reserva.hora_hasta} hs) ha sido cancelada por la administración.\n\n` +
+            `El horario ha quedado liberado. Ante cualquier duda, por favor comunicate con la administración.`;
+          await marcosOps.enviarWhatsApp(reserva.telefono, msgCancel, phoneId, token).catch(() => {});
+        }
+      } catch (_) {}
+    }
+
+    res.json({ ok: true, mensaje: 'Reserva cancelada con éxito y horario liberado' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
 /* ===================================================================
  * EXPORT
  * =================================================================== */
 
 module.exports = router;
+

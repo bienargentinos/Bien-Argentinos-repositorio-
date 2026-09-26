@@ -1,4 +1,7 @@
-require('dotenv').config();
+// El .env se busca al lado de este archivo y no en el directorio desde donde se ejecuta:
+// `node /ruta/larga/script.js` desde otra carpeta no encontraba ninguna variable y el script
+// reventaba con un error que no decía nada ('path must be a string, received undefined').
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -15,12 +18,86 @@ const execPromise = util.promisify(exec);
  * @param {string} fileName - Nombre del archivo de salida.
  * @returns {Promise<string>} - Ruta del archivo generado.
  */
+/**
+ * Prepara el texto para que una voz sintética lo diga bien.
+ *
+ * Los números de teléfono largos descalabran a cualquier TTS: los pronuncia a los tropezones, se
+ * come dígitos y suena a persona masticando. Y además es información inútil dicha en voz: nadie
+ * anota un número de trece cifras escuchando un audio de WhatsApp. Ese número YA viaja escrito en
+ * el mensaje de texto y en la plantilla que recibe el técnico, así que decirlo es redundante.
+ *
+ * Se saca el número y se conserva a quién pertenece, que es lo único que la persona necesita oír:
+ * "el contacto de Natalia Zeballos" en vez de "el contacto de Natalia Zeballos cinco cuatro nueve
+ * uno uno seis siete tres cinco cero cuatro tres seis".
+ *
+ * Solo afecta a la voz. El texto escrito sale completo, con el número incluido.
+ */
+function prepararTextoParaVoz(texto) {
+    if (!texto) return '';
+    let t = String(texto);
+
+    // Teléfonos, con o sin +54, guiones, puntos, espacios o paréntesis. Se lleva puesta también la
+    // preposición que los introduce ("al 11...", "su número 11...") para no dejar la frase coja.
+    const TELEFONO = /(?:\b(?:al|a\s+el|su|un|este|el)\s+)?(?:\b(?:tel(?:[ée]fono)?|cel(?:ular)?|whats?app|wsp|n[úu]mero|nro)\b\s*\.?\s*:?\s*)?\+?\s*(?:\d[\d\s().\-]{6,}\d)/gi;
+
+    // Un teléfono entre paréntesis detrás de un nombre -- "Natalia Zeballos (5491167350436)" -- se
+    // borra entero, paréntesis incluidos.
+    t = t.replace(/\(\s*\+?\s*\d[\d\s().\-]{6,}\d\s*\)/g, '');
+    t = t.replace(TELEFONO, ' ');
+
+    // El código del caso se lee horrible con corchetes y guion ("corchete caso guion..."). Si la
+    // frase ya venía diciendo "el caso", no se repite la palabra.
+    t = t.replace(/(\bcaso\s+)?\[?\s*CASO\s*-\s*(\d+)\s*\]?/gi,
+        (_, previo, numero) => (previo ? `${previo}${numero}` : `caso ${numero}`));
+
+    // Marcas de formato de WhatsApp y emojis: la voz los pronuncia o tropieza con ellos.
+    t = t.replace(/[*_~`]/g, '');
+    t = t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2190}-\u{21FF}]/gu, '');
+
+    // Las MAYÚSCULAS SOSTENIDAS suenan a sigla: el sintetizador las deletrea o las grita. Los
+    // mensajes están llenos ("SAN PATRICIO 159", "MARCOS — ATENCIÓN TÉCNICA"), y ese es uno de los
+    // motivos por los que un audio puede terminar sonando como si hablara en otro idioma.
+    //
+    // Se convierte la TIRADA entera y no palabra por palabra: mirando de a una, las cortas se
+    // salvan por longitud y queda "SAN Patricio" o "Foto DEL Reclamo", que suena peor que el
+    // original. Una sigla suelta y corta (IVA, ABL) sí se deja como está, porque ahí deletrear es
+    // lo correcto.
+    const aMinuscula = txt => txt.charAt(0) + txt.slice(1).toLowerCase();
+    t = t.replace(/\b[A-ZÁÉÍÓÚÑ]{2,}(?:[\s]+[A-ZÁÉÍÓÚÑ]{2,})+\b/g, aMinuscula);
+    t = t.replace(/\b[A-ZÁÉÍÓÚÑ]{4,}\b/g, aMinuscula);
+
+    // La raya y las viñetas no se leen: cortan la frase en seco o se pronuncian.
+    t = t.replace(/[—–]/g, ',').replace(/^[•·]\s*/gm, '');
+
+    // Limpieza de lo que queda: espacios dobles, signos sueltos y frases que quedaron colgando.
+    t = t.replace(/\s{2,}/g, ' ')
+         .replace(/\s+([.,;:!?])/g, '$1')
+         .replace(/([(,:;])\s*([.,;:])/g, '$2')
+         .replace(/\(\s*\)/g, '')
+         .replace(/\s*,\s*\./g, '.')
+         .replace(/\.{2,}/g, '.')
+         .replace(/,{2,}/g, ',')
+         .trim();
+
+    return t;
+}
+
 async function generarAudio(texto, fileName = 'audio_marcos.ogg') {
     const tempDir = path.join(__dirname, 'temp');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
     
     const filePath = path.join(tempDir, fileName);
     const tempRawPath = path.join(tempDir, `raw_${Date.now()}_${fileName}`);
+
+    // Lo que se dice en voz no es literalmente lo que se escribe: los teléfonos se omiten.
+    const textoParaVoz = prepararTextoParaVoz(texto);
+    if (textoParaVoz !== texto) {
+        console.log('🔇 Se omitieron números de teléfono en la nota de voz (van escritos igual).');
+    }
+    // Se registra EXACTAMENTE lo que se manda a sintetizar. Cuando un audio sale mal, sin esta
+    // línea no hay forma de saber si el problema fue el texto o la voz: se escucha algo raro y no
+    // se puede comparar contra nada.
+    console.log(`🗣️ Texto que se manda a la voz: "${textoParaVoz}"`);
 
     const options = { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', hour12: false };
     const formatter = new Intl.DateTimeFormat('es-AR', options);
@@ -34,27 +111,46 @@ async function generarAudio(texto, fileName = 'audio_marcos.ogg') {
     const MODEL_ID = 'eleven_multilingual_v2';
     const API_KEY = process.env.ELEVENLABS_API_KEY;
 
+    // El modelo multilingüe ADIVINA el idioma a partir del texto cuando no se le dice cuál es. Con
+    // frases cortas o con nombres propios se equivoca, y entonces lee el español con la fonética de
+    // otro idioma: el audio sale ininteligible aunque el texto esté perfecto.
+    //
+    // `language_code` no está soportado por todos los modelos de ElevenLabs, así que se manda y, si
+    // la API lo rechaza, se reintenta sin él. Peor que un audio mal pronunciado sería no mandar
+    // ninguno.
+    const cuerpoBase = {
+        text: textoParaVoz,
+        model_id: MODEL_ID,
+        voice_settings: {
+            stability: 0.65,
+            similarity_boost: 0.8,
+            style: 0.0,
+            use_speaker_boost: true
+        }
+    };
+
+    const pedir = datos => axios({
+        method: 'POST',
+        url: `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}?output_format=opus_48000_128`,
+        data: datos,
+        headers: {
+            'Accept': 'audio/ogg',
+            'xi-api-key': API_KEY,
+            'Content-Type': 'application/json',
+        },
+        responseType: 'arraybuffer'
+    });
+
     try {
-        const response = await axios({
-            method: 'POST',
-            url: `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}?output_format=opus_48000_128`,
-            data: {
-                text: texto,
-                model_id: MODEL_ID,
-                voice_settings: {
-                    stability: 0.65,
-                    similarity_boost: 0.8,
-                    style: 0.0,
-                    use_speaker_boost: true
-                }
-            },
-            headers: {
-                'Accept': 'audio/ogg',
-                'xi-api-key': API_KEY,
-                'Content-Type': 'application/json',
-            },
-            responseType: 'arraybuffer'
-        });
+        let response;
+        try {
+            response = await pedir({ ...cuerpoBase, language_code: 'es' });
+        } catch (errIdioma) {
+            const rechazoDelParametro = [400, 422].includes(errIdioma.response?.status);
+            if (!rechazoDelParametro) throw errIdioma;
+            console.warn(`⚠️ El modelo ${MODEL_ID} no acepta language_code: se genera el audio sin fijar el idioma.`);
+            response = await pedir(cuerpoBase);
+        }
 
         const ambientDir = path.join(__dirname, 'sonido ambiente Marcos nota de voz');
         let ambientFilePath = null;
@@ -99,4 +195,4 @@ async function generarAudio(texto, fileName = 'audio_marcos.ogg') {
     }
 }
 
-module.exports = { generarAudio };
+module.exports = { generarAudio, prepararTextoParaVoz };
