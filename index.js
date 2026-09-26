@@ -2120,6 +2120,50 @@ function validarYSanitizarNombre(nombre) {
         }
     }
 
+    // SE LE PREGUNTA AL MODELO UNA SOLA VEZ POR MENSAJE
+    //
+    // El ruteo vivía mil líneas más abajo, así que todo lo que decidía antes --entre ellas el
+    // cierre de un caso-- lo resolvían las palabras sin que el modelo llegara a opinar. Esto lo
+    // adelanta sin pagarlo dos veces: la primera llamada calcula y guarda, las siguientes leen.
+    //
+    // `undefined` es "todavía no se preguntó" y `null` es "se preguntó y no hay respuesta" (ruteo
+    // apagado, error, o más de 6 segundos). Son cosas distintas: con `null` se sigue por texto, y
+    // confundirlos haría reintentar la llamada en cada consulta del mismo mensaje.
+    let _ruteoDelMensaje;
+    const ruteoDelMensaje = async () => {
+        if (_ruteoDelMensaje !== undefined) return _ruteoDelMensaje;
+        _ruteoDelMensaje = null;
+        if (datosEmisor.rol !== 'proveedor') return _ruteoDelMensaje;
+        try {
+            const { clasificarMensajeProveedor } = require('./ruteo-proveedor');
+            const stRuteo = global.colasProveedores?.get(from) || {};
+            _ruteoDelMensaje = await clasificarMensajeProveedor({
+                texto: textoFinal,
+                contexto: {
+                    ultimaPreguntaDeMarcos: [...historial].reverse().find(l => l.startsWith('Marcos'))?.slice(0, 200) || '',
+                    casoAbierto: stRuteo.eventoActivoId || '',
+                    edificioDelCaso: session.nombreEdificio || '',
+                    rubroDelCaso: stRuteo.rubroActivo || '',
+                    facturaEsperandoObra: !!session.esperandoEdificioDeFactura,
+                    mandoAdjunto: !!media,
+                },
+            });
+            if (_ruteoDelMensaje) {
+                console.log(`🧭 ${datosEmisor.nombre || from}: "${String(textoFinal).replace(/\s+/g, ' ').slice(0, 60)}" → ${_ruteoDelMensaje.intencion} (${_ruteoDelMensaje.confianza}) — ${_ruteoDelMensaje.motivo}`);
+            }
+        } catch (e) {
+            console.error(`🧭 No se pudo clasificar el mensaje, se sigue por texto: ${e.message}`);
+            _ruteoDelMensaje = null;
+        }
+        return _ruteoDelMensaje;
+    };
+
+    // Filtro barato para no pagarle una llamada al modelo a CADA mensaje de un proveedor. Es a
+    // propósito más amplio que `diceQueSeResolvio`: acá entra todo lo que **podría** ser un aviso
+    // de trabajo terminado --incluso negado o a futuro-- y el modelo decide de verdad. Si esto se
+    // hace estricto, vuelve el problema: la lista de palabras decidiendo.
+    const puedeSonarAResuelto = /termin|finaliz|finalic|resolv|resuelt|solucion|arregl|repar|\blist[oa]\b|complet|qued[oó]|ya est[aá]|\bhecho\b|\blisto\b/i.test(textoFinal);
+
     // "El técnico ya vino y resolvió" no entraba: el patrón pedía "resuelto" y la gente conjuga el
     // verbo, con acento. Lo mismo con "lo solucionó", "ya lo arreglaron" o "ya finalicé".
     //
@@ -2287,12 +2331,44 @@ function validarYSanitizarNombre(nombre) {
         return true;
     };
 
-    if (esGatilloResolucion) {
-        // El técnico va por su propio camino: el de abajo es el del vecino y no le sirve.
-        if (datosEmisor.rol === 'proveedor') {
+    // ── DE UN TÉCNICO, DECIDE EL MODELO. LAS PALABRAS SON EL PISO ───────────────────────────
+    //
+    // > [!CAUTION]
+    // > **El cierre decidía acá, en la línea ~2290, y al modelo recién se le preguntaba en la
+    // > ~3300.** Mil líneas después. Así que para cerrar un caso mandaban las palabras, aunque el
+    // > proyecto ya había dado vuelta ese orden en todas las otras ramas del proveedor.
+    //
+    // Es el mismo defecto de fondo que el contacto de ingreso, que salía en la línea 1257 cuando
+    // la función que lo evitaba se consultaba en la 3249: **la información estaba, el orden no.**
+    // Marcos no dejaba de entender el mensaje; nunca se le preguntaba a tiempo.
+    //
+    // Planteado por Daniel, y es lo que espera del producto: *"lo que necesito del agente es que
+    // comprenda la lectura, analice el contexto y recién ahí defina si sigue preguntando, o si
+    // cierra el caso, o si programa un seguimiento para una fecha"*. Una lista de palabras no
+    // puede representar *"todavía no terminé pero si compra la bomba hoy finalizo mañana"*.
+    //
+    // `ruteoDelMensaje()` le pregunta al modelo **una sola vez por mensaje** y guarda la respuesta,
+    // así que el ruteo de más abajo la reusa en vez de pagarla dos veces.
+    //
+    // **Si el ruteo está apagado, falla o tarda, `seActiva` devuelve lo que dijo el texto** — o
+    // sea, exactamente el comportamiento de hoy. Por eso las condiciones escritas siguen valiendo
+    // la pena y por eso se siguieron corrigiendo: son el piso al que cae Marcos sin IA, no la
+    // respuesta buena.
+    if (datosEmisor.rol === 'proveedor' && (esGatilloResolucion || puedeSonarAResuelto)) {
+        const { seActiva } = require('./ruteo-proveedor');
+        const ruteo = await ruteoDelMensaje();
+
+        if (seActiva('informa_resuelto', esGatilloResolucion, ruteo, textoFinal)) {
             await cerrarCasoQueElTecnicoDiceResuelto();
             return;
         }
+        // El modelo leyó el mensaje y dijo que NO es un aviso de trabajo terminado. Sigue de largo
+        // por el camino libre, donde se lee y se contesta, en vez de cerrar nada.
+    }
+
+    if (esGatilloResolucion) {
+        // El técnico ya se atendió arriba: acá abajo es el camino del vecino y no le sirve.
+        if (datosEmisor.rol === 'proveedor') return;
 
         // `session.nombreEdificio` para el vecino recién se completa más abajo en esta misma
         // función (línea ~1358). Si esta es la primera respuesta de una sesión nueva -- lo típico
@@ -3296,24 +3372,12 @@ function validarYSanitizarNombre(nombre) {
         // o tarda, se sigue exactamente como antes. Y cuando los dos no coinciden queda un `🧭`
         // en el log con las dos opiniones, que es la única forma de saber si esto mejoró algo
         // sin esperar a que un técnico se queje.
+        // La clasificación se pide por `ruteoDelMensaje()`, que la calcula UNA vez por mensaje y la
+        // guarda. Acá estaba escrita entera, y el cierre de un caso --que decide mil líneas más
+        // arriba-- no llegaba a usarla nunca: para esa decisión el modelo no existía.
         let ruteoIA = null;
         try {
-            const { clasificarMensajeProveedor } = require('./ruteo-proveedor');
-            const stRuteo = global.colasProveedores?.get(from) || {};
-            ruteoIA = await clasificarMensajeProveedor({
-                texto: textoFinal,
-                contexto: {
-                    ultimaPreguntaDeMarcos: [...historial].reverse().find(l => l.startsWith('Marcos'))?.slice(0, 200) || '',
-                    casoAbierto: stRuteo.eventoActivoId || '',
-                    edificioDelCaso: session.nombreEdificio || '',
-                    rubroDelCaso: stRuteo.rubroActivo || '',
-                    facturaEsperandoObra: !!session.esperandoEdificioDeFactura,
-                    mandoAdjunto: !!media,
-                },
-            });
-            if (ruteoIA) {
-                console.log(`🧭 ${datosEmisor.nombre || from}: "${String(textoFinal).replace(/\s+/g, ' ').slice(0, 60)}" → ${ruteoIA.intencion} (${ruteoIA.confianza}) — ${ruteoIA.motivo}`);
-            }
+            ruteoIA = await ruteoDelMensaje();
 
             // ── UNA CORRECCIÓN DE CASO SE APLICA, NO SE AGRADECE ─────────────────────────────
             //

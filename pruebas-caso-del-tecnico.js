@@ -152,10 +152,22 @@ console.log('\n5) index.js: el técnico no pasa por el camino del vecino');
 
     // El candado: la rama del proveedor tiene que salir ANTES de que se calcule
     // `edificioParaCierre`, que es la línea que traía todos los casos del sistema.
+    //
+    // > Se mide la PROPIEDAD --que el proveedor no llegue a esa línea-- y no la forma exacta que
+    // > tenía el código. La primera versión exigía `rol === 'proveedor' … cerrarCaso… return;`
+    // > pegados, y al mover el cierre del técnico más arriba --para que el MODELO decida antes que
+    // > las palabras-- este candado falló con el código ya correcto. Un candado que mide la forma
+    // > frena refactors buenos y se termina borrando, que es peor que no tenerlo.
     const bloque = (soloCodigo.match(/if \(esGatilloResolucion\) \{[\s\S]{0,1200}?edificioParaCierre =/) || [''])[0];
     vale('la salida del proveedor va ANTES de `edificioParaCierre`',
-        /rol === 'proveedor'[\s\S]{0,200}?cerrarCasoQueElTecnicoDiceResuelto\(\)[\s\S]{0,60}?return;/.test(bloque),
+        /rol === 'proveedor'[\s\S]{0,240}?return[;\s]/.test(bloque),
         'Si queda después, el técnico vuelve a recibir la lista de todos los edificios.');
+
+    // Y el cierre del técnico tiene que seguir ocurriendo en algún lado: que salga del camino del
+    // vecino no sirve de nada si no se atiende antes.
+    vale('…y antes de salir, se lo atiende por su propio camino',
+        /rol === 'proveedor'[\s\S]{0,600}?cerrarCasoQueElTecnicoDiceResuelto\(\)/.test(soloCodigo),
+        'El proveedor sale del camino del vecino pero nadie le cierra el caso.');
 
     vale('`informa_resuelto` ahora tiene consumidor',
         /seActiva\('informa_resuelto'/.test(soloCodigo),
