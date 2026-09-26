@@ -76,9 +76,10 @@ que serían seis archivos y nadie se acuerda de seis nombres:
 
 | Para quién es | Archivo | Quién escribe ahí |
 |---|---|---|
-| **El panel** (Antigravity) | `docs/para-antigravity.md` | el motor y el portal |
-| **El motor** (Marcos) | `docs/para-el-motor.md` | el panel y el portal |
-| **El portal** (vecino + portería) | `docs/para-el-portal.md` | el motor y el panel |
+| **El panel** (Antigravity) y **el sitio web** | `docs/para-antigravity.md` | los demás |
+| **El motor** (Marcos) | `docs/para-el-motor.md` | los demás |
+| **El portal** (vecino + portería) | `docs/para-el-portal.md` | los demás |
+| **La guía/tutorial del panel** | `docs/para-el-tutorial.md` | los demás |
 
 `docs/de-antigravity.md` sigue existiendo como el registro de lo que hizo Antigravity, y
 `docs/portal-vecino-y-porteria.md` como el informe de arranque del portal. **Ninguno de los dos es
@@ -87,9 +88,23 @@ un buzón**: no se dejan pedidos ahí.
 **Cada uno lee el suyo y no lo edita.** Para contestar se escribe en el buzón del otro.
 
 > [!CAUTION]
-> **Cada entrada va firmada y fechada**: `## 24/09 — del motor — título`. Con tres conversaciones
-> escribiendo, un pedido sin firma es imposible de responder: no se sabe a quién preguntarle ni si
-> sigue vigente.
+> **Cada entrada va firmada y fechada**: `## 24/09 — del motor — título`. Con varias
+> conversaciones escribiendo, un pedido sin firma es imposible de responder: no se sabe a quién
+> preguntarle ni si sigue vigente.
+
+> [!CAUTION]
+> **Y no alcanza con decir de quién viene: hay que decir para quién es.** "Antigravity" tampoco es
+> una sola conversación — hay al menos dos, la del **panel** (`dashboard.js`) y la del **sitio web**
+> (`bienargentinos.com`), con contexto separado. Lo mismo que ya pasó con las dos sesiones de
+> Claude.
+>
+> Cuando una entrada es para una sola, el título lo dice:
+> `## 26/09 — del motor → PARA EL CHAT DEL SITIO WEB — título`. **Si no dice para quién, es para
+> todos los que leen ese buzón.**
+>
+> Sin esto, Daniel tiene que adivinar a quién mandarle a leer —y lo preguntó, con razón— o la
+> conversación equivocada lee algo que no le toca y actúa sobre eso. Un buzón por destinatario
+> resuelve la mitad del problema; la otra mitad es esta línea del título.
 
 El buzón es **append-only**: se agrega al final, no se reescribe lo de arriba. Dos sesiones
 escribiendo el mismo día en el mismo archivo es el único riesgo de conflicto, y agregando al final
@@ -138,13 +153,28 @@ está. Es un atajo, no un servicio.
 > **Nadie se entera solo.** No hay aviso: se lee en el próximo `git pull`. Es un pizarrón, no un
 > chat. Quien escribe algo urgente se lo dice a Daniel además de dejarlo acá.
 
-**Reparto vigente** (23/09) — son **tres** conversaciones, no dos:
+**Reparto vigente** (26/09) — son **cinco** conversaciones, y van creciendo:
 
-| Quién | Qué archivos |
-|---|---|
-| **Antigravity** | `dashboard.js` — el panel |
-| **Chat del portal** (una sesión de Claude aparte) | `portal-vecino.js`, `porteria.js`, `qr-firmado.js`, `clave-app.js`, `sesion-demo.js`. Su informe de arranque: `docs/portal-vecino-y-porteria.md` |
-| **Chat de Marcos IA** (esta) | el motor: `index.js`, `datos*.js`, `sheets.js`, `agentes/`, `rubros.js`, seguimiento, facturas, y las herramientas de diagnóstico |
+| Quién | Dónde corre | Qué toca |
+|---|---|---|
+| **Antigravity — panel** | la PC de Daniel | `dashboard.js`. Es el único con acceso al VPS |
+| **Antigravity — sitio web** | la PC de Daniel | `bienargentinos.com` (estático). No toca el repo del motor |
+| **Chat del portal** (Claude, en la nube) | nube | `portal-vecino.js`, `porteria.js`, `qr-firmado.js`, `clave-app.js`, `sesion-demo.js`. Su informe de arranque: `docs/portal-vecino-y-porteria.md` |
+| **Chat de Marcos IA** (esta, Claude en la nube) | nube | el motor: `index.js`, `datos*.js`, `sheets.js`, `db-pg.js`, `agentes/`, `rubros.js`, seguimiento, facturas, y las herramientas de diagnóstico |
+| **Chat de la guía/tutorial** | — | el material con el que el asistente del panel le explica las cosas al AC. **No escribe código** |
+
+> [!CAUTION]
+> **La del tutorial es la más fácil de romper sin que nadie se entere.** No escribe código: escribe
+> lo que una persona va a leer y hacer. Un tutorial que enseña el comportamiento viejo es **peor que
+> no tener tutorial** — el AC lo sigue, no le funciona, y concluye que el sistema está roto, no que
+> el tutorial está viejo.
+>
+> Por eso la obligación es de los demás: **cuando un cambio modifica lo que el AC ve o hace, quien
+> lo hizo deja una línea en `docs/para-el-tutorial.md`.** Solo Expensas cambió tres veces en un día.
+>
+> Y el tutorial **no se escribe desde `CLAUDE.md` ni desde `design/`**: esos documentan
+> intenciones, y varias no existen todavía en el panel (impersonación, Consumos, la campana con
+> contador). Se escribe mirando lo que el panel hace hoy.
 
 Si uno necesita un cambio del lado del otro, **lo pide en vez de hacerlo** — dos agentes editando
 el mismo archivo el mismo día es cómo se pierde trabajo.
