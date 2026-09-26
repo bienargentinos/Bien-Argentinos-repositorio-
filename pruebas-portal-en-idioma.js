@@ -72,6 +72,18 @@ const PANTALLAS = [
         castellano: ['Asignar a la Unidad', 'Integrantes Activos', 'Pase Huésped Turista',
                      'Fechas de Estadía del Huésped', 'Check-in', 'Check-out'],
     },
+    {
+        ruta: '/vecino/expensas',
+        // Un huésped no ve esta pantalla (no paga las expensas), así que va como propietario.
+        // Acá había un ALIAS DE CBU INVENTADO a partir del nombre del edificio: plata que se iba a
+        // otra cuenta, y eso no se deshace.
+        rol: 'propietario',
+        traducido: ['Meu condomínio', 'Para transferir', 'Informar o pagamento do condomínio',
+                    'Enviar o comprovante', 'Os comprovantes que enviei'],
+        castellano: ['Mis Expensas', 'Datos para Transferencias', 'Informar Pago de Expensas',
+                     'Enviar Comprobante a la Administración', 'Mis Comprobantes Informados',
+                     'Banco Oficial del Consorcio', '.expensas'],
+    },
 ];
 
 let fallos = 0;

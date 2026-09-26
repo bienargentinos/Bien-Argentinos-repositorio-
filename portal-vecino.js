@@ -5371,6 +5371,13 @@ router.get('/expensas', async (req, res) => {
     return res.redirect('/vecino');
   }
 
+  const TE = JSON.stringify({
+    enviando: t('exp.enviando'),
+    enviar: t('exp.enviar'),
+    faltaComprobante: t('exp.faltaComprobante'),
+    copiado: t('exp.copiado'),
+  });
+
   let expensas = [];
   let datosBanco = null;
   let misComprobantes = [];
@@ -5446,100 +5453,122 @@ router.get('/expensas', async (req, res) => {
     }
   } catch (_) {}
 
-  // Fallback si el edificio aún no cargó CBU específico
-  if (!datosBanco) {
-    datosBanco = {
-      banco: 'Banco Oficial del Consorcio',
-      titular: 'Consorcio ' + (v.edificio || 'Edificio'),
-      cbu: 'Consultar con Administración',
-      alias: (v.edificio || 'consorcio').toLowerCase().replace(/[^a-z0-9]/g, '') + '.expensas',
-    };
-  }
+  // UN ALIAS INVENTADO ES PLATA QUE SE VA A OTRA CUENTA.
+  //
+  // > [!CAUTION]
+  // > **Acá se fabricaba un alias a partir del nombre del edificio** --`sanpatricio159.expensas`--
+  // > y se lo mostraba en la tarjeta "Datos para transferencias", al lado de un titular igual de
+  // > inventado ("Consorcio " + el nombre del edificio).
+  //
+  // Un alias de CBU no es un texto decorativo: es a dónde va la plata. Si ese alias existe y es de
+  // otra persona, el vecino le transfiere las expensas a un desconocido. Si no existe, la
+  // transferencia falla y él cree que pagó hasta que le reclaman.
+  //
+  // Es el peor caso de esta familia de errores --peor que la tarjeta que decía `$120.000` y peor
+  // que los dos avisos inventados de Novedades-- porque las otras dos se deshacen y esta no: una
+  // transferencia mal hecha se recupera con suerte.
+  //
+  // Sin datos cargados no se inventa ninguno: se dice que la Administración todavía no los cargó y
+  // que hay que pedírselos. Es el mismo criterio que el contacto de ingreso cuando no hay a quién
+  // nombrar ("todavía no tengo confirmado quién te abre"), y el mismo que `telefonoUsable()`:
+  // rechazar de más le hace preguntar a una persona, aceptar de más la manda a la nada.
+  const hayDatosBancarios = !!(datosBanco && (datosBanco.cbu || datosBanco.alias));
 
   const ultimaExpensa = expensas.length > 0 ? expensas[0] : null;
   const historialExpensas = expensas.length > 1 ? expensas.slice(1) : [];
 
   const content = `
     <div style="margin-bottom:16px">
-      <h2 style="font-size:20px;font-weight:800;color:var(--marca);margin-bottom:2px">Mis Expensas</h2>
+      <h2 style="font-size:20px;font-weight:800;color:var(--marca);margin-bottom:2px">${esc(t('exp.titulo'))}</h2>
       <p style="font-size:13px;color:var(--texto-suave)">${v.edificio} · Unidad ${v.departamento}</p>
     </div>
 
     <!-- 1. Tarjeta Última Liquidación -->
     <div class="card" style="padding:20px;margin-bottom:16px;border-left:5px solid var(--acento);background:#fff">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
-        <span style="font-size:11.5px;font-weight:800;color:var(--acento);text-transform:uppercase;letter-spacing:.05em">Liquidación del Mes</span>
-        <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--acento-tenue);color:var(--acento)">Digital</span>
+        <span style="font-size:11.5px;font-weight:800;color:var(--acento);text-transform:uppercase;letter-spacing:.05em">${esc(t('exp.liquidacionMes'))}</span>
+        <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--acento-tenue);color:var(--acento)">${esc(t('exp.digital'))}</span>
       </div>
       <div style="font-size:22px;font-weight:800;color:var(--texto);margin-bottom:4px">
-        ${ultimaExpensa ? (ultimaExpensa.periodo || 'Período Vigente') : 'Período en Proceso'}
+        ${esc(ultimaExpensa ? (ultimaExpensa.periodo || t('exp.periodoVigente')) : t('exp.periodoEnProceso'))}
       </div>
       ${ultimaExpensa && ultimaExpensa.esDelEdificio ? `
       <!-- La liquidación del edificio va SIN monto: su total son los gastos del consorcio y nadie
            paga eso. El detalle ya está adentro del documento que comparte la Administración. -->
       <p style="font-size:13px;color:var(--texto-suave);line-height:1.45;margin-bottom:14px">
-        Es la liquidación general del edificio, no la de tu unidad. El detalle está en el documento.
+        ${esc(t('exp.delEdificioNota'))}
       </p>
       ` : ultimaExpensa && ultimaExpensa.monto !== null ? `
-      <div style="font-size:11.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Total a pagar</div>
+      <div style="font-size:11.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${esc(t('exp.totalAPagar'))}</div>
       <div style="font-size:26px;font-weight:900;color:var(--texto);letter-spacing:-.02em;margin-bottom:2px">${esc(montoEnPesos(ultimaExpensa.monto))}</div>
-      ${ultimaExpensa.vencimiento ? `<p style="font-size:12.5px;color:var(--texto-suave);margin-bottom:14px">Vence el ${esc(new Date(ultimaExpensa.vencimiento).toLocaleDateString('es-AR'))}</p>` : '<div style="margin-bottom:14px"></div>'}
+      ${ultimaExpensa.vencimiento ? `<p style="font-size:12.5px;color:var(--texto-suave);margin-bottom:14px">${esc(t('exp.venceEl', { fecha: new Date(ultimaExpensa.vencimiento).toLocaleDateString('es-AR') }))}</p>` : '<div style="margin-bottom:14px"></div>'}
       ` : `
       <p style="font-size:13px;color:var(--texto-suave);line-height:1.45;margin-bottom:14px">
-        ${ultimaExpensa ? 'La administración publicó el documento de este período. El total todavía no está cargado.' : 'La administración publicará la liquidación digital de este mes a la brevedad.'}
+        ${esc(ultimaExpensa ? t('exp.publicadoSinTotal') : t('exp.aunNoPublicada'))}
       </p>
       `}
       ${ultimaExpensa && enlaceDeExpensa(ultimaExpensa) ? `
       <a href="${enlaceDeExpensa(ultimaExpensa)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;background:linear-gradient(180deg,var(--acento),var(--acento));color:#fff;font-weight:700;font-size:13.5px;box-shadow:0 3px 10px rgba(46,111,192,.3)">
         <i class="ph ph-file-pdf" style="font-size:18px"></i>
-        <span>Ver / Descargar Liquidación</span>
+        <span>${esc(t('exp.verDescargar'))}</span>
       </a>` : `
       <div style="font-size:12.5px;color:var(--texto-tenue);background:var(--superficie-2);padding:8px 12px;border-radius:8px;border:1px dashed #DCE4F0">
-        📄 Podés solicitar la copia por chat a Marcos IA en cualquier momento.
+        📄 ${esc(t('exp.pedirPorChat'))}
       </div>`}
     </div>
 
-    <!-- 2. Datos Bancarios del Consorcio -->
+    <!-- 2. DATOS BANCARIOS DEL CONSORCIO — o el aviso de que no hay -->
     <div class="card" style="padding:18px 20px;margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
         <span style="font-size:20px">🏦</span>
         <div>
-          <div style="font-size:15px;font-weight:800;color:var(--texto)">Datos para Transferencias</div>
-          <div style="font-size:11.5px;color:var(--texto-suave)">Cuenta oficial del consorcio</div>
+          <div style="font-size:15px;font-weight:800;color:var(--texto)">${esc(t('exp.datosTransferencia'))}</div>
+          <div style="font-size:11.5px;color:var(--texto-suave)">${esc(t('exp.cuentaOficial'))}</div>
         </div>
       </div>
 
+      ${hayDatosBancarios ? `
       <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
         ${datosBanco.titular ? `
         <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--superficie-3);padding-bottom:6px">
-          <span style="color:var(--texto-suave)">Titular:</span>
-          <strong style="color:var(--texto)">${datosBanco.titular}</strong>
+          <span style="color:var(--texto-suave)">${esc(t('exp.titular'))}:</span>
+          <strong style="color:var(--texto)">${esc(datosBanco.titular)}</strong>
         </div>` : ''}
         ${datosBanco.banco ? `
         <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--superficie-3);padding-bottom:6px">
-          <span style="color:var(--texto-suave)">Banco:</span>
-          <strong style="color:var(--texto)">${datosBanco.banco}</strong>
+          <span style="color:var(--texto-suave)">${esc(t('exp.banco'))}:</span>
+          <strong style="color:var(--texto)">${esc(datosBanco.banco)}</strong>
         </div>` : ''}
         ${datosBanco.cuit ? `
         <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--superficie-3);padding-bottom:6px">
           <span style="color:var(--texto-suave)">CUIT:</span>
-          <strong style="color:var(--texto)">${datosBanco.cuit}</strong>
+          <strong style="color:var(--texto)">${esc(datosBanco.cuit)}</strong>
         </div>` : ''}
+        ${datosBanco.alias ? `
         <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--superficie-3);padding-bottom:6px">
           <div>
-            <span style="color:var(--texto-suave);display:block;font-size:11.5px">Alias:</span>
-            <strong style="color:var(--acento);font-size:14px">${datosBanco.alias || '—'}</strong>
+            <span style="color:var(--texto-suave);display:block;font-size:11.5px">${esc(t('exp.alias'))}:</span>
+            <strong style="color:var(--acento);font-size:14px">${esc(datosBanco.alias)}</strong>
           </div>
-          ${datosBanco.alias ? `<button onclick="copiarTexto('${datosBanco.alias}', this)" style="padding:4px 10px;border-radius:6px;border:1px solid var(--borde-fuerte);background:var(--superficie-2);color:var(--acento);font-size:11.5px;font-weight:700;cursor:pointer">📋 Copiar</button>` : ''}
-        </div>
+          <button onclick="copiarTexto('${escJs(datosBanco.alias)}', this)" style="padding:4px 10px;border-radius:6px;border:1px solid var(--borde-fuerte);background:var(--superficie-2);color:var(--acento);font-size:11.5px;font-weight:700;cursor:pointer">📋 ${esc(t('exp.copiar'))}</button>
+        </div>` : ''}
+        ${datosBanco.cbu ? `
         <div style="display:flex;align-items:center;justify-content:space-between;padding-top:2px">
           <div>
             <span style="color:var(--texto-suave);display:block;font-size:11.5px">CBU:</span>
-            <strong style="color:var(--texto);font-size:13px;font-family:monospace">${datosBanco.cbu || '—'}</strong>
+            <strong style="color:var(--texto);font-size:13px;font-family:monospace">${esc(datosBanco.cbu)}</strong>
           </div>
-          ${datosBanco.cbu ? `<button onclick="copiarTexto('${datosBanco.cbu}', this)" style="padding:4px 10px;border-radius:6px;border:1px solid var(--borde-fuerte);background:var(--superficie-2);color:var(--acento);font-size:11.5px;font-weight:700;cursor:pointer">📋 Copiar</button>` : ''}
-        </div>
+          <button onclick="copiarTexto('${escJs(datosBanco.cbu)}', this)" style="padding:4px 10px;border-radius:6px;border:1px solid var(--borde-fuerte);background:var(--superficie-2);color:var(--acento);font-size:11.5px;font-weight:700;cursor:pointer">📋 ${esc(t('exp.copiar'))}</button>
+        </div>` : ''}
       </div>
+      ` : `
+      <!-- Sin datos cargados NO se inventa un alias: se dice que faltan. Un alias inventado es
+           plata que se va a otra cuenta, y eso no se deshace. -->
+      <div style="padding:12px 14px;border-radius:12px;background:var(--aviso-fondo);border:1px solid var(--aviso-borde)">
+        <div style="font-size:13.5px;font-weight:800;color:var(--aviso);margin-bottom:3px">${esc(t('exp.sinDatosBanco'))}</div>
+        <p style="font-size:12.5px;color:var(--texto-medio);line-height:1.45">${esc(t('exp.sinDatosBancoAyuda'))}</p>
+      </div>
+      `}
     </div>
 
     <!-- 3. Formulario Subir Comprobante de Pago Con Previsualización -->
@@ -5547,20 +5576,20 @@ router.get('/expensas', async (req, res) => {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <span style="font-size:22px">📤</span>
         <div>
-          <div style="font-size:15.5px;font-weight:800;color:var(--texto)">Informar Pago de Expensas</div>
-          <div style="font-size:12px;color:var(--texto-suave)">Adjuntá tu transferencia bancaria para validación</div>
+          <div style="font-size:15.5px;font-weight:800;color:var(--texto)">${esc(t('exp.informarPago'))}</div>
+          <div style="font-size:12px;color:var(--texto-suave)">${esc(t('exp.informarAyuda'))}</div>
         </div>
       </div>
 
       <form id="form-comprobante" onsubmit="enviarComprobante(event)">
         <div style="margin-bottom:12px">
-          <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Comprobante de Transferencia (Foto o PDF) <span style="color:#EF4444">*</span></label>
+          <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">${esc(t('exp.comprobante'))} <span style="color:#EF4444">*</span></label>
           <input type="file" id="inp-comprobante-file" accept="image/*,.pdf" style="display:none" onchange="previewComprobante(event)" required>
           
           <div id="box-select-comprobante" onclick="document.getElementById('inp-comprobante-file').click()" style="border:2px dashed #93C5FD;background:#fff;border-radius:12px;padding:16px;text-align:center;cursor:pointer">
             <div style="font-size:26px;margin-bottom:4px">🧾</div>
             <div style="font-size:13px;font-weight:800;color:var(--acento)">${esc(t('amen.elegirArchivo'))}</div>
-            <div style="font-size:11.5px;color:var(--texto-suave)">Tocá para elegir desde tu celular o galería</div>
+            <div style="font-size:11.5px;color:var(--texto-suave)">${esc(t('exp.elegirAyuda'))}</div>
           </div>
 
           <!-- Preview de Comprobante Seleccionado -->
@@ -5580,25 +5609,26 @@ router.get('/expensas', async (req, res) => {
         </div>
 
         <div style="margin-bottom:14px">
-          <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">Importe Transferido</label>
-          <input type="text" id="inp-comprobante-monto" placeholder="Ej: 85.400 (expensa de agosto)" class="inp" style="background:#fff;margin-bottom:0">
+          <label style="font-size:12px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px">${esc(t('exp.importe'))}</label>
+          <input type="text" id="inp-comprobante-monto" placeholder="${esc(t('exp.importePlaceholder'))}" class="inp" style="background:#fff;margin-bottom:0">
         </div>
 
         <button id="btn-comprobante" type="submit" style="width:100%;height:46px;border:none;border-radius:12px;background:linear-gradient(135deg,#15803D,#16A34A);color:#fff;font-weight:800;font-size:14.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 3px 10px rgba(22,163,74,.25)">
           <i class="ph ph-check-circle" style="font-size:20px"></i>
-          <span>Enviar Comprobante a la Administración</span>
+          <span>${esc(t('exp.enviar'))}</span>
         </button>
         <div id="comprobante-msg" style="display:none;margin-top:10px;padding:12px;border-radius:10px;font-size:13px;text-align:center"></div>
       </form>
     </div>
 
-    <!-- 4. Mis Comprobantes Informados -->
+    <!-- 4. LOS COMPROBANTES QUE MANDO ESTE VECINO, y solo los suyos: la consulta filtra por
+         departamento. Antes filtraba solo por edificio y cualquiera veia los pagos de todos. -->
     <div class="card" style="padding:18px 20px;margin-bottom:18px;border-radius:18px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
         <span style="font-size:20px">📋</span>
         <div>
-          <div style="font-size:15px;font-weight:800;color:var(--texto)">Mis Comprobantes Informados (${misComprobantes.length})</div>
-          <div style="font-size:11.5px;color:var(--texto-suave)">Seguimiento de transferencias enviadas</div>
+          <div style="font-size:15px;font-weight:800;color:var(--texto)">${esc(t('exp.misComprobantes'))} (${misComprobantes.length})</div>
+          <div style="font-size:11.5px;color:var(--texto-suave)">${esc(t('exp.misComprobantesAyuda'))}</div>
         </div>
       </div>
 
@@ -5613,12 +5643,12 @@ router.get('/expensas', async (req, res) => {
                 💵
               </div>
               <div>
-                <div style="font-size:14px;font-weight:800;color:var(--texto)">${esc(c.monto || 'Comprobante')}</div>
-                <div style="font-size:11.5px;color:var(--texto-suave)">📅 ${esc(c.fecha || 'Reciente')}${c.notas ? ' · ' + esc(c.notas) : ''}</div>
+                <div style="font-size:14px;font-weight:800;color:var(--texto)">${esc(c.monto || t('exp.comprobante1'))}</div>
+                <div style="font-size:11.5px;color:var(--texto-suave)">📅 ${esc(c.fecha || t('exp.reciente'))}${c.notas ? ' · ' + esc(c.notas) : ''}</div>
               </div>
             </div>
             <span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:${isAprobado ? '#DCFCE7' : '#FEF3C7'};color:${isAprobado ? '#15803D' : '#92400E'};border:1px solid ${isAprobado ? '#86EFAC' : '#FCD34D'}">
-              ${isAprobado ? '✓ Imputado / Al Día' : '⏳ En Revisión'}
+              ${isAprobado ? '✓ ' + esc(t('exp.imputado')) : '⏳ ' + esc(t('exp.enRevision'))}
             </span>
           </div>`;
         }).join('')}
@@ -5634,8 +5664,8 @@ router.get('/expensas', async (req, res) => {
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:20px">📚</span>
           <div>
-            <div style="font-size:15px;font-weight:800;color:var(--texto)">Historial de Liquidaciones (${expensas.length} períodos)</div>
-            <div style="font-size:11.5px;color:var(--texto-suave)">Descargá cualquier liquidación oficial de tu consorcio</div>
+            <div style="font-size:15px;font-weight:800;color:var(--texto)">${esc(t('exp.historial'))} (${expensas.length})</div>
+            <div style="font-size:11.5px;color:var(--texto-suave)">${esc(t('exp.historialAyuda'))}</div>
           </div>
         </div>
       </div>
@@ -5656,19 +5686,19 @@ router.get('/expensas', async (req, res) => {
               </div>
               <div>
                 <div style="display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px;font-weight:800;color:var(--texto)">${x.periodo || 'Período'}</span>
+                  <span style="font-size:14px;font-weight:800;color:var(--texto)">${esc(x.periodo || t('exp.periodo'))}</span>
                   ${isUltima ? '<span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:var(--ok-fondo);color:var(--ok)">ÚLTIMO</span>' : ''}
                   <!-- Cuál de estas filas es la del edificio entero. Sin esto, dos liquidaciones
                        del mismo período se ven iguales y el vecino no sabe cuál es su cupón. -->
                   ${x.esDelEdificio ? '<span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:var(--superficie-3);color:var(--texto-medio);border:1px solid var(--borde)">DEL EDIFICIO</span>' : ''}
                 </div>
-                <div style="font-size:11.5px;color:var(--texto-suave)">${x.nombre || 'Liquidación de Expensas'}</div>
+                <div style="font-size:11.5px;color:var(--texto-suave)">${esc(x.nombre || t('exp.liquidacion'))}</div>
               </div>
             </div>
             ${downloadUrl ? `
             <a href="${downloadUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;background:#fff;border:1px solid var(--borde-fuerte);color:var(--acento);font-size:12.5px;font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.04)">
               <i class="ph ph-download-simple" style="font-size:15px"></i>
-              <span>Descargar PDF</span>
+              <span>${esc(t('exp.descargarPdf'))}</span>
             </a>` : ''}
           </div>`;
         }).join('')}
@@ -5679,10 +5709,11 @@ router.get('/expensas', async (req, res) => {
     </div>
 
     <script>
+      const TE = ${TE};
       function copiarTexto(texto, btn) {
         navigator.clipboard.writeText(texto).then(function() {
           var old = btn.textContent;
-          btn.textContent = '✓ Copiado';
+          btn.textContent = '✓ ' + TE.copiado;
           setTimeout(function() { btn.textContent = old; }, 1500);
         });
       }
@@ -5731,12 +5762,12 @@ router.get('/expensas', async (req, res) => {
         var msg = document.getElementById('comprobante-msg');
 
         if (!fileInp.files || !fileInp.files[0]) {
-          alert('Por favor adjuntá el comprobante');
+          alert(TE.faltaComprobante);
           return;
         }
 
         btn.disabled = true;
-        btn.innerHTML = '<span>⏳ Enviando comprobante...</span>';
+        btn.innerHTML = '<span>⏳ ' + TE.enviando + '</span>';
 
         var formData = new FormData();
         formData.append('comprobante', fileInp.files[0]);
@@ -5780,7 +5811,7 @@ router.get('/expensas', async (req, res) => {
     </script>
   `;
 
-  res.send(shellVecino('Mis Expensas', 'expensas', content, v));
+  res.send(shellVecino(t('exp.titulo'), 'expensas', content, v));
 });
 
 // Endpoint receptor de Comprobantes de Pago
