@@ -84,6 +84,30 @@ async function main() {
     }
     afirmar('la consulta siguiente contesta', contesta);
 
+    console.log('\n── Y CADA CLIENTE TAMBIÉN TIENE QUIÉN LO ESCUCHE ──');
+    // El oyente del pool cubre a los clientes OCIOSOS. Uno que todavía se está conectando emite
+    // `'error'` en sí mismo, y ahí el del pool no llega. Es el que mataba al CI: un
+    // `read ECONNRESET` con `at TCP.onStreamRead` y ningún stack de JavaScript, o sea un evento de
+    // socket sin oyente y no una promesa rechazada.
+    afirmar('el pool engancha un oyente en cada cliente que conecta',
+        pool.listenerCount('connect') > 0);
+
+    let sobrevivioCliente = false;
+    try {
+        // Se simula lo que hace `pg`: entregar un cliente por el evento `connect` y que ese cliente
+        // emita su propio error. Sin el oyente, este emit tira y el proceso se va.
+        const { EventEmitter } = require('events');
+        const clienteFalso = new EventEmitter();
+        pool.emit('connect', clienteFalso);
+        const err = new Error('read ECONNRESET');
+        err.code = 'ECONNRESET';
+        clienteFalso.emit('error', err);
+        sobrevivioCliente = true;
+    } catch (e) {
+        // Con el oyente puesto no se llega acá.
+    }
+    afirmar('el error de un cliente no tira el proceso', sobrevivioCliente);
+
     srv.close();
     await pool.end().catch(() => {});
 

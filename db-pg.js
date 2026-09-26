@@ -36,6 +36,30 @@ pool.on('error', (err) => {
         ? err.message : err, '— el pool abre otra en la próxima consulta, no se corta nada.');
 });
 
+// Y LO MISMO EN CADA CLIENTE, QUE ES OTRO EMISOR.
+//
+// El `pool.on('error')` de arriba cubre a los clientes que están OCIOSOS en el pool. Un cliente que
+// todavía se está conectando --o que ya salió del pool-- emite `'error'` en sí mismo, y ahí el
+// oyente del pool no llega. Mismo final: un `'error'` sin oyente se tira, y el proceso se va.
+//
+// Así se veía, y me costó dos diagnósticos equivocados antes de leerlo bien:
+//
+//     ↳ terminó con código 1
+//     Error: read ECONNRESET
+//         at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+//
+// Sin una sola línea de stack de JavaScript. Eso NO es una promesa rechazada --esas traen el stack
+// de quien la creó--: es un evento `'error'` de un socket que nadie escucha. Y todo lo que salía
+// después de la última línea buena era stderr, no la continuación de stdout: el verificador pega
+// stderr al final, así que parecía que el proceso seguía imprimiendo cuando en realidad ya se había
+// muerto.
+pool.on('connect', (client) => {
+    client.on('error', (err) => {
+        console.warn('⚠️ [PG] Se cayó la conexión de un cliente:', err && err.message
+            ? err.message : err, '— se descarta ese cliente, no se corta nada.');
+    });
+});
+
 
 // Inicialización de Esquema PostgreSQL + pgvector.
 //
