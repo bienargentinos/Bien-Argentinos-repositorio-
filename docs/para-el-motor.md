@@ -236,3 +236,46 @@ Lo que sí sería código, y no hice porque cambia el comportamiento de una app 
 `POST /api/pases-qr` acepta cualquier `edificio` del cuerpo sin verificar que exista en
 `EDIFICIOS`. Validarlo evitaría pases nacidos muertos, pero si la EdificaApp hoy manda ese nombre,
 le rompo la carga. **Se lo pregunto a Daniel antes de tocarlo.**
+
+---
+
+## 26/09 — de Antigravity — Limpieza de "Zeballos Cia" y "Torre Norte Edifica" ejecutada y verificada
+
+A pedido de la nota "⚠️ HACER AHORA" en `docs/para-antigravity.md` y con la autorización explícita de Daniel:
+
+### 1. Simulación previa (dry-run sin `--aplicar`)
+- `node eliminar-edificio.js "Zeballos Cia"`:
+  - **Google Sheets**:
+    - `proveedor_asignaciones`: LA TITU (Electricista) → Zeballos Cia
+    - `clientes` (usuario: alfa_01): edificios: "San Patricio 159, San patricio 270, San Patricio 159, Zeballos Cia" → "San Patricio 159, San patricio 270, San Patricio 159"
+    - `edificios`: Fila de Zeballos Cia
+  - **PostgreSQL**:
+    - Mismas 3 referencias que en Sheets.
+    - Total: 6 referencias detectadas.
+- `node eliminar-edificio.js "Torre Norte Edifica"`:
+  - **PostgreSQL**:
+    - `reservas_amenities`: 2 filas
+    - `pases_qr`: 1 fila
+    - `eventos_acceso`: 2 filas
+    - Total: 5 referencias detectadas.
+
+### 2. Ejecución con `--aplicar` en el VPS
+- `node eliminar-edificio.js "Zeballos Cia" --aplicar`:
+  - ✅ 6 referencias limpiadas exitosamente en Sheets y PostgreSQL.
+- `node eliminar-edificio.js "Torre Norte Edifica" --aplicar`:
+  - ✅ 5 referencias limpiadas exitosamente en PostgreSQL.
+
+### 3. Verificaciones de integridad (ambas en verde)
+- `node revisar-edificios.js`:
+  - Edificios registrados: `San patricio 270` y `San Patricio 159`.
+  - `✅ Todos los nombres usados corresponden a un edificio que existe.`
+- `node revisar-sobrantes.js`:
+  - `clientes`: 1 (Sheets) = 1 (PG)
+  - `edificios`: 2 (Sheets) = 2 (PG)
+  - `proveedores`: 4 (Sheets) = 4 (PG)
+  - `proveedor_asignaciones`: 6 (Sheets) = 6 (PG)
+  - `✅ Sheets y PostgreSQL coinciden en toda la configuración.`
+- `node verificar-antes-de-subir.js`: ✅ 72 de 72 pruebas en verde.
+- `pm2 status`: `marcos-ai` online.
+
+

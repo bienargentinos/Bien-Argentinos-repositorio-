@@ -27,6 +27,27 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-26 — Limpieza de "Zeballos Cia" y "Torre Norte Edifica" en VPS y sincronización completa
+
+- **Qué se hizo**:
+  - Se corrió la simulación (`node eliminar-edificio.js "Zeballos Cia"`) detectando 6 referencias (asignación de proveedor LA TITU, cliente alfa_01 en clientes.edificios, y fila en edificios, tanto en Sheets como en PostgreSQL).
+  - Se corrió la simulación (`node eliminar-edificio.js "Torre Norte Edifica"`) detectando 5 referencias en tablas del portal/portería (`reservas_amenities`: 2, `pases_qr`: 1, `eventos_acceso`: 2).
+  - Con la autorización explícita de Daniel y el pedido en `docs/para-antigravity.md`, se aplicó la limpieza real:
+    - `node eliminar-edificio.js "Zeballos Cia" --aplicar` → ✅ 6 referencias limpiadas.
+    - `node eliminar-edificio.js "Torre Norte Edifica" --aplicar` → ✅ 5 referencias limpiadas.
+- **Verificaciones**:
+  - `node revisar-edificios.js`:
+    - Edificios del sistema: `San patricio 270` y `San Patricio 159`.
+    - `✅ Todos los nombres usados corresponden a un edificio que existe.`
+  - `node revisar-sobrantes.js`:
+    - `clientes`: 1 en Sheets / 1 en PG (coinciden)
+    - `edificios`: 2 en Sheets / 2 en PG (coinciden)
+    - `proveedores`: 4 en Sheets / 4 en PG (coinciden)
+    - `proveedor_asignaciones`: 6 en Sheets / 6 en PG (coinciden)
+    - `✅ Sheets y PostgreSQL coinciden en toda la configuración.`
+  - `node verificar-antes-de-subir.js`: ✅ 72 de 72 pruebas en verde.
+  - `pm2 status`: `marcos-ai` online.
+
 ### 2026-09-26 — Store de sesiones en dashboard.js adaptado a pool.sinBase (⚠️ HACER AHORA)
 
 - **Qué se hizo**:
