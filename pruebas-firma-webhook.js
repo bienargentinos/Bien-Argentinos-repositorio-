@@ -176,6 +176,29 @@ prueba('nadie reimplementó la comparación de la firma por fuera', () => {
         `estos archivos verifican la firma por su cuenta en vez de usar firma-webhook.js: ${fuera.join(', ')}`);
 });
 
+prueba('el registro de seguridad anota la IP real, y no una que el cliente pueda inventar', () => {
+    // > [!CAUTION]
+    // > **`trust proxy` en `true` le cree a cualquier `X-Forwarded-For` que mande el cliente.**
+    //
+    // Estas tres líneas son el registro de seguridad del sistema --lo único que queda escrito
+    // cuando alguien golpea una puerta y no entra--: la firma de webhook inválida, el pedido de
+    // pases sin la clave de la app, y la búsqueda de una expensa ajena. Detrás de nginx, sin
+    // `trust proxy`, las tres anotaban `127.0.0.1`.
+    //
+    // Pero el arreglo tiene su propia trampa: con `true` se confía en toda la cadena, así que
+    // quien golpea manda su propio encabezado y **elige qué IP queda escrita**. Un registro que el
+    // atacante controla es peor que uno que dice siempre lo mismo, porque este se le cree.
+    //
+    // El `1` es un solo salto: nginx, que lo escribe, y nadie más.
+    const idx = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8')
+        .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+
+    const m = idx.match(/app\.set\(\s*['"]trust proxy['"]\s*,\s*([^)]+)\)/);
+    assert.ok(m, 'falta `app.set(\'trust proxy\', 1)`: req.ip sería siempre la IP de nginx');
+    assert.strictEqual(m[1].trim(), '1',
+        `trust proxy vale ${m[1].trim()} y tiene que ser 1: con true el cliente elige qué IP se registra`);
+});
+
 console.log('');
 if (fallos === 0) {
     console.log('✅ Un POST que no venga de Meta no llega a Marcos.\n');
