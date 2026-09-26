@@ -2144,13 +2144,42 @@ function validarYSanitizarNombre(nombre) {
     // > Ojo con la raíz del verbo: **"finalicé" va con C y "finalizado" con Z.** Escribir solo
     // > `finaliz` deja afuera *"apenas finalice te mando la factura"*, que es una promesa a futuro
     // > y cerraría el caso. Es el mismo error que este bloque viene a arreglar, un nivel más abajo.
-    const miraAlFuturo = /\b(?:voy a|vamos a|paso a|cuando|apenas|en cuanto|reci[eé]n|deber[ií]a|tendr[ií]a|intento|trato de|espero)\b[^.!?]{0,24}(?:termin|final(?:iz|ic)|resolv|arregl|solucion)/i.test(textoFinal)
-        || /\b(?:termin|final(?:iz|ic)|arregl|resuelv|soluciono)[oaeé]?\s+(?:ma[nñ]ana|el lunes|el martes|el mi[eé]rcoles|el jueves|el viernes|el s[aá]bado|el domingo|la semana|m[aá]s tarde|despu[eé]s|en la tarde|a la tarde)/i.test(textoFinal);
+    //
+    // > [!CAUTION]
+    // > **Y el marcador de tiempo puede ir ADELANTE del verbo.** La primera versión de esto lo
+    // > buscaba solo atrás (`termino mañana` ✅) y dejaba pasar **`mañana lo termino`** ❌, que
+    // > cerraba el caso. Tercera vez en el día que el orden de las palabras decide mal — igual que
+    // > `"1001 es el caso"` y `"no cierra la puerta"`.
+    //
+    // Por eso el marcador de tiempo futuro se busca **en cualquier parte del mensaje**, sin
+    // importar dónde esté parado respecto del verbo. Planteado por Daniel con una frase que manda
+    // todos los días: *"acá está la factura de la visita, todavía no terminé pero si compra la
+    // bomba hoy finalizo mañana"* — una factura, un trabajo sin terminar y una promesa, todo junto.
+    //
+    // **Cuesta algo y se paga a propósito**: *"terminé, mañana te mando la factura"* tampoco va a
+    // cerrar. Es el error que se puede deshacer --lo dice de nuevo, o se cierra cuando llegue la
+    // factura--, mientras que cerrar un trabajo que sigue roto deja al vecino sin reclamo abierto
+    // y nadie se entera.
+    const hablaDeOtroDia = /(?:ma[nñ]ana|pasado ma[nñ]ana|el lunes|el martes|el mi[eé]rcoles|el jueves|el viernes|el s[aá]bado|el domingo|la semana que viene|la pr[oó]xima semana|m[aá]s tarde|en un rato|la semana pr[oó]xima)/i.test(textoFinal);
+
+    const miraAlFuturo = hablaDeOtroDia
+        || /\b(?:voy a|vamos a|paso a|cuando|apenas|en cuanto|reci[eé]n|deber[ií]a|tendr[ií]a|intento|trato de|espero|si\s)\b[^.!?]{0,30}(?:termin|final(?:iz|ic)|resolv|arregl|solucion)/i.test(textoFinal);
 
     const diceQueSeResolvio = !miraAlFuturo && (
         /solucionad|solucion[oó]|resuelt|resolv[ií]|trabajo.*terminad|trabajo.*realizad|listo.*trabajo|ya qued. arreglad|ya qued. listo|ya arreglaron|ya lo arregl|ya vino y (lo )?(arregl|solucion|repar|resolv)|ya funciona|ya lo repar/i.test(textoFinal)
         // El verbo en pasado alcanza solo: no hace falta que venga con "ya" adelante.
-        || /(?<![a-záéíóúüñ])(?:finalic[eé]|finaliz[oó]|finalizad[oa]|termin[eé]|termin[oó]|terminad[oa]|complet[eé]|completad[oa])(?![a-záéíóúüñ])/i.test(textoFinal)
+        //
+        // > [!CAUTION]
+        // > **`termino` sin tilde es "yo termino", no "terminó".** Son la misma palabra escrita y
+        // > significan cosas opuestas: una promesa y un hecho. Por eso la tercera persona se pide
+        // > **con tilde** (`terminó`, `finalizó`) y la primera no hace falta (`terminé` /
+        // > `termine`: la forma sin tilde solo colisiona con el subjuntivo *"cuando termine"*, que
+        // > `miraAlFuturo` ya descarta).
+        //
+        // Un audio escribe los acentos correctos --lo hace la transcripción-- así que por esa vía
+        // no se pierde nada. Por texto tipeado se pierde un "termino" que quería decir "terminó", y
+        // ese es el error barato: lo vuelve a decir, o se cierra cuando llegue la factura.
+        || /(?<![a-záéíóúüñ])(?:finalic[eé]|finalizó|finalizad[oa]|termin[eé]|terminó|terminad[oa]|complet[eé]|completad[oa])(?![a-záéíóúüñ])/i.test(textoFinal)
     );
     // "Todavía no se resolvió" trae las mismas palabras que "ya se resolvió" y significa lo
     // contrario. Cerrar un caso que sigue roto es peor que no cerrarlo: el vecino se queda sin

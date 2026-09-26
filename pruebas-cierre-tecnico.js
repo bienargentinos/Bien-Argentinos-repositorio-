@@ -38,7 +38,7 @@ const vale = (nombre, cond, extra) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const SRC = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
 
-const ini = SRC.indexOf('const miraAlFuturo');
+const ini = SRC.indexOf('const hablaDeOtroDia');
 const fin = SRC.indexOf('// "Todavía no se resolvió" trae las mismas palabras', ini);
 if (ini < 0 || fin < 0) {
     console.log('\n❌ No encontré el bloque de `diceQueSeResolvio` en index.js.\n' +
@@ -82,6 +82,33 @@ for (const t of ['termino mañana', 'voy a terminar hoy', 'cuando termine te avi
                  'recien termino el lunes', 'espero terminar hoy', 'paso a terminarlo el viernes']) {
     vale(`"${t}"`, !cierra(t), 'Es una promesa a futuro, no un trabajo hecho.');
 }
+
+// > [!CAUTION]
+// > **El marcador de tiempo puede ir ADELANTE del verbo.** La primera versión de este arreglo lo
+// > buscaba solo atrás: `"termino mañana"` quedaba bien y **`"mañana lo termino"` cerraba el
+// > caso**. Tercera vez en el mismo día que el orden de las palabras decide mal.
+console.log('\n── …Y EL "MAÑANA" PUEDE IR ANTES DEL VERBO ──');
+for (const t of ['mañana lo termino', 'mañana lo termino seguro', 'la semana que viene lo termino',
+                 'lo termino el lunes', 'mas tarde lo finalizo', 'pasado mañana lo cierro']) {
+    vale(`"${t}"`, !cierra(t), 'El marcador de tiempo se busca en TODO el mensaje, no después del verbo.');
+}
+
+// La frase que lo destapó, planteada por Daniel: una factura, un trabajo sin terminar y una
+// promesa, todo en el mismo mensaje. Es como escribe un técnico de verdad.
+console.log('\n── LA FACTURA DE LA VISITA NO ES EL TRABAJO TERMINADO ──');
+vale('"acá está la factura de la visita, todavía no terminé pero si compra la bomba hoy finalizo mañana"',
+    !cierra('hola acá está la factura de la visita, todavía no terminé pero si compra la bomba hoy finalizo mañana'),
+    'Un técnico cobra la visita y vuelve con el repuesto: el comprobante no dice que el trabajo esté hecho.');
+vale('…y sin los acentos, que es como se tipea',
+    !cierra('hola aca esta la factura de la visita, todavia no termine pero si compra la bomba hoy finalizo mañana'));
+
+// > **`termino` sin tilde es "yo termino", no "terminó".** Misma palabra escrita, sentidos
+// > opuestos: una promesa y un hecho. Se pide la tilde para la tercera persona.
+console.log('\n── LA TILDE DISTINGUE LA PROMESA DEL HECHO ──');
+vale('"terminó el trabajo" cierra (con tilde, es pasado)', cierra('terminó el trabajo'));
+vale('"lo termino" NO cierra (sin tilde, es "yo termino")', !cierra('lo termino'),
+    'Cerrar acá deja al vecino sin reclamo abierto contra una promesa. El error caro es ese.');
+vale('"finalizo el trabajo" tampoco', !cierra('finalizo el trabajo'));
 
 console.log('\n── LO QUE NO PUEDE CERRAR: LO ESTÁ NEGANDO ──');
 for (const t of ['todavia no se resolvio', 'no termine todavia', 'no lo pude finalizar',
