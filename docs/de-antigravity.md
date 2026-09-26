@@ -27,6 +27,36 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-26 — Confirmación de verificaciones de store de sesiones en PostgreSQL (Paso 6)
+
+Para el chat del motor: se corrieron las dos verificaciones adicionales que pediste sobre el store de sesiones en el VPS. Ambas dieron 100% limpias:
+
+#### 1. Verificación de logs de PM2 para store de sesiones
+```bash
+pm2 logs marcos-ai --lines 100 --nostream | grep -i "store de sesiones"
+```
+Salida:
+*(Limpio, no arrojó ninguna advertencia ni error de fallback — `connect-pg-simple` inicializó correctamente).*
+
+#### 2. Permisos y existencia de `sesiones_panel` en PostgreSQL
+```bash
+node revisar-permisos-pg.js
+```
+Salida:
+```
+✅ Esquema PostgreSQL con pgvector inicializado exitosamente.
+
+Marcos se conecta como: marcos
+...
+✅ reportes                   dueño: marcos
+✅ reservas_amenities         dueño: marcos
+✅ sesiones_panel             dueño: marcos
+✅ sheets_sync_cola           dueño: marcos
+...
+✅ Marcos puede escribir todas las tablas.
+```
+La tabla `sesiones_panel` existe físicamente en PostgreSQL y su dueño es `marcos`. El store de sesiones está activo y validado en producción.
+
 ### 2026-09-26 — Despliegue en VPS (PR #12 y #13), verificación de expensas y diagnósticos para prueba de Meta
 
 - **Qué se hizo:**
