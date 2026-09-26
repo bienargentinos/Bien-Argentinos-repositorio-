@@ -11,6 +11,31 @@ const pool = new Pool({
     connectionTimeoutMillis: 3000,
 });
 
+// UN CLIENTE OCIOSO QUE SE MUERE MATABA EL PROCESO ENTERO.
+//
+// `pg` emite `'error'` en el Pool cuando una conexión que estaba quieta se cae sola: PostgreSQL se
+// reinicia, el `idle_in_transaction_session_timeout` la corta, un firewall la olvida. Eso no pasa
+// por ningún `try` --no hay ninguna consulta en curso-- y un evento `'error'` sin oyente en un
+// EventEmitter de Node SE TIRA como excepción.
+//
+// De ahí en adelante manda el manejador de `uncaughtException` de `index.js`, que loguea y SALE a
+// propósito. O sea que una conexión ociosa cortada --lo más inofensivo que le puede pasar a un
+// pool-- reiniciaba a Marcos en mitad de una conversación. Es exactamente el episodio que ya está
+// en CLAUDE.md ("Un error suelto mataba a Marcos en mitad de una conversación"), con otro
+// disparador.
+//
+// Y así se veía: el CI daba rojo con `read ECONNRESET` en una prueba que no necesita la base. La
+// prueba imprimía la mitad de sus líneas y desaparecía sin decir por qué, que es la peor forma de
+// fallar. Local pasaba porque ahí el error es `ECONNREFUSED` al conectar --ese sí cae adentro del
+// `try` de la consulta-- y nunca llegaba a ser un evento del pool.
+//
+// Se loguea y NO se corta: el pool descarta ese cliente y abre otro en la consulta siguiente. No
+// queda ningún estado a medias, que es la razón por la que `uncaughtException` sí sale.
+pool.on('error', (err) => {
+    console.warn('⚠️ [PG] Una conexión ociosa del pool se cayó:', err && err.message
+        ? err.message : err, '— el pool abre otra en la próxima consulta, no se corta nada.');
+});
+
 
 // Inicialización de Esquema PostgreSQL + pgvector.
 //

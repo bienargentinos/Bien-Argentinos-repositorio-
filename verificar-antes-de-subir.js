@@ -115,15 +115,42 @@ const IMPRESCINDIBLES = {
 let problemas = 0;
 const decir = (ok, txt) => { if (!ok) problemas++; console.log(`  ${ok ? '✅' : '❌'} ${txt}`); };
 
+// POR QUÉ ESTA FUNCIÓN DICE TANTO CUANDO FALLA.
+//
+// Una prueba se puso roja en el CI y acá se veía así: el nombre con ❌ y la mitad de sus líneas.
+// Sin el código de salida, sin la señal, y sin decir si la salida estaba cortada. Con eso no se
+// puede distinguir entre una afirmación que falló, un proceso que se murió, y una salida que el
+// propio verificador truncó — tres cosas con arreglos completamente distintos.
+//
+// Es el mismo defecto que este repo ya pagó tres veces en un día, anotado en CLAUDE.md: **una
+// falla que miente sobre sí misma cuesta más que la falla.** Un verificador que dice "falló" y
+// nada más manda a adivinar, y adivinar sobre el CI se paga en pushes a ciegas.
+//
+// `maxBuffer` va arriba a propósito: el default de `execFileSync` es 1 MB, y cuando se pasa MATA
+// al hijo y devuelve la salida cortada --que se ve idéntica a un proceso que se murió solo--.
+const TECHO_SALIDA = 40 * 1024 * 1024;
+
 function correr(descripcion, comando, args) {
     try {
-        execFileSync(comando, args, { cwd: __dirname, stdio: 'pipe' });
+        execFileSync(comando, args, { cwd: __dirname, stdio: 'pipe', maxBuffer: TECHO_SALIDA });
         decir(true, descripcion);
         return true;
     } catch (e) {
         decir(false, `${descripcion}`);
+
+        // Qué pasó, en una línea, antes de la salida del hijo.
+        const detalle = [];
+        if (e.signal) detalle.push(`lo mató la señal ${e.signal}`);
+        else if (typeof e.status === 'number') detalle.push(`terminó con código ${e.status}`);
+        if (e.code === 'ENOBUFS') detalle.push('escribió más de lo que entra en el buffer: la salida de abajo está CORTADA');
+        else if (e.code) detalle.push(`code=${e.code}`);
+        // `status: null` sin señal es un proceso que no llegó a arrancar.
+        if (e.status === null && !e.signal) detalle.push('no llegó a arrancar');
+        if (detalle.length) console.log(`       ↳ ${detalle.join(' · ')}`);
+
         const salida = `${e.stdout || ''}${e.stderr || ''}`.trim();
         if (salida) console.log(salida.split('\n').map(l => `       ${l}`).join('\n'));
+        else console.log('       ↳ y no imprimió NADA, ni por stdout ni por stderr.');
         return false;
     }
 }
@@ -176,7 +203,7 @@ const archivosJs = [
 let rotos = 0;
 for (const archivo of archivosJs) {
     try {
-        execFileSync(process.execPath, ['--check', archivo], { cwd: __dirname, stdio: 'pipe' });
+        execFileSync(process.execPath, ['--check', archivo], { cwd: __dirname, stdio: 'pipe', maxBuffer: TECHO_SALIDA });
     } catch (e) {
         rotos++;
         decir(false, archivo);
