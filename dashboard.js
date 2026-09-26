@@ -195,7 +195,7 @@ function mapVecino(r) {
 let sessionStore = null;
 try {
   const { pool } = require('./db-pg');
-  if (pool) {
+  if (pool && process.env.DATABASE_URL) {
     const pgSession = require('connect-pg-simple')(session);
     sessionStore = new pgSession({
       pool,

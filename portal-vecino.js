@@ -33,7 +33,7 @@ const session = require('express-session');
 let storePortal = null;
 try {
     const { pool } = require('./db-pg');
-    if (pool) {
+    if (pool && process.env.DATABASE_URL) {
         const PgSession = require('connect-pg-simple')(session);
         storePortal = new PgSession({
             pool,
