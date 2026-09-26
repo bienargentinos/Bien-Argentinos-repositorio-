@@ -48,6 +48,19 @@ const PANTALLAS = [
         castellano: ['Reclamos y Averías', 'Reportar Rotura', 'Rubro / Tipo de Problema',
                      'Ubicación del Problema', 'Enviar Reclamo a Marcos IA', 'Área Común'],
     },
+    {
+        ruta: '/vecino/chat',
+        traducido: ['Marcos está online', 'Respondemos a qualquer hora', 'Escreva para o Marcos'],
+        castellano: ['Marcos IA en Línea', 'Atención 24/7 activa', 'Escribile a Marcos IA'],
+    },
+    {
+        ruta: '/vecino/novedades',
+        // Tenía DOS avisos inventados escritos en el código, fechados "Hoy" y "Ayer". Un vecino
+        // podía dejar de tomar agua un jueves por un aviso que nadie escribió.
+        traducido: ['Avisos do prédio', 'Não há avisos'],
+        castellano: ['Avisos del Edificio', 'Limpieza de tanques de agua',
+                     'Ascensor principal en servicio', 'ServiElev'],
+    },
 ];
 
 let fallos = 0;

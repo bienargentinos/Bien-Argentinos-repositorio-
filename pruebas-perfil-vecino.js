@@ -294,7 +294,19 @@ const PANTALLA_VACIA = 'Todavía no tenés ningún departamento asignado';
         }
         verificar('no queda ningún v.nombre suelto', sueltos, []);
 
-        afirmar('el saludo usa el primer nombre', SRC.includes('¡Hola ${primerNombre(v)}!'));
+        // El saludo del chat pasó a `idiomas.js`, así que buscar el texto literal medía el idioma y
+        // no la regla. La regla es: se saluda por el PRIMER nombre, no con la fila entera de la
+        // planilla ni con un nombre fijo --el chat contestaba "Tomado Daniel" a cualquier vecino--.
+        afirmar('el saludo del chat usa el primer nombre',
+            SRC.includes("t('chat.saludo', { nombre: primerNombre(v)"));
+        {
+            const { textos } = require('./idiomas');
+            for (const idioma of ['es', 'en', 'pt', 'fr']) {
+                const txt = textos(idioma)('chat.saludo', { nombre: 'Camila', edificio: 'Torre' });
+                afirmar(`${idioma}: el saludo nombra a la persona`, txt.includes('Camila'));
+                afirmar(`${idioma}: y no deja ningún nombre fijo adentro`, !/Daniel/.test(txt));
+            }
+        }
         afirmar('el reclamo guarda el nombre completo', SRC.includes('vecino: nombreCompleto(v),'));
         afirmar('el pase QR también', SRC.includes('creado_por_nombre: nombreCompleto(v),'));
         afirmar('y el aviso al administrador', SRC.includes('*Vecino:* ${nombreCompleto(v)}'));

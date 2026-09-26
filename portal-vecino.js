@@ -5119,6 +5119,11 @@ router.get('/sw.js', (req, res) => {
 // -------------------------------------------------------------------
 router.get('/chat', (req, res) => {
   const v = getVecinoSession(req);
+  const t = textos(v.idioma);
+  const TC = JSON.stringify({
+    recibido: t('chat.recibido'),
+    recibidoCorto: t('chat.recibidoCorto'),
+  });
 
   const content = `
     <!-- Header Chat -->
@@ -5129,48 +5134,49 @@ router.get('/chat', (req, res) => {
           <div style="position:absolute;bottom:-2px;right:-2px;width:11px;height:11px;border-radius:50%;background:#16A34A;border:2px solid #fff"></div>
         </div>
         <div>
-          <div style="font-size:14.5px;font-weight:800;color:var(--marca)">Marcos IA en Línea</div>
-          <div style="font-size:11.5px;color:var(--ok);font-weight:700">Atención 24/7 activa</div>
+          <div style="font-size:14.5px;font-weight:800;color:var(--marca)">${esc(t('chat.enLinea'))}</div>
+          <div style="font-size:11.5px;color:var(--ok);font-weight:700">${esc(t('chat.atencion'))}</div>
         </div>
       </div>
       <a href="https://wa.me/5491100000000" target="_blank" style="padding:6px 12px;border-radius:8px;background:var(--ok-fondo);color:var(--ok);font-size:12px;font-weight:700;display:flex;align-items:center;gap:5px">
         <i class="ph ph-whatsapp-logo" style="font-size:15px"></i>
-        <span>WhatsApp</span>
+        <span>${esc(t('chat.whatsapp'))}</span>
       </a>
     </div>
 
     <!-- Muro de Mensajes -->
     <div id="chat-stream" style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px;min-height:320px">
       <div class="chat-bubble-marcos">
-        ¡Hola ${primerNombre(v)}! Soy <strong>Marcos IA</strong>, el asistente de <strong>${v.edificio}</strong>. ¿En qué te puedo ayudar hoy? Podés consultarme sobre expensas, reportar una rotura o pedir datos del edificio.
+        ${esc(t('chat.saludo', { nombre: primerNombre(v), edificio: v.edificio }))}
       </div>
     </div>
 
     <!-- Sugerencias Rápidas -->
     <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:10px">
-      <button onclick="enviarSugerencia('¿Cuándo vencen las expensas?')" style="white-space:nowrap;padding:7px 12px;border-radius:999px;border:1px solid var(--borde-fuerte);background:#fff;font-size:12px;font-weight:700;color:var(--texto-medio);cursor:pointer">
-        💳 ¿Cuándo vencen expensas?
+      <button onclick="enviarSugerencia('${escJs(t('chat.sug1'))}')" style="white-space:nowrap;padding:7px 12px;border-radius:999px;border:1px solid var(--borde-fuerte);background:#fff;font-size:12px;font-weight:700;color:var(--texto-medio);cursor:pointer">
+        💳 ${esc(t('chat.sug1'))}
       </button>
-      <button onclick="enviarSugerencia('Reportar fuga de agua en el baño')" style="white-space:nowrap;padding:7px 12px;border-radius:999px;border:1px solid var(--borde-fuerte);background:#fff;font-size:12px;font-weight:700;color:var(--texto-medio);cursor:pointer">
-        🔧 Reportar fuga de agua
+      <button onclick="enviarSugerencia('${escJs(t('chat.sug2'))}')" style="white-space:nowrap;padding:7px 12px;border-radius:999px;border:1px solid var(--borde-fuerte);background:#fff;font-size:12px;font-weight:700;color:var(--texto-medio);cursor:pointer">
+        🔧 ${esc(t('chat.sug2'))}
       </button>
-      <button onclick="enviarSugerencia('Horario y reglamento del SUM')" style="white-space:nowrap;padding:7px 12px;border-radius:999px;border:1px solid var(--borde-fuerte);background:#fff;font-size:12px;font-weight:700;color:var(--texto-medio);cursor:pointer">
-        🎉 Horario del SUM
+      <button onclick="enviarSugerencia('${escJs(t('chat.sug3'))}')" style="white-space:nowrap;padding:7px 12px;border-radius:999px;border:1px solid var(--borde-fuerte);background:#fff;font-size:12px;font-weight:700;color:var(--texto-medio);cursor:pointer">
+        🎉 ${esc(t('chat.sug3'))}
       </button>
     </div>
 
     <!-- Input Bar Fijo -->
     <div class="card" style="padding:8px 10px;display:flex;align-items:center;gap:8px">
-      <button onclick="alert('Podés adjuntar fotos de desperfectos o comprobantes')" style="width:38px;height:38px;border-radius:10px;border:none;background:var(--superficie-3);color:var(--texto-suave);cursor:pointer;display:flex;align-items:center;justify-content:center">
+      <button onclick="alert('${escJs(t('chat.adjuntar'))}')" style="width:38px;height:38px;border-radius:10px;border:none;background:var(--superficie-3);color:var(--texto-suave);cursor:pointer;display:flex;align-items:center;justify-content:center">
         <i class="ph ph-camera" style="font-size:20px"></i>
       </button>
-      <input id="chat-input" type="text" placeholder="Escribile a Marcos IA..." style="flex:1;height:40px;border:none;outline:none;font-size:14.5px;color:var(--texto)" onkeypress="if(event.key==='Enter')enviarMensaje()">
+      <input id="chat-input" type="text" placeholder="${esc(t('chat.placeholder'))}" style="flex:1;height:40px;border:none;outline:none;font-size:14.5px;color:var(--texto)" onkeypress="if(event.key==='Enter')enviarMensaje()">
       <button onclick="enviarMensaje()" style="width:40px;height:40px;border-radius:10px;border:none;background:var(--acento);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center">
         <i class="ph ph-paper-plane-right-fill" style="font-size:18px"></i>
       </button>
     </div>
 
     <script>
+      const TC = ${TC};
       function enviarSugerencia(txt){
         document.getElementById('chat-input').value = txt;
         enviarMensaje();
@@ -5208,13 +5214,13 @@ router.get('/chat', (req, res) => {
 
           const mB = document.createElement('div');
           mB.className = 'chat-bubble-marcos';
-          mB.innerHTML = data.respuesta || 'Tomado Daniel. Cualquier novedad te aviso de inmediato.';
+          mB.innerHTML = data.respuesta || TC.recibido;
           stream.appendChild(mB);
         } catch(err){
           typingEl.remove();
           const mB = document.createElement('div');
           mB.className = 'chat-bubble-marcos';
-          mB.innerHTML = 'Tomado. Recibí tu mensaje correctamente.';
+          mB.innerHTML = TC.recibidoCorto;
           stream.appendChild(mB);
         }
         window.scrollTo(0, document.body.scrollHeight);
@@ -5838,42 +5844,40 @@ router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), as
 // -------------------------------------------------------------------
 // 5. AVISOS & NOVEDADES
 // -------------------------------------------------------------------
-router.get('/novedades', (req, res) => {
+// LOS AVISOS QUE HAY, NO DOS INVENTADOS.
+//
+// Esta pantalla tenía DOS avisos escritos a mano en el código --"Limpieza de tanques de agua" el
+// jueves de 08:00 a 14:00, y "Ascensor principal en servicio" reparado por un técnico con nombre--
+// fechados "Hoy · 09:30" y "Ayer". Para el vecino eso no es una maqueta: es el edificio
+// avisándole algo. Podría dejar de tomar agua un jueves por un aviso que nadie escribió.
+//
+// Es el mismo error que la tarjeta que decía `$120.000` para todos: un dato inventado que se lee
+// como cierto. Ahora sale de la tabla `avisos`, con lo que alguien del edificio publicó de verdad.
+//
+// Y cuando no hay ninguno se dice que no hay ninguno. Un cartel vacío es información: significa
+// que hoy no pasa nada raro. Inventar dos para que la pantalla "se vea llena" es lo contrario.
+router.get('/novedades', async (req, res) => {
   const v = getVecinoSession(req);
   const t = textos(v.idioma);
 
+  const avisos = await avisosDelEdificio(v.edificio);
+
   const content = `
     <div style="margin-bottom:16px">
-      <h2 style="font-size:20px;font-weight:800;color:var(--marca);margin-bottom:2px">Avisos del Edificio</h2>
-      <p style="font-size:13px;color:var(--texto-suave)">Comunicaciones oficiales en ${v.edificio}</p>
+      <h2 style="font-size:20px;font-weight:800;color:var(--marca);margin-bottom:2px">${esc(t('nov.titulo'))}</h2>
+      <p style="font-size:13px;color:var(--texto-suave)">${esc(t('nov.subtitulo', { edificio: v.edificio }))}</p>
     </div>
 
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <div class="card" style="padding:16px 18px;border-left:4px solid #F59E0B">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--aviso-fondo);color:var(--aviso)">${esc(t('inicio.mantenimiento'))}</span>
-          <span style="font-size:11.5px;color:var(--texto-tenue)">Hoy · 09:30 hs</span>
-        </div>
-        <div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:4px">Limpieza de tanques de agua</div>
-        <p style="font-size:13.5px;color:var(--texto-medio);line-height:1.45">
-          Se realizará la limpieza semestral reglamentaria el jueves de 08:00 a 14:00 hs. Se sugiere almacenar agua para el consumo durante esa franja horaria.
-        </p>
-      </div>
-
-      <div class="card" style="padding:16px 18px;border-left:4px solid #16A34A">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--ok-fondo);color:var(--ok)">Resuelto</span>
-          <span style="font-size:11.5px;color:var(--texto-tenue)">Ayer</span>
-        </div>
-        <div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:4px">Ascensor principal en servicio</div>
-        <p style="font-size:13.5px;color:var(--texto-medio);line-height:1.45">
-          El técnico de guardia de ServiElev reemplazó el sensor de seguridad. Ambos ascensores se encuentran funcionando con normalidad.
-        </p>
-      </div>
+    ${avisos.length ? bloqueAvisosHtml(avisos, v, t) : `
+    <div class="card" style="padding:28px 20px;text-align:center">
+      <div style="font-size:34px;margin-bottom:8px">📭</div>
+      <div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:4px">${esc(t('nov.sinAvisos'))}</div>
+      <p style="font-size:13px;color:var(--texto-suave);line-height:1.45">${esc(t('nov.sinAvisosAyuda'))}</p>
     </div>
+    `}
   `;
 
-  res.send(shellVecino('Avisos', 'novedades', content, v));
+  res.send(shellVecino(t('nov.titulo'), 'novedades', content, v));
 });
 
 // -------------------------------------------------------------------
