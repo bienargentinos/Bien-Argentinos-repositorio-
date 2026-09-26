@@ -117,6 +117,36 @@ console.log('\n3b) El portón del edificio no es la cerradura de un departamento
         rubroDelTexto('el portón de hierro está oxidado') === 'herrería',
         'Control de acceso va antes en la lista: sin la exclusión se queda con todos los portones.');
 
+    // ── LA PUERTA MAGNÉTICA, Y CUÁNDO ES DEL ELECTRICISTA ───────────────────────────────────
+    //
+    // Lo que había enumeraba los sustantivos que van ANTES de "magnética" --`cerradura`,
+    // `pestillo`, `tarjeta`-- y faltaba `puerta magnética`, que es como lo dice la gente. Con la
+    // palabra `luz` en la misma frase, el reclamo caía en electricidad.
+    vale('una puerta magnética es control de acceso',
+        rubroDelTexto('la puerta magnética no traba') === 'control de acceso');
+    vale('…aunque el problema se describa como falta de luz DEL APARATO',
+        rubroDelTexto('puerta magnética sin luz') === 'control de acceso');
+    vale('y una traba magnética también',
+        rubroDelTexto('se rompió la traba magnética') === 'control de acceso');
+
+    // > [!CAUTION]
+    // > **Pero un corte de luz declarado es del ELECTRICISTA, aunque haya soltado la puerta.**
+    //
+    // Frase textual de Daniel, del CASO-1003/1004: sin corriente el electroimán suelta, y apenas
+    // vuelve la luz la puerta traba sola. Mandar a control de acceso es mandar a alguien a mirar
+    // un aparato que no tiene nada roto.
+    vale('"no hay luz en el hall y la puerta magnética está abierta" es electricidad',
+        rubroDelTexto('no hay luz en el hall de entrada y la puerta magnética está abierta') === 'electricidad',
+        `Dio: "${rubroDelTexto('no hay luz en el hall de entrada y la puerta magnética está abierta')}". ` +
+        'El trabajo es devolver la corriente; la puerta es la consecuencia.');
+    vale('y "se cortó la luz" también, con la puerta nombrada',
+        rubroDelTexto('se cortó la luz del hall y quedó abierta la puerta magnética') === 'electricidad');
+
+    // El orden de las palabras no puede decidir el rubro: pedía `no cierra la puerta` literal.
+    vale('"la puerta no cierra bien" es cerrajería, en cualquier orden',
+        rubroDelTexto('la puerta no cierra bien') === 'cerrajería',
+        `Dio: "${rubroDelTexto('la puerta no cierra bien')}". Nadie dice "no cierra la puerta".`);
+
     // Y lo que el chip dejó de decir: la cerrajería de verdad no se movió.
     vale('la cerradura de un depto sigue siendo cerrajería',
         rubroDelTexto('se trabó la cerradura de mi depto') === 'cerrajería');
