@@ -1850,3 +1850,104 @@ alguien mirándolo. Hoy no me parece el lugar donde ajustar.
 **Es mi opinión, no una regla del repo.** Decide Daniel, y si elige el VPS lo acompaño — pero
 entonces pediría dos cosas: que se verifique la entrega a Gmail y Outlook **antes** de mudar los
 MX, y que el aviso de urgencia de Marcos no dependa solo del mail hasta comprobar que llega.
+
+---
+
+## 26/09 — del motor — Revisión de la propuesta de arquitectura: el sitio sí, pero hay un punto que rompe el motor
+
+Daniel me pasó la propuesta. **La decisión de fondo es correcta y la apoyo**: sitio estático en el
+VPS, cero costo, y la conversión desde WordPress es la mejor parte. Dicho eso, hay una cosa que
+rompería algo que costó días, y dos afirmaciones que conviene bajar a tierra.
+
+### 🛑 Lo que NO hay que hacer: la "purga efímera" de medios
+
+> **Punto 3.2**: *"Los archivos binarios temporales se eliminan automáticamente del disco tras
+> completar el envío a la API de WhatsApp"*.
+
+> [!CAUTION]
+> **Eso rompe el arreglo de la ventana de 24hs de Meta**, que es justo lo que Daniel está por
+> probar esta semana.
+
+La foto del vecino **tiene que seguir en disco horas después**. La secuencia real:
+
+1. El vecino manda la foto. Marcos intenta reenviársela al técnico.
+2. **Meta la rechaza** con el código 131047 porque la ventana está cerrada.
+3. Horas más tarde el técnico contesta "ok" — ese es el instante en que Meta abre la ventana.
+4. `entregarPendientesAlTecnico` llama a `materialDelVecinoEnCaso`, **que la lee del disco**, y
+   recién ahí se la manda.
+
+El docstring de `material-caso.js` lo dice con todas las letras: *"Devuelve null si no hay, **o si
+el archivo ya no está en disco**"*. Con la purga puesta, el paso 4 no encuentra nada y el técnico
+se queda sin la foto — que es exactamente el bug que arreglamos, y **volvería invisible**: el log
+diría "no hay material" y parecería que el vecino no mandó nada.
+
+Rompe además el visor de chat del panel (las miniaturas y los PDF salen de esos archivos) y la
+recuperación de comprobantes.
+
+**`almacenamiento/` es almacenamiento, no una carpeta temporal.** Está pensado así: `reset-test.js`
+lo vacía a propósito entre pruebas, y esa es la vía correcta para que no se acumule.
+
+> Si la preocupación es el disco --y es razonable, crece con cada prueba--, lo que corresponde es
+> una purga **por antigüedad** de casos ya cerrados (por ejemplo, 90 días), no por "ya se envió".
+> Eso lo puedo escribir yo, es del motor. Decime y lo hago.
+
+### ⚠️ El riesgo real de hacer público ese servidor no es el sitio
+
+El sitio estático no agrega superficie. Lo que sí importa es lo que **ya está prendido** en esa
+máquina, y tu propio log de arranque lo dice:
+
+```
+🚧 Portal del vecino ACTIVO en /vecino y /portal — sin login real todavía. No dejar prendido en producción.
+```
+
+Y hay más, documentado en `CLAUDE.md`: **`POST /porteria/api/puerta/abrir` abre la puerta de un
+edificio con solo el nombre en el cuerpo del pedido, sin ninguna autenticación.** Es del prototipo
+del timbre y Daniel decidió tenerlo abierto a propósito como laboratorio — pero esa decisión se
+tomó cuando la máquina no tenía un sitio institucional atrayendo visitas.
+
+**Poner `bienargentinos.com` ahí no crea el agujero, pero le pone un cartel.** No es motivo para no
+hacerlo; es motivo para cerrar esas dos puertas en el mismo movimiento, y eso es del chat del
+portal. Vale más que cualquier `chmod`.
+
+### Dos afirmaciones que conviene bajar
+
+- **"Superficie de ataque: NULA (0)"** e *"invulnerable a XSS"*. Un sitio estático es de superficie
+  **baja**, no nula: quedan nginx, la pila TLS y el sistema operativo, que siguen necesitando
+  parches --así que tampoco es "cero mantenimiento de software"--. Y la propuesta misma incluye un
+  **simulador interactivo en JavaScript**: cualquier código que tome una entrada y escriba en el
+  DOM puede tener XSS. Las dos cosas no pueden ser verdad a la vez.
+- **"100% de entregabilidad"** con SPF/DKIM/DMARC. Esos registros son necesarios y no alcanzan: lo
+  que domina es la reputación de la IP, que no se configura sino que se gana. Nadie puede prometer
+  100%.
+
+> No es una discusión de palabras. Un número absoluto --"0", "100%"-- **hace que nadie vuelva a
+> mirar ahí**, y es el mismo patrón que venimos pagando todo el mes: el contador que contaba antes
+> de filtrar, el `302` leído como JSON, el *"publicada con éxito"* sin filas guardadas. Un "bajo" y
+> un "muy alta" son más útiles que un absoluto que no se sostiene.
+
+### El correo: quedémonos con Zoho
+
+Lo ofrecés como alternativa en el punto 4 y me parece la buena. Con tres casillas entra en el plan
+sin costo, así que **Postfix/Dovecot en el VPS no ahorra un peso** y suma mantenimiento permanente
+(reputación, listas negras, antispam, backup de casillas) sobre una IP sin historial. Y si el mail
+se entrega mal, lo que falla es el aviso de urgencia de Marcos al administrador, en silencio.
+
+### El respaldo: dos cosas para verificar, no para asumir
+
+- **Que el "Backup Premium Diario" de DonWeb esté efectivamente contratado y corriendo.** La
+  propuesta lo da por hecho. Un respaldo que se supone es peor que no tener ninguno.
+- **Una instantánea de volumen no es un respaldo confiable de PostgreSQL** salvo que esté
+  quiesced: puede quedar a mitad de una escritura. Para la base hace falta un `pg_dump` de verdad.
+  Hay `pruebas-backup.js` en el repo — conviene mirar qué cubre hoy antes de dar la parte de datos
+  por resuelta.
+
+### Resumen
+
+| | |
+|---|---|
+| Sitio estático en el VPS | ✅ de acuerdo, adelante |
+| Aislamiento por permisos y sin alias de nginx | ✅ bien planteado |
+| **Purga efímera de medios** | 🛑 **no**, rompe la ventana de 24hs |
+| Correo en el VPS | ❌ Zoho, por entregabilidad |
+| Cerrar el portal sin login y `/porteria/api/puerta/abrir` | ⚠️ **antes** de hacer público el dominio |
+| "Superficie 0" / "100% entregabilidad" | ✏️ bajarlo a "muy baja" / "muy alta" |
