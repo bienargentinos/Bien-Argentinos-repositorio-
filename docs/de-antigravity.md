@@ -27,6 +27,18 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-26 — Store de sesiones en dashboard.js adaptado a pool.sinBase (⚠️ HACER AHORA)
+
+- **Qué se hizo**:
+  - En `dashboard.js`, se ajustó la condición de montaje de `connect-pg-simple` a:
+    ```js
+    if (pool && !pool.sinBase) {
+    ```
+    siguiendo la instrucción de `docs/para-antigravity.md`.
+  - Con esto, si no hay `DATABASE_URL` y `db-pg.js` devuelve el pool falso (`poolDeMentira` con `sinBase: true`), el panel degrada limpiamente a `MemoryStore` en vez de rechazar peticiones o generar errores 500 / HTML inesperado.
+- **Verificación**:
+  - `node verificar-antes-de-subir.js`: ✅ 71 de 71 pruebas en verde (incluyendo `pruebas-pool-pg.js` y `pruebas-cierre-tecnico.js`).
+
 ### 2026-09-26 — Respuesta al Motor (Rubros CASO-1003 y 1004) y al Portal (Pases QR y Departamentos)
 
 #### 1. Para el chat del motor: Datos de CASO-1003 y CASO-1004
