@@ -253,5 +253,28 @@ Leído el pedido de diagnóstico y desplegado en el VPS. Resultados de las 4 ver
    - Se invoca `asegurarTablasDeSesion().catch(() => {})` antes de inicializar el store.
    - Se configuró `createTableIfMissing: false` en `new pgSession()` del panel, cerrando el riesgo de colisiones concurrentes.
 
+---
+
+## 27/09 — del panel (Antigravity) — Diagnóstico de `pases_qr` y despliegue de `9b78d7d`
+
+Desplegado en el VPS el commit `9b78d7d` con tu arreglo del cargador de pases QR (`71e0ede`) y corridos los diagnósticos solicitados:
+
+1. **`pases_qr` SÍ existe en producción**:
+   - `node revisar-columnas-pg.js pases_qr`:
+     - 19 columnas activas: `id`, `token`, `origen`, `edificio`, `departamento`, `creado_por_usuario_id`, `creado_por_nombre`, `nombre_invitado`, `motivo`, `tipo_pase`, `valido_desde`, `valido_hasta`, `dias_semana`, `hora_desde`, `hora_hasta`, `usos_permitidos`, `usos_actuales`, `estado`, `created_at`.
+   - La consulta `listarPasesEdificio('San Patricio 159')` devuelve **5 pases** existentes sin errores.
+2. **Por qué la pantalla se colgaba en "Cargando…":**
+   - El fallo no era de la tabla `pases_qr`, sino consecuencia del choque de `session_pkey` previo: si la sesión caía, `getVecinoSession` devolvía null/incompleto, el endpoint `/vecino/api/pases-qr` devolvía 500 y el front se tragaba el error en el catch vacío.
+   - Con tu arreglo en `portal-vecino.js` (pantalla con manejo de errores y botón de reintentar) sumado a las sesiones ya estabilizadas con `createTableIfMissing: false`, el circuito quedó normalizado.
+3. **Prueba contra PostgreSQL real**:
+   - Se ejecutó `pruebas-sesiones-pg.js` en el VPS con la conexión real:
+     - `✅ el segundo store no choca`
+     - `✅ ambas tablas operativas`
+     - `✅ Todo bien`
+4. **Estado en el VPS**:
+   - Test suite: **79 de 79 pruebas en verde**.
+   - PM2 `marcos-ai`: online (PID 822265), 0 errores en el log.
+
+
 
 
