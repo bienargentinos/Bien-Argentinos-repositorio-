@@ -483,6 +483,25 @@ vez: el id es del nuevo y el resto del viejo. Nada avisa.
 > dirija a julio cuando el que contesta es Dario. Eso es una decisión de producto y hoy manda la
 > regla 1 de arriba --el caso decidió--. Lo que se arregló es que las dos vías digan **lo mismo**.
 
+> [!CAUTION]
+> **CONGELADO hasta tener más números de prueba. Decisión de Daniel, 27/09.** Sus palabras: *"lo de
+> los nombres dejalo para más adelante, que quizás no lo apliquemos, porque hoy es una ensalada de
+> nombres por que no tengo más número para probar"*.
+>
+> **La ensalada es del banco de pruebas, no del producto.** Hay un solo teléfono para probar, así
+> que julio y dario están cargados sobre la misma línea. Con números separados `proveedoresPorTelefono`
+> devuelve uno solo y **todo el desempate ni siquiera corre**: no hay dos nombres entre los que
+> elegir. Diseñar la regla definitiva contra un síntoma que solo existe en el banco es diseñar
+> contra el banco.
+>
+> **No rediseñar esto por iniciativa propia.** Se retoma cuando haya dos líneas de verdad y se vea
+> qué pasa con técnicos reales.
+>
+> Lo que **sí** queda vigente es el refresco de `datos-del-caso.js`, y no por los nombres: el mismo
+> estado guarda `vecinoActivo`, que es **a qué vecino se le avisa** (`index.js:1331` lo devuelve
+> como el vecino de ese técnico). Con el dato viejo, la confirmación del CASO-1005 le llegaba al
+> vecino del CASO-1004. Eso no tiene nada que ver con la línea compartida.
+
 Y en el mismo episodio, el número de caso: el técnico apretó *"Solicitar más datos"* y a las 22:50
 le llegó la foto con el encabezado `📱 MARCOS — FOTO DEL RECLAMO` **pelado**, mientras que a las
 23:56 la misma foto llegó con `[CASO-1005]` por el otro camino. El id **ya estaba calculado veinte
