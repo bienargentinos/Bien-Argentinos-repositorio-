@@ -517,6 +517,47 @@ estaba siempre abierta.
   La frase se arma según lo que realmente haya; si no hay nada, no se promete nada.
 - Prueba: `node pruebas-ventana-24hs.js`.
 
+#### Y le reenviaba el trabajo a quien acababa de decir que lo terminó
+
+> [!CAUTION]
+> **`entregarPendientesAlTecnico` corre en CADA mensaje entrante del proveedor** --ese es el
+> instante en que Meta abre la ventana-- y corría **antes** de leer qué decía el mensaje.
+
+Producción, 26/09, del WhatsApp del técnico:
+
+```
+23:55  Dario:   "Hola ya termine"
+23:56  MARCOS:  📷 FOTO DEL RECLAMO [CASO-1005]
+23:56  MARCOS:  ¿QUIÉN LE ABRE AL TÉCNICO EN SAN PATRICIO 159?
+23:56  MARCOS:  "Va a ir Dario por el CASO-1005 y no tengo cargado quién le abre…"
+23:56  MARCOS:  ✅ Listo Dario, marqué el CASO-1005 como RESUELTO
+23:58  Dario:   "Ya finalice"
+```
+
+Avisó que había terminado y le llegaron la foto del problema y el contacto de quien le abre la
+puerta. **El cierre estuvo bien y salió último**, detrás de tres mensajes que decían lo contrario,
+así que él leyó que Marcos no lo había entendido y lo repitió — y el segundo *"Ya finalice"* se
+comió el defecto de la sección siguiente.
+
+Es exactamente lo de `tieneAccesoPropio`, anotado dentro de ese mismo bloque: la pregunta que
+evitaba el envío se hacía **después** del envío. **La información estaba, el orden no.**
+
+- La pregunta se hace ahora sobre **ese** mensaje, antes de entregar nada.
+- La lista de palabras vive en **`aviso-terminado.js`**, porque la preguntan dos lugares de
+  `index.js` a dos mil líneas de distancia y una segunda copia es lo que ya costó caro con
+  `buscarPerfilEdificio`.
+- **Se suprime con el filtro amplio y se descuenta la negación**: *"todavía no terminé"* trae las
+  mismas palabras y es justo el mensaje de alguien que **sí** necesita la foto. Suprimir de más no
+  cuesta una vuelta --`pendientesResueltosDe` no se marca y sale en el próximo mensaje-- pero si
+  cada mensaje suyo lo niega, no se le entrega nunca.
+- **Un caso cerrado tampoco recibe nada**: cualquier mensaje posterior al cierre --un "gracias", la
+  factura-- volvía a disparar la entrega. Si el caso no se puede leer **se entrega igual**: perder
+  la foto deja al técnico yendo sin saber qué va a encontrar, y ese es el error caro.
+- Queda en el log: `📎⏸️ Dario dice que terminó: NO se le reenvía la foto ni el contacto de ingreso
+  del [CASO-1005].`
+
+Prueba: `node pruebas-aviso-terminado.js`.
+
 **Meta permite tener varias plantillas**, pero una plantilla NO sirve para mandar la foto del
 reclamo: la imagen de una plantilla se sube al aprobarla y es fija. La foto de hoy solo sale como
 mensaje libre, o sea con la ventana abierta.
@@ -1826,6 +1867,45 @@ corriendo, y al vecino se le preguntó si el técnico había pasado por un traba
   entrega, que son todos) y mezclarlas sería peor que duplicar.
 
 Prueba: `node pruebas-caso-del-tecnico.js`.
+
+#### Descartar el caso ya cerrado no es lo mismo que olvidarlo
+
+> [!CAUTION]
+> **Que el caso de la conversación esté cerrado ES la respuesta cuando el técnico repite que
+> terminó.** Descartarlo en silencio le muestra un Marcos que no se acuerda de lo que hizo hace un
+> minuto — y le ofrece cerrar otro.
+
+Producción, 26/09 a la noche. Daniel mandó dos mensajes seguidos desde el número del técnico, y el
+log tiene los dos:
+
+```
+📨 "Hola ya termine"
+✅🔧 Dario avisa que resolvió: es el caso activo de la conversación (CASO-1005).
+✅ Caso [CASO-1005] marcado como RESUELTO en Sheets.
+
+📨 "Ya finalice"
+✅🔧 Dario avisa que resolvió: tiene 2 casos abiertos y ninguna pista dice cuál: se le pregunta.
+```
+
+**Los dos hicieron lo correcto por separado.** El primero encontró el CASO-1005 --el que quedó a
+nombre de julio en la línea compartida, que es justo lo que arregló `89448c8`-- y lo cerró; el panel
+lo mostró resuelto. El segundo llegó con el 1005 ya cerrado, quedaban el 1003 y el 1004, y aplicó la
+regla de siempre: con dos o más no se adivina.
+
+Lo que vio el técnico fue *"¿cuál es el que terminaste?"* con una lista donde **el caso que acababa
+de cerrar ya no estaba**. Y el desconcierto es lo de menos: **si contestaba 1️⃣ cerraba el CASO-1004,
+que no había tocado.** La lista lo empujaba a eso.
+
+- `casoActivoDelTecnico` devuelve ese caso aparte, en **`yaCerrado`**. No sirve para cerrarlo otra
+  vez --no entra entre los candidatos-- sirve para decírselo **antes** de preguntar nada.
+- Se exige que esté entre **sus** casos recientes (la ventana de `dias`): `eventoActivoId` vive en la
+  RAM del proceso y puede ser de hace una semana. Nombrar un caso viejo como si fuera el de ahora es
+  el mismo error por el otro lado.
+- El mensaje empieza por lo que ya está hecho y la lista pasa a ser *"si además terminaste otro"*.
+- El log lo dice: `…ninguna pista dice cuál: se le pregunta; el CASO-1005 ya estaba cerrado`.
+
+Candados en `pruebas-caso-del-tecnico.js`: ni la lista de candidatos ni el *"no me figura nada
+abierto"* pueden salir sin nombrar lo que ya se cerró. Miden la **propiedad**, no la frase.
 
 ### El contacto de ingreso se da si lo piden, no porque esté a mano
 

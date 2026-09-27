@@ -976,6 +976,28 @@ const { materialDelVecinoEnCaso } = require('./material-caso');
 async function entregarPendientesAlTecnico({ telTecnico, nombreTecnico, idEvento, edificio, telVecino, nombreVecino }) {
     if (!telTecnico || !idEvento) return false;
 
+    // > [!CAUTION]
+    // > **Un caso cerrado no tiene nada pendiente que entregar.** La foto del problema y el
+    // > teléfono de quien le abre la puerta sirven para ir; con el trabajo hecho son ruido, y de
+    // > los que le enseñan al técnico que Marcos no lee lo que él escribe.
+    //
+    // El llamador ya suprime la entrega cuando el mensaje dice que terminó. Esto cubre el resto de
+    // la vida del caso: cualquier mensaje suyo posterior al cierre --un "gracias", la factura--
+    // volvía a disparar la entrega mientras `eventoActivoId` siguiera apuntando ahí.
+    //
+    // **Si el caso no se puede leer, se entrega igual**: perder la foto deja al técnico yendo a un
+    // domicilio sin saber qué va a encontrar, y ese es el error caro.
+    try {
+        const { buscarCasoPorCodigo } = require('./datos');
+        const caso = await buscarCasoPorCodigo(idEvento).catch(() => null);
+        if (caso && caso.cerrado) {
+            console.log(`📎✔️ [${idEvento}] ya está cerrado: no se le reenvía al técnico la foto del reclamo ni el contacto de ingreso.`);
+            return false;
+        }
+    } catch (e) {
+        console.error(`📎⚠️ No se pudo comprobar si [${idEvento}] sigue abierto, se entrega igual: ${e.message}`);
+    }
+
     // Se pone en true solo si algo QUEDÓ sin entregar. El llamador usa esto para dejar de releer
     // la planilla en cada mensaje del técnico una vez que ya no hay nada pendiente.
     let quedaPendiente = false;
@@ -1705,7 +1727,41 @@ function validarYSanitizarNombre(nombre) {
         //
         // Va antes de contestarle: si el técnico escribió "¿qué pasó?", tiene que ver la foto y no
         // una explicación de por qué no la tiene.
-        if (stProv.eventoActivoId && stProv.pendientesResueltosDe !== stProv.eventoActivoId) {
+        //
+        // > [!CAUTION]
+        // > **Salvo que ESTE mensaje diga que ya terminó.** Entonces no hay nada que entregarle: la
+        // > foto del problema y el contacto de quien le abre la puerta son para ir, no para volver.
+        //
+        // Producción, 26/09 23:55 — el episodio entero está en `aviso-terminado.js`:
+        //
+        //     23:55  Dario:   "Hola ya termine"
+        //     23:56  MARCOS:  📷 FOTO DEL RECLAMO [CASO-1005]
+        //     23:56  MARCOS:  ¿QUIÉN LE ABRE AL TÉCNICO EN SAN PATRICIO 159?
+        //     23:56  MARCOS:  ✅ Listo Dario, marqué el CASO-1005 como RESUELTO
+        //     23:58  Dario:   "Ya finalice"
+        //
+        // El cierre salió bien y llegó último, detrás de tres mensajes que decían lo contrario. Él
+        // leyó que Marcos no lo había entendido y lo repitió — y ahí se comió el segundo defecto.
+        //
+        // Es lo mismo que ya está anotado abajo con `tieneAccesoPropio`: la pregunta que evitaba el
+        // envío se hacía después del envío. **La información estaba, el orden no.**
+        //
+        // Se suprime con el filtro AMPLIO, no con `diceQueSeResolvio`, y a propósito: suprimir de
+        // más cuesta una vuelta --lo pendiente sigue pendiente y sale en su próximo mensaje, porque
+        // `pendientesResueltosDe` no se marca-- y entregar de más es lo de arriba.
+        //
+        // Y **la negación se descuenta**: *"todavía no terminé"* trae las mismas palabras y es
+        // justo el mensaje de alguien que sí necesita la foto y el contacto.
+        const diceQueYaTermino = require('./aviso-terminado').avisaQueTermino(textoFinal);
+        const hayPendientesQueMirar = Boolean(stProv.eventoActivoId)
+            && stProv.pendientesResueltosDe !== stProv.eventoActivoId;
+
+        if (hayPendientesQueMirar && diceQueYaTermino) {
+            console.log(`📎⏸️ ${datosEmisor.nombre || telTech} dice que terminó: NO se le reenvía la foto ` +
+                `ni el contacto de ingreso del [${stProv.eventoActivoId}]. Si hacía falta, sale en su próximo mensaje.`);
+        }
+
+        if (hayPendientesQueMirar && !diceQueYaTermino) {
             // > [!CAUTION]
             // > **La pregunta de si el técnico entra solo se hacía DOS MIL LÍNEAS más abajo que
             // > el envío.** `tieneAccesoPropio` vive en la línea ~3300; este envío está acá.
@@ -2164,7 +2220,10 @@ function validarYSanitizarNombre(nombre) {
     // propósito más amplio que `diceQueSeResolvio`: acá entra todo lo que **podría** ser un aviso
     // de trabajo terminado --incluso negado o a futuro-- y el modelo decide de verdad. Si esto se
     // hace estricto, vuelve el problema: la lista de palabras decidiendo.
-    const puedeSonarAResuelto = /termin|finaliz|finalic|resolv|resuelt|solucion|arregl|repar|\blist[oa]\b|complet|qued[oó]|ya est[aá]|\bhecho\b|\blisto\b/i.test(textoFinal);
+    // Vive en `aviso-terminado.js` porque lo pregunta también la entrega de pendientes, dos mil
+    // líneas más arriba: a alguien que acaba de decir que terminó no se le manda la foto del
+    // problema ni el contacto de quien le abre.
+    const puedeSonarAResuelto = require('./aviso-terminado').pareceAvisoDeTerminado(textoFinal);
 
     // "El técnico ya vino y resolvió" no entraba: el patrón pedía "resuelto" y la gente conjuga el
     // verbo, con acento. Lo mismo con "lo solucionó", "ya lo arreglaron" o "ya finalicé".
@@ -2230,7 +2289,9 @@ function validarYSanitizarNombre(nombre) {
     // "Todavía no se resolvió" trae las mismas palabras que "ya se resolvió" y significa lo
     // contrario. Cerrar un caso que sigue roto es peor que no cerrarlo: el vecino se queda sin
     // reclamo abierto justo cuando más lo necesita.
-    const loNiega = /\bno\s+(se\s+|me\s+|lo\s+|la\s+)*(qued|resolv|solucion|arregl|funciona|anda|termin|finaliz|vino|pas[oó])/i.test(textoFinal);
+    // También en `aviso-terminado.js`: la entrega de pendientes tiene que descontar la negación por
+    // su cuenta, y esta expresión escrita dos veces es el problema de siempre.
+    const loNiega = require('./aviso-terminado').niegaQueTermino(textoFinal);
 
     // > [!CAUTION]
     // > **UN COMPROBANTE ADJUNTO MANDA SOBRE EL TEXTO QUE LO ACOMPAÑA.** Esta rama hace `return`, y
@@ -2289,7 +2350,7 @@ function validarYSanitizarNombre(nombre) {
         const { direccionParaTecnico } = require('./agentes/marcos-ops');
         const quien = datosEmisor.nombre || from;
 
-        const { caso, candidatos, motivo } = await casoActivoDelTecnico({
+        const { caso, candidatos, yaCerrado, motivo } = await casoActivoDelTecnico({
             telefono: from, nombre: datosEmisor.nombre
         });
         console.log(`✅🔧 ${quien} avisa que resolvió: ${motivo}.`);
@@ -2307,6 +2368,20 @@ function validarYSanitizarNombre(nombre) {
             return true;
         }
 
+        // Repetir que terminó no es una pregunta nueva: es que la primera vez no se le contestó
+        // claro. Si el caso del que venía hablando YA está cerrado se dice antes que nada.
+        //
+        // > [!CAUTION]
+        // > **Callarlo no es neutral: empuja a cerrar un caso que no tocó.** Producción, 26/09.
+        // > Dario mandó "Hola ya termine" --se cerró el CASO-1005, bien-- y enseguida "Ya finalice".
+        // > Con el 1005 fuera de la lista le llegó *"¿cuál es el que terminaste?"* con el 1004 y el
+        // > 1003. Si contestaba 1️⃣ cerraba el CASO-1004 sin haberlo pisado.
+        const yaEstaba = yaCerrado
+            ? `El *${yaCerrado.id_evento}* de ` +
+              `${await direccionParaTecnico(yaCerrado.edificio).catch(() => yaCerrado.edificio)} ` +
+              `ya lo tengo marcado como *RESUELTO*, ese ya está.`
+            : '';
+
         // Con dos o más no se adivina: cerrar el caso equivocado deja un problema sin atender y al
         // vecino sin reclamo abierto justo cuando más lo necesita. Se listan por DIRECCIÓN y con el
         // número de caso, que es como se le habla a un técnico.
@@ -2318,17 +2393,25 @@ function validarYSanitizarNombre(nombre) {
                 const p = limpiarTextoProblema(c.problema);
                 return `${i + 1}️⃣ *${c.id_evento}* — ${dirs[i]}${p ? `: ${String(p).slice(0, 60)}` : ''}`;
             }).join('\n');
+            // Con el caso ya cerrado nombrado arriba, la lista deja de ser "elegí uno" y pasa a ser
+            // "si además terminaste otro". No se le pide que elija algo que ya contestó.
             await despacharRespuesta(recipient,
-                `Gracias${datosEmisor.nombre ? ` ${datosEmisor.nombre}` : ''}. Tenés estos trabajos abiertos, ` +
-                `¿cuál es el que terminaste?\n\n${lista}\n\n` +
+                (yaEstaba
+                    ? `${yaEstaba}\n\nMe quedan estos otros abiertos a tu nombre. ¿Terminaste alguno también?`
+                    : `Gracias${datosEmisor.nombre ? ` ${datosEmisor.nombre}` : ''}. Tenés estos trabajos abiertos, ` +
+                      `¿cuál es el que terminaste?`) +
+                `\n\n${lista}\n\n` +
                 `Contestame con el número o con el código del caso.`,
                 msgTypeRespuesta);
             return true;
         }
 
         await despacharRespuesta(recipient,
-            `Gracias por avisar${datosEmisor.nombre ? ` ${datosEmisor.nombre}` : ''}. No me figura ningún trabajo tuyo abierto ` +
-            `en este momento, así que no cierro nada por las dudas. Si me decís de qué dirección era, lo busco.`,
+            yaEstaba
+                ? `${yaEstaba} No me queda ningún otro trabajo tuyo abierto.\n\n` +
+                  `Si me mandás la factura por acá, la asocio a ese caso.`
+                : `Gracias por avisar${datosEmisor.nombre ? ` ${datosEmisor.nombre}` : ''}. No me figura ningún trabajo tuyo abierto ` +
+                  `en este momento, así que no cierro nada por las dudas. Si me decís de qué dirección era, lo busco.`,
             msgTypeRespuesta);
         return true;
     };
