@@ -438,6 +438,32 @@ async function _initPgSchema() {
             -- ya existen no queden en NULL: un idioma vacio dejaria la pantalla sin textos.
             ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS idioma VARCHAR(8) DEFAULT 'es';
 
+            -- Si esta persona quiere ver el pop-up de la pantalla de inicio.
+            --
+            -- Va en la tabla usuarios y no en el navegador a proposito: es una preferencia de LA
+            -- PERSONA, igual que el idioma --regla de Daniel: cada usuario es dueño de su registro--
+            -- y tiene que seguirla cuando entra del telefono, de la tablet o de la computadora.
+            -- Guardada en el navegador se pierde al cambiar de aparato, y el pop-up que ya habia
+            -- apagado vuelve.
+            --
+            -- (Sin acentos graves en este comentario: todo el esquema vive adentro de un template
+            -- literal de JavaScript y uno solo cierra la cadena y rompe el archivo entero. Ya paso
+            -- tres veces en este repo, y esta es la cuarta: la escribi y la agarro node --check.)
+            --
+            -- DEFAULT TRUE: quien no dijo nada lo ve. Apagarlo es una decision explicita.
+            ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS popup_activo BOOLEAN DEFAULT TRUE;
+
+            -- Y el mismo interruptor por EDIFICIO, para que el administrador lo pueda apagar para
+            -- todos los suyos sin tocar la preferencia de cada vecino. Son dos decisiones distintas
+            -- y por eso son dos columnas: si el administrador lo vuelve a prender, cada vecino que
+            -- lo habia apagado para si sigue sin verlo.
+            CREATE TABLE IF NOT EXISTS portal_config (
+                id SERIAL PRIMARY KEY,
+                edificio VARCHAR(150) NOT NULL UNIQUE,
+                popup_activo BOOLEAN DEFAULT TRUE,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             -- De quien es un comprobante de pago.
             --
             -- La tabla facturas guarda los gastos del consorcio (las del proveedor) Y los
@@ -2012,6 +2038,61 @@ async function obtenerEventosAcceso(filtros = {}) {
     return res.rows;
 }
 
+// ¿A esta persona, en este edificio, le mostramos el pop-up?
+//
+// Se apaga desde DOS lados y los dos mandan:
+//   - el vecino, desde el propio pop-up (`usuarios.popup_activo`)
+//   - el administrador del consorcio, para todo el edificio (`portal_config.popup_activo`)
+//
+// Alcanza con que uno diga que no. Y si la base no contesta, se devuelve `false`: un pop-up que
+// aparece cuando alguien ya lo apagó es peor que uno que falta, porque le enseña al vecino que el
+// botón de apagarlo no sirve.
+async function puedeVerPopup(usuarioId, edificio) {
+    try {
+        if (usuarioId) {
+            const r = await pool.query(`SELECT popup_activo FROM usuarios WHERE id = $1`, [usuarioId]);
+            if (r.rows.length && r.rows[0].popup_activo === false) return false;
+        }
+        if (edificio) {
+            const { mismoEdificio } = require('./edificio-clave');
+            const r = await pool.query(`SELECT edificio, popup_activo FROM portal_config`);
+            const fila = (r.rows || []).find(x => mismoEdificio(x.edificio, edificio));
+            if (fila && fila.popup_activo === false) return false;
+        }
+        return true;
+    } catch (e) {
+        console.warn('No se pudo saber si mostrar el pop-up:', e.message);
+        return false;
+    }
+}
+
+// El vecino apaga o prende SU pop-up. La decisión es suya y de nadie más.
+async function guardarPopupUsuario(usuarioId, activo) {
+    if (!usuarioId) throw new Error('Falta el usuario');
+    const res = await pool.query(
+        `UPDATE usuarios SET popup_activo = $2, updated_at = NOW() WHERE id = $1 RETURNING popup_activo`,
+        [usuarioId, activo !== false]
+    );
+    if (!res.rows.length) throw new Error('No se encontró el usuario');
+    return res.rows[0].popup_activo;
+}
+
+// El administrador del consorcio lo apaga o lo prende para TODO su edificio.
+//
+// Esto lo llama el panel. No reimplementar el UPDATE allá: si mañana el interruptor pasa a tener
+// horarios o excepciones, tiene que cambiar en un solo lugar.
+async function guardarPopupEdificio(edificio, activo) {
+    if (!edificio || !String(edificio).trim()) throw new Error('Falta el edificio');
+    const res = await pool.query(
+        `INSERT INTO portal_config (edificio, popup_activo, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (edificio) DO UPDATE SET popup_activo = $2, updated_at = NOW()
+         RETURNING popup_activo`,
+        [String(edificio).trim(), activo !== false]
+    );
+    return res.rows[0].popup_activo;
+}
+
 module.exports = {
     pool,
     initPgSchema,
@@ -2035,6 +2116,9 @@ module.exports = {
     obtenerUsuarioPorEmail,
     obtenerUsuarioPorId,
     actualizarPerfilUsuario,
+    puedeVerPopup,
+    guardarPopupUsuario,
+    guardarPopupEdificio,
     cambiarPasswordUsuario,
     obtenerUnidadesDeUsuario,
     ROLES_QUE_AVISAN,

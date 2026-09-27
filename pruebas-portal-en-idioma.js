@@ -149,6 +149,18 @@ async function main() {
         }
     }
 
+    // El pop-up también, que aparece encima de la pantalla de inicio.
+    console.log('\n── EL POP-UP EN PORTUGUÉS ──');
+    {
+        const r = await pedir('GET', '/vecino/', { cookie: login.cookie });
+        afirmar('el pop-up está', r.cuerpo.includes('id="popup-inicio"'));
+        afirmar('en portugués', r.cuerpo.includes('Você sabia?')
+                             || r.cuerpo.includes('Atenção'));
+        afirmar('el botón de apagarlo también',
+            r.cuerpo.includes('Não me mostrar mais isso'));
+        afirmar('y no quedó en castellano', !r.cuerpo.includes('No mostrarme más estos avisos'));
+    }
+
     // Y lo mismo en el idioma del propietario, para que traducir no rompa el castellano.
     console.log('\n── Y EL PROPIETARIO LO SIGUE VIENDO EN CASTELLANO ──');
     const loginEs = await pedir('POST', '/vecino/auth', { cuerpo: 'rol=propietario' });
