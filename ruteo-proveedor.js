@@ -263,4 +263,6 @@ function seActiva(intencion, porTexto, ruteo, texto = '') {
     return porIA;
 }
 
-module.exports = { clasificarMensajeProveedor, seActiva, INTENCIONES, ACTIVO };
+// `conTimeout` se exporta para que `hilo-del-vecino.js` use LA MISMA política de espera y no haya
+// dos criterios distintos de cuánto se le aguanta al modelo antes de seguir sin él.
+module.exports = { clasificarMensajeProveedor, seActiva, conTimeout, INTENCIONES, ACTIVO };

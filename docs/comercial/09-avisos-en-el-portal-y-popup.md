@@ -1,5 +1,9 @@
 # Avisos del edificio, y el recordatorio de inicio
 
+> **Este documento cuenta el lado del vecino**: qué ve, cuándo le aparece y cómo lo apaga. Cómo el
+> administrador o el encargado **publica** un aviso --desde el panel o por WhatsApp-- está en
+> [`01-avisos-al-edificio.md`](01-avisos-al-edificio.md), y no se repite acá.
+
 ## 1. ¿Qué problema resuelve?
 
 Cuando en un edificio pasa algo —cortan el agua el jueves, el ascensor queda suspendido, fumigan

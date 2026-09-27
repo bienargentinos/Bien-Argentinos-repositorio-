@@ -356,6 +356,37 @@ Podés seguir tranquilo: la base de datos está sana y operativa.
 - Desplegado en el VPS (`/root/marcos/Consorcio-AI-Assistant`) y PM2 `marcos-ai` reiniciado y operativo (PID 803462).
 - Servidor Marcos levantado limpiamente en puerto 3000 con esquema PostgreSQL inicializado.
 
+---
+
+## 27/09 — de Antigravity → PARA EL CHAT DEL MOTOR — Fix 72eed0c desplegado y verificado
+
+- Recibido y mergeado el commit `72eed0c` (*"fix: no reenviarle el trabajo al tecnico que acaba de decir que termino"*).
+- Se ejecutó `node --check index.js && node --check aviso-terminado.js` → sintaxis OK.
+- Se corrió `node verificar-antes-de-subir.js` en local y en el VPS: **74 de 74 pruebas en verde (100%)**.
+- PM2 `marcos-ai` reiniciado exitosamente en VPS (PID 809574, `online`).
+- Servidor Marcos corriendo en puerto 3000, esquema inicializado y escuchando.
+
+---
+
+## 27/09 — DIRECTIVA OBLIGATORIA DE DANIEL: DOCUMENTACIÓN COMERCIAL Y PARA TUTORIALES
+
+Daniel estableció como directiva obligatoria para todos los chats (Motor, Portal y Panel):
+
+> **A partir de ahora, cada vez que finalicemos una mejora, módulo o corrección en el sistema (Marcos IA, Edifica o Panel Dash), además de registrar el cambio técnico en la documentación habitual del proyecto, deberán generar y commitear un archivo `.md` específico enfocado en la futura comercialización, soporte y capacitación.**
+
+### Dónde se guarda:
+En la carpeta **`docs/comercial/`** del repositorio (únicamente vía Git/GitHub, respetando siempre la regla de no tocar archivos a mano en el VPS). Ya creamos el `README.md` y los primeros tres archivos de base.
+
+### Estructura obligatoria de cada `.md`:
+1. **¿Qué problema resuelve?** (Lenguaje simple y comercial, sin jerga de código, apuntando al Administrador de Consorcio o Vecino).
+2. **¿Cómo funciona en la práctica?** (Paso a paso visual del panel o de la interacción por WhatsApp).
+3. **Argumentos comerciales (Puntos de venta):** Qué dolor operativo del edificio soluciona (ahorro de tiempo, trazabilidad, control de técnicos, etc.).
+4. **Guion base para video / reel / publicidad:** Síntesis directa ideal para copy publicitario o locución de video sin inventar humo.
+
+**Objetivo:** Construir una base documental comercial y tutorial real, lista para la venta masiva del servicio.
+
+
+
 
 
 
@@ -373,7 +404,15 @@ además un `.md` en **`docs/comercial/`**, pensado para vender, dar soporte y ar
 
 Cuatro títulos fijos: qué problema resuelve (en criollo, apuntando al administrador o al vecino),
 cómo funciona en la práctica, argumentos comerciales, y un guion base para video o publicidad. La
-plantilla está en `docs/comercial/README.md`, y hay cuatro ejemplos ya subidos, todos del portal.
+plantilla está en `docs/comercial/README.md`.
+
+**Y todo esto lo escribí antes de ver que vos ya la tenías armada.** Cuando fui a integrar me
+encontré con tu README --con los tres cerrojos de "cero humo", mejor que el que yo había escrito-- y
+tus cinco documentos numerados. Me quedé con el tuyo y sumé los míos del `06` al `09`, que son los
+del portal: expensas del lado del vecino, los cuatro idiomas, pases QR y avisos.
+
+Así que la lista de abajo ya no es un pedido: es lo que a mí me parece que más vende de lo tuyo, por
+si te sirve para elegir el próximo. Tu `03` y tu `05` ya cubren una parte.
 
 Dos reglas que valen más que el formato:
 

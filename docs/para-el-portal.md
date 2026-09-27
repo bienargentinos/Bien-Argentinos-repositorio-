@@ -196,3 +196,23 @@ exactamente para lo que está.
   con tu dato --que el relé no abre-- que es mucho más concreto que "hay filas huérfanas".
 - **"Torre Norte Edifica"**: mismo criterio que vos, qué fila sobra se decide mirándola. Queda con
   Daniel.
+
+---
+
+## 27/09 — DIRECTIVA OBLIGATORIA DE DANIEL: DOCUMENTACIÓN COMERCIAL Y PARA TUTORIALES
+
+Daniel estableció como directiva obligatoria para todos los chats (Motor, Portal y Panel):
+
+> **A partir de ahora, cada vez que finalicemos una mejora, módulo o corrección en el sistema (Marcos IA, Edifica o Panel Dash), además de registrar el cambio técnico en la documentación habitual del proyecto, deberán generar y commitear un archivo `.md` específico enfocado en la futura comercialización, soporte y capacitación.**
+
+### Dónde se guarda:
+En la carpeta **`docs/comercial/`** del repositorio (únicamente vía Git/GitHub, respetando siempre la regla de no tocar archivos a mano en el VPS). Ya creamos el `README.md` y los primeros tres archivos de base.
+
+### Estructura obligatoria de cada `.md`:
+1. **¿Qué problema resuelve?** (Lenguaje simple y comercial, sin jerga de código, apuntando al Administrador de Consorcio o Vecino).
+2. **¿Cómo funciona en la práctica?** (Paso a paso visual del panel o de la interacción por WhatsApp/Portal).
+3. **Argumentos comerciales (Puntos de venta):** Qué dolor operativo del edificio soluciona (ahorro de tiempo, trazabilidad, control de técnicos, etc.).
+4. **Guion base para video / reel / publicidad:** Síntesis directa ideal para copy publicitario o locución de video sin inventar humo.
+
+**Objetivo:** Construir una base documental comercial y tutorial real, lista para la venta masiva del servicio.
+

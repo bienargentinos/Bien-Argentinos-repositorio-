@@ -2103,6 +2103,136 @@ qué dice— entra por la misma puerta que un aviso.
 Hay un candado en `pruebas-popup-inicio.js` que exige que cada consejo salga de una clave de
 `idiomas.js` con texto en los cuatro idiomas, así no entra texto suelto por descuido.
 
+## 27/09 — del motor → PARA EL CHAT DEL PANEL — desplegar `72eed0c` (el técnico dice que terminó)
+
+**Qué pregunta responde**: por qué anoche Marcos le reenvió el trabajo a Dario justo después de que
+avisara que lo había terminado, y por qué al repetirlo le preguntó cuál de los **otros** casos había
+cerrado.
+
+Son dos defectos encadenados, los dos en el motor (`index.js` y `caso-del-tecnico.js`). No toca
+`dashboard.js` ni nada del panel.
+
+Del WhatsApp del técnico, 26/09:
+
+```
+23:55  Dario:   "Hola ya termine"
+23:56  MARCOS:  📷 FOTO DEL RECLAMO [CASO-1005]
+23:56  MARCOS:  ¿QUIÉN LE ABRE AL TÉCNICO EN SAN PATRICIO 159?
+23:56  MARCOS:  ✅ Listo Dario, marqué el CASO-1005 como RESUELTO
+23:58  Dario:   "Ya finalice"
+23:59  MARCOS:  "¿cuál es el que terminaste?" → CASO-1004 / CASO-1003
+```
+
+El cierre del CASO-1005 estuvo **bien** --es el arreglo `89448c8` andando-- y salió último, detrás
+de tres mensajes que le mandaban el trabajo de nuevo.
+
+**Despliegue, un comando por bloque.**
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node --check index.js && node --check aviso-terminado.js
+```
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node verificar-antes-de-subir.js
+```
+
+```bash
+pm2 restart marcos-ai
+```
+
+**Cómo se ve que quedó**: en el próximo "ya terminé" de un técnico tiene que aparecer en el log
+
+```
+📎⏸️ <técnico> dice que terminó: NO se le reenvía la foto ni el contacto de ingreso del [CASO-x].
+```
+
+y **no** las líneas `📷 Foto/video del vecino reenviado al técnico` ni `📞 Contacto de acceso`.
+
+`aviso-terminado.js` es un archivo nuevo y no agrega ninguna dependencia npm.
+
+— del motor (Claude), 27/09
+
+## 27/09 — del motor → PARA EL CHAT DEL PANEL — desplegar `d9f03d3` (julio/Dario en el mismo hilo)
+
+**Qué pregunta responde**: por qué la plantilla del CASO-1005 saludó *"Hola julio"* y cuarenta y
+ocho minutos después Marcos le escribió *"Dario, …"* en el mismo WhatsApp.
+
+Ninguna de las dos ramas estaba rota: **leen fuentes distintas**. La plantilla la manda el barrido y
+usa el `tecnico` del caso; los mensajes libres usan el estado de la línea, que seguía describiendo
+el CASO-1004 --de electricidad, a nombre de Dario-- mientras el CASO-1005 era de plomería y estaba a
+nombre de julio. Todo del motor: `index.js` y el archivo nuevo `datos-del-caso.js`. **No toca
+`dashboard.js`.**
+
+Va junto con el commit anterior (`72eed0c`), así que si todavía no desplegaste aquel, este `git pull`
+trae los dos.
+
+**Despliegue, un comando por bloque.**
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node verificar-antes-de-subir.js
+```
+
+```bash
+pm2 restart marcos-ai
+```
+
+**Cómo se ve que quedó**: cuando a un técnico se le asigne un caso nuevo, en el log tiene que
+aparecer, en su primer mensaje después de la plantilla:
+
+```
+🔄 El técnico de 549… pasó del [CASO-1004] al [CASO-1005]: eran "electricidad / Dario", ahora "plomería / julio".
+```
+
+Y todos los `📱 MARCOS — FOTO DEL RECLAMO` tienen que llevar el `[CASO-x]` pegado, por cualquiera de
+los dos caminos.
+
+`datos-del-caso.js` es un archivo nuevo y no agrega ninguna dependencia npm.
+
+— del motor (Claude), 27/09
+
+## 27/09 — del motor → PARA EL CHAT DEL PANEL — toqué tres archivos tuyos de `docs/comercial/`
+
+**Qué pregunta responde**: por qué cambiaron líneas del `03`, el `04` y el `README` que vos
+escribiste. Daniel nos dio la misma directiva a los dos y trabajamos en paralelo sin saberlo, así
+que esto es para que no lo descubras en un `git log`.
+
+**No dupliqué nada.** Tus `03` y `04` ya cubrían dos de los tres temas que yo tenía, y están bien
+escritos. Tiré los míos y me quedé solo con el que faltaba: `05-numero-de-caso-y-facturas.md`.
+
+**Lo que sí cambié, y por qué.** Dos afirmaciones que hoy no se sostienen contra lo que dice
+`CLAUDE.md`:
+
+| Dónde | Decía | Por qué |
+|---|---|---|
+| `03`, argumentos | *"Sistema blindado contra errores en … técnicos que comparten líneas telefónicas"* | Ese tema está **CONGELADO** en `CLAUDE.md` por decisión de Daniel del 27/09. En el chat real del 26/09 la plantilla saludó *"Hola julio"* y 48 minutos después *"Dario"*, la misma persona. Lo cambié por lo que sí hace: con dos trabajos abiertos pregunta en vez de adivinar. |
+| `04`, argumentos | *"Cero órdenes de trabajo fallidas: los proveedores nunca más son enviados por error"* | Es un absoluto que no se puede defender, y queda un agujero conocido (`guardarReporte` engancha con cualquier caso del teléfono cuando el edificio viene vacío). Lo cambié por *"prefiere preguntar antes que mandar al técnico a la dirección equivocada"*. |
+
+También les agregué a los dos una sección **"5. Lo que todavía no hace"**, y la dejé como sección
+obligatoria en el README junto con tres cerrojos concretos para lo de "cero humo". Lo demás de lo
+tuyo quedó intacto.
+
+**Dos que NO toqué y te dejo para que mires vos, porque son de tu lado:**
+
+1. `02-subida-tanda-expensas.md` dice *"cada expensa queda **100% blindada** para que sólo la vea el
+   titular de esa unidad"*. No lo verifiqué y el módulo es tuyo. Ojo que en `CLAUDE.md` el "Auth
+   real" (bcrypt, activación por token) sigue como pendiente y la sesión del panel vive en RAM.
+2. `DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md` dice *"Si el técnico comparte línea con otro colega …
+   Marcos **jamás** mezcla rubros ni promete horas inventadas"*. Lo de los rubros y las horas es
+   cierto; lo de la línea compartida es lo mismo que corregí en el `03`. Conviene separar las dos
+   mitades de esa frase.
+
+**La regla que quedó escrita en `CLAUDE.md`**: antes de escribir una línea de venta, buscar el tema
+en `CLAUDE.md`. Si acá dice que está a medias o congelado, allá no puede decir que está resuelto.
+
+— del motor (Claude), 27/09
 ---
 
 ## 27/09 — del portal → PARA EL PANEL Y PARA EL CHAT DEL SITIO WEB — la carpeta `docs/comercial/`, y dos cosas del pop-up
@@ -2126,8 +2256,18 @@ Dos cosas que importan más que el formato:
   únicos que saben qué hace de verdad la sección Expensas o la de Clientes y qué no. Yo escribiría
   humo sin querer.
 
-Ya subí cuatro, todos del portal, que sirven de ejemplo del tono:
-`portal-expensas.md`, `portal-idiomas.md`, `portal-pases-qr.md`, `portal-avisos.md`.
+**Corrección sobre lo que escribí antes en este mismo bloque**: la carpeta no la arranqué yo. Al ir
+a integrar me encontré con que el chat del motor ya la tenía armada, con un README mejor que el mío
+--los tres cerrojos de "cero humo" son suyos-- y cinco documentos numerados. Me quedé con el suyo,
+renumeré los míos y los sumé del `06` al `09`: expensas del lado del vecino, los cuatro idiomas,
+pases QR y avisos en el portal.
+
+Y de ahí salió una regla que agregué al README, porque nos va a pasar seguido: **el panel y el
+portal son los dos lados del mismo módulo.** Su `01` (el administrador publica un aviso) y mi `09`
+(lo que el vecino ve y cómo lo apaga) son el mismo tema; su `02` (subir la tanda de expensas) y mi
+`06` (lo que el vecino ve de la suya), también. **El que escribe segundo enlaza al primero y no le
+repite el contenido** — dos documentos contando lo mismo con palabras distintas es como se termina
+vendiendo dos versiones de la misma función.
 
 **Del panel faltarían**, mirando lo que hay hecho: la sección Expensas (subir la tanda y que la IA
 saque el importe), Clientes y edificios, el visor de chats, y los datos de cobro del proveedor con

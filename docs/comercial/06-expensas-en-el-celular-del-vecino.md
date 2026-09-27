@@ -1,5 +1,9 @@
 # Las expensas, en el celular de cada vecino
 
+> **Este documento cuenta el lado del vecino.** El lado del administrador --subir sesenta PDF de
+> una, la lectura automática y la mesa de revisión-- está en
+> [`02-subida-tanda-expensas.md`](02-subida-tanda-expensas.md), y no se repite acá.
+
 ## 1. ¿Qué problema resuelve?
 
 Hoy la liquidación de expensas se reparte de tres formas, y las tres dan trabajo:

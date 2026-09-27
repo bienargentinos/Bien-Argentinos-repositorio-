@@ -52,9 +52,14 @@ const iniNiega = SRC.indexOf('const loNiega =', fin);
 const finNiega = SRC.indexOf('\n', iniNiega);
 const bloqueNiega = SRC.slice(iniNiega, finNiega);
 
-const evaluar = new Function('textoFinal',
+// `require` se inyecta porque el bloque extraído lo usa: `loNiega` pasó a salir de
+// `aviso-terminado.js`, que es el módulo que comparte la expresión con la entrega de pendientes
+// --dos mil líneas más arriba en index.js--. Sin esto, evaluar el bloque revienta con
+// "require is not defined" y la prueba no mide nada.
+const evaluar = new Function('require', 'textoFinal',
     `${bloqueResolucion}\n${bloqueNiega}\n` +
-    'return { diceQueSeResolvio, miraAlFuturo, loNiega, cierra: diceQueSeResolvio && !loNiega };');
+    'return { diceQueSeResolvio, miraAlFuturo, loNiega, cierra: diceQueSeResolvio && !loNiega };')
+    .bind(null, require);
 
 const cierra = (t) => evaluar(t).cierra;
 

@@ -187,45 +187,59 @@ el mismo archivo el mismo día es cómo se pierde trabajo.
 > editar y empuje apenas termina — cuanto menos tiempo queda algo sin empujar, menos hay para
 > perder.
 
-## DOCUMENTACIÓN COMERCIAL Y PARA TUTORIALES (obligatoria, decisión de Daniel 27/09)
+## OBLIGATORIO: cada mejora terminada deja su documento comercial
 
 > [!CAUTION]
-> **CONTRATO PARA TODOS LOS AGENTES.** Cada vez que se termina una mejora, un módulo o una
-> corrección --en Marcos IA, en Edifica o en el Panel-- además de anotar el cambio técnico donde
-> va, se escribe y se commitea un `.md` **en `docs/comercial/`** pensado para vender, dar soporte
-> y capacitar. Va en el mismo ciclo de trabajo que el cambio: escrito tres semanas después se
-> escribe de memoria, y de memoria es como se inventa humo.
+> **Directiva de Daniel, 27/09. Vale para TODOS los agentes y para los tres productos** (Marcos IA,
+> Edifica y el Panel). No es opcional ni queda para el final.
 
-Vale la regla de oro de siempre: **únicamente por GitHub**, sin editar a mano en el VPS, y con
-`package.json` en el mismo commit si el cambio sumó una dependencia.
+Cada vez que se termina una mejora, un módulo o una corrección, además del registro técnico de
+siempre en este archivo hay que **generar y commitear un `.md` en `docs/comercial/`** pensado para
+la venta, el soporte y la capacitación. Archivos numerados (`05-numero-de-caso-y-facturas.md`), y
+el índice del README se actualiza en el mismo commit.
 
-**Los cuatro títulos son obligatorios y van en este orden** (la plantilla completa, con ejemplos,
-está en `docs/comercial/README.md`):
+Palabras de Daniel: *"Objetivo final: construir una base documental real y lista para cuando
+salgamos a vender el servicio masivamente y armar los tutoriales **sin inventar humo**."*
 
-1. **¿Qué problema resuelve?** — en lenguaje simple y comercial, apuntando al **administrador de
-   consorcio o al vecino**. Sin jerga de código: ni nombres de archivo, ni tablas, ni endpoints.
-2. **¿Cómo funciona en la práctica?** — el paso a paso real del panel o de la conversación por
-   WhatsApp.
-3. **Argumentos comerciales** — qué dolor operativo del edificio saca de encima.
-4. **Guion base para video / reel / publicidad** — listo para grabar o para pegar como copy.
+Las secciones están en `docs/comercial/README.md`: qué problema resuelve (en lenguaje de cliente),
+cómo funciona en la práctica, argumentos comerciales, guion para video, y **"Lo que todavía no
+hace"**.
 
-Y una quinta que no estaba pedida pero sin la cual lo de arriba no sirve:
+### Lo de "cero humo" es verificable, no una intención
 
-> [!CAUTION]
-> **"Lo que todavía no hace".** El objetivo de esta carpeta es material **sin humo**, y un
-> argumento de venta sobre algo que no existe se transforma en una promesa que alguien va a
-> reclamar delante de un cliente que ya pagó. Tampoco se inventan números: **ningún documento dice
-> "ahorrá 10 horas por semana"** ni pone un porcentaje que nadie midió. Se describe el mecanismo
-> --qué deja de pasar-- y el administrador saca su propia cuenta.
+Tres cerrojos, escritos enteros en el README de la carpeta:
 
-**Cada conversación escribe los suyos.** Quien hizo el módulo es el único que sabe qué hace de
-verdad y qué no; un agente documentando el módulo de otro es exactamente cómo se escribe humo sin
-querer. El portal ya tiene los suyos; faltan los del panel y los del motor.
+1. **Lo que se afirma tiene que estar andando HOY**, y hay que poder señalar dónde: la prueba que lo
+   cubre, la línea del log, o la conversación real donde se vio.
+2. **Los ejemplos salen de chats reales**, y si hay que armar uno se dice que es armado.
+3. **Ningún número sin medición y cuidado con los absolutos** — *"cero"*, *"100%"*, *"nunca más"*,
+   *"blindado"*. Son los primeros que un administrador desconfiado pone a prueba.
 
-**Una corrección chica no lleva archivo nuevo**: se agrega al documento del módulo que corrige.
+> **Esto no es teórico.** El 27/09, el primer lote de documentos comerciales afirmaba *"sistema
+> blindado contra errores en técnicos que comparten líneas telefónicas"* — y ese tema está
+> **CONGELADO** más arriba en este mismo archivo, con un chat real donde la plantilla dijo "julio" y
+> los mensajes siguientes "Dario". **Antes de escribir una línea de venta, buscá el tema en
+> `CLAUDE.md`**: si acá dice que está a medias o congelado, allá no puede decir que está resuelto.
 
-Y las siglas internas (**AC** por administrador cliente, **AY** por Antigravity) **no se escriben
-en estos documentos**: el cliente no las conoce. Ahí se dice "el administrador".
+> **Por qué se escribe en el momento y no después.** El motivo de cada arreglo se entiende el día
+> que se hace, con el chat real todavía a mano. Seis meses más tarde queda un `git log` que no le
+> sirve a nadie que tenga que vender.
+
+> **No confundir con `docs/para-el-tutorial.md`**, que es un buzón y **no se mantiene al día a
+> propósito**. Esta carpeta sí, y es lo que el chat del tutorial va a leer el día que arranque.
+
+### Tres reglas más, del lado del portal
+
+- **Cada conversación escribe los documentos de SUS módulos.** Quien hizo el módulo es el único que
+  sabe qué hace de verdad y qué no; un agente documentando el módulo de otro es exactamente cómo se
+  escribe humo sin querer. Es también el motivo de que el primer lote afirmara algo que acá figura
+  como congelado.
+- **Una corrección chica no lleva archivo nuevo**: se agrega al documento del módulo que corrige.
+  Si no, la carpeta termina con cuarenta archivos y el índice deja de servir.
+- **Las siglas internas no van en estos documentos.** Acá entre nosotros **AC** es el administrador
+  cliente y **AY** es Antigravity; el cliente no conoce ninguna de las dos. Ahí se escribe "el
+  administrador".
+
 
 ## Stack técnico
 
@@ -481,6 +495,76 @@ El orden queda:
 2. El rubro, solo si el caso todavía no anotó a nadie.
 3. Sin nada, `nombreIncierto`: no se lo llama por su nombre.
 
+#### Y el caso ya había cambiado, pero los datos no
+
+> [!CAUTION]
+> **`rubroActivo`, `tecnicoDelCaso`, `edificioActivo` y `vecinoActivo` describen UN caso, pero viven
+> en el estado de la LÍNEA** (`global.colasProveedores`, por teléfono). Todas sus asignaciones en
+> `index.js` son `if (!…)` --a propósito, para no pisar una conversación viva-- así que el PRIMER
+> caso de esa línea los fijaba **hasta el próximo reinicio de PM2**.
+
+Producción, 26/09, del WhatsApp del técnico:
+
+```
+23:08  plantilla:  "Hola julio, aguardamos tu confirmación para el [CASO-1005]"
+23:56  Marcos:     "Dario, Daniel Valdés en SAN PATRICIO 159 adjuntó esto del inconveniente."
+```
+
+Dos nombres para la misma persona en el mismo hilo, con cuarenta y ocho minutos de diferencia. Y no
+es que una de las dos ramas estuviera rota: **leen fuentes distintas.** La plantilla la manda el
+barrido y usa el `tecnico` **del caso**; los mensajes libres usan el estado de la línea, que seguía
+describiendo el CASO-1004 --de electricidad, a nombre de Dario-- mientras el CASO-1005 era de
+plomería y estaba a nombre de julio.
+
+**Dónde nace, exactamente**: `agentes/marcos-ops.js` pone `eventoActivoId` al mandar la plantilla y
+**no toca `rubroActivo` ni `tecnicoDelCaso`**. Desde ese instante el estado habla de dos casos a la
+vez: el id es del nuevo y el resto del viejo. Nada avisa.
+
+`datos-del-caso.js` (`refrescarDatosDelCaso`) agrega **de qué caso salieron los datos**
+(`datosDeCaso`) y, si el caso de ahora es otro, los relee de ese caso. Mismo criterio que
+`caso-del-tecnico.js`: **la memoria dice de qué se está hablando, la base dice la verdad.**
+
+- **No suelta los `if (!…)`**: siguen protegiendo la conversación viva.
+- **La marca ausente también dispara la relectura**, y hace falta: es justo el estado en que
+  `marcos-ops.js` deja la línea la primera vez.
+- **Si el caso no se puede leer, no borra nada** --y la marca tampoco se mueve, o el desfasaje
+  quedaría congelado para siempre--. Quedarse con datos viejos es malo; quedarse sin ninguno deja a
+  Marcos sin saber de qué habla.
+- El log lo dice entero: `🔄 El técnico de 549… pasó del [CASO-1004] al [CASO-1005]: eran
+  "electricidad / Dario", ahora "plomería / julio"`.
+
+> **Lo que esto NO decide**: si en una línea compartida está bien que un trabajo de plomería se
+> dirija a julio cuando el que contesta es Dario. Eso es una decisión de producto y hoy manda la
+> regla 1 de arriba --el caso decidió--. Lo que se arregló es que las dos vías digan **lo mismo**.
+
+> [!CAUTION]
+> **CONGELADO hasta tener más números de prueba. Decisión de Daniel, 27/09.** Sus palabras: *"lo de
+> los nombres dejalo para más adelante, que quizás no lo apliquemos, porque hoy es una ensalada de
+> nombres por que no tengo más número para probar"*.
+>
+> **La ensalada es del banco de pruebas, no del producto.** Hay un solo teléfono para probar, así
+> que julio y dario están cargados sobre la misma línea. Con números separados `proveedoresPorTelefono`
+> devuelve uno solo y **todo el desempate ni siquiera corre**: no hay dos nombres entre los que
+> elegir. Diseñar la regla definitiva contra un síntoma que solo existe en el banco es diseñar
+> contra el banco.
+>
+> **No rediseñar esto por iniciativa propia.** Se retoma cuando haya dos líneas de verdad y se vea
+> qué pasa con técnicos reales.
+>
+> Lo que **sí** queda vigente es el refresco de `datos-del-caso.js`, y no por los nombres: el mismo
+> estado guarda `vecinoActivo`, que es **a qué vecino se le avisa** (`index.js:1331` lo devuelve
+> como el vecino de ese técnico). Con el dato viejo, la confirmación del CASO-1005 le llegaba al
+> vecino del CASO-1004. Eso no tiene nada que ver con la línea compartida.
+
+Y en el mismo episodio, el número de caso: el técnico apretó *"Solicitar más datos"* y a las 22:50
+le llegó la foto con el encabezado `📱 MARCOS — FOTO DEL RECLAMO` **pelado**, mientras que a las
+23:56 la misma foto llegó con `[CASO-1005]` por el otro camino. El id **ya estaba calculado veinte
+líneas más arriba, en esa misma función** --es de donde se sacó la foto--. El candado de
+`pruebas-datos-del-caso.js` mira lo que está pegado al encabezado, no el nombre de la variable: la
+primera versión medía la forma y falló dos veces seguidas contra código correcto.
+
+Prueba: `node pruebas-datos-del-caso.js`.
+
 ## Datos de cobro del proveedor (CBU / alias)
 
 Marcos toma el CBU o el alias cuando el técnico se lo manda por WhatsApp, para que el
@@ -556,6 +640,47 @@ estaba siempre abierta.
   foto del problema y el contacto para entrar.`), porque es el único canal abierto para decírselo.
   La frase se arma según lo que realmente haya; si no hay nada, no se promete nada.
 - Prueba: `node pruebas-ventana-24hs.js`.
+
+#### Y le reenviaba el trabajo a quien acababa de decir que lo terminó
+
+> [!CAUTION]
+> **`entregarPendientesAlTecnico` corre en CADA mensaje entrante del proveedor** --ese es el
+> instante en que Meta abre la ventana-- y corría **antes** de leer qué decía el mensaje.
+
+Producción, 26/09, del WhatsApp del técnico:
+
+```
+23:55  Dario:   "Hola ya termine"
+23:56  MARCOS:  📷 FOTO DEL RECLAMO [CASO-1005]
+23:56  MARCOS:  ¿QUIÉN LE ABRE AL TÉCNICO EN SAN PATRICIO 159?
+23:56  MARCOS:  "Va a ir Dario por el CASO-1005 y no tengo cargado quién le abre…"
+23:56  MARCOS:  ✅ Listo Dario, marqué el CASO-1005 como RESUELTO
+23:58  Dario:   "Ya finalice"
+```
+
+Avisó que había terminado y le llegaron la foto del problema y el contacto de quien le abre la
+puerta. **El cierre estuvo bien y salió último**, detrás de tres mensajes que decían lo contrario,
+así que él leyó que Marcos no lo había entendido y lo repitió — y el segundo *"Ya finalice"* se
+comió el defecto de la sección siguiente.
+
+Es exactamente lo de `tieneAccesoPropio`, anotado dentro de ese mismo bloque: la pregunta que
+evitaba el envío se hacía **después** del envío. **La información estaba, el orden no.**
+
+- La pregunta se hace ahora sobre **ese** mensaje, antes de entregar nada.
+- La lista de palabras vive en **`aviso-terminado.js`**, porque la preguntan dos lugares de
+  `index.js` a dos mil líneas de distancia y una segunda copia es lo que ya costó caro con
+  `buscarPerfilEdificio`.
+- **Se suprime con el filtro amplio y se descuenta la negación**: *"todavía no terminé"* trae las
+  mismas palabras y es justo el mensaje de alguien que **sí** necesita la foto. Suprimir de más no
+  cuesta una vuelta --`pendientesResueltosDe` no se marca y sale en el próximo mensaje-- pero si
+  cada mensaje suyo lo niega, no se le entrega nunca.
+- **Un caso cerrado tampoco recibe nada**: cualquier mensaje posterior al cierre --un "gracias", la
+  factura-- volvía a disparar la entrega. Si el caso no se puede leer **se entrega igual**: perder
+  la foto deja al técnico yendo sin saber qué va a encontrar, y ese es el error caro.
+- Queda en el log: `📎⏸️ Dario dice que terminó: NO se le reenvía la foto ni el contacto de ingreso
+  del [CASO-1005].`
+
+Prueba: `node pruebas-aviso-terminado.js`.
 
 **Meta permite tener varias plantillas**, pero una plantilla NO sirve para mandar la foto del
 reclamo: la imagen de una plantilla se sube al aprobarla y es fija. La foto de hoy solo sale como
@@ -1011,6 +1136,96 @@ notaba porque CASO-1001 no se cerraba y **cada prueba del mismo día caía adent
   lados no tiene rubro cargado, se sigue enganchando como antes. Separar de más parte un caso en
   dos y le muestra al administrador dos reclamos donde hay uno.
 - Prueba: `node pruebas-caso-nuevo-o-mismo.js`.
+
+### El vecino tiene la casa en un edificio y la oficina en otro
+
+> [!CAUTION]
+> **Un vecino tiene UN teléfono y puede figurar en dos edificios.** El reclamo de uno no es el del
+> otro, y en el medio hay dos consorcios que pagan cosas distintas.
+
+Planteado por Daniel, 27/09:
+
+> *"el vecino tiene un número pero puede tener vivienda y oficina en distintos lados y el reclamo de
+> un edificio no es del otro. Acá debe analizar contexto, historial de conversación, para comprender
+> qué se está diciendo en el último mensaje. **Somos humanos y no tiramos palabras al azar: solo
+> tratamos de seguir el hilo de conversación o abrimos otros. Es posible que retomemos un hilo
+> anterior, pero se aclara en el mismo texto.**"*
+
+Eran **tres** agujeros distintos, y ninguno daba error.
+
+#### 1. Un número suelto elegía el edificio
+
+`buscarEdificioEnTexto` aceptaba **cualquier número del mensaje que apareciera en cualquier campo de
+cualquier edificio del sistema**:
+
+```js
+const nums = campo.match(/\d+/g) || [];
+return nums.includes(num);
+```
+
+Con eso, *"se cortó la luz en el piso 4"* asignaba el reclamo a un edificio cuya altura es 4, y un
+`270` escrito en los alias de la fila del 159 avalaba al 159. Es la **tercera copia** del defecto ya
+arreglado en `perfil-edificio.js`, que lo dice con todas las letras: *"el número solo no identifica
+nada"*.
+
+`edificio-del-mensaje.js` juzga **cada campo por separado** y al revés que `elegirFilaEdificio` --acá
+el "buscado" es un mensaje que habla de cualquier cosa, con números de piso, de unidad y de hora--:
+
+| | |
+|---|---|
+| 3 | el mensaje contiene el campo entero |
+| 2 | nombra la calle **y** la altura |
+| 1 | nombra la calle, no dice altura |
+| ✗ | el mensaje trae alturas y ninguna es la del campo |
+| ✗ | **no nombra la calle: un número suelto no alcanza nunca** |
+
+Con el mejor puntaje en 1 y dos candidatos, **no se elige**: se pregunta. Lo llaman las cuatro vías
+de `index.js` --la del vecino y las tres del proveedor-- así que arreglarlo ahí las cubre a todas.
+
+#### 2. Dos monedas al aire por el orden de la planilla
+
+- En el camino de las llamadas: `msgLower.includes(v.edificio.toLowerCase().split(' ')[0])` — la
+  **primera palabra** del nombre. Para *San Patricio 159* y *San Patricio 270* eso es `"san"` en los
+  dos. Y si no matcheaba ninguno, `|| vecinosEnSheets[0]` agarraba el primero igual.
+- Al cerrar un caso: `session.nombreEdificio || vecinosEnSheets?.[0]?.edificio` — con dos filas, el
+  orden de la planilla decidía en qué consorcio se cerraba el reclamo.
+
+Los dos ahora, sin certeza, **dejan el edificio vacío y se pregunta**.
+
+#### 3. El edificio quedaba fijo SEIS HORAS
+
+Este es el que Daniel describió. En el primer mensaje, con dos edificios, Marcos **sí** preguntaba
+cuál. Pero todo ese bloque vive adentro de `if (!session.edificioId)`, y la sesión dura
+`TIEMPO_CADUCIDAD_MS` = **6 horas**: elegido una vez, el reclamo de la oficina caía en el edificio de
+la casa hasta que la sesión venciera.
+
+La única salida era nombrar el otro edificio con todas las letras. Pero nadie habla así: se dice
+*"acá en la oficina se cortó la luz"* — eso no nombra ningún edificio y cualquier persona entiende
+que cambió de tema.
+
+`hilo-del-vecino.js` (`edificioDelHilo`) le pregunta al modelo con el historial. Mismo orden que
+`ruteo-proveedor.js`: **lo determinista manda y el modelo atiende lo que el texto no puede decidir.**
+
+- Se consulta **solo** si el mensaje no nombra ningún edificio **y** el vecino figura en dos o más.
+  Con uno solo no hay nada que decidir, y sería latencia para todos por el caso de unos pocos.
+- **Ante la duda se queda el hilo abierto.** Cambiar de edificio sin motivo parte un reclamo en dos;
+  quedarse es el error barato, porque él lo aclara en el mensaje siguiente. Es además lo que hace
+  una persona.
+- Un edificio que **no es de ese vecino** se descarta entero: mandaría el reclamo a un consorcio
+  donde no figura.
+- Se apaga con `HILO_IA=off` en el `.env`, igual que `RUTEO_IA` y `LECTURA_PG`, y usa la **misma**
+  espera que el ruteo del proveedor (`conTimeout`, exportado para que no haya dos criterios).
+- El log lo dice entero: `🧵 549… figura en 2 edificios. Venía de "san patricio casa" y este mensaje
+  es de "Rivadavia 4" (dijo oficina, confianza 0.9) — abre otro asunto.`
+
+> **No hizo falta tocar `guardarReporte`**: el paso 2 ya exige `rEdif === eBuscado`, así que con el
+> edificio bien resuelto el caso de la casa no se traga el reclamo de la oficina. Lo que queda
+> pendiente ahí es el `|| !eBuscado`: **con el edificio vacío engancha con cualquier caso abierto de
+> ese teléfono.** Hoy no muerde porque cuando no se sabe el edificio se pregunta y se corta antes de
+> guardar, pero es una bomba con el seguro puesto.
+
+Pruebas: `node pruebas-edificio-del-mensaje.js` y `node pruebas-hilo-del-vecino.js` (esta última no
+llama a Gemini: prueba el mecanismo, con el modelo inyectado).
 
 ### Quién decide de qué habla el técnico: el modelo, no las palabras
 
@@ -1866,6 +2081,45 @@ corriendo, y al vecino se le preguntó si el técnico había pasado por un traba
   entrega, que son todos) y mezclarlas sería peor que duplicar.
 
 Prueba: `node pruebas-caso-del-tecnico.js`.
+
+#### Descartar el caso ya cerrado no es lo mismo que olvidarlo
+
+> [!CAUTION]
+> **Que el caso de la conversación esté cerrado ES la respuesta cuando el técnico repite que
+> terminó.** Descartarlo en silencio le muestra un Marcos que no se acuerda de lo que hizo hace un
+> minuto — y le ofrece cerrar otro.
+
+Producción, 26/09 a la noche. Daniel mandó dos mensajes seguidos desde el número del técnico, y el
+log tiene los dos:
+
+```
+📨 "Hola ya termine"
+✅🔧 Dario avisa que resolvió: es el caso activo de la conversación (CASO-1005).
+✅ Caso [CASO-1005] marcado como RESUELTO en Sheets.
+
+📨 "Ya finalice"
+✅🔧 Dario avisa que resolvió: tiene 2 casos abiertos y ninguna pista dice cuál: se le pregunta.
+```
+
+**Los dos hicieron lo correcto por separado.** El primero encontró el CASO-1005 --el que quedó a
+nombre de julio en la línea compartida, que es justo lo que arregló `89448c8`-- y lo cerró; el panel
+lo mostró resuelto. El segundo llegó con el 1005 ya cerrado, quedaban el 1003 y el 1004, y aplicó la
+regla de siempre: con dos o más no se adivina.
+
+Lo que vio el técnico fue *"¿cuál es el que terminaste?"* con una lista donde **el caso que acababa
+de cerrar ya no estaba**. Y el desconcierto es lo de menos: **si contestaba 1️⃣ cerraba el CASO-1004,
+que no había tocado.** La lista lo empujaba a eso.
+
+- `casoActivoDelTecnico` devuelve ese caso aparte, en **`yaCerrado`**. No sirve para cerrarlo otra
+  vez --no entra entre los candidatos-- sirve para decírselo **antes** de preguntar nada.
+- Se exige que esté entre **sus** casos recientes (la ventana de `dias`): `eventoActivoId` vive en la
+  RAM del proceso y puede ser de hace una semana. Nombrar un caso viejo como si fuera el de ahora es
+  el mismo error por el otro lado.
+- El mensaje empieza por lo que ya está hecho y la lista pasa a ser *"si además terminaste otro"*.
+- El log lo dice: `…ninguna pista dice cuál: se le pregunta; el CASO-1005 ya estaba cerrado`.
+
+Candados en `pruebas-caso-del-tecnico.js`: ni la lista de candidatos ni el *"no me figura nada
+abierto"* pueden salir sin nombrar lo que ya se cerró. Miden la **propiedad**, no la frase.
 
 ### El contacto de ingreso se da si lo piden, no porque esté a mano
 
