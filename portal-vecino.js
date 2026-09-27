@@ -31,6 +31,8 @@ const session = require('express-session');
 // que uno que desloguea en cada despliegue. Pero queda dicho en el log, porque si no nadie se
 // entera de que volvió el problema.
 let storePortal = null;
+// Se resuelve cuando las tablas de sesión existen. Ningún pedido puede tocar el store antes.
+let tablasDeSesionListas = Promise.resolve();
 try {
     const { pool } = require('./db-pg');
     // `!pool.sinBase`: cuando no hay `DATABASE_URL`, `db-pg.js` devuelve un pool que rechaza todo
@@ -52,30 +54,32 @@ try {
     // queda con el MemoryStore sin que nada avise. El pool es el único que sabe si puede hablar con
     // una base; que lo diga él.
     if (pool && !pool.sinBase) {
-        // Las tablas de sesión se crean ACÁ y no se le dejan a la librería.
+        // Las tablas de sesión se crean ACÁ y la librería tiene PROHIBIDO crearlas.
         //
         // `connect-pg-simple` sustituye SOLO la cadena `"session"` al crear su tabla; el nombre de
         // la restricción queda literal como `session_pkey`, y el índice de una clave primaria en
         // PostgreSQL es único POR ESQUEMA. Con el store del panel y el del portal en el mismo
-        // proceso, el segundo en arrancar choca: `relation "session_pkey" already exists`. El que
-        // pierde se queda SIN TABLA y falla en cada pedido de ahí en adelante.
+        // proceso, el segundo en arrancar choca: `relation "session_pkey" already exists`.
         //
-        // Se crean las dos, aunque acá solo se use una: cuál de las dos falta depende de cuál
-        // ganó la carrera, y el portal no tiene forma de saberlo.
+        // Y eso NO se reintenta nunca: la librería guarda su promesa de creación en
+        // `#tableCreationPromise` y la devuelve tal cual en cada pedido siguiente. Rechazada una
+        // vez, el store queda muerto hasta el próximo reinicio del proceso.
         //
-        // `createTableIfMissing` queda en `true` a propósito, como red: si esto fallara, la
-        // librería intenta lo de siempre y volvemos al comportamiento anterior en vez de quedarnos
-        // sin store.
+        // Por eso acá `createTableIfMissing` va en **false**, y no en `true` "como red". Con `true`
+        // la librería puede intentar crear la tabla --y chocar-- si un pedido entra antes de que
+        // termine el CREATE de abajo. No es una red: es el peligro. Con `false` no puede chocar
+        // nunca, ni hoy ni cuando alguien agregue un tercer store.
+        //
+        // Se crean las dos tablas, aunque acá se use una: cuál falta depende de cuál ganó la
+        // carrera, y el portal no tiene forma de saberlo desde su archivo.
         const { asegurarTablasDeSesion } = require('./db-pg');
-        asegurarTablasDeSesion().catch((e) => {
-            console.warn('⚠️ No se pudieron crear las tablas de sesiones:', e.message);
-        });
+        tablasDeSesionListas = asegurarTablasDeSesion();
 
         const PgSession = require('connect-pg-simple')(session);
         storePortal = new PgSession({
             pool,
             tableName: 'sesiones_portal',
-            createTableIfMissing: true,
+            createTableIfMissing: false,
             pruneSessionInterval: 60 * 15,
         });
     }
@@ -83,7 +87,8 @@ try {
     console.warn('⚠️ No se pudo inicializar store de sesiones del PORTAL en PostgreSQL, usando MemoryStore: las sesiones de los vecinos se pierden en cada reinicio:', errStore.message);
 }
 
-router.use(session({
+// Las opciones son las mismas para los dos armados de abajo; se escriben una sola vez.
+const opcionesSesion = {
     store: storePortal || undefined,
     name: 'portal.sid',
     secret: require('./credenciales').secretoDeSesion(),
@@ -99,7 +104,41 @@ router.use(session({
         sameSite: 'lax',
         maxAge: 1000 * 60 * 60 * 24 * 30,
     },
-}));
+};
+
+const sesionEnPostgres = session({ ...opcionesSesion, store: storePortal || undefined });
+const sesionEnMemoria = session({ ...opcionesSesion, store: undefined });
+
+// COMPUERTA. Ningún pedido puede tocar el store antes de que las tablas existan.
+//
+// Antes esto era `asegurarTablasDeSesion().catch(...)` y seguía de largo --disparar y seguir-- así
+// que entre el arranque y el fin del CREATE había una ventana donde un pedido llegaba primero. Con
+// `createTableIfMissing: true`, la librería intentaba crear la tabla en esa ventana y volvía a
+// chocar con `session_pkey`; y como guarda su promesa de creación y no la reintenta, el store
+// quedaba muerto hasta el próximo reinicio. O sea: el arreglo tenía adentro el mismo bug.
+//
+// `esperaResuelta` evita pagar el `await` en cada pedido: después de la primera vez es una
+// comparación.
+let esperaResuelta = false;
+let tablasOk = true;
+tablasDeSesionListas.then(
+    () => { esperaResuelta = true; },
+    (err) => {
+        esperaResuelta = true;
+        tablasOk = false;
+        console.error('⚠️ No se pudieron crear las tablas de sesiones del PORTAL. Se sigue en memoria (los vecinos se deslogean en cada reinicio):', err && err.message);
+    },
+);
+
+router.use((req, res, next) => {
+    // Sin base nunca hubo promesa que esperar: se entra derecho por memoria.
+    if (esperaResuelta) return (tablasOk && storePortal ? sesionEnPostgres : sesionEnMemoria)(req, res, next);
+    tablasDeSesionListas.then(() => sesionEnPostgres(req, res, next))
+        // El `catch` de acá NO es el que loguea --ese está arriba, y corre una sola vez--. Este
+        // atiende al pedido que llegó mientras todavía no se sabía, y lo deja pasar por memoria en
+        // vez de contestarle un error a un vecino por un problema de arranque.
+        .catch(() => sesionEnMemoria(req, res, next));
+});
 // Los formularios del login (`/vecino/auth`) mandan `application/x-www-form-urlencoded`, y de eso
 // no se encargaba NADIE: `index.js` monta `bodyParser.json()` solamente. Así que `req.body` llegaba
 // vacío y el `identificador` del formulario nunca se leía — sin un solo error en el log, porque

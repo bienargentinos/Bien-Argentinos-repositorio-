@@ -176,6 +176,29 @@ async function main() {
         const store = PV.indexOf('new PgSession(');
         afirmar('el portal la llama', llamada !== -1);
         afirmar('y la llama antes de crear el store', llamada !== -1 && store !== -1 && llamada < store);
+
+        // 4. Y la libreria tiene PROHIBIDO crear la tabla. Esto es lo que cierra el agujero de
+        //    verdad: la primera version dejaba `createTableIfMissing: true` "como red", pero la
+        //    libreria guarda su promesa de creacion en #tableCreationPromise y NO la reintenta --
+        //    asi que un pedido que entrara durante el CREATE la hacia chocar y el store quedaba
+        //    muerto hasta el proximo reinicio. Con `false` no puede chocar nunca.
+        const cfg = PV.slice(store, store + 400);
+        afirmar('el portal NO deja crear la tabla a la libreria', /createTableIfMissing:\s*false/.test(cfg));
+
+        // 5. Y el resultado no se espera con "disparar y seguir": la promesa se guarda y ningun
+        //    pedido toca el store antes de que las tablas existan.
+        afirmar('la promesa se guarda', /tablasDeSesionListas\s*=\s*asegurarTablasDeSesion\(\)/.test(PV));
+        afirmar('y hay una compuerta que la espera', /tablasDeSesionListas\.then\(\(\) =>/.test(PV));
+        // Si la creacion falla se sigue en memoria: un portal que desloguea es mejor que uno caido.
+        afirmar('si falla, se sigue en memoria', /sesionEnMemoria/.test(PV));
+
+        // 6. La libreria cachea su promesa y no la reintenta: si algun dia eso cambiara, varias de
+        //    las razones de arriba dejarian de valer.
+        if (fs2.existsSync(libIdx)) {
+            const lib2 = fs2.readFileSync(libIdx, 'utf8');
+            afirmar('la libreria sigue sin reintentar la creacion',
+                /if \(!this\.#tableCreationPromise\)/.test(lib2));
+        }
     }
 
     srv.close();
