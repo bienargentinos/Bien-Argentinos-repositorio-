@@ -138,6 +138,42 @@ vale('sigue existiendo el control de que no mire al futuro',
     /miraAlFuturo/.test(bloqueResolucion) && /!miraAlFuturo/.test(bloqueResolucion),
     'Sin esto, "termino mañana" cierra el caso.');
 
+// ── EL CANDADO QUE IMPORTA: EL MODELO DECIDE, EL TEXTO ES EL PISO ───────────────────────────
+//
+// > [!CAUTION]
+// > **De un técnico, quién cierra un caso lo decide el MODELO leyendo el mensaje con contexto.**
+// > Las condiciones de texto de arriba son el respaldo para cuando el ruteo está apagado, falla o
+// > tarda más de 6 segundos — no son la respuesta buena.
+//
+// El cierre decidía en la línea ~2290 y al modelo recién se le preguntaba en la ~3300: mil líneas
+// después, así que para esta decisión el modelo no existía. Es el mismo defecto que el contacto de
+// ingreso (salía en la 1257, se consultaba en la 3249): **la información estaba, el orden no.**
+//
+// Palabras de Daniel, que es lo que espera del producto: *"lo que necesito del agente es que
+// comprenda la lectura, analice el contexto y recién ahí defina si sigue preguntando, o si cierra
+// el caso, o si programa un seguimiento para una fecha"*.
+const SRC_SIN_COMENTARIOS = SRC.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+
+vale('el cierre le pregunta al modelo ANTES de decidir',
+    /seActiva\(\s*'informa_resuelto'\s*,\s*esGatilloResolucion/.test(SRC_SIN_COMENTARIOS),
+    'Si el cierre vuelve a leer `esGatilloResolucion` directo, las palabras deciden otra vez y ' +
+    'el modelo queda de adorno.');
+
+vale('y se le pregunta una sola vez por mensaje',
+    (SRC_SIN_COMENTARIOS.match(/clasificarMensajeProveedor\(\{/g) || []).length === 1,
+    'La clasificación se paga con una llamada al modelo: si se escribe dos veces, se cobra dos ' +
+    'veces y las dos respuestas pueden no coincidir.');
+
+vale('el ruteo de más abajo reusa esa misma respuesta',
+    /ruteoIA\s*=\s*await\s+ruteoDelMensaje\(\)/.test(SRC_SIN_COMENTARIOS));
+
+// Sin el filtro barato se le pagaría una llamada a CADA mensaje de un proveedor; con un filtro
+// estricto volvería el problema que esto arregla.
+vale('hay un filtro amplio antes de llamar al modelo',
+    /const puedeSonarAResuelto\s*=/.test(SRC_SIN_COMENTARIOS) &&
+    /puedeSonarAResuelto/.test(SRC_SIN_COMENTARIOS.split('const puedeSonarAResuelto')[1] || ''),
+    'Tiene que existir y tiene que usarse.');
+
 console.log('\n──────────────────────────────────────────────────────────────────────');
 console.log(`   ${bien} bien, ${mal} mal\n`);
 if (mal === 0) {

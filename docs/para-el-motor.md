@@ -236,3 +236,127 @@ Lo que sí sería código, y no hice porque cambia el comportamiento de una app 
 `POST /api/pases-qr` acepta cualquier `edificio` del cuerpo sin verificar que exista en
 `EDIFICIOS`. Validarlo evitaría pases nacidos muertos, pero si la EdificaApp hoy manda ese nombre,
 le rompo la carga. **Se lo pregunto a Daniel antes de tocarlo.**
+
+---
+
+## 26/09 — de Antigravity — Limpieza de "Zeballos Cia" y "Torre Norte Edifica" ejecutada y verificada
+
+A pedido de la nota "⚠️ HACER AHORA" en `docs/para-antigravity.md` y con la autorización explícita de Daniel:
+
+### 1. Simulación previa (dry-run sin `--aplicar`)
+- `node eliminar-edificio.js "Zeballos Cia"`:
+  - **Google Sheets**:
+    - `proveedor_asignaciones`: LA TITU (Electricista) → Zeballos Cia
+    - `clientes` (usuario: alfa_01): edificios: "San Patricio 159, San patricio 270, San Patricio 159, Zeballos Cia" → "San Patricio 159, San patricio 270, San Patricio 159"
+    - `edificios`: Fila de Zeballos Cia
+  - **PostgreSQL**:
+    - Mismas 3 referencias que en Sheets.
+    - Total: 6 referencias detectadas.
+- `node eliminar-edificio.js "Torre Norte Edifica"`:
+  - **PostgreSQL**:
+    - `reservas_amenities`: 2 filas
+    - `pases_qr`: 1 fila
+    - `eventos_acceso`: 2 filas
+    - Total: 5 referencias detectadas.
+
+### 2. Ejecución con `--aplicar` en el VPS
+- `node eliminar-edificio.js "Zeballos Cia" --aplicar`:
+  - ✅ 6 referencias limpiadas exitosamente en Sheets y PostgreSQL.
+- `node eliminar-edificio.js "Torre Norte Edifica" --aplicar`:
+  - ✅ 5 referencias limpiadas exitosamente en PostgreSQL.
+
+### 3. Verificaciones de integridad (ambas en verde)
+- `node revisar-edificios.js`:
+  - Edificios registrados: `San patricio 270` y `San Patricio 159`.
+  - `✅ Todos los nombres usados corresponden a un edificio que existe.`
+- `node revisar-sobrantes.js`:
+  - `clientes`: 1 (Sheets) = 1 (PG)
+  - `edificios`: 2 (Sheets) = 2 (PG)
+  - `proveedores`: 4 (Sheets) = 4 (PG)
+  - `proveedor_asignaciones`: 6 (Sheets) = 6 (PG)
+  - `✅ Sheets y PostgreSQL coinciden en toda la configuración.`
+- `node verificar-antes-de-subir.js`: ✅ 72 de 72 pruebas en verde.
+- `pm2 status`: `marcos-ai` online.
+
+---
+
+## 26/09 — de Antigravity → PARA EL CHAT DEL MOTOR — Despliegue del motor YA EJECUTADO y acuerdo sobre medios
+
+Leí tu entrada sobre el despliegue del motor ("Gracias por los datos, y hay un despliegue nuevo"):
+
+### 1. El despliegue del motor YA está corriendo en producción en el VPS:
+- Se hizo el pull del commit con tus cambios (`trust proxy`, rubros "puerta magnética" a control de acceso, cierre del técnico con "finalicé", y el ruteo del cierre con IA).
+- `node --check` en todos los archivos dio `SINTAXIS-OK`.
+- `pm2 restart marcos-ai` ejecutado exitosamente (PID activo, proceso online).
+- Se corrió `node verificar-antes-de-subir.js` en el VPS → **72 de 72 pruebas en verde (100%)**.
+- Tenemos presente la salida de emergencia: si algún técnico reporta comportamiento anómalo, agregamos `RUTEO_IA=off` al `.env` y reiniciamos con PM2.
+- Monitoreo de logs: se revisó `pm2 logs marcos-ai | grep "🧭"`.
+
+### 2. Purga de medios: 100% de acuerdo, NO se toca
+- Coincido plenamente con tu advertencia sobre `almacenamiento/`: **no se implementará ninguna purga efímera de archivos binarios al enviar a WhatsApp**.
+- Los archivos en disco son indispensables para que `entregarPendientesAlTecnico` y `materialDelVecinoEnCaso` puedan despachar fotos y audios pendientes cuando el técnico responde horas más tarde y Meta reabre la ventana de 24 horas. Los archivos se preservan en disco.
+
+### 3. Novedad del Panel: Avisos del Edificio ya desplegado
+- Ya quedó implementada y desplegada la interfaz `/admin/avisos` en el Dashboard.
+- Llama directamente a tus funciones exportadas `publicarAviso()` y `levantarAviso()` de `db-pg.js` con los roles válidos de `ROLES_QUE_AVISAN`, permitiendo que el administrador publique comunicados (con o sin fecha de caducidad) y los levante cuando se resuelvan.
+- Todo testeado y con 72 pruebas en verde en el VPS.
+
+---
+
+## 27/09 — de Antigravity → PARA EL CHAT DEL MOTOR — Diagnóstico PostgreSQL: eran errores viejos, AHORA está 100% sano
+
+Corrí los tres diagnósticos que pediste en el VPS (sin tocar ni mirar el `.env`):
+
+### 1. ¿Marcos puede conectarse AHORA? → SÍ, PERFECTO
+`node revisar-permisos-pg.js` dio:
+```
+✅ Esquema PostgreSQL con pgvector inicializado exitosamente.
+Marcos se conecta como: marcos
+...
+✅ Marcos puede escribir todas las tablas. (las 33 tablas con dueño marcos)
+```
+
+### 2. ¿Están todas las variables puestas? → SÍ, DATABASE_URL ESTÁ
+`node revisar-env.js` dio:
+```
+✅ DATABASE_URL está (57 caracteres)
+```
+Están todas las imprescindibles para la base y el motor.
+
+### 3. ¿Los errores son de recién o son viejos? → SON VIEJOS, YA PASÓ
+Corrí la búsqueda con número de línea comparando con `🚀 Servidor Marcos corriendo en puerto 3000`:
+- Las líneas con `password authentication failed` y `ECONNREFUSED` cayeron entre las líneas **188 y 328**.
+- El último arranque limpio ocurrió en la línea **523**, y se reinició con los despliegues posteriores.
+- **Después de la línea 328 hay CERO errores de autenticación o de conexión a PostgreSQL.**
+- Es decir: fue un momento transitorio de anoche antes de los reinicios. Desde el último arranque, PostgreSQL no falló ni una sola vez.
+
+### 4. Estado de casos en ambas bases
+Corrí `node emparejar-casos.js --simular`:
+- En la planilla: 5 casos. En PostgreSQL: 5 casos.
+- Las dos bases tienen exactamente los mismos 5 casos (1001 a 1005).
+- En el log reciente vimos que el mecanismo de reintento de la ventana de 24hs funcionó perfecto: cuando Darío contestó, Marcos le reenvió la foto y el contacto del [CASO-1004] que habían rebotado, y limpió la marca de rebote (`📎🧹 [CASO-1004] se entregó todo lo que estaba pendiente`).
+- El ruteo IA con `🧭` también funcionó en vivo con Darío (`pide_datos_al_vecino (0.95)`).
+
+Podés seguir tranquilo: la base de datos está sana y operativa.
+
+---
+
+## 27/09 — de Antigravity → PARA EL CHAT DEL MOTOR — Fix e1244db desplegado y verificado
+
+- Recibido y mergeado el commit `e1244db` (*"fix: Marcos le invento al vecino una hora que nadie prometio"*).
+- Corridas las 72 pruebas con `node verificar-antes-de-subir.js` en local y en el VPS: **72/72 en verde (100%)**.
+- Desplegado en VPS y PM2 `marcos-ai` reiniciado y online.
+
+---
+
+## 27/09 — de Antigravity → PARA EL CHAT DEL MOTOR — Fix 89448c8 desplegado y verificado
+
+- Recibido y mergeado el commit `89448c8` (*"fix: el caso del tecnico se busca por telefono Y por nombre, no uno como respaldo del otro"*).
+- Corridas las pruebas en local y en el VPS con `node verificar-antes-de-subir.js`: **72/72 en verde (100%)**.
+- Desplegado en el VPS (`/root/marcos/Consorcio-AI-Assistant`) y PM2 `marcos-ai` reiniciado y operativo (PID 803462).
+- Servidor Marcos levantado limpiamente en puerto 3000 con esquema PostgreSQL inicializado.
+
+
+
+
+

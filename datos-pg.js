@@ -780,10 +780,34 @@ async function buscarCasoAbiertoPorTecnico(nombreTecnico, telefonoTecnico = '') 
     // al 1001, y el 1001 se cerró solo.
     const { elegirCasoMasReciente } = require('./caso-reciente');
 
-    let row = techBuscado ? elegirCasoMasReciente(abiertos.filter(r => {
+    // > [!CAUTION]
+    // > **El nombre y el teléfono se miran JUNTOS, no uno como respaldo del otro.**
+    //
+    // Acá el nombre decidía y el teléfono se consultaba solo `if (!row)`. Con una línea compartida
+    // por dos técnicos eso deja casos afuera sin que nada avise.
+    //
+    // Producción, 26/09. El reclamo era de plomería, así que `proveedor_asignaciones` asignó el
+    // CASO-1005 a **julio** --el plomero de esa línea-- y la plantilla salió a su nombre. Cuando el
+    // técnico contestó, `buscarRolPorTelefono` lo identificó como **Dario**. Buscando por "Dario"
+    // aparecieron sus tres casos viejos, así que `row` quedó lleno y la vía del teléfono nunca
+    // corrió: el CASO-1005 no existía para esta función.
+    //
+    // Resultado, textual de su WhatsApp: la plantilla decía *"Estimado/a julio … [CASO-1005]"* y
+    // dos mensajes después le llegó *"Dario … FOTO DEL RECLAMO [CASO-1004]"* con la foto de otro
+    // trabajo, más un *"¿quién le abre?"* que el vecino acababa de contestar mandando la ficha de
+    // Natalia. Cambió de nombre y de caso en la misma conversación.
+    //
+    // El teléfono es el **mismo dato de los dos lados** --lo dice el comentario de abajo, y estaba
+    // escrito sin usarse--. Un caso es suyo si coincide por cualquiera de los dos, y recién entre
+    // todos esos se elige el más reciente. Es lo que `buscarCasosRecientesPorTecnico` ya hacía bien.
+    const suyos = abiertos.filter(r => {
+        if (telTecnico && mismoTel(r.get('tel_tecnico'), telTecnico)) return true;
+        if (!techBuscado) return false;
         const rTech = String(r.get('tecnico') || '').toLowerCase().trim();
-        return rTech && (rTech.includes(techBuscado) || techBuscado.includes(rTech));
-    }), (f, campo) => f.get(campo)) : null;
+        return Boolean(rTech) && (rTech.includes(techBuscado) || techBuscado.includes(rTech));
+    });
+
+    let row = elegirCasoMasReciente(suyos, (f, campo) => f.get(campo));
 
     // Buscar por nombre no alcanza: el caso guarda el nombre que trae la ASIGNACIÓN y el técnico
     // que escribe se identifica con el de la LISTA MAESTRA, y no tienen por qué coincidir. Visto en
@@ -812,8 +836,11 @@ async function buscarCasoAbiertoPorTecnico(nombreTecnico, telefonoTecnico = '') 
     }
 
     if (!row) return null;
-    if (abiertos.length > 1) {
-        console.log(`🔎 ${nombreTecnico || telTecnico} tiene ${abiertos.length} caso(s) abierto(s); ` +
+    // `suyos`, no `abiertos`: el contador decia cuantos casos hay abiertos en TODO el sistema, no
+    // cuantos son de este tecnico. Un contador que cuenta otra cosa manda a buscar un problema que
+    // no existe -- ya paso con el barrido del seguimiento.
+    if (suyos.length > 1) {
+        console.log(`🔎 ${nombreTecnico || telTecnico} tiene ${suyos.length} caso(s) abierto(s); ` +
                     `se toma el más reciente: [${row.get('codigo_caso') || row.get('id_evento') || '?'}] de ${row.get('edificio') || '—'}.`);
     }
     return {
@@ -943,7 +970,36 @@ function confirmacionDeFila(row) {
     };
 }
 
-async function buscarConfirmacionTecnicoDeVecino(telefono) {
+/**
+ * ¿La confirmación de esta fila puede ser la de ESTE reclamo?
+ *
+ * > [!CAUTION]
+ * > **Una confirmación es de UN trabajo, no de una persona.** Buscar solo por teléfono le presta
+ * > al reclamo nuevo la confirmación de un caso viejo del mismo vecino.
+ *
+ * Visto en producción el 26/09. Daniel avisó por agua en el palier --plomería-- y en el PRIMER
+ * mensaje Marcos le contestó *"el técnico Darío ya confirmó la visita y estará llegando en
+ * aproximadamente dos horas"*. El técnico no había contestado nada: la plantilla acababa de rebotar
+ * por la ventana de 24hs. Esas dos horas salieron del **CASO-1004**, de electricidad y de días
+ * antes.
+ *
+ * Para el vecino eso no es un dato viejo: es una hora que nadie prometió, esperando en su casa con
+ * un caño roto. Y la próxima vez que Marcos diga una hora ya no le va a creer.
+ *
+ * **Ante la duda se acepta**, igual que en la separación de casos: si al reclamo de ahora o al caso
+ * guardado les falta el rubro, no se puede afirmar que sean trabajos distintos. Descartar de más
+ * traería de vuelta el otro bug ya documentado --decirle "estamos coordinando" a quien ya tiene la
+ * visita confirmada--, que molesta pero no manda a nadie a esperar una hora inventada.
+ */
+function laConfirmacionEsDeEsteTrabajo(fila, rubroDelReclamo) {
+    if (!rubroDelReclamo) return true;
+    const rubroDelCaso = fila.get('rubro_tecnico') || fila.get('problema') || '';
+    if (!String(rubroDelCaso).trim()) return true;
+    const { coincideRubro } = require('./rubros');
+    return coincideRubro(rubroDelReclamo, rubroDelCaso);
+}
+
+async function buscarConfirmacionTecnicoDeVecino(telefono, rubroDelReclamo = '') {
     const tel = String(telefono || '').replace(/\D/g, '');
     if (!tel) return null;
 
@@ -951,6 +1007,7 @@ async function buscarConfirmacionTecnicoDeVecino(telefono) {
     const rows = await filas('reportes');
     return confirmacionDeFila(elegirCasoMasReciente(rows.filter(r => {
         if (!tieneConfirmacionVigente(r)) return false;
+        if (!laConfirmacionEsDeEsteTrabajo(r, rubroDelReclamo)) return false;
         const rTel = String(r.get('telefono') || '').replace(/\D/g, '');
         return rTel && (rTel === tel || rTel.endsWith(tel.slice(-8)));
     }), (f, campo) => f.get(campo)));
@@ -966,7 +1023,7 @@ async function buscarConfirmacionTecnicoDeVecino(telefono) {
  * A un vecino cualquiera NO se le responde por esta vía: el caso puede ser dentro de otra unidad,
  * y contarle a un tercero qué pasa en el departamento de al lado no es asunto suyo.
  */
-async function buscarConfirmacionTecnicoDeEdificio(edificio) {
+async function buscarConfirmacionTecnicoDeEdificio(edificio, rubroDelReclamo = '') {
     const buscado = String(edificio || '').toLowerCase().trim();
     if (!buscado) return null;
 
@@ -974,6 +1031,9 @@ async function buscarConfirmacionTecnicoDeEdificio(edificio) {
     const rows = await filas('reportes');
     return confirmacionDeFila(elegirCasoMasReciente(rows.filter(r => {
         if (!tieneConfirmacionVigente(r)) return false;
+        // Acá el riesgo es mayor que buscando por vecino: un edificio tiene varios reclamos a la
+        // vez, así que sin el rubro cualquier visita confirmada se le presta a cualquier reclamo.
+        if (!laConfirmacionEsDeEsteTrabajo(r, rubroDelReclamo)) return false;
         const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
         return rEdif && (rEdif === buscado || rEdif.includes(buscado) || buscado.includes(rEdif));
     }), (f, campo) => f.get(campo)));

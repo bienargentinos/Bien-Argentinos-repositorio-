@@ -27,6 +27,59 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-26 — Implementación de la sección Avisos del Edificio en el Dashboard
+
+- **Qué se hizo**:
+  - En `dashboard.js`:
+    - Se agregó el enlace de navegación `{ key: 'avisos', icon: '📢', label: 'Avisos al Edificio', href: '/admin/avisos' }` tanto para administradores de consorcio como para el dueño del sistema.
+    - Se creó la vista principal `GET /admin/avisos`:
+      - Si el administrador gestiona varios consorcios y no seleccionó ninguno, se le presenta una cuadrícula de tarjetas con el estado y contador de avisos vigentes por edificio.
+      - Para el edificio activo, se listan los comunicados vigentes con badges de tipo (corte programado, mantenimiento, fumigación, obra, seguridad o general), badge de urgencia (🚨 URGENTE), rubro, fechas y vigencia.
+      - Botón para levantar/dar de baja el aviso (`POST /admin/api/avisos/:id/levantar`), que actualiza el estado a `levantado` en PostgreSQL (`db-pg.js` / `levantarAviso`).
+      - Tabla histórica con los comunicados finalizados o levantados del consorcio.
+    - Se incorporó el modal `#modal-nuevo-aviso` para redactar comunicados con: selección de edificio, tipo de comunicado, rubro afectado de `RUBROS_CATALOGO`, título, texto/detalle, vigencia (hasta nuevo aviso o con fecha/hora de caducidad automática) y rol del publicador (`administrador`, `encargado`, `consejo`, `seguridad`).
+    - Se crearon los endpoints:
+      - `POST /admin/api/avisos`: valida permisos del edificio, campos obligatorios, rol permitido (`ROLES_QUE_AVISAN`) y llama a `publicarAviso()` de `db-pg.js`.
+      - `POST /admin/api/avisos/:id/levantar`: llama a `levantarAviso()` de `db-pg.js`.
+    - En `CLIENT_JS`: funciones `abrirModalNuevoAviso`, `toggleAvisoDuracion`, `guardarNuevoAviso` y `darDeBajaAviso`.
+- **Verificaciones**:
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK (sintaxis 100% limpia).
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ sin variables fuera de alcance.
+  - `node verificar-antes-de-subir.js`: ✅ 72 de 72 pruebas en verde (100%).
+
+### 2026-09-26 — Limpieza de "Zeballos Cia" y "Torre Norte Edifica" en VPS y sincronización completa
+
+- **Qué se hizo**:
+  - Se corrió la simulación (`node eliminar-edificio.js "Zeballos Cia"`) detectando 6 referencias (asignación de proveedor LA TITU, cliente alfa_01 en clientes.edificios, y fila en edificios, tanto en Sheets como en PostgreSQL).
+  - Se corrió la simulación (`node eliminar-edificio.js "Torre Norte Edifica"`) detectando 5 referencias en tablas del portal/portería (`reservas_amenities`: 2, `pases_qr`: 1, `eventos_acceso`: 2).
+  - Con la autorización explícita de Daniel y el pedido en `docs/para-antigravity.md`, se aplicó la limpieza real:
+    - `node eliminar-edificio.js "Zeballos Cia" --aplicar` → ✅ 6 referencias limpiadas.
+    - `node eliminar-edificio.js "Torre Norte Edifica" --aplicar` → ✅ 5 referencias limpiadas.
+- **Verificaciones**:
+  - `node revisar-edificios.js`:
+    - Edificios del sistema: `San patricio 270` y `San Patricio 159`.
+    - `✅ Todos los nombres usados corresponden a un edificio que existe.`
+  - `node revisar-sobrantes.js`:
+    - `clientes`: 1 en Sheets / 1 en PG (coinciden)
+    - `edificios`: 2 en Sheets / 2 en PG (coinciden)
+    - `proveedores`: 4 en Sheets / 4 en PG (coinciden)
+    - `proveedor_asignaciones`: 6 en Sheets / 6 en PG (coinciden)
+    - `✅ Sheets y PostgreSQL coinciden en toda la configuración.`
+  - `node verificar-antes-de-subir.js`: ✅ 72 de 72 pruebas en verde.
+  - `pm2 status`: `marcos-ai` online.
+
+### 2026-09-26 — Store de sesiones en dashboard.js adaptado a pool.sinBase (⚠️ HACER AHORA)
+
+- **Qué se hizo**:
+  - En `dashboard.js`, se ajustó la condición de montaje de `connect-pg-simple` a:
+    ```js
+    if (pool && !pool.sinBase) {
+    ```
+    siguiendo la instrucción de `docs/para-antigravity.md`.
+  - Con esto, si no hay `DATABASE_URL` y `db-pg.js` devuelve el pool falso (`poolDeMentira` con `sinBase: true`), el panel degrada limpiamente a `MemoryStore` en vez de rechazar peticiones o generar errores 500 / HTML inesperado.
+- **Verificación**:
+  - `node verificar-antes-de-subir.js`: ✅ 71 de 71 pruebas en verde (incluyendo `pruebas-pool-pg.js` y `pruebas-cierre-tecnico.js`).
+
 ### 2026-09-26 — Respuesta al Motor (Rubros CASO-1003 y 1004) y al Portal (Pases QR y Departamentos)
 
 #### 1. Para el chat del motor: Datos de CASO-1003 y CASO-1004
