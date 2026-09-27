@@ -27,6 +27,27 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-27 — Implementación del interruptor de pop-up por edificio en el Panel (`dashboard.js`)
+
+- **Qué se hizo**:
+  - En `dashboard.js`:
+    - En `router.get('/mi-edificio')`:
+      - Se consulta el estado del pop-up a nivel edificio con `puedeVerPopup(null, cur.nombre)`.
+      - Se renderiza `bloquePortalConfigHtml` con el badge del estado (`🟢 Activado` o `⚪ Desactivado`) y botón con acción dinámica `togglePopupEdificio('${escJs(cur.nombre)}', ${!popupActivoEdificio}, this)`.
+    - En `CLIENT_JS`:
+      - Función `togglePopupEdificio(edificio, nuevoEstado, btn)` que envía petición a `POST /admin/api/edificio-popup` y recarga la vista mostrando toast explicativo. Expuesta en `window.togglePopupEdificio`.
+    - Endpoint `POST /api/edificio-popup`:
+      - Protegido por `bloquearSiPreview(req, res)`.
+      - Valida permisos sobre el edificio con `normEdificio` y `edificiosPermitidos(req)`.
+      - Invoca a `guardarPopupEdificio(edificio, activo !== false)` de `db-pg.js` (sin consultas SQL manuales directas).
+  - En `docs/comercial/`:
+    - Actualizados `02-subida-tanda-expensas.md`, `09-avisos-en-el-portal-y-popup.md` y `DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md` integrando los módulos 05 a 09 y ajustando la sección "Lo que todavía no hace".
+- **Verificaciones**:
+  - `node --check dashboard.js`: ✅ OK.
+  - `node herramientas-check-clientjs.js dashboard.js`: ✅ CLIENT_JS OK.
+  - `node herramientas-scan-alcances.js dashboard.js`: ✅ Sin variables fuera de alcance.
+  - `node verificar-antes-de-subir.js`: ✅ 77 de 77 pruebas en verde.
+
 ### 2026-09-26 — Implementación de la sección Avisos del Edificio en el Dashboard
 
 - **Qué se hizo**:

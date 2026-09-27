@@ -44,5 +44,12 @@ Publicar las expensas mes a mes suele ser uno de los procesos más tediosos y ri
 *"¿Seguís perdiendo toda una tarde subiendo las expensas departamento por departamento?*  
 *Mirá esto: arrastrás hasta 60 liquidaciones juntas. La Inteligencia Artificial de Marcos lee cada PDF, extrae el departamento, el vencimiento y el monto exacto.*  
 *Te muestra un semáforo de control para revisar todo de un vistazo y con un solo clic publicás todo el edificio.*  
-*Cada vecino ve únicamente su expensa, con seguridad bancaria y sin errores.*  
+*Cada vecino ve únicamente su expensa, con seguridad y sin errores.*  
 *Tu tiempo vale. Automatizá tu administración con Marcos IA."*
+
+## 5. Lo que todavía no hace
+
+- **La vista del vecino** está documentada en detalle en [`06-expensas-en-el-celular-del-vecino.md`](06-expensas-en-el-celular-del-vecino.md).
+- **Lectura de escaneos borrosos:** La lectura automática funciona sobre PDFs digitales vectoriales (los que emite cualquier sistema de liquidación moderno). Si el administrador sube una foto torcida o un escaneo de baja calidad, el semáforo marcará la unidad para revisión manual antes de publicar.
+- **Validación visual de nomenclatura atípica:** Si un departamento viene nombrado de forma no estándar (ej: "UF 14 - Planta Entrepiso"), el semáforo amarillo lo señala para que el administrador confirme la asignación antes de darle el alta definitiva.
+- **Acceso por enlace:** La protección actual exige inicio de sesión del vecino en el portal; la autenticación por token directo de un solo uso por WhatsApp se encuentra en desarrollo.

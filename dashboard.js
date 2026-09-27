@@ -9639,6 +9639,26 @@ async function darDeBajaAviso(id, btn) {
 }
 window.darDeBajaAviso = darDeBajaAviso;
 
+async function togglePopupEdificio(edificio, nuevoEstado, btn) {
+  var origText = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Guardando...'; }
+  try {
+    var res = await fetch('/admin/api/edificio-popup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edificio: edificio, activo: nuevoEstado })
+    });
+    var data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Error al actualizar configuración');
+    toast(nuevoEstado ? 'Pop-up de inicio activado para el edificio' : 'Pop-up de inicio desactivado para el edificio', 'ok');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch (err) {
+    toast(err.message || 'Error al actualizar configuración', 'err');
+    if (btn) { btn.disabled = false; btn.innerHTML = origText; }
+  }
+}
+window.togglePopupEdificio = togglePopupEdificio;
+
 document.addEventListener('DOMContentLoaded', function() {
   if (document.getElementById('tabla-eventos-acceso-body')) {
     cargarAuditoriaAccesos();
@@ -11296,6 +11316,36 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
       </div>`;
 
+    let popupActivoEdificio = true;
+    try {
+      const { puedeVerPopup } = require('./db-pg');
+      popupActivoEdificio = await puedeVerPopup(null, cur ? cur.nombre : null);
+    } catch (_) {}
+
+    const bloquePortalConfigHtml = `
+      <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:22px">💬</span>
+            <div>
+              <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Portal del Vecino — Pop-up de Inicio</h2>
+              <div style="font-size:12.5px;color:#8595AD;margin-top:2px">Ventana de avisos urgentes y consejos que ven los vecinos al abrir su portal web.</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:12px;font-weight:800;padding:4px 10px;border-radius:999px;${popupActivoEdificio ? 'background:#E7F4EC;color:#1B7A43;border:1px solid #A3D9B1' : 'background:#F1F5FB;color:#64748B;border:1px solid #CBD5E1'}">
+              ${popupActivoEdificio ? '🟢 Activado en este edificio' : '⚪ Desactivado en este edificio'}
+            </span>
+            <button type="button" onclick="togglePopupEdificio('${escJs(cur ? cur.nombre : '')}', ${!popupActivoEdificio}, this)" style="height:34px;padding:0 14px;border:1px solid ${popupActivoEdificio ? '#FCA5A5' : '#2E6FC0'};border-radius:9px;background:${popupActivoEdificio ? '#FEF2F2' : 'linear-gradient(180deg,#2E6FC0,#1E5FB4)'};color:${popupActivoEdificio ? '#DC2626' : '#fff'};font-weight:700;font-size:12.5px;cursor:pointer" class="${popupActivoEdificio ? 'hv-red' : 'hv-op'}">
+              ${popupActivoEdificio ? 'Desactivar pop-up del edificio' : 'Activar pop-up del edificio'}
+            </button>
+          </div>
+        </div>
+        <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px;font-size:12.5px;color:#475569;line-height:1.5">
+          ℹ️ <strong>Cómo funciona:</strong> Al ingresar, el vecino ve primero si hay algún comunicado urgente vigente del consorcio, o en su defecto un consejo de uso del portal. Cada vecino puede también apagarlo individualmente desde su perfil; si lo desactivás acá, no se mostrará a ningún vecino de <strong>${esc(cur ? cur.nombre : '')}</strong>.
+        </div>
+      </div>`;
+
     function renderStaffCards(namesStr, telsStr, fieldKey, icon, labelTitle, edNombre, edRow) {
       const list = parseStaffList(namesStr, telsStr);
       let html = '';
@@ -12295,6 +12345,7 @@ router.get('/mi-edificio', async (req, res) => {
         </div>
         ${pendHtml}
         ${bloqueBaseHtml}
+        ${bloquePortalConfigHtml}
         ${bloqueServiciosHtml}
         ${bloqueAccesosHtml}
         ${vecinosCard}
@@ -14141,6 +14192,27 @@ router.post('/api/avisos/:id/levantar', async (req, res) => {
     res.json({ ok: true, aviso: avisoLevantado });
   } catch (err) {
     console.error('Error en POST /api/avisos/:id/levantar:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/edificio-popup ──
+router.post('/api/edificio-popup', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, activo } = req.body || {};
+    const permitidos = edificiosPermitidos(req) || [];
+    if (!edificio) return res.status(400).json({ error: 'Falta el edificio' });
+    if (!esDueno(req) && !permitidos.some((e) => normEdificio(e) === normEdificio(edificio))) {
+      return res.status(403).json({ error: 'No tenés permisos sobre este edificio' });
+    }
+
+    const { guardarPopupEdificio } = require('./db-pg');
+    const nuevoEstado = await guardarPopupEdificio(String(edificio).trim(), activo !== false);
+
+    res.json({ ok: true, edificio: String(edificio).trim(), popup_activo: nuevoEstado });
+  } catch (err) {
+    console.error('Error en POST /api/edificio-popup:', err);
     res.status(500).json({ error: err.message });
   }
 });

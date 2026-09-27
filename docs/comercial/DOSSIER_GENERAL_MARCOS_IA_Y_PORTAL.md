@@ -41,7 +41,7 @@ Es una solución integral de inteligencia artificial y gestión diseñada exclus
   - Ante un reclamo, Marcos contacta automáticamente al técnico del rubro adecuado (plomería, electricidad, gas, etc.).
   - Le remite las fotos/audios que envió el vecino y le da las instrucciones de acceso pactadas (portería o contacto autorizado).
   - Marcos **entiende lenguaje natural de cierre**: cuando el técnico escribe *"listo, ya terminé acá"*, Marcos cierra el reclamo, frena los reenvíos de fotos y registra la resolución en el panel con fecha y hora.
-  - Si el técnico comparte línea con otro colega o atiende varios casos, Marcos jamás mezcla rubros ni promete horas de llegada inventadas al vecino.
+  - Si el técnico atiende varios casos en paralelo, Marcos pregunta en vez de adivinar cuál cerró, y jamás promete horas de llegada inventadas al vecino.
 
 ## 4. Comprensión de Contexto para Vecinos con Múltiples Propiedades
 * **Dolor operativo resuelto:** Propietarios que viven en un edificio y tienen cochera, oficina o local en otro consorcio de la misma administración.
@@ -66,10 +66,20 @@ Es una solución integral de inteligencia artificial y gestión diseñada exclus
 
 ---
 
+## 5. Número de Caso Visible y Asignación de Facturas
+* **Dolor operativo resuelto:** Facturas de proveedores que llegan por WhatsApp o email sin saber a qué reparación corresponden, generando demoras en la liquidación y pagos duplicados.
+* **Cómo funciona:**
+  - Cada trabajo asignado por Marcos lleva su identificador único (ej: `[CASO-1005]`) visible en cada foto y mensaje.
+  - Cuando el proveedor envía su factura o presupuesto, Marcos o el panel la asocian directamente al caso correspondiente sin necesidad de buscar en chats viejos.
+  - Ver detalle completo en [`05-numero-de-caso-y-facturas.md`](05-numero-de-caso-y-facturas.md).
+
+---
+
 # PARTE 4: EL PORTAL DEL VECINO Y CONTROL DE ACCESO (EDIFICA)
 
 ### Funcionalidades Residentes
-* **Inicio con Pop-up Dinámico:** Avisos de emergencia del consorcio o consejos útiles sobre el uso del edificio. El administrador puede apagar el pop-up a nivel consorcio, y el vecino puede desactivarlo a nivel personal.
-* **Pases QR de Acceso:** Generación de invitaciones temporales con código QR firmado criptográficamente para visitas, deliveries o personal de servicio.
-* **Multi-idioma Nativo:** Disponible en Español, Inglés, Portugués y Francés para adaptarse tanto a residentes permanentes como a turistas de alquileres temporales.
-* **Descarga de Documentación:** Acceso directo a expensas individuales y gastos globales del consorcio con visor seguro.
+* **Inicio con Pop-up Dinámico e Interruptor del Consorcio (Módulo 09):** Avisos de emergencia del consorcio o consejos útiles sobre el uso del edificio. Cuenta con doble interruptor: el administrador puede desactivarlo para todo el edificio desde `/admin/mi-edificio`, y cada vecino puede apagarlo individualmente desde su perfil. Ver [`09-avisos-en-el-portal-y-popup.md`](09-avisos-en-el-portal-y-popup.md).
+* **Expensas en el Celular (Módulo 06):** Acceso directo a expensas individuales y gastos globales del consorcio con visor seguro, sin compartir enlaces públicos desprotegidos. Ver [`06-expensas-en-el-celular-del-vecino.md`](06-expensas-en-el-celular-del-vecino.md).
+* **Multi-idioma Nativo (Módulo 07):** Disponible en 4 idiomas (Español, Inglés, Portugués y Francés) con traducción estructural de términos de consorcio, ideal para residentes internacionales y turistas de alquiler temporal. Ver [`07-portal-en-cuatro-idiomas.md`](07-portal-en-cuatro-idiomas.md).
+* **Pases QR de Acceso Seguro (Módulo 08):** Generación de invitaciones temporales con código QR firmado criptográficamente para visitas, deliveries o técnicos, con validación en portería sin depender de internet constante. Ver [`08-pases-qr-visitas-y-proveedores.md`](08-pases-qr-visitas-y-proveedores.md).
+

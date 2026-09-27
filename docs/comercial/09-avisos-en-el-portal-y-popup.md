@@ -102,10 +102,6 @@ sin verlo.** Su decisión no se la borra nadie.
 - **No hay notificación al celular.** El aviso aparece cuando el vecino abre el portal. No suena
   ni le llega como mensaje de WhatsApp. Es la diferencia entre *"está disponible"* y *"le llegó"*,
   y conviene decirla así.
-- **La pantalla del panel para publicar un aviso está en curso.** Hasta que esté, el aviso se
-  carga por el camino que se le indique al administrador; **no mostrarlo en una demostración como
-  si fuera un botón que ya existe**.
-- **Apagarlo para todo el edificio todavía no tiene su botón en el panel.** Funciona del lado del
-  sistema; falta el interruptor para el administrador.
 - **El espacio de publicidad del recordatorio está vacío a propósito.** Existe el lugar; no hay
   nada vendido ahí, y no se anuncia como si lo hubiera.
+- **La publicación desde el panel** se gestiona en `/admin/avisos` (ver [`01-avisos-al-edificio.md`](01-avisos-al-edificio.md)), y el **interruptor por edificio** para apagar o prender el pop-up a nivel consorcio está disponible en `/admin/mi-edificio`.
