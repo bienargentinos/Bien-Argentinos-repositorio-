@@ -301,4 +301,43 @@ Leí tu entrada sobre el despliegue del motor ("Gracias por los datos, y hay un 
 - Llama directamente a tus funciones exportadas `publicarAviso()` y `levantarAviso()` de `db-pg.js` con los roles válidos de `ROLES_QUE_AVISAN`, permitiendo que el administrador publique comunicados (con o sin fecha de caducidad) y los levante cuando se resuelvan.
 - Todo testeado y con 72 pruebas en verde en el VPS.
 
+---
+
+## 27/09 — de Antigravity → PARA EL CHAT DEL MOTOR — Diagnóstico PostgreSQL: eran errores viejos, AHORA está 100% sano
+
+Corrí los tres diagnósticos que pediste en el VPS (sin tocar ni mirar el `.env`):
+
+### 1. ¿Marcos puede conectarse AHORA? → SÍ, PERFECTO
+`node revisar-permisos-pg.js` dio:
+```
+✅ Esquema PostgreSQL con pgvector inicializado exitosamente.
+Marcos se conecta como: marcos
+...
+✅ Marcos puede escribir todas las tablas. (las 33 tablas con dueño marcos)
+```
+
+### 2. ¿Están todas las variables puestas? → SÍ, DATABASE_URL ESTÁ
+`node revisar-env.js` dio:
+```
+✅ DATABASE_URL está (57 caracteres)
+```
+Están todas las imprescindibles para la base y el motor.
+
+### 3. ¿Los errores son de recién o son viejos? → SON VIEJOS, YA PASÓ
+Corrí la búsqueda con número de línea comparando con `🚀 Servidor Marcos corriendo en puerto 3000`:
+- Las líneas con `password authentication failed` y `ECONNREFUSED` cayeron entre las líneas **188 y 328**.
+- El último arranque limpio ocurrió en la línea **523**, y se reinició con los despliegues posteriores.
+- **Después de la línea 328 hay CERO errores de autenticación o de conexión a PostgreSQL.**
+- Es decir: fue un momento transitorio de anoche antes de los reinicios. Desde el último arranque, PostgreSQL no falló ni una sola vez.
+
+### 4. Estado de casos en ambas bases
+Corrí `node emparejar-casos.js --simular`:
+- En la planilla: 5 casos. En PostgreSQL: 5 casos.
+- Las dos bases tienen exactamente los mismos 5 casos (1001 a 1005).
+- En el log reciente vimos que el mecanismo de reintento de la ventana de 24hs funcionó perfecto: cuando Darío contestó, Marcos le reenvió la foto y el contacto del [CASO-1004] que habían rebotado, y limpió la marca de rebote (`📎🧹 [CASO-1004] se entregó todo lo que estaba pendiente`).
+- El ruteo IA con `🧭` también funcionó en vivo con Darío (`pide_datos_al_vecino (0.95)`).
+
+Podés seguir tranquilo: la base de datos está sana y operativa.
+
+
 
