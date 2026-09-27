@@ -134,6 +134,50 @@ async function main() {
         afirmar('y no tiene ningún host al que salir', !r.tieneOpciones);
     }
 
+    console.log('\n── LAS TABLAS DE SESION LAS CREAMOS NOSOTROS, NO LA LIBRERIA ──');
+    {
+        // CANDADO de un error de PRODUCCION, 27/09:
+        //     error: relation "session_pkey" already exists
+        //
+        // connect-pg-simple crea su tabla sustituyendo SOLO la cadena "session" por el nombre que
+        // uno le pasa. El nombre de la restriccion queda literal como session_pkey, y el indice de
+        // una clave primaria en PostgreSQL es unico POR ESQUEMA, no por tabla. Con el store del
+        // panel y el del portal en el mismo proceso, el segundo en arrancar choca contra el indice
+        // del primero, SE QUEDA SIN TABLA, y falla en cada pedido de ahi en adelante.
+        const fs2 = require('fs');
+        const path2 = require('path');
+
+        // 1. El peligro sigue existiendo en la libreria instalada. Si algun dia lo arreglan, esta
+        //    linea se pone en rojo y hay que volver a leer si el resto todavia hace falta.
+        const libIdx = path2.join(__dirname, 'node_modules', 'connect-pg-simple', 'index.js');
+        if (fs2.existsSync(libIdx)) {
+            const lib = fs2.readFileSync(libIdx, 'utf8');
+            afirmar('la libreria sigue sustituyendo solo "session"',
+                /replaceAll\(\s*'"session"'/.test(lib));
+            const tablaSql = path2.join(__dirname, 'node_modules', 'connect-pg-simple', 'table.sql');
+            const sqlLib = fs2.readFileSync(tablaSql, 'utf8');
+            afirmar('y su restriccion se sigue llamando session_pkey', /session_pkey/.test(sqlLib));
+        }
+
+        // 2. Nosotros las creamos antes, y creamos LAS DOS: cual falta depende de cual gano la
+        //    carrera, y ninguno de los dos lados puede saberlo desde su archivo.
+        const DB = fs2.readFileSync(path2.join(__dirname, 'db-pg.js'), 'utf8');
+        const m = DB.match(/async function asegurarTablasDeSesion[\s\S]*?\n}/);
+        afirmar('existe asegurarTablasDeSesion', !!m);
+        afirmar('crea la del panel', !!m && /sesiones_panel/.test(m[0]));
+        afirmar('y la del portal', !!m && /sesiones_portal/.test(m[0]));
+        afirmar('las dos con IF NOT EXISTS', !!m && /CREATE TABLE IF NOT EXISTS/.test(m[0]));
+        afirmar('se exporta', /asegurarTablasDeSesion,/.test(DB));
+
+        // 3. Y el portal la llama ANTES de construir el store: llamarla despues no evita nada,
+        //    porque la libreria ya habria intentado crear la tabla.
+        const PV = fs2.readFileSync(path2.join(__dirname, 'portal-vecino.js'), 'utf8');
+        const llamada = PV.indexOf('asegurarTablasDeSesion()');
+        const store = PV.indexOf('new PgSession(');
+        afirmar('el portal la llama', llamada !== -1);
+        afirmar('y la llama antes de crear el store', llamada !== -1 && store !== -1 && llamada < store);
+    }
+
     srv.close();
     await pool.end().catch(() => {});
 
