@@ -1692,6 +1692,37 @@ function validarYSanitizarNombre(nombre) {
         // depende del caso queda sin hacerse en silencio -- la confirmación no se guardaba (se
         // pedía el id del caso y no había) y el vecino no se enteraba (se pedía su teléfono y
         // tampoco había). Se recupera del caso abierto antes de usarlo.
+        // > [!CAUTION]
+        // > **`rubroActivo`, `tecnicoDelCaso`, `edificioActivo` y `vecinoActivo` describen UN caso,
+        // > pero viven en el estado de la LÍNEA.** Todas las asignaciones de abajo son `if (!…)`, a
+        // > propósito --para no pisar una conversación viva--, así que el PRIMER caso de esa línea
+        // > las fijaba hasta el próximo reinicio de PM2. Cuando llegaba un caso nuevo, se seguía
+        // > hablando con los datos del anterior.
+        //
+        // Producción, 26/09. En esa línea conviven **julio (plomero)** y **dario (electricista)**.
+        // Venían los CASO-1003 y CASO-1004, de electricidad, con `tecnicoDelCaso = Dario` y
+        // `rubroActivo = electricidad`. Entró el CASO-1005 --agua en el palier, o sea plomería-- y
+        // se asignó a julio. En el WhatsApp del técnico quedó así:
+        //
+        //     23:08  plantilla:  "Hola julio, aguardamos tu confirmación para el [CASO-1005]"
+        //     23:56  Marcos:     "Dario, Daniel Valdés en SAN PATRICIO 159 adjuntó esto…"
+        //
+        // La plantilla la manda el barrido y lee el `tecnico` DEL CASO; los mensajes libres leen
+        // este estado, que seguía en el caso viejo. Dos nombres para la misma persona en el mismo
+        // hilo, con cuarenta y ocho minutos de diferencia.
+        //
+        // **No se sueltan los `if (!…)`**: siguen protegiendo la conversación viva. Lo que se agrega
+        // es de qué caso salieron esos datos, y si el caso cambió se releen del caso de ahora.
+        // La decisión vive en `datos-del-caso.js`, con el episodio entero escrito y su prueba.
+        try {
+            const { refrescarDatosDelCaso } = require('./datos-del-caso');
+            const { buscarCasoPorCodigo } = require('./datos');
+            const r = await refrescarDatosDelCaso(stProv, buscarCasoPorCodigo);
+            if (r.refrescado) console.log(`🔄 El técnico de ${telTech} ${r.motivo}.`);
+        } catch (e) {
+            console.error('Error releyendo los datos del caso del técnico:', e.message);
+        }
+
         if (!stProv.eventoActivoId || !stProv.vecinoActivo?.telefono || !stProv.rubroActivo) {
             try {
                 const { buscarCasoAbiertoPorTecnico } = require('./datos-pg');
@@ -1712,6 +1743,9 @@ function validarYSanitizarNombre(nombre) {
                             edificio:  casoAbierto.edificio || ''
                         };
                     }
+                    // De qué caso salieron estos datos. Sin esta marca no hay forma de saber que
+                    // envejecieron cuando el técnico pase a otro trabajo.
+                    stProv.datosDeCaso = stProv.eventoActivoId || casoAbierto.id_evento;
                     console.log(`♻️ Caso del técnico ${datosEmisor.nombre} recuperado tras reinicio: [${casoAbierto.id_evento}] (${casoAbierto.edificio})`);
                 }
             } catch (e) {
@@ -2466,7 +2500,20 @@ function validarYSanitizarNombre(nombre) {
         //
         // `vecinosEnSheets` ya se resolvió más arriba (línea ~925) y es un dato durable, no de
         // sesión: se usa como respaldo antes de tocar la base de casos.
-        const edificioParaCierre = session.nombreEdificio || vecinosEnSheets?.[0]?.edificio || datosEmisor?.edificio || '';
+        //
+        // > [!CAUTION]
+        // > **El respaldo era `vecinosEnSheets?.[0]?.edificio`, o sea el primero de la planilla.**
+        // > Un vecino con vivienda y oficina en edificios distintos tiene dos filas, y el orden de
+        // > la planilla decidía en cuál de los dos consorcios se cerraba el reclamo.
+        //
+        // Con una sola fila el respaldo es correcto y sigue igual. Con dos o más se deja vacío a
+        // propósito: unas líneas más abajo, sin casos que mostrar, se le pregunta.
+        const edificioDeSuFicha = vecinosEnSheets?.length === 1 ? vecinosEnSheets[0].edificio : '';
+        if (!session.nombreEdificio && (vecinosEnSheets?.length || 0) > 1) {
+            console.log(`🏢 ${from} figura en ${vecinosEnSheets.length} edificios y la sesión no dice cuál: ` +
+                `no se cierra nada por el orden de la planilla.`);
+        }
+        const edificioParaCierre = session.nombreEdificio || edificioDeSuFicha || datosEmisor?.edificio || '';
 
         const { obtenerCasosAbiertosEdificio, marcarCasoResueltoPorId } = require('./datos');
         const casosAbiertos = await obtenerCasosAbiertosEdificio(edificioParaCierre);
@@ -2543,55 +2590,28 @@ function validarYSanitizarNombre(nombre) {
             .trim();
     }
 
+    // > [!CAUTION]
+    // > **La regla vieja aceptaba CUALQUIER número del mensaje que apareciera en CUALQUIER campo
+    // > de CUALQUIER edificio del sistema:**
+    // >
+    // >     const nums = campo.match(/\d+/g) || [];
+    // >     return nums.includes(num);
+    // >
+    // > Con eso, *"se cortó la luz en el piso 4"* asignaba el reclamo a un edificio cuya altura es
+    // > 4, y un `270` escrito en los alias de la fila del 159 avalaba al 159.
+    //
+    // Es la **tercera copia** del defecto que ya se arregló en `perfil-edificio.js`, que lo dice
+    // con todas las letras: *"el número solo no identifica nada"*.
+    //
+    // La decisión vive ahora en `edificio-del-mensaje.js`, que juzga cada campo por separado y
+    // **no elige cuando podrían ser dos**. Lo llaman las cuatro vías de este archivo --la del
+    // vecino y las tres del proveedor-- así que arreglarlo acá las cubre a todas.
     function buscarEdificioEnTexto(texto, listaEdificios) {
-        if (!texto || !listaEdificios || listaEdificios.length === 0) return null;
-        const txtNorm = normalizarTextoEdificio(texto);
-        if (!txtNorm) return null;
-
-        const numerosEnMensaje = txtNorm.match(/\d+/g) || [];
-
-        // 1. REGLA POR NÚMERO DE CALLE EXACTO DE ESE EDIFICIO
-        if (numerosEnMensaje.length > 0) {
-            for (const num of numerosEnMensaje) {
-                const edificioConNum = listaEdificios.find(e => {
-                    const todosLosCamposDeEsteEdificio = [
-                        e.nombre,
-                        e.direccion,
-                        ...(Array.isArray(e.aliases) ? e.aliases : String(e.aliases || '').split(','))
-                    ].map(normalizarTextoEdificio).filter(Boolean);
-
-                    return todosLosCamposDeEsteEdificio.some(campo => {
-                        const nums = campo.match(/\d+/g) || [];
-                        return nums.includes(num);
-                    });
-                });
-
-                if (edificioConNum) {
-                    console.log(`🎯 Coincidencia exacta por número de altura ${num} -> Edificio: "${edificioConNum.nombre}"`);
-                    return edificioConNum;
-                }
-            }
-        }
-
-        // 2. REGLA POR COINCIDENCIA DE ALIAS / DIRECCIÓN / NOMBRE PROPIO DE ESE EDIFICIO
-        for (const e of listaEdificios) {
-            const variacionesPropias = [
-                e.nombre,
-                e.direccion,
-                ...(Array.isArray(e.aliases) ? e.aliases : String(e.aliases || '').split(','))
-            ].map(normalizarTextoEdificio).filter(Boolean);
-
-            for (const v of variacionesPropias) {
-                if (v.length < 3) continue;
-                // El mensaje del usuario debe contener la variación/alias propio de este edificio
-                if (txtNorm.includes(v)) {
-                    console.log(`🎯 Coincidencia por alias/dirección exacta "${v}" -> Edificio: "${e.nombre}"`);
-                    return e;
-                }
-            }
-        }
-
-        return null;
+        const { edificioNombradoEnMensaje } = require('./edificio-del-mensaje');
+        const r = edificioNombradoEnMensaje(texto, listaEdificios);
+        if (!r) return null;
+        console.log(`🎯 El mensaje nombra "${r.edificio.nombre || r.edificio.edificio}" por su ${r.porQue} (confianza ${r.puntaje}/3).`);
+        return r.edificio;
     }
 
     // Si en el mensaje se menciona explícitamente un edificio conocido, asignarlo directamente a la sesión
@@ -2602,6 +2622,54 @@ function validarYSanitizarNombre(nombre) {
         const vMatch = vecinosEnSheets.find(v => v.edificio === session.edificioId);
         if (vMatch) session.datosVecino = vMatch;
         else delete session.datosVecino;
+    }
+
+    // ── EL VECINO QUE TIENE LA CASA EN UN EDIFICIO Y LA OFICINA EN OTRO ──────────────────────
+    //
+    // > [!CAUTION]
+    // > **El edificio de la sesión se fijaba en el primer mensaje y quedaba SEIS HORAS.** Todo el
+    // > bloque de abajo vive adentro de `if (!session.edificioId)`, así que el reclamo de la
+    // > oficina caía en el edificio de la casa.
+    //
+    // La única salida era que nombrara el otro edificio con todas las letras --eso lo resuelve
+    // `edificio-del-mensaje.js`, acá arriba-- pero nadie habla así: se dice *"acá en la oficina se
+    // cortó la luz"*. Eso no nombra ningún edificio y cualquier persona entiende que cambió de tema.
+    //
+    // Daniel, 27/09: *"debe analizar contexto, historial de conversación, para comprender qué se
+    // está diciendo en el último mensaje. Somos humanos y no tiramos palabras al azar: solo
+    // tratamos de seguir el hilo de conversación o abrimos otros."*
+    //
+    // Mismo orden que el ruteo del proveedor: **lo determinista manda y el modelo atiende lo que el
+    // texto no puede decidir.** Solo se le pregunta cuando el vecino figura en dos o más edificios
+    // --si no, no hay nada que decidir y sería latencia para todos por el caso de unos pocos-- y
+    // **ante la duda se queda el hilo abierto**, que es el error barato: él lo aclara en el
+    // siguiente mensaje, mientras que cambiar de edificio sin motivo parte el reclamo en dos.
+    if (!edificioMencionadoEnMensaje && datosEmisor.rol === 'vecino' && vecinosEnSheets.length > 1) {
+        try {
+            const { edificioDelHilo } = require('./hilo-del-vecino');
+            const hilo = await edificioDelHilo({
+                texto:          msgClean,
+                edificios:      vecinosEnSheets.map(v => v.edificio),
+                historial:      session.historial || [],
+                edificioActual: session.edificioId || '',
+            });
+
+            if (hilo?.edificio && hilo.edificio !== session.edificioId) {
+                console.log(`🧵 ${from} figura en ${vecinosEnSheets.length} edificios. ` +
+                    `Venía de "${session.edificioId || 'ninguno'}" y este mensaje es de "${hilo.edificio}" ` +
+                    `(${hilo.motivo}, confianza ${hilo.confianza})${hilo.esOtroHilo ? ' — abre otro asunto' : ''}.`);
+                session.edificioId = hilo.edificio;
+                session.nombreEdificio = hilo.edificio;
+                const vHilo = vecinosEnSheets.find(v => v.edificio === hilo.edificio);
+                if (vHilo) session.datosVecino = vHilo;
+                else delete session.datosVecino;
+                // Se abandona la selección pendiente: ya sabemos de cuál habla.
+                delete session.opcionesEdificio;
+                delete session.edificioPendiente;
+            }
+        } catch (e) {
+            console.error('No se pudo leer de qué edificio habla el vecino:', e.message);
+        }
     }
 
     // ── Lógica de Identificación Natural (Fallback) ───────────────────────
@@ -4275,6 +4343,10 @@ function validarYSanitizarNombre(nombre) {
                         // A nombre de quién quedó el caso: desde acá en adelante se le habla a él
                         // y no se vuelve a deducir por rubro.
                         colaAviso.tecnicoDelCaso = datosEmisor.nombre || colaAviso.tecnicoDelCaso;
+                        // Estos tres SÍ son de este caso: se marca para que la relectura del
+                        // próximo mensaje no pise una elección que se acaba de hacer a propósito
+                        // --acá el técnico avisó él mismo, así que el nombre es el de quien escribe--.
+                        colaAviso.datosDeCaso = idAviso;
                     }
 
                     // Lo mismo si lo dijo de una: "me llamaron, voy en 3hs, tengo llave".
@@ -4686,7 +4758,17 @@ function validarYSanitizarNombre(nombre) {
                     try {
                         const idSubido = await subirMediaWhatsApp(guardada.filePath, guardada.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                         if (idSubido) {
-                            const pie = `📱 *MARCOS — ${guardada.tipo === 'image' ? 'FOTO' : 'VIDEO'} DEL RECLAMO*\n\n` +
+                            // El número de caso va en TODO mensaje al proveedor, y este se lo
+                            // salteaba: el técnico junta trabajos de varios días --a veces de
+                            // administradores distintos-- y el número es lo único con que después
+                            // puede decir "esta factura es del CASO-1005".
+                            //
+                            // No hubo que buscarlo: `idCasoDelTecnico` se calcula veinte líneas más
+                            // arriba, y es **de donde salió esta misma foto** (`materialDelVecinoEnCaso`).
+                            // Visto en producción el 26/09: a las 22:50 salió `FOTO DEL RECLAMO` pelado
+                            // y a las 23:56 la misma foto con `[CASO-1005]`, por el otro camino.
+                            const etiquetaCaso = idCasoDelTecnico ? ` [${idCasoDelTecnico}]` : '';
+                            const pie = `📱 *MARCOS — ${guardada.tipo === 'image' ? 'FOTO' : 'VIDEO'} DEL RECLAMO${etiquetaCaso}*\n\n` +
                                 `Hola ${datosEmisor.nombre}, acá va ${guardada.tipo === 'image' ? 'la foto' : 'el video'} que ${nomVecino || 'el vecino'} ya había mandado del inconveniente en ${dirExacta}.`;
                             const { enviarImagenWhatsApp, enviarVideoWhatsApp } = require('./agentes/marcos-ops');
                             if (guardada.tipo === 'image') {
@@ -5739,12 +5821,33 @@ app.post('/vapi', async (req, res) => {
             vecino = vecinosEnSheets[0];
             session.nombreEdificio = vecino.edificio;
         } else if (vecinosEnSheets.length > 1) {
-            const msgLower = textoVecino.toLowerCase();
-            const mencionado = vecinosEnSheets.find(v =>
-                msgLower.includes(v.edificio.toLowerCase().split(' ')[0])
+            // > [!CAUTION]
+            // > **`split(' ')[0]` se queda con la PRIMERA PALABRA del nombre del edificio.** Para
+            // > *San Patricio 159* y *San Patricio 270* eso es `"san"` en los dos casos: cualquier
+            // > mensaje que dijera "san" matcheaba con el primero de la lista. Y si no matcheaba
+            // > ninguno, `|| vecinosEnSheets[0]` agarraba el primero de la planilla igual.
+            //
+            // Un vecino con vivienda en un edificio y oficina en otro tiene UN teléfono, así que
+            // esto decide a qué consorcio se le imputa el reclamo. Planteado por Daniel, 27/09.
+            const { edificioNombradoEnMensaje } = require('./edificio-del-mensaje');
+            const dicho = edificioNombradoEnMensaje(
+                textoVecino,
+                vecinosEnSheets.map(v => ({ nombre: v.edificio, edificio: v.edificio }))
             );
-            vecino = mencionado || vecinosEnSheets[0];
-            session.nombreEdificio = vecino.edificio;
+            const mencionado = dicho
+                ? vecinosEnSheets.find(v => v.edificio === (dicho.edificio.nombre || dicho.edificio.edificio))
+                : null;
+
+            if (mencionado) {
+                vecino = mencionado;
+                session.nombreEdificio = vecino.edificio;
+            } else {
+                // **No se elige por el orden de la planilla.** Sin edificio, más abajo no se resuelve
+                // el perfil y Marcos pregunta — que es exactamente lo que hay que hacer cuando la
+                // misma persona puede estar hablando de dos consorcios distintos.
+                console.log(`🏢 ${from} figura en ${vecinosEnSheets.length} edificios ` +
+                    `(${vecinosEnSheets.map(v => v.edificio).join(' / ')}) y el mensaje no dice cuál: se le pregunta.`);
+            }
         }
 
         // ── Datos del edificio ──

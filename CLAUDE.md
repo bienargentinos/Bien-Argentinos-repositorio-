@@ -441,6 +441,76 @@ El orden queda:
 2. El rubro, solo si el caso todavía no anotó a nadie.
 3. Sin nada, `nombreIncierto`: no se lo llama por su nombre.
 
+#### Y el caso ya había cambiado, pero los datos no
+
+> [!CAUTION]
+> **`rubroActivo`, `tecnicoDelCaso`, `edificioActivo` y `vecinoActivo` describen UN caso, pero viven
+> en el estado de la LÍNEA** (`global.colasProveedores`, por teléfono). Todas sus asignaciones en
+> `index.js` son `if (!…)` --a propósito, para no pisar una conversación viva-- así que el PRIMER
+> caso de esa línea los fijaba **hasta el próximo reinicio de PM2**.
+
+Producción, 26/09, del WhatsApp del técnico:
+
+```
+23:08  plantilla:  "Hola julio, aguardamos tu confirmación para el [CASO-1005]"
+23:56  Marcos:     "Dario, Daniel Valdés en SAN PATRICIO 159 adjuntó esto del inconveniente."
+```
+
+Dos nombres para la misma persona en el mismo hilo, con cuarenta y ocho minutos de diferencia. Y no
+es que una de las dos ramas estuviera rota: **leen fuentes distintas.** La plantilla la manda el
+barrido y usa el `tecnico` **del caso**; los mensajes libres usan el estado de la línea, que seguía
+describiendo el CASO-1004 --de electricidad, a nombre de Dario-- mientras el CASO-1005 era de
+plomería y estaba a nombre de julio.
+
+**Dónde nace, exactamente**: `agentes/marcos-ops.js` pone `eventoActivoId` al mandar la plantilla y
+**no toca `rubroActivo` ni `tecnicoDelCaso`**. Desde ese instante el estado habla de dos casos a la
+vez: el id es del nuevo y el resto del viejo. Nada avisa.
+
+`datos-del-caso.js` (`refrescarDatosDelCaso`) agrega **de qué caso salieron los datos**
+(`datosDeCaso`) y, si el caso de ahora es otro, los relee de ese caso. Mismo criterio que
+`caso-del-tecnico.js`: **la memoria dice de qué se está hablando, la base dice la verdad.**
+
+- **No suelta los `if (!…)`**: siguen protegiendo la conversación viva.
+- **La marca ausente también dispara la relectura**, y hace falta: es justo el estado en que
+  `marcos-ops.js` deja la línea la primera vez.
+- **Si el caso no se puede leer, no borra nada** --y la marca tampoco se mueve, o el desfasaje
+  quedaría congelado para siempre--. Quedarse con datos viejos es malo; quedarse sin ninguno deja a
+  Marcos sin saber de qué habla.
+- El log lo dice entero: `🔄 El técnico de 549… pasó del [CASO-1004] al [CASO-1005]: eran
+  "electricidad / Dario", ahora "plomería / julio"`.
+
+> **Lo que esto NO decide**: si en una línea compartida está bien que un trabajo de plomería se
+> dirija a julio cuando el que contesta es Dario. Eso es una decisión de producto y hoy manda la
+> regla 1 de arriba --el caso decidió--. Lo que se arregló es que las dos vías digan **lo mismo**.
+
+> [!CAUTION]
+> **CONGELADO hasta tener más números de prueba. Decisión de Daniel, 27/09.** Sus palabras: *"lo de
+> los nombres dejalo para más adelante, que quizás no lo apliquemos, porque hoy es una ensalada de
+> nombres por que no tengo más número para probar"*.
+>
+> **La ensalada es del banco de pruebas, no del producto.** Hay un solo teléfono para probar, así
+> que julio y dario están cargados sobre la misma línea. Con números separados `proveedoresPorTelefono`
+> devuelve uno solo y **todo el desempate ni siquiera corre**: no hay dos nombres entre los que
+> elegir. Diseñar la regla definitiva contra un síntoma que solo existe en el banco es diseñar
+> contra el banco.
+>
+> **No rediseñar esto por iniciativa propia.** Se retoma cuando haya dos líneas de verdad y se vea
+> qué pasa con técnicos reales.
+>
+> Lo que **sí** queda vigente es el refresco de `datos-del-caso.js`, y no por los nombres: el mismo
+> estado guarda `vecinoActivo`, que es **a qué vecino se le avisa** (`index.js:1331` lo devuelve
+> como el vecino de ese técnico). Con el dato viejo, la confirmación del CASO-1005 le llegaba al
+> vecino del CASO-1004. Eso no tiene nada que ver con la línea compartida.
+
+Y en el mismo episodio, el número de caso: el técnico apretó *"Solicitar más datos"* y a las 22:50
+le llegó la foto con el encabezado `📱 MARCOS — FOTO DEL RECLAMO` **pelado**, mientras que a las
+23:56 la misma foto llegó con `[CASO-1005]` por el otro camino. El id **ya estaba calculado veinte
+líneas más arriba, en esa misma función** --es de donde se sacó la foto--. El candado de
+`pruebas-datos-del-caso.js` mira lo que está pegado al encabezado, no el nombre de la variable: la
+primera versión medía la forma y falló dos veces seguidas contra código correcto.
+
+Prueba: `node pruebas-datos-del-caso.js`.
+
 ## Datos de cobro del proveedor (CBU / alias)
 
 Marcos toma el CBU o el alias cuando el técnico se lo manda por WhatsApp, para que el
@@ -1012,6 +1082,96 @@ notaba porque CASO-1001 no se cerraba y **cada prueba del mismo día caía adent
   lados no tiene rubro cargado, se sigue enganchando como antes. Separar de más parte un caso en
   dos y le muestra al administrador dos reclamos donde hay uno.
 - Prueba: `node pruebas-caso-nuevo-o-mismo.js`.
+
+### El vecino tiene la casa en un edificio y la oficina en otro
+
+> [!CAUTION]
+> **Un vecino tiene UN teléfono y puede figurar en dos edificios.** El reclamo de uno no es el del
+> otro, y en el medio hay dos consorcios que pagan cosas distintas.
+
+Planteado por Daniel, 27/09:
+
+> *"el vecino tiene un número pero puede tener vivienda y oficina en distintos lados y el reclamo de
+> un edificio no es del otro. Acá debe analizar contexto, historial de conversación, para comprender
+> qué se está diciendo en el último mensaje. **Somos humanos y no tiramos palabras al azar: solo
+> tratamos de seguir el hilo de conversación o abrimos otros. Es posible que retomemos un hilo
+> anterior, pero se aclara en el mismo texto.**"*
+
+Eran **tres** agujeros distintos, y ninguno daba error.
+
+#### 1. Un número suelto elegía el edificio
+
+`buscarEdificioEnTexto` aceptaba **cualquier número del mensaje que apareciera en cualquier campo de
+cualquier edificio del sistema**:
+
+```js
+const nums = campo.match(/\d+/g) || [];
+return nums.includes(num);
+```
+
+Con eso, *"se cortó la luz en el piso 4"* asignaba el reclamo a un edificio cuya altura es 4, y un
+`270` escrito en los alias de la fila del 159 avalaba al 159. Es la **tercera copia** del defecto ya
+arreglado en `perfil-edificio.js`, que lo dice con todas las letras: *"el número solo no identifica
+nada"*.
+
+`edificio-del-mensaje.js` juzga **cada campo por separado** y al revés que `elegirFilaEdificio` --acá
+el "buscado" es un mensaje que habla de cualquier cosa, con números de piso, de unidad y de hora--:
+
+| | |
+|---|---|
+| 3 | el mensaje contiene el campo entero |
+| 2 | nombra la calle **y** la altura |
+| 1 | nombra la calle, no dice altura |
+| ✗ | el mensaje trae alturas y ninguna es la del campo |
+| ✗ | **no nombra la calle: un número suelto no alcanza nunca** |
+
+Con el mejor puntaje en 1 y dos candidatos, **no se elige**: se pregunta. Lo llaman las cuatro vías
+de `index.js` --la del vecino y las tres del proveedor-- así que arreglarlo ahí las cubre a todas.
+
+#### 2. Dos monedas al aire por el orden de la planilla
+
+- En el camino de las llamadas: `msgLower.includes(v.edificio.toLowerCase().split(' ')[0])` — la
+  **primera palabra** del nombre. Para *San Patricio 159* y *San Patricio 270* eso es `"san"` en los
+  dos. Y si no matcheaba ninguno, `|| vecinosEnSheets[0]` agarraba el primero igual.
+- Al cerrar un caso: `session.nombreEdificio || vecinosEnSheets?.[0]?.edificio` — con dos filas, el
+  orden de la planilla decidía en qué consorcio se cerraba el reclamo.
+
+Los dos ahora, sin certeza, **dejan el edificio vacío y se pregunta**.
+
+#### 3. El edificio quedaba fijo SEIS HORAS
+
+Este es el que Daniel describió. En el primer mensaje, con dos edificios, Marcos **sí** preguntaba
+cuál. Pero todo ese bloque vive adentro de `if (!session.edificioId)`, y la sesión dura
+`TIEMPO_CADUCIDAD_MS` = **6 horas**: elegido una vez, el reclamo de la oficina caía en el edificio de
+la casa hasta que la sesión venciera.
+
+La única salida era nombrar el otro edificio con todas las letras. Pero nadie habla así: se dice
+*"acá en la oficina se cortó la luz"* — eso no nombra ningún edificio y cualquier persona entiende
+que cambió de tema.
+
+`hilo-del-vecino.js` (`edificioDelHilo`) le pregunta al modelo con el historial. Mismo orden que
+`ruteo-proveedor.js`: **lo determinista manda y el modelo atiende lo que el texto no puede decidir.**
+
+- Se consulta **solo** si el mensaje no nombra ningún edificio **y** el vecino figura en dos o más.
+  Con uno solo no hay nada que decidir, y sería latencia para todos por el caso de unos pocos.
+- **Ante la duda se queda el hilo abierto.** Cambiar de edificio sin motivo parte un reclamo en dos;
+  quedarse es el error barato, porque él lo aclara en el mensaje siguiente. Es además lo que hace
+  una persona.
+- Un edificio que **no es de ese vecino** se descarta entero: mandaría el reclamo a un consorcio
+  donde no figura.
+- Se apaga con `HILO_IA=off` en el `.env`, igual que `RUTEO_IA` y `LECTURA_PG`, y usa la **misma**
+  espera que el ruteo del proveedor (`conTimeout`, exportado para que no haya dos criterios).
+- El log lo dice entero: `🧵 549… figura en 2 edificios. Venía de "san patricio casa" y este mensaje
+  es de "Rivadavia 4" (dijo oficina, confianza 0.9) — abre otro asunto.`
+
+> **No hizo falta tocar `guardarReporte`**: el paso 2 ya exige `rEdif === eBuscado`, así que con el
+> edificio bien resuelto el caso de la casa no se traga el reclamo de la oficina. Lo que queda
+> pendiente ahí es el `|| !eBuscado`: **con el edificio vacío engancha con cualquier caso abierto de
+> ese teléfono.** Hoy no muerde porque cuando no se sabe el edificio se pregunta y se corta antes de
+> guardar, pero es una bomba con el seguro puesto.
+
+Pruebas: `node pruebas-edificio-del-mensaje.js` y `node pruebas-hilo-del-vecino.js` (esta última no
+llama a Gemini: prueba el mecanismo, con el modelo inyectado).
 
 ### Quién decide de qué habla el técnico: el modelo, no las palabras
 

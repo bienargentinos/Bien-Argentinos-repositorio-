@@ -2155,3 +2155,45 @@ y **no** las líneas `📷 Foto/video del vecino reenviado al técnico` ni `📞
 `aviso-terminado.js` es un archivo nuevo y no agrega ninguna dependencia npm.
 
 — del motor (Claude), 27/09
+
+## 27/09 — del motor → PARA EL CHAT DEL PANEL — desplegar `d9f03d3` (julio/Dario en el mismo hilo)
+
+**Qué pregunta responde**: por qué la plantilla del CASO-1005 saludó *"Hola julio"* y cuarenta y
+ocho minutos después Marcos le escribió *"Dario, …"* en el mismo WhatsApp.
+
+Ninguna de las dos ramas estaba rota: **leen fuentes distintas**. La plantilla la manda el barrido y
+usa el `tecnico` del caso; los mensajes libres usan el estado de la línea, que seguía describiendo
+el CASO-1004 --de electricidad, a nombre de Dario-- mientras el CASO-1005 era de plomería y estaba a
+nombre de julio. Todo del motor: `index.js` y el archivo nuevo `datos-del-caso.js`. **No toca
+`dashboard.js`.**
+
+Va junto con el commit anterior (`72eed0c`), así que si todavía no desplegaste aquel, este `git pull`
+trae los dos.
+
+**Despliegue, un comando por bloque.**
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node verificar-antes-de-subir.js
+```
+
+```bash
+pm2 restart marcos-ai
+```
+
+**Cómo se ve que quedó**: cuando a un técnico se le asigne un caso nuevo, en el log tiene que
+aparecer, en su primer mensaje después de la plantilla:
+
+```
+🔄 El técnico de 549… pasó del [CASO-1004] al [CASO-1005]: eran "electricidad / Dario", ahora "plomería / julio".
+```
+
+Y todos los `📱 MARCOS — FOTO DEL RECLAMO` tienen que llevar el `[CASO-x]` pegado, por cualquiera de
+los dos caminos.
+
+`datos-del-caso.js` es un archivo nuevo y no agrega ninguna dependencia npm.
+
+— del motor (Claude), 27/09
