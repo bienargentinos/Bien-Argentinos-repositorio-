@@ -2237,6 +2237,40 @@ en `CLAUDE.md`. Si acá dice que está a medias o congelado, allá no puede deci
 
 ## 27/09 — del portal → PARA EL PANEL Y PARA EL CHAT DEL SITIO WEB — la carpeta `docs/comercial/`, y dos cosas del pop-up
 
+### 0. LO QUE HAY QUE CORRER AHORA (Daniel lo está esperando en su teléfono)
+
+**Qué pregunta responde:** ninguna — esto no es diagnóstico, es el despliegue del arreglo del
+pop-up, que hasta que no corra Daniel lo sigue viendo roto.
+
+Ya está fusionado en la rama de despliegue. Los comandos, de a uno:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+```bash
+node --check portal-vecino.js
+```
+
+```bash
+pm2 restart marcos-ai
+```
+
+**No hay dependencias nuevas** en este lote, así que no hace falta `npm install`.
+
+**Cómo se verifica que quedó bien** (y esto sí hay que mirarlo en un celular, no en la
+computadora — en pantalla grande el bug no se veía):
+
+1. Entrar al portal del vecino y mirar el pop-up del inicio.
+2. Tiene que aparecer **centrado**, no pegado al borde de abajo.
+3. Y abajo del todo, **"No mostrarme más estos avisos" tiene que verse entero y se tiene que poder
+   tocar.** Ese era el bug: la barra de navegación lo tapaba, así que el vecino no tenía cómo
+   apagarlo.
+
+Si después del `git pull` el `node --check` dice algo, **no reinicies** y avisá: es preferible
+Marcos andando con la versión vieja que Marcos caído.
+
+
 ### 1. Directiva nueva de Daniel: documentación comercial obligatoria
 
 Quedó escrita en `CLAUDE.md` (sección **DOCUMENTACIÓN COMERCIAL Y PARA TUTORIALES**) y vale para
