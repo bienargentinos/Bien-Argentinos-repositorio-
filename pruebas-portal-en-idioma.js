@@ -169,6 +169,56 @@ async function main() {
     afirmar('dice "Pases de invitación QR"', rEs.cuerpo.includes('Pases de invitación QR'));
     afirmar('y no quedó en portugués', !rEs.cuerpo.includes('Passes de visitante'));
 
+    console.log('\n── LA PANTALLA DE PASES NO PUEDE COLGARSE EN SILENCIO ──');
+    {
+        // CANDADO. Daniel vio "Cargando pases..." para siempre. El servidor SI mandaba el error
+        // --contesta {ok:false, error} con 500-- y el navegador lo tiraba a la basura: el catch
+        // estaba vacio y un ok:false no disparaba nada. Tres salidas mudas, una sola pantalla
+        // colgada, y ninguna forma de saber por que.
+        //
+        // Es el mismo defecto anotado tres veces en CLAUDE.md: una falla que miente sobre si misma
+        // cuesta mas que la falla.
+        const fsP = require('fs');
+        const pathP = require('path');
+        const PV = fsP.readFileSync(pathP.join(__dirname, 'portal-vecino.js'), 'utf8');
+
+        const m = PV.match(/async function cargarPases\(\)[\s\S]*?\n      }/);
+        afirmar('existe cargarPases', !!m);
+        const fn = m ? m[0] : '';
+
+        // Lo que importa: que NINGUNA salida quede muda.
+        afirmar('el catch ya no esta vacio', !/catch\s*\(\s*_\s*\)\s*\{\s*\}/.test(fn));
+        afirmar('avisa cuando algo falla', /mostrarErrorPases\(/.test(fn));
+        afirmar('un ok:false tambien avisa', /!data\.ok|!data \|\| !data\.ok/.test(fn));
+        afirmar('y una respuesta que no es JSON tambien', /errorNoJson/.test(fn));
+
+        const render = PV.match(/function mostrarErrorPases\(detalle\)[\s\S]*?\n      }/);
+        afirmar('existe el que lo muestra', !!render);
+        // SIN LOS COMENTARIOS. El comentario que explica esto NOMBRA innerHTML y esc, asi que
+        // medir el texto crudo mide el comentario en lugar de la funcion -- que es exactamente el
+        // error ya anotado en CLAUDE.md sobre pruebas-clave-app.js. Paso aca en la primera version
+        // de este candado: dio rojo contra codigo correcto.
+        const sinComentarios = (txt) => String(txt).split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n');
+        const rf = sinComentarios(render ? render[0] : '');
+        afirmar('no pega el detalle del error en innerHTML', !/innerHTML/.test(rf));
+        afirmar('lo pone como texto', /textContent = detalle/.test(rf));
+        // Y ofrece salir del paso, no solo enterarse.
+        afirmar('deja reintentar', /onclick = cargarPases/.test(rf));
+        // `esc` en este archivo es interpolacion del SERVIDOR: en el navegador no existe, y usarla
+        // haria fallar al propio manejador de errores.
+        afirmar('no usa esc(), que en el navegador no existe', !/[^a-zA-Z]esc\(/.test(rf));
+
+        // Los textos salen del diccionario, como todo lo que lee un vecino.
+        const { textos, IDIOMAS } = require('./idiomas');
+        for (const idioma of IDIOMAS) {
+            const t = textos(idioma.codigo);
+            for (const clave of ['pases.errorTitulo', 'pases.errorAyuda', 'pases.errorNoJson', 'pases.reintentar']) {
+                const v = t(clave);
+                afirmar(`${idioma.codigo}: ${clave} tiene texto`, !!v && v !== clave);
+            }
+        }
+    }
+
     server.close();
     console.log(`\n${fallos === 0 ? '✅ Todo bien' : `❌ ${fallos} fallo(s)`}\n`);
     process.exit(fallos === 0 ? 0 : 1);

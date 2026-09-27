@@ -4507,6 +4507,10 @@ router.get('/pases', (req, res) => {
     usado: t('pases.estadoUtilizado'),
     anulado: t('pases.estadoRevocado'),
     vencido: t('pases.estadoVencido'),
+    errorPases: t('pases.errorTitulo'),
+    errorPasesAyuda: t('pases.errorAyuda'),
+    errorNoJson: t('pases.errorNoJson'),
+    reintentar: t('pases.reintentar'),
   });
 
   const content = `
@@ -4766,15 +4770,79 @@ router.get('/pases', (req, res) => {
         box.style.display = chk ? 'block' : 'none';
       }
 
+      // Antes esto tenia TRES salidas mudas y las tres dejaban "Cargando pases..." para siempre:
+      // el catch estaba vacio, un ok:false del servidor no hacia nada, y una respuesta que no
+      // fuera JSON reventaba en ese mismo catch. Daniel vio la pantalla colgada y no habia forma de
+      // saber por que: el servidor SI mandaba el error, y el navegador lo tiraba a la basura.
+      // Es el mismo defecto que ya esta anotado tres veces en CLAUDE.md: una falla que miente
+      // sobre si misma cuesta mas que la falla.
+      // (Sin acentos graves aca: esto vive adentro de un template literal y lo romperian.)
       async function cargarPases() {
         try {
           var res = await fetch('/vecino/api/pases-qr');
-          var data = await res.json();
-          if (data && data.ok) {
-            _pasesData = data.pases || [];
-            renderPases();
+          var data = null;
+          try {
+            data = await res.json();
+          } catch (errJson) {
+            // Respuesta que no es JSON: casi siempre la pagina de error de Express o el HTML del
+            // login. El texto crudo dice mas que "Unexpected token '<'".
+            throw new Error(T.errorNoJson + ' (HTTP ' + res.status + ')');
           }
-        } catch(_) {}
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || ('HTTP ' + res.status));
+          }
+          _pasesData = data.pases || [];
+          renderPases();
+        } catch (err) {
+          mostrarErrorPases(err && err.message ? err.message : String(err));
+        }
+      }
+
+      // La pantalla tiene que decir que paso y que hacer. Sin esto, cualquier falla se ve igual que
+      // "todavia esta cargando", que es lo que hace perder una tarde buscando en el lugar
+      // equivocado.
+      function mostrarErrorPases(detalle) {
+        // Se arma con textContent y no con innerHTML: el detalle viene del mensaje de error del
+        // servidor, y pegarlo crudo en HTML seria meter texto no controlado en la pagina.
+        // Y la funcion esc de este archivo NO sirve aca: es interpolacion del servidor, en el
+        // navegador no existe -- usarla haria fallar al propio manejador de errores.
+        // (Nada de acentos graves: esto vive adentro de un template literal.)
+        var cajas = [document.getElementById('box-pases-activos'), document.getElementById('box-pases-historial')];
+        for (var i = 0; i < cajas.length; i++) {
+          if (!cajas[i]) continue;
+          cajas[i].textContent = '';
+          var card = document.createElement('div');
+          card.className = 'card';
+          card.style.cssText = 'padding:22px;text-align:center;background:#fff;border-radius:18px;border:1px solid var(--borde)';
+
+          var ico = document.createElement('div');
+          ico.style.cssText = 'font-size:28px;margin-bottom:8px';
+          ico.textContent = '\u26A0\uFE0F';
+
+          var tit = document.createElement('div');
+          tit.style.cssText = 'font-size:13.5px;font-weight:800;color:var(--texto);margin-bottom:6px';
+          tit.textContent = T.errorPases;
+
+          var ayuda = document.createElement('div');
+          ayuda.style.cssText = 'font-size:12px;color:var(--texto-suave);margin-bottom:12px';
+          ayuda.textContent = T.errorPasesAyuda;
+
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.style.cssText = 'height:38px;padding:0 16px;border-radius:11px;border:none;background:var(--marca);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit';
+          btn.textContent = T.reintentar;
+          btn.onclick = cargarPases;
+
+          var det = document.createElement('div');
+          det.style.cssText = 'font-size:11px;color:var(--texto-tenue);margin-top:10px;word-break:break-word';
+          det.textContent = detalle || '';
+
+          card.appendChild(ico); card.appendChild(tit); card.appendChild(ayuda);
+          card.appendChild(btn); card.appendChild(det);
+          cajas[i].appendChild(card);
+        }
+        var cnt = document.getElementById('cnt-activos');
+        if (cnt) cnt.textContent = '0';
       }
 
       function renderPases() {
