@@ -1083,6 +1083,96 @@ notaba porque CASO-1001 no se cerraba y **cada prueba del mismo día caía adent
   dos y le muestra al administrador dos reclamos donde hay uno.
 - Prueba: `node pruebas-caso-nuevo-o-mismo.js`.
 
+### El vecino tiene la casa en un edificio y la oficina en otro
+
+> [!CAUTION]
+> **Un vecino tiene UN teléfono y puede figurar en dos edificios.** El reclamo de uno no es el del
+> otro, y en el medio hay dos consorcios que pagan cosas distintas.
+
+Planteado por Daniel, 27/09:
+
+> *"el vecino tiene un número pero puede tener vivienda y oficina en distintos lados y el reclamo de
+> un edificio no es del otro. Acá debe analizar contexto, historial de conversación, para comprender
+> qué se está diciendo en el último mensaje. **Somos humanos y no tiramos palabras al azar: solo
+> tratamos de seguir el hilo de conversación o abrimos otros. Es posible que retomemos un hilo
+> anterior, pero se aclara en el mismo texto.**"*
+
+Eran **tres** agujeros distintos, y ninguno daba error.
+
+#### 1. Un número suelto elegía el edificio
+
+`buscarEdificioEnTexto` aceptaba **cualquier número del mensaje que apareciera en cualquier campo de
+cualquier edificio del sistema**:
+
+```js
+const nums = campo.match(/\d+/g) || [];
+return nums.includes(num);
+```
+
+Con eso, *"se cortó la luz en el piso 4"* asignaba el reclamo a un edificio cuya altura es 4, y un
+`270` escrito en los alias de la fila del 159 avalaba al 159. Es la **tercera copia** del defecto ya
+arreglado en `perfil-edificio.js`, que lo dice con todas las letras: *"el número solo no identifica
+nada"*.
+
+`edificio-del-mensaje.js` juzga **cada campo por separado** y al revés que `elegirFilaEdificio` --acá
+el "buscado" es un mensaje que habla de cualquier cosa, con números de piso, de unidad y de hora--:
+
+| | |
+|---|---|
+| 3 | el mensaje contiene el campo entero |
+| 2 | nombra la calle **y** la altura |
+| 1 | nombra la calle, no dice altura |
+| ✗ | el mensaje trae alturas y ninguna es la del campo |
+| ✗ | **no nombra la calle: un número suelto no alcanza nunca** |
+
+Con el mejor puntaje en 1 y dos candidatos, **no se elige**: se pregunta. Lo llaman las cuatro vías
+de `index.js` --la del vecino y las tres del proveedor-- así que arreglarlo ahí las cubre a todas.
+
+#### 2. Dos monedas al aire por el orden de la planilla
+
+- En el camino de las llamadas: `msgLower.includes(v.edificio.toLowerCase().split(' ')[0])` — la
+  **primera palabra** del nombre. Para *San Patricio 159* y *San Patricio 270* eso es `"san"` en los
+  dos. Y si no matcheaba ninguno, `|| vecinosEnSheets[0]` agarraba el primero igual.
+- Al cerrar un caso: `session.nombreEdificio || vecinosEnSheets?.[0]?.edificio` — con dos filas, el
+  orden de la planilla decidía en qué consorcio se cerraba el reclamo.
+
+Los dos ahora, sin certeza, **dejan el edificio vacío y se pregunta**.
+
+#### 3. El edificio quedaba fijo SEIS HORAS
+
+Este es el que Daniel describió. En el primer mensaje, con dos edificios, Marcos **sí** preguntaba
+cuál. Pero todo ese bloque vive adentro de `if (!session.edificioId)`, y la sesión dura
+`TIEMPO_CADUCIDAD_MS` = **6 horas**: elegido una vez, el reclamo de la oficina caía en el edificio de
+la casa hasta que la sesión venciera.
+
+La única salida era nombrar el otro edificio con todas las letras. Pero nadie habla así: se dice
+*"acá en la oficina se cortó la luz"* — eso no nombra ningún edificio y cualquier persona entiende
+que cambió de tema.
+
+`hilo-del-vecino.js` (`edificioDelHilo`) le pregunta al modelo con el historial. Mismo orden que
+`ruteo-proveedor.js`: **lo determinista manda y el modelo atiende lo que el texto no puede decidir.**
+
+- Se consulta **solo** si el mensaje no nombra ningún edificio **y** el vecino figura en dos o más.
+  Con uno solo no hay nada que decidir, y sería latencia para todos por el caso de unos pocos.
+- **Ante la duda se queda el hilo abierto.** Cambiar de edificio sin motivo parte un reclamo en dos;
+  quedarse es el error barato, porque él lo aclara en el mensaje siguiente. Es además lo que hace
+  una persona.
+- Un edificio que **no es de ese vecino** se descarta entero: mandaría el reclamo a un consorcio
+  donde no figura.
+- Se apaga con `HILO_IA=off` en el `.env`, igual que `RUTEO_IA` y `LECTURA_PG`, y usa la **misma**
+  espera que el ruteo del proveedor (`conTimeout`, exportado para que no haya dos criterios).
+- El log lo dice entero: `🧵 549… figura en 2 edificios. Venía de "san patricio casa" y este mensaje
+  es de "Rivadavia 4" (dijo oficina, confianza 0.9) — abre otro asunto.`
+
+> **No hizo falta tocar `guardarReporte`**: el paso 2 ya exige `rEdif === eBuscado`, así que con el
+> edificio bien resuelto el caso de la casa no se traga el reclamo de la oficina. Lo que queda
+> pendiente ahí es el `|| !eBuscado`: **con el edificio vacío engancha con cualquier caso abierto de
+> ese teléfono.** Hoy no muerde porque cuando no se sabe el edificio se pregunta y se corta antes de
+> guardar, pero es una bomba con el seguro puesto.
+
+Pruebas: `node pruebas-edificio-del-mensaje.js` y `node pruebas-hilo-del-vecino.js` (esta última no
+llama a Gemini: prueba el mecanismo, con el modelo inyectado).
+
 ### Quién decide de qué habla el técnico: el modelo, no las palabras
 
 > [!CAUTION]
