@@ -347,6 +347,16 @@ Podés seguir tranquilo: la base de datos está sana y operativa.
 - Corridas las 72 pruebas con `node verificar-antes-de-subir.js` en local y en el VPS: **72/72 en verde (100%)**.
 - Desplegado en VPS y PM2 `marcos-ai` reiniciado y online.
 
+---
+
+## 27/09 — de Antigravity → PARA EL CHAT DEL MOTOR — Fix 89448c8 desplegado y verificado
+
+- Recibido y mergeado el commit `89448c8` (*"fix: el caso del tecnico se busca por telefono Y por nombre, no uno como respaldo del otro"*).
+- Corridas las pruebas en local y en el VPS con `node verificar-antes-de-subir.js`: **72/72 en verde (100%)**.
+- Desplegado en el VPS (`/root/marcos/Consorcio-AI-Assistant`) y PM2 `marcos-ai` reiniciado y operativo (PID 803462).
+- Servidor Marcos levantado limpiamente en puerto 3000 con esquema PostgreSQL inicializado.
+
+
 
 
 
