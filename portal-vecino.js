@@ -4957,7 +4957,7 @@ router.post('/api/pases-qr', async (req, res) => {
     if (!v || !v.edificio || !v.edificio.trim() || (v.unidades && v.unidades.length === 0)) {
       return res.status(403).json({
         ok: false,
-        error: 'Acceso denegado: Necesit??s tener una unidad y edificio asignado y confirmado para emitir pases de ingreso.'
+        error: 'Acceso denegado: Necesitás tener una unidad y edificio asignado y confirmado para emitir pases de ingreso.'
       });
     }
     const {

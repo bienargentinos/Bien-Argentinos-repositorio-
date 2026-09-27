@@ -187,6 +187,46 @@ el mismo archivo el mismo día es cómo se pierde trabajo.
 > editar y empuje apenas termina — cuanto menos tiempo queda algo sin empujar, menos hay para
 > perder.
 
+## DOCUMENTACIÓN COMERCIAL Y PARA TUTORIALES (obligatoria, decisión de Daniel 27/09)
+
+> [!CAUTION]
+> **CONTRATO PARA TODOS LOS AGENTES.** Cada vez que se termina una mejora, un módulo o una
+> corrección --en Marcos IA, en Edifica o en el Panel-- además de anotar el cambio técnico donde
+> va, se escribe y se commitea un `.md` **en `docs/comercial/`** pensado para vender, dar soporte
+> y capacitar. Va en el mismo ciclo de trabajo que el cambio: escrito tres semanas después se
+> escribe de memoria, y de memoria es como se inventa humo.
+
+Vale la regla de oro de siempre: **únicamente por GitHub**, sin editar a mano en el VPS, y con
+`package.json` en el mismo commit si el cambio sumó una dependencia.
+
+**Los cuatro títulos son obligatorios y van en este orden** (la plantilla completa, con ejemplos,
+está en `docs/comercial/README.md`):
+
+1. **¿Qué problema resuelve?** — en lenguaje simple y comercial, apuntando al **administrador de
+   consorcio o al vecino**. Sin jerga de código: ni nombres de archivo, ni tablas, ni endpoints.
+2. **¿Cómo funciona en la práctica?** — el paso a paso real del panel o de la conversación por
+   WhatsApp.
+3. **Argumentos comerciales** — qué dolor operativo del edificio saca de encima.
+4. **Guion base para video / reel / publicidad** — listo para grabar o para pegar como copy.
+
+Y una quinta que no estaba pedida pero sin la cual lo de arriba no sirve:
+
+> [!CAUTION]
+> **"Lo que todavía no hace".** El objetivo de esta carpeta es material **sin humo**, y un
+> argumento de venta sobre algo que no existe se transforma en una promesa que alguien va a
+> reclamar delante de un cliente que ya pagó. Tampoco se inventan números: **ningún documento dice
+> "ahorrá 10 horas por semana"** ni pone un porcentaje que nadie midió. Se describe el mecanismo
+> --qué deja de pasar-- y el administrador saca su propia cuenta.
+
+**Cada conversación escribe los suyos.** Quien hizo el módulo es el único que sabe qué hace de
+verdad y qué no; un agente documentando el módulo de otro es exactamente cómo se escribe humo sin
+querer. El portal ya tiene los suyos; faltan los del panel y los del motor.
+
+**Una corrección chica no lleva archivo nuevo**: se agrega al documento del módulo que corrige.
+
+Y las siglas internas (**AC** por administrador cliente, **AY** por Antigravity) **no se escriben
+en estos documentos**: el cliente no las conoce. Ahí se dice "el administrador".
+
 ## Stack técnico
 
 - **Runtime**: Node.js + Express — `index.js` es el servidor principal (acumulación de **25 segundos** en ráfagas).

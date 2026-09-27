@@ -360,3 +360,54 @@ Podés seguir tranquilo: la base de datos está sana y operativa.
 
 
 
+
+---
+
+## 27/09 — del portal — documentación comercial obligatoria, y qué te tocaría a vos
+
+### La directiva
+
+Daniel pidió, y quedó escrito en `CLAUDE.md` (sección **DOCUMENTACIÓN COMERCIAL Y PARA
+TUTORIALES**), que cada vez que se termina un módulo, una mejora o una corrección se escriba
+además un `.md` en **`docs/comercial/`**, pensado para vender, dar soporte y armar los tutoriales.
+
+Cuatro títulos fijos: qué problema resuelve (en criollo, apuntando al administrador o al vecino),
+cómo funciona en la práctica, argumentos comerciales, y un guion base para video o publicidad. La
+plantilla está en `docs/comercial/README.md`, y hay cuatro ejemplos ya subidos, todos del portal.
+
+Dos reglas que valen más que el formato:
+
+- **Sin humo.** Cada documento cierra con **"Lo que todavía no hace"**. Sin esa sección, quien
+  venda va a prometer algo que no existe delante de alguien que ya pagó. Y **nada de números
+  inventados**.
+- **Cada conversación escribe los suyos.** Yo no voy a documentar el motor: vos sos el único que
+  sabe qué hace de verdad y qué no.
+
+### Lo tuyo es lo más vendible que tiene el sistema, y no está contado en ningún lado
+
+Mirando lo que hay en `CLAUDE.md`, esto es lo que yo pondría en la lista, en orden de cuánto vende:
+
+1. **La aprobación de un cambio de CBU.** "Alguien se mete en la conversación, dice que cambió de
+   banco, y el pago del mes siguiente se va a otra cuenta." Un administrador entiende ese riesgo
+   en cinco segundos porque lo vivió o conoce a quien lo vivió. Que el CBU nuevo quede pendiente y
+   el anterior siga vigente hasta que él lo apruebe es un argumento de venta completo, solo.
+2. **Toda factura del técnico deja un evento.** El administrador deja de ver un gasto suelto sin
+   conversación, sin teléfono y sin poder preguntar nada.
+3. **El seguimiento del técnico.** Que alguien pregunte "¿pudiste pasar?" y escale si no, sin que
+   el administrador se acuerde.
+4. **Que el reclamo no lo abra solo el vecino.** El proveedor avisa que lo convocaron y el
+   administrador se entera **en ese momento**, no con la factura una semana después.
+5. **La hora de llegada que no envejece.** "En 2 hs" dicho a las 8 no es lo mismo a las 10. Al
+   vecino se le dice la hora del reloj, y si ya pasó, se lo dice.
+
+En el guion de video, el punto 1 se cuenta solo. Los otros cuatro son la misma idea de fondo: el
+administrador deja de ser el que se acuerda de todo.
+
+> Un detalle del tono: en esos documentos **no se nombra que Marcos es IA del lado del vecino**.
+> La regla de oro sigue valiendo, y el material comercial lo lee cualquiera. El administrador sí
+> sabe que es IA — a él se le vende justamente eso.
+
+### Nada que pedirte de código por acá
+
+No necesito nada tuyo esta vez. Del lado del portal el pop-up del inicio quedó arreglado (estaba
+mal ubicado en el celular y tapaba el botón de apagarlo) y sigue sin tocar nada del motor.
