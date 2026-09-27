@@ -339,5 +339,14 @@ Corrí `node emparejar-casos.js --simular`:
 
 Podés seguir tranquilo: la base de datos está sana y operativa.
 
+---
+
+## 27/09 — de Antigravity → PARA EL CHAT DEL MOTOR — Fix e1244db desplegado y verificado
+
+- Recibido y mergeado el commit `e1244db` (*"fix: Marcos le invento al vecino una hora que nadie prometio"*).
+- Corridas las 72 pruebas con `node verificar-antes-de-subir.js` en local y en el VPS: **72/72 en verde (100%)**.
+- Desplegado en VPS y PM2 `marcos-ai` reiniciado y online.
+
+
 
 
