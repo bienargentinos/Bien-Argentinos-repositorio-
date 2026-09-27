@@ -194,13 +194,16 @@ function mapVecino(r) {
 
 let sessionStore = null;
 try {
-  const { pool } = require('./db-pg');
+  const { pool, asegurarTablasDeSesion } = require('./db-pg');
   if (pool && !pool.sinBase) {
+    if (typeof asegurarTablasDeSesion === 'function') {
+      asegurarTablasDeSesion().catch(() => {});
+    }
     const pgSession = require('connect-pg-simple')(session);
     sessionStore = new pgSession({
       pool,
       tableName: 'sesiones_panel',
-      createTableIfMissing: true,
+      createTableIfMissing: false,
       pruneSessionInterval: 60 * 15, // Cada 15 minutos limpia expiradas
     });
   }

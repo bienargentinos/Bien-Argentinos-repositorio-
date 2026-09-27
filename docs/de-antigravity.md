@@ -27,6 +27,17 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-09-27 — Store de sesiones del Panel alineado con asegurarTablasDeSesion (`dashboard.js`)
+
+- **Qué se hizo**:
+  - En `dashboard.js`:
+    - Se importa `asegurarTablasDeSesion` desde `./db-pg`.
+    - Antes de instanciar `new pgSession()`, se invoca `asegurarTablasDeSesion().catch(() => {})`.
+    - Se configuró `createTableIfMissing: false` en `new pgSession()`, evitando que la librería intente crear la restricción `session_pkey` en paralelo o choque con el store del portal.
+- **Verificaciones**:
+  - `node --check dashboard.js`: ✅ OK.
+  - `node verificar-antes-de-subir.js`: ✅ 79 de 79 pruebas en verde (incluye `pruebas-sesiones-pg.js`).
+
 ### 2026-09-27 — Implementación del interruptor de pop-up por edificio en el Panel (`dashboard.js`)
 
 - **Qué se hizo**:
