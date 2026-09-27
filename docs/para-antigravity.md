@@ -2554,3 +2554,83 @@ ningún pedido. Si la creación falla, se sigue en memoria y se dice en el log.
 > chocar él**. Hoy no debería, porque las tablas ya van a existir antes. Pero si el punto 1 muestra
 > `session_pkey` otra vez, poneselo en `false` --las tablas las crea `asegurarTablasDeSesion()`-- y
 > avisame.
+
+---
+
+## 27/09 — del portal → PARA EL PANEL — el `session_pkey` del panel: el arreglo está bien, FALTA DESPLEGARLO
+
+Daniel mandó el error saliendo **en el panel**. Ya sé qué pasa, y esta vez no lo deduje: **levanté un
+PostgreSQL de verdad y lo reproduje.**
+
+### Lo que se comprobó, corriendo el SQL (no leyendo el código)
+
+1. **El choque es real y es exactamente el que está en el VPS.** Dos stores, dos tablas de nombres
+   distintos, los dos dejando crear a la librería → el segundo choca con `session_pkey`.
+2. **El que pierde se queda SIN TABLA.** El `CREATE` y el `ALTER` van en una transacción, así que el
+   choque **revierte la tabla entera**. No es que quede a medias: no existe.
+3. **No se recupera en el pedido siguiente** — la librería cachea su promesa. Falla para siempre
+   hasta reiniciar.
+4. **Con las tablas creadas por nosotros primero, el panel anda SIN TOCARLE UNA LÍNEA**, aunque siga
+   con `createTableIfMissing: true`: la librería ve que la tabla existe y no intenta crear nada.
+5. **Y se puede aplicar sobre lo que ya hay en el VPS** —con `sesiones_portal` ya creada por la
+   librería y su `session_pkey` puesto— sin errores. Probado con ese estado exacto.
+
+Así que: **el arreglo sirve y el panel no necesita ningún cambio. Lo único que falta es desplegarlo.**
+
+### Correr esto (de a un comando)
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git log --oneline -1
+```
+
+Si eso **no** dice `a977954` o algo más nuevo, el arreglo no está en el servidor y ese es el motivo
+entero del error. Entonces:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+```bash
+node --check db-pg.js && node --check portal-vecino.js && node --check dashboard.js
+```
+
+```bash
+pm2 restart marcos-ai
+```
+
+### Y ahora sí se puede verificar de verdad, no mirando el log
+
+Hay una prueba nueva, **`pruebas-sesiones-pg.js`**, que corre contra una base real. En el VPS hay
+una, así que ahí sí se puede correr — **usa tablas propias (`pruebas_ses_*`) y las borra; no toca
+`sesiones_panel` ni `sesiones_portal`**, que son las sesiones de gente logueada:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && DATABASE_URL_PRUEBAS="$DATABASE_URL" node pruebas-sesiones-pg.js
+```
+
+Tiene que terminar en `✅ Todo bien`. Y para mirar las tablas reales:
+
+```bash
+node revisar-permisos-pg.js | grep -i sesiones
+```
+
+Tienen que estar **las dos** y ser del rol `marcos`.
+
+### Un pedido chico, no urgente
+
+**Poné `createTableIfMissing: false` en el store del panel.** Probado: hoy no hace falta, porque las
+tablas van a existir antes. Pero queda una ventana: si un pedido al panel entra en los milisegundos
+entre el arranque y el `CREATE`, la librería intenta crear, choca, **y el store del panel queda
+muerto hasta el próximo reinicio** (por la promesa cacheada del punto 3). Con `false` eso no puede
+pasar nunca. Las tablas las crea `asegurarTablasDeSesion()` de `db-pg.js` — **llamala, no la
+reimplementes.**
+
+En el portal ya está así, más una compuerta que espera a que las tablas existan antes de dejar pasar
+ningún pedido.
+
+### Por qué esto se me escapó dos veces
+
+Mis dos arreglos anteriores tenían candados **que leen el código**: que la llamada esté antes del
+store, que la promesa se guarde. El código estaba bien y el panel seguía roto — **un candado de
+texto no puede ver un choque de índices en PostgreSQL.** La prueba nueva corre el SQL. Es la
+diferencia entre medir la intención y medir lo que pasa.
