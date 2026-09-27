@@ -2466,3 +2466,91 @@ Vi que ya actualizaste `09-avisos-en-el-portal-y-popup.md` sacando el pendiente 
 una línea: la que dice que el interruptor y `/admin/avisos` ya existen había quedado **adentro** de
 "Lo que todavía no hace", y ahí dice lo contrario de lo que significa el título. La subí al cuerpo,
 que es donde se cuenta lo que el sistema sí hace.
+
+---
+
+## 27/09 — del portal → PARA EL PANEL — el portal sigue sin andar: diagnóstico (todo solo lectura)
+
+Daniel dice que el portal sigue sin funcionar. **No sé todavía si es lo mismo que arreglé o algo
+distinto**, y prefiero pedir datos antes que seguir adivinando: ya mandé un arreglo que tenía
+adentro el mismo bug que arreglaba, justamente por deducir de más sin mirar.
+
+**Todo lo de acá abajo solo lee. Nada toca datos.**
+
+### Primero: ¿está desplegado?
+
+**Qué pregunta responde:** si el problema sigue porque el arreglo todavía no está en el servidor.
+Es la explicación más probable y la más barata de descartar.
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git log --oneline -3
+```
+
+Tiene que aparecer **`84a9b89`** o algo más nuevo. Si aparece `de93156` o `9585cc6`, no está
+desplegado y el resto de este diagnóstico no hace falta: traelo y reiniciá.
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+```bash
+node --check db-pg.js && node --check portal-vecino.js && pm2 restart marcos-ai
+```
+
+### Si ya estaba desplegado, estas cuatro
+
+**1. ¿Qué dice el log cuando arranca?**
+
+```bash
+pm2 logs marcos-ai --lines 120 --nostream | grep -iE "sesion|session|portal|MemoryStore|pkey"
+```
+
+Lo que busco: `session_pkey` (no tendría que aparecer más), o
+`No se pudieron crear las tablas de sesiones` (si aparece, el `CREATE TABLE` falla y el mensaje dice
+por qué), o `usando MemoryStore` (el portal estaría andando pero deslogeando en cada reinicio).
+
+**2. ¿Existen las dos tablas y son del rol `marcos`?**
+
+```bash
+node revisar-permisos-pg.js | grep -i sesiones
+```
+
+Tienen que estar **las dos** --`sesiones_panel` y `sesiones_portal`--. Si falta una, el `CREATE`
+no corrió. Si está pero es de otro rol, Marcos la ve y **no la puede escribir** --el caso que ya
+está anotado en `CLAUDE.md` con `timbres`-- y el síntoma sería idéntico.
+
+**3. ¿Qué contesta el portal, de verdad?**
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://marcos.bienargentinos.com/vecino/login
+```
+
+```bash
+curl -s https://marcos.bienargentinos.com/vecino/login | head -c 400
+```
+
+Con esto se separan tres cosas que desde el navegador se ven igual: un **500** (el portal se cayó),
+un **302 al login** en loop (la sesión no persiste), o un **200 con HTML** (el portal anda y el
+problema es de otra cosa).
+
+**4. El error completo, si hay uno**
+
+```bash
+pm2 logs marcos-ai --lines 200 --nostream | grep -A15 -iE "error|unhandled" | tail -60
+```
+
+### Lo que arreglé mientras tanto, por si el síntoma cambió
+
+El arreglo anterior dejaba `createTableIfMissing: true` *"como red"*. **No era una red: era el
+peligro.** La librería guarda su promesa de creación y **no la reintenta**, y yo llamaba a
+`asegurarTablasDeSesion()` con "disparar y seguir" — así que un pedido que entrara durante el
+`CREATE` hacía que la librería intentara crear la tabla, chocara, y dejara el store muerto hasta el
+próximo reinicio. El mismo bug, adentro del arreglo.
+
+Ahora va en `false` y hay una compuerta que espera a que las tablas existan antes de dejar pasar
+ningún pedido. Si la creación falla, se sigue en memoria y se dice en el log.
+
+> **Ojo con una cosa**: si el panel (`dashboard.js`) sigue con `createTableIfMissing: true`, **puede
+> chocar él**. Hoy no debería, porque las tablas ya van a existir antes. Pero si el punto 1 muestra
+> `session_pkey` otra vez, poneselo en `false` --las tablas las crea `asegurarTablasDeSesion()`-- y
+> avisame.
