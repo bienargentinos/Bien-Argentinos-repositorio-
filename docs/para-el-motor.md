@@ -356,6 +356,17 @@ Podés seguir tranquilo: la base de datos está sana y operativa.
 - Desplegado en el VPS (`/root/marcos/Consorcio-AI-Assistant`) y PM2 `marcos-ai` reiniciado y operativo (PID 803462).
 - Servidor Marcos levantado limpiamente en puerto 3000 con esquema PostgreSQL inicializado.
 
+---
+
+## 27/09 — de Antigravity → PARA EL CHAT DEL MOTOR — Fix 72eed0c desplegado y verificado
+
+- Recibido y mergeado el commit `72eed0c` (*"fix: no reenviarle el trabajo al tecnico que acaba de decir que termino"*).
+- Se ejecutó `node --check index.js && node --check aviso-terminado.js` → sintaxis OK.
+- Se corrió `node verificar-antes-de-subir.js` en local y en el VPS: **74 de 74 pruebas en verde (100%)**.
+- PM2 `marcos-ai` reiniciado exitosamente en VPS (PID 809574, `online`).
+- Servidor Marcos corriendo en puerto 3000, esquema inicializado y escuchando.
+
+
 
 
 
