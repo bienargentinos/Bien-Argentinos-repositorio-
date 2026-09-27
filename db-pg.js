@@ -723,6 +723,46 @@ async function _initPgSchema() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- ── LAS DOS TABLAS DE SESIONES, CREADAS ACA Y NO POR LA LIBRERIA ──────
+            --
+            -- connect-pg-simple crea su tabla leyendo su table.sql y sustituyendo SOLO la cadena
+            -- "session" por el nombre que uno le pasa:
+            --
+            --     tableDefString.replaceAll('"session"', quotedTable)
+            --
+            -- El nombre de la RESTRICCION no se sustituye: queda literal como "session_pkey", y
+            -- el indice de una clave primaria en PostgreSQL es unico POR ESQUEMA, no por tabla.
+            -- Con dos stores en la misma base --el del panel y el del portal, que corren en el
+            -- mismo proceso-- el segundo en arrancar choca contra el indice del primero:
+            --
+            --     error: relation "session_pkey" already exists
+            --
+            -- Y no es un error de arranque que pasa solo: el que pierde SE QUEDA SIN TABLA, su
+            -- promesa de creacion queda rechazada y cacheada, y falla en CADA pedido. Ahi
+            -- express-session no puede leer la sesion, Express contesta su pagina de error en
+            -- HTML, y una ruta de API devuelve HTML donde el JavaScript espera JSON -- el mismo
+            -- "Unexpected token <" que ya esta anotado en CLAUDE.md por otra causa.
+            --
+            -- Creandolas aca el problema desaparece de raiz: cuando la libreria arranca,
+            -- to_regclass ya las encuentra y NO intenta crear nada. Ademas quedan a nombre del
+            -- rol marcos, como el resto -- una tabla creada por otro rol se ve pero no se puede
+            -- escribir, que es el otro problema ya anotado en CLAUDE.md.
+            --
+            -- La forma de las columnas es la que espera la libreria y no se toca.
+            CREATE TABLE IF NOT EXISTS sesiones_panel (
+                sid VARCHAR NOT NULL COLLATE "default" PRIMARY KEY,
+                sess JSON NOT NULL,
+                expire TIMESTAMP(6) NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sesiones_panel_expire ON sesiones_panel (expire);
+
+            CREATE TABLE IF NOT EXISTS sesiones_portal (
+                sid VARCHAR NOT NULL COLLATE "default" PRIMARY KEY,
+                sess JSON NOT NULL,
+                expire TIMESTAMP(6) NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sesiones_portal_expire ON sesiones_portal (expire);
+
             -- ── COLUMNAS QUE LA PLANILLA TIENE Y EL ESQUEMA ORIGINAL PERDIA ────────
             -- La pestaña EVENTOS tiene 22 columnas y "reportes" solo cubria 11: migrar sin esto
             -- borraba en silencio la transcripcion, los chats por canal y -- lo mas grave --
@@ -2093,9 +2133,48 @@ async function guardarPopupEdificio(edificio, activo) {
     return res.rows[0].popup_activo;
 }
 
+/**
+ * Crea las DOS tablas de sesiones si faltan. Las crea LAS DOS a propósito, aunque quien llame sea
+ * uno solo de los dos lados.
+ *
+ * Por qué existe aparte de `initPgSchema`: **`index.js` nunca llama a `initPgSchema`** --solo lo
+ * llaman los scripts sueltos-- así que en producción el esquema no se aplica al arrancar. Poner
+ * las tablas ahí las deja escritas y sin crear.
+ *
+ * Por qué hay que adelantarse a la librería: `connect-pg-simple` crea su tabla leyendo su
+ * `table.sql` y sustituyendo SOLO la cadena `"session"` por el nombre que uno le pasa
+ * (`tableDefString.replaceAll('"session"', quotedTable)`). El nombre de la restricción queda
+ * literal como `session_pkey`, y el índice de una clave primaria en PostgreSQL es único **por
+ * esquema**, no por tabla. Con dos stores en la misma base --el panel y el portal, en el mismo
+ * proceso-- el segundo en arrancar choca contra el índice del primero:
+ *
+ *     error: relation "session_pkey" already exists
+ *
+ * Y no es un error de arranque que se cura solo: el que pierde **se queda sin tabla**, su promesa
+ * de creación queda rechazada y cacheada, y falla en CADA pedido a partir de ahí.
+ *
+ * Con las tablas ya creadas, `to_regclass` las encuentra y la librería no intenta crear nada, así
+ * que el choque no puede ocurrir. Y quedan a nombre del rol `marcos`, como el resto.
+ */
+async function asegurarTablasDeSesion() {
+    if (!pool || pool.sinBase) return { creadas: false, motivo: 'sin base' };
+    for (const tabla of ['sesiones_panel', 'sesiones_portal']) {
+        await pool.query(
+            `CREATE TABLE IF NOT EXISTS ${tabla} (
+                sid VARCHAR NOT NULL COLLATE "default" PRIMARY KEY,
+                sess JSON NOT NULL,
+                expire TIMESTAMP(6) NOT NULL
+            )`
+        );
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_${tabla}_expire ON ${tabla} (expire)`);
+    }
+    return { creadas: true };
+}
+
 module.exports = {
     pool,
     initPgSchema,
+    asegurarTablasDeSesion,
     guardarTextoMensajeWa,
     buscarTextoMensajeWa,
     buscarSimilitudVectorial,

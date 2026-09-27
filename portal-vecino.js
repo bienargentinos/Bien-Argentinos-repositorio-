@@ -52,6 +52,25 @@ try {
     // queda con el MemoryStore sin que nada avise. El pool es el único que sabe si puede hablar con
     // una base; que lo diga él.
     if (pool && !pool.sinBase) {
+        // Las tablas de sesión se crean ACÁ y no se le dejan a la librería.
+        //
+        // `connect-pg-simple` sustituye SOLO la cadena `"session"` al crear su tabla; el nombre de
+        // la restricción queda literal como `session_pkey`, y el índice de una clave primaria en
+        // PostgreSQL es único POR ESQUEMA. Con el store del panel y el del portal en el mismo
+        // proceso, el segundo en arrancar choca: `relation "session_pkey" already exists`. El que
+        // pierde se queda SIN TABLA y falla en cada pedido de ahí en adelante.
+        //
+        // Se crean las dos, aunque acá solo se use una: cuál de las dos falta depende de cuál
+        // ganó la carrera, y el portal no tiene forma de saberlo.
+        //
+        // `createTableIfMissing` queda en `true` a propósito, como red: si esto fallara, la
+        // librería intenta lo de siempre y volvemos al comportamiento anterior en vez de quedarnos
+        // sin store.
+        const { asegurarTablasDeSesion } = require('./db-pg');
+        asegurarTablasDeSesion().catch((e) => {
+            console.warn('⚠️ No se pudieron crear las tablas de sesiones:', e.message);
+        });
+
         const PgSession = require('connect-pg-simple')(session);
         storePortal = new PgSession({
             pool,

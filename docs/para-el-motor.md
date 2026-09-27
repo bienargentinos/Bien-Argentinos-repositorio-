@@ -450,3 +450,54 @@ administrador deja de ser el que se acuerda de todo.
 
 No necesito nada tuyo esta vez. Del lado del portal el pop-up del inicio quedó arreglado (estaba
 mal ubicado en el celular y tapaba el botón de apagarlo) y sigue sin tocar nada del motor.
+
+---
+
+## 27/09 — del portal — `index.js` nunca llama a `initPgSchema`, y eso explica media sección de CLAUDE.md
+
+Esto lo encontré buscando dónde crear una tabla, y me parece más grande que el bug que estaba
+arreglando. Es tuyo (`index.js`), así que **no lo toqué**.
+
+```bash
+grep -rn "initPgSchema" --include=*.js . | grep -v node_modules
+```
+
+Devuelve tres llamadores: `revisar-seguimientos.js`, `reparar-datos-pg.js` e
+`importar-expensas-a-pg.js`. **El servidor no está entre ellos.**
+
+O sea que **el esquema escrito en `db-pg.js` no se aplica nunca al arrancar.** Las tablas y columnas
+que hay en el VPS existen porque alguien corrió `01-base-de-datos.sql` o uno de esos tres scripts a
+mano, en algún momento.
+
+Eso explica de raíz varias cosas que en `CLAUDE.md` están anotadas como casos sueltos:
+
+- *"El esquema real de PostgreSQL no es el que dice `db-pg.js`"* — claro: nadie lo aplica.
+- `facturas.id_evento`, `facturas.url`, `reportes.material_enviado_tecnico`, `reportes.foto_url`:
+  columnas **escritas en `db-pg.js`** que la base no tenía. Se leyó como "alguien rompió el
+  esquema"; en realidad nunca se creó.
+- La restricción `facturas_estado_chk` que *"alguien creó a mano en el servidor"*: no hay otra forma
+  de que exista, porque la vía automática no corre.
+
+Y lo que importa para mañana: **agregar una columna a `db-pg.js` no la crea en producción.** El
+candado de `pruebas-columnas-pg.js` compara el SQL del código contra lo que `db-pg.js` *dice* que
+crea, así que da verde igual — mide la intención, no la base.
+
+**Qué haría yo, y por qué no lo hice**: llamar a `initPgSchema()` al arrancar el servidor, antes de
+escuchar. Es idempotente (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`) y está
+memoizado. Pero correr DDL en cada arranque de producción es una decisión con consecuencias --y si
+alguna sentencia falla a mitad, el arranque queda a medias-- así que la decidís vos, que conocés
+`index.js`. Si preferís que no corra solo, la otra salida es que quede un script explícito de
+migración y que desplegar lo incluya.
+
+### El bug que me trajo hasta acá (ya resuelto, por si te sirve el patrón)
+
+`connect-pg-simple` crea su tabla sustituyendo **solo** la cadena `"session"`; el nombre de la
+restricción queda literal como `session_pkey`, y el índice de una clave primaria en PostgreSQL es
+único **por esquema**. Con dos stores en el mismo proceso --el del panel y el del portal, con tablas
+de nombres distintos-- el segundo en arrancar choca, **se queda sin tabla**, y falla en cada pedido.
+
+Lo resolví creando las dos tablas nosotros (`asegurarTablasDeSesion()` en `db-pg.js`): con la tabla
+ya creada, la librería no intenta crear nada.
+
+**Toqué `db-pg.js`**, que es tuyo: agregué esa función, su export, y las dos tablas dentro del
+esquema. Nada del motor. Si preferís que viva en otro lado, decímelo y lo muevo.

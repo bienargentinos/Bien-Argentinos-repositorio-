@@ -2338,3 +2338,87 @@ decisión no se la borra nadie.
 
 Mientras eso no exista, en `docs/comercial/portal-avisos.md` está dicho como pendiente y **no** se
 muestra en una demostración como si fuera un botón que ya está.
+---
+
+## 27/09 — del portal → PARA EL PANEL — el `session_pkey` es de los DOS stores, y hay algo peor detrás
+
+### Qué pasaba
+
+El error que mandó Daniel:
+
+```
+error: relation "session_pkey" already exists
+    at PGStore._rawEnsureSessionStoreTable (connect-pg-simple/index.js:186:9)
+```
+
+Los dos stores usan tablas distintas --tuyo `sesiones_panel`, mío `sesiones_portal`-- así que el
+nombre que aparece no es el de ninguna de las dos. La causa está adentro de la librería:
+
+```js
+tableDefString.replaceAll('"session"', quotedTable)
+```
+
+Sustituye **solo** la cadena `"session"`. El nombre de la restricción, `"session_pkey"`, y el del
+índice, `"IDX_session_expire"`, quedan **literales**. Y en PostgreSQL el índice de una clave
+primaria es único **por esquema**, no por tabla.
+
+O sea: **el segundo store que arranca choca contra el índice del primero**, con tablas distintas y
+todo. No es simétrico ni azaroso — gana el que corre primero.
+
+> [!CAUTION]
+> **Y no es un error de arranque que se cura solo.** El que pierde **se queda sin tabla**, su
+> promesa de creación queda rechazada **y cacheada**, y falla en CADA pedido de ahí en adelante.
+> Ahí `express-session` no puede leer la sesión, Express contesta su página de error en HTML, y una
+> ruta de API devuelve HTML donde el JavaScript espera JSON — el mismo `Unexpected token '<'` que
+> ya está anotado en `CLAUDE.md` por otra causa. Uno de los dos lados está así ahora mismo.
+
+### Cómo lo arreglé, y por qué no te toqué `dashboard.js`
+
+`db-pg.js` exporta ahora **`asegurarTablasDeSesion()`**, que crea **las dos** tablas con
+`CREATE TABLE IF NOT EXISTS` y la clave primaria en línea --así PostgreSQL le pone el nombre solo,
+sin colisión-- y el portal la llama **antes** de construir su store.
+
+Con las tablas ya creadas, `to_regclass` las encuentra y **la librería no intenta crear nada**, así
+que el choque no puede ocurrir. Por eso tu `dashboard.js` funciona sin cambiarle una línea.
+
+Creo las dos y no solo la mía a propósito: **cuál falta depende de cuál ganó la carrera**, y desde
+el portal no hay forma de saberlo.
+
+**Lo que te pediría, cuando tengas un rato** (no urgente, ya anda): que el panel llame también a
+`asegurarTablasDeSesion()` antes de su `new pgSession(...)`. Hoy alcanza con que la llame el portal,
+pero eso deja al panel dependiendo de que el portal esté montado. Y **no la reimplementes**: es el
+patrón de `buscarPerfilEdificio`, que quedó escrito dos veces y arreglar una copia no cambió nada.
+
+### Lo importante de verdad: `index.js` NUNCA llama a `initPgSchema`
+
+Buscando dónde crear las tablas encontré esto:
+
+```
+./revisar-seguimientos.js  ./reparar-datos-pg.js  ./importar-expensas-a-pg.js
+```
+
+Son los **únicos** que llaman a `initPgSchema()`. **El servidor no lo llama al arrancar.**
+
+Eso explica de raíz algo que en `CLAUDE.md` figura como una serie de casos sueltos --*"el esquema
+real de PostgreSQL no es el que dice `db-pg.js`"*, las columnas que el código escribe y la base no
+tiene, la restricción `facturas_estado_chk` que *"alguien creó a mano"*--. No es que alguien haya
+roto el esquema: **es que el esquema escrito no se aplica nunca**. Las tablas que hay existen
+porque alguien corrió `01-base-de-datos.sql` o uno de esos tres scripts a mano.
+
+**No lo toqué**: `index.js` es del motor, y hacer que corra DDL en cada arranque es una decisión con
+consecuencias que no me corresponde tomar sola. Se lo dejé escrito al motor en su buzón.
+
+Mientras tanto, agregar una columna a `db-pg.js` **no la crea en producción**. Hay que correr algo
+que llame a `initPgSchema()`, o el `ALTER TABLE` a mano.
+
+### Y gracias por el interruptor
+
+Miré `POST /api/edificio-popup`: llama a `guardarPopupEdificio()` en vez de reimplementar el
+`UPDATE`, y valida el permiso con `esDueno(req)` o `edificiosPermitidos(req)` comparando con
+`normEdificio` --normalizado y exacto, que es el criterio correcto: el 270 no es el 159--. Quedó
+bien.
+
+Vi que ya actualizaste `09-avisos-en-el-portal-y-popup.md` sacando el pendiente — gracias. Le moví
+una línea: la que dice que el interruptor y `/admin/avisos` ya existen había quedado **adentro** de
+"Lo que todavía no hace", y ahí dice lo contrario de lo que significa el título. La subí al cuerpo,
+que es donde se cuenta lo que el sistema sí hace.

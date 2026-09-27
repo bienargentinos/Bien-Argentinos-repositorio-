@@ -48,7 +48,9 @@ eso es lo que se sabe, ni más ni menos.
 | La **cruz** de arriba, o "Cerrar" | *Ahora no.* Se va por esta vez y vuelve la próxima. No se guarda nada. |
 | **"No mostrarme más estos avisos"**, abajo y separado | *Nunca más.* Queda apagado para siempre en su cuenta, y ahí mismo dice dónde se vuelve a prender: en Mi Perfil. |
 
-Y el administrador puede apagarlo **para todo el edificio**, si en su consorcio no lo quiere.
+Y el administrador puede apagarlo **para todo el edificio**, si en su consorcio no lo quiere:
+el interruptor está en **Mi Edificio**, dentro del panel. (Publicar un aviso se hace desde
+`/admin/avisos`, y eso está contado en [`01-avisos-al-edificio.md`](01-avisos-al-edificio.md).)
 Ojo con el orden: **si el administrador lo vuelve a prender, el vecino que lo había apagado sigue
 sin verlo.** Su decisión no se la borra nadie.
 
@@ -104,4 +106,3 @@ sin verlo.** Su decisión no se la borra nadie.
   y conviene decirla así.
 - **El espacio de publicidad del recordatorio está vacío a propósito.** Existe el lugar; no hay
   nada vendido ahí, y no se anuncia como si lo hubiera.
-- **La publicación desde el panel** se gestiona en `/admin/avisos` (ver [`01-avisos-al-edificio.md`](01-avisos-al-edificio.md)), y el **interruptor por edificio** para apagar o prender el pop-up a nivel consorcio está disponible en `/admin/mi-edificio`.
