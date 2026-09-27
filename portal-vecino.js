@@ -1077,7 +1077,7 @@ function iniciales(v) {
   return nombreCompleto(v).split(' ').filter(Boolean).map(n => n[0].toUpperCase()).slice(0, 2).join('');
 }
 
-function shellVecino(title, activeTab, content, vecinoData) {
+function shellVecino(title, activeTab, content, vecinoData, popup) {
   const v = vecinoData || getVecinoSession({});
   const t = textos(v.idioma);
 
@@ -1124,6 +1124,27 @@ function shellVecino(title, activeTab, content, vecinoData) {
     }
   `;
 
+  // EL POP-UP DEL INICIO SE EMITE ACA ABAJO, DESPUES DE LA BARRA, Y NO ADENTRO DE <main>.
+  //
+  // Se vio en un celular: el pop-up salia pegado abajo y la barra de navegacion le tapaba
+  // "No mostrarme mas estos avisos". No era feo nomas -- era que la salida que el vecino tiene
+  // para apagarlo NO SE PODIA TOCAR.
+  //
+  // La causa es una sola y rompe dos cosas: <main> lleva .anim-fade, y su fadeIn termina en
+  // `transform: translateY(0)` con fill `both`, asi que le queda un transform puesto PARA
+  // SIEMPRE. Un transform en un ancestro:
+  //   1. abre un contexto de apilamiento -- el z-index del pop-up solo competia adentro de
+  //      <main>, y contra la barra (z-index 50, su hermana) perdia; y
+  //   2. lo convierte en el marco del `position: fixed` -- asi que `inset: 0` dejaba de ser la
+  //      pantalla y pasaba a ser la caja del contenido.
+  // El modal de cambiar unidad ya estaba puesto abajo por lo mismo.
+  //
+  // Y el comentario largo vive aca y no en un <!-- --> del HTML por dos motivos: un comentario
+  // HTML se le sirve a todo el mundo, y este nombraba a una persona (lo agarro la prueba que
+  // prohibe que el nombre de un vecino aparezca en la pagina de otro); y un acento grave adentro
+  // del template literal cierra la cadena y rompe el archivo entero.
+  //
+  // Candado: pruebas-popup-inicio.js, "NO QUEDA ATRAPADO ADENTRO DE <main>".
   return `<!DOCTYPE html>
 <html lang="${lang}">
 <head>
@@ -1313,6 +1334,9 @@ ${jsPopup}
       <span>${esc(t('nav.avisos'))}</span>
     </a>`}
   </nav>
+
+  <!-- POP-UP DEL INICIO. Va aca, hermano de la barra. El motivo esta arriba, en el codigo. -->
+  ${popup || ''}
 
   <!-- MODAL CAMBIAR UNIDAD (MULTI-PROPIEDAD) -->
   ${v.unidades && v.unidades.length > 1 ? `
@@ -3432,8 +3456,8 @@ function popupHtml(contenido, t) {
   const fondo = esUrgente ? 'var(--aviso-fondo)' : 'var(--superficie-2)';
 
   return `
-    <div id="popup-inicio" style="position:fixed;inset:0;z-index:900;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.45);padding:16px;backdrop-filter:blur(2px)">
-      <div role="dialog" aria-modal="true" aria-labelledby="popup-titulo" style="width:100%;max-width:440px;background:var(--superficie);border-radius:22px;box-shadow:0 -6px 34px rgba(15,23,42,.28);overflow:hidden">
+    <div id="popup-inicio" style="position:fixed;inset:0;z-index:9500;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.45);padding:16px;backdrop-filter:blur(2px)">
+      <div role="dialog" aria-modal="true" aria-labelledby="popup-titulo" style="width:100%;max-width:440px;max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--superficie);border-radius:22px;box-shadow:0 14px 40px rgba(15,23,42,.30);overscroll-behavior:contain">
 
         <div style="display:flex;align-items:flex-start;gap:10px;padding:18px 18px 12px">
           <div style="width:38px;height:38px;border-radius:12px;background:${fondo};color:${color};display:flex;align-items:center;justify-content:center;flex-shrink:0">
@@ -3868,7 +3892,7 @@ router.get('/', async (req, res) => {
     </script>
   `;
 
-  res.send(shellVecino(t('nav.inicio'), 'inicio', content + popup, v));
+  res.send(shellVecino(t('nav.inicio'), 'inicio', content, v, popup));
 });
 
 // -------------------------------------------------------------------

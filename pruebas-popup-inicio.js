@@ -195,6 +195,46 @@ async function main() {
         afirmar('compara el edificio con mismoEdificio', /mismoEdificio/.test(m[0]));
     }
 
+    console.log('\n── NO QUEDA ATRAPADO ADENTRO DE <main> ──');
+    {
+        // CANDADO. Esto se vio en el celular de Daniel: el pop-up salia pegado abajo y la barra de
+        // navegacion le tapaba "No mostrarme mas estos avisos". No era feo nomas -- era que la
+        // salida del vecino para apagarlo NO SE PODIA TOCAR.
+        //
+        // La causa: el <main> lleva .anim-fade, cuyo fadeIn termina en transform translateY(0) con
+        // fill "both", asi que le queda un transform puesto para siempre. Un transform en un
+        // ancestro (1) abre un contexto de apilamiento, y ahi el z-index del pop-up ya no compite
+        // contra la barra, y (2) convierte a ese ancestro en el marco del position fixed, asi que
+        // inset 0 deja de ser la pantalla.
+        //
+        // Se mide sobre el HTML SERVIDO y no sobre el codigo: lo que rompe es donde termina el
+        // pop-up en la pagina, y eso es lo unico que hay que mirar.
+        const loginM = await pedir('POST', '/vecino/auth', { cuerpo: 'rol=propietario' });
+        const pag = (await pedir('GET', '/vecino/', { cookie: loginM.cookie })).cuerpo;
+
+        const finDelMain = pag.lastIndexOf('</main>');
+        const elPopup = pag.indexOf('id="popup-inicio"');
+        afirmar('la pagina trae el pop-up y el main', elPopup !== -1 && finDelMain !== -1);
+        afirmar('el pop-up esta DESPUES de </main>', elPopup > finDelMain);
+
+        // Y por encima de la barra, que es contra quien perdia.
+        const finDeLaNav = pag.lastIndexOf('</nav>');
+        afirmar('y despues de la barra de navegacion', elPopup > finDeLaNav);
+
+        const caja = pag.slice(elPopup, elPopup + 700);
+        const z = caja.match(/z-index:(\d+)/);
+        afirmar('su z-index le gana al 50 de la barra', !!z && Number(z[1]) > 50);
+
+        // Centrado, no pegado abajo: pegado abajo es como quedaba debajo de la barra.
+        afirmar('no va pegado al borde de abajo', !/align-items:flex-end/.test(caja));
+        // Un aviso largo se scrollea adentro en vez de salirse de la pantalla.
+        afirmar('tiene tope de alto', /max-height/.test(caja));
+        afirmar('y scrollea si no entra', /overflow-y:auto/.test(caja));
+
+        // El pop-up NO se concatena al contenido: asi fue como entro adentro del main.
+        afirmar('el inicio no lo pega al contenido', !/'inicio',\s*content\s*\+\s*popup/.test(PORTAL));
+    }
+
     server.close();
     console.log(`\n${fallos === 0 ? '✅ Todo bien' : `❌ ${fallos} fallo(s)`}\n`);
     process.exit(fallos === 0 ? 0 : 1);
