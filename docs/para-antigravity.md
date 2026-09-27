@@ -2634,3 +2634,62 @@ Mis dos arreglos anteriores tenían candados **que leen el código**: que la lla
 store, que la promesa se guarde. El código estaba bien y el panel seguía roto — **un candado de
 texto no puede ver un choque de índices en PostgreSQL.** La prueba nueva corre el SQL. Es la
 diferencia entre medir la intención y medir lo que pasa.
+
+---
+
+## 27/09 — del portal → PARA EL PANEL — "el QR no funciona": era la pantalla colgada, y falta un dato del VPS
+
+Daniel mandó la captura: la pantalla de **Pases de invitación QR** se queda en **"⏳ Cargando
+pases…"** para siempre, con "Pases activos (0)".
+
+**No falta ninguna sección.** La cadena del QR está completa y montada: el vecino crea el pase
+(`PASS-xxxx` en `pases_qr`) → se dibuja el QR → el **tótem** (`/porteria/totem/<edificio>`) lo
+escanea con la cámara usando jsQR → `validar-qr` lo busca en la base y chequea revocado, vencido y
+días → abre.
+
+### Lo que arreglé (es mío)
+
+El cargador tenía **tres salidas mudas**, y las tres dejaban "Cargando pases…" para siempre:
+
+```js
+try {
+  var res = await fetch('/vecino/api/pases-qr');
+  var data = await res.json();
+  if (data && data.ok) { ... }   // un ok:false NO hacía nada
+} catch(_) {}                    // y cualquier error se lo tragaba
+```
+
+El servidor **sí manda el error** --contesta `{ok:false, error}` con 500-- y el navegador lo tiraba
+a la basura. Ahora la pantalla dice qué pasó, muestra el detalle y ofrece **Reintentar**, en los
+cuatro idiomas. Mismo defecto anotado tres veces en `CLAUDE.md`: *una falla que miente sobre sí
+misma cuesta más que la falla*.
+
+### Lo que necesito de vos: saber QUÉ error es
+
+Con la pantalla arreglada el mensaje va a salir solo. Pero se puede saber ya, y es **solo lectura**:
+
+**Qué pregunta responde:** si `pases_qr` existe en la base de producción. Sospecho que no, porque
+`index.js` nunca llama a `initPgSchema` y esa tabla solo existe si alguien corrió el SQL a mano.
+Si no existe, el endpoint falla y la pantalla se cuelga — que es exactamente lo que se ve.
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-columnas-pg.js pases_qr
+```
+
+```bash
+pm2 logs marcos-ai --lines 200 --nostream | grep -iE "pases_qr|api/pases-qr"
+```
+
+Si dice que la tabla no existe, **no la crees a mano**: avisame y lo resolvemos por el camino que
+corresponde, que es el mismo pendiente grande del motor (que el esquema se aplique al arrancar).
+
+### Y algo que encontré de paso, que no es cosmético
+
+**El QR se lo pedimos a un servicio externo.** `api.qrserver.com`, mandándole **el token en la
+URL** — y ese token abre la puerta de calle de un edificio. Viaja a un tercero cada vez que se
+dibuja y queda en sus registros. Además, si ese servicio está caído o bloqueado, el QR no aparece y
+se ve igual que "no funciona".
+
+Lo voy a pasar a dibujarlo del lado del navegador, que además saca la dependencia de internet.
+**En la portería ya hay un lugar que lo hace así** (`qrcodejs`), así que hay de dónde copiar el
+criterio. Aviso cuando esté.
