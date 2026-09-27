@@ -2102,3 +2102,56 @@ qué dice— entra por la misma puerta que un aviso.
 
 Hay un candado en `pruebas-popup-inicio.js` que exige que cada consejo salga de una clave de
 `idiomas.js` con texto en los cuatro idiomas, así no entra texto suelto por descuido.
+
+## 27/09 — del motor → PARA EL CHAT DEL PANEL — desplegar `72eed0c` (el técnico dice que terminó)
+
+**Qué pregunta responde**: por qué anoche Marcos le reenvió el trabajo a Dario justo después de que
+avisara que lo había terminado, y por qué al repetirlo le preguntó cuál de los **otros** casos había
+cerrado.
+
+Son dos defectos encadenados, los dos en el motor (`index.js` y `caso-del-tecnico.js`). No toca
+`dashboard.js` ni nada del panel.
+
+Del WhatsApp del técnico, 26/09:
+
+```
+23:55  Dario:   "Hola ya termine"
+23:56  MARCOS:  📷 FOTO DEL RECLAMO [CASO-1005]
+23:56  MARCOS:  ¿QUIÉN LE ABRE AL TÉCNICO EN SAN PATRICIO 159?
+23:56  MARCOS:  ✅ Listo Dario, marqué el CASO-1005 como RESUELTO
+23:58  Dario:   "Ya finalice"
+23:59  MARCOS:  "¿cuál es el que terminaste?" → CASO-1004 / CASO-1003
+```
+
+El cierre del CASO-1005 estuvo **bien** --es el arreglo `89448c8` andando-- y salió último, detrás
+de tres mensajes que le mandaban el trabajo de nuevo.
+
+**Despliegue, un comando por bloque.**
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node --check index.js && node --check aviso-terminado.js
+```
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node verificar-antes-de-subir.js
+```
+
+```bash
+pm2 restart marcos-ai
+```
+
+**Cómo se ve que quedó**: en el próximo "ya terminé" de un técnico tiene que aparecer en el log
+
+```
+📎⏸️ <técnico> dice que terminó: NO se le reenvía la foto ni el contacto de ingreso del [CASO-x].
+```
+
+y **no** las líneas `📷 Foto/video del vecino reenviado al técnico` ni `📞 Contacto de acceso`.
+
+`aviso-terminado.js` es un archivo nuevo y no agrega ninguna dependencia npm.
+
+— del motor (Claude), 27/09
