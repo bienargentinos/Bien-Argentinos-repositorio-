@@ -441,6 +441,57 @@ El orden queda:
 2. El rubro, solo si el caso todavía no anotó a nadie.
 3. Sin nada, `nombreIncierto`: no se lo llama por su nombre.
 
+#### Y el caso ya había cambiado, pero los datos no
+
+> [!CAUTION]
+> **`rubroActivo`, `tecnicoDelCaso`, `edificioActivo` y `vecinoActivo` describen UN caso, pero viven
+> en el estado de la LÍNEA** (`global.colasProveedores`, por teléfono). Todas sus asignaciones en
+> `index.js` son `if (!…)` --a propósito, para no pisar una conversación viva-- así que el PRIMER
+> caso de esa línea los fijaba **hasta el próximo reinicio de PM2**.
+
+Producción, 26/09, del WhatsApp del técnico:
+
+```
+23:08  plantilla:  "Hola julio, aguardamos tu confirmación para el [CASO-1005]"
+23:56  Marcos:     "Dario, Daniel Valdés en SAN PATRICIO 159 adjuntó esto del inconveniente."
+```
+
+Dos nombres para la misma persona en el mismo hilo, con cuarenta y ocho minutos de diferencia. Y no
+es que una de las dos ramas estuviera rota: **leen fuentes distintas.** La plantilla la manda el
+barrido y usa el `tecnico` **del caso**; los mensajes libres usan el estado de la línea, que seguía
+describiendo el CASO-1004 --de electricidad, a nombre de Dario-- mientras el CASO-1005 era de
+plomería y estaba a nombre de julio.
+
+**Dónde nace, exactamente**: `agentes/marcos-ops.js` pone `eventoActivoId` al mandar la plantilla y
+**no toca `rubroActivo` ni `tecnicoDelCaso`**. Desde ese instante el estado habla de dos casos a la
+vez: el id es del nuevo y el resto del viejo. Nada avisa.
+
+`datos-del-caso.js` (`refrescarDatosDelCaso`) agrega **de qué caso salieron los datos**
+(`datosDeCaso`) y, si el caso de ahora es otro, los relee de ese caso. Mismo criterio que
+`caso-del-tecnico.js`: **la memoria dice de qué se está hablando, la base dice la verdad.**
+
+- **No suelta los `if (!…)`**: siguen protegiendo la conversación viva.
+- **La marca ausente también dispara la relectura**, y hace falta: es justo el estado en que
+  `marcos-ops.js` deja la línea la primera vez.
+- **Si el caso no se puede leer, no borra nada** --y la marca tampoco se mueve, o el desfasaje
+  quedaría congelado para siempre--. Quedarse con datos viejos es malo; quedarse sin ninguno deja a
+  Marcos sin saber de qué habla.
+- El log lo dice entero: `🔄 El técnico de 549… pasó del [CASO-1004] al [CASO-1005]: eran
+  "electricidad / Dario", ahora "plomería / julio"`.
+
+> **Lo que esto NO decide**: si en una línea compartida está bien que un trabajo de plomería se
+> dirija a julio cuando el que contesta es Dario. Eso es una decisión de producto y hoy manda la
+> regla 1 de arriba --el caso decidió--. Lo que se arregló es que las dos vías digan **lo mismo**.
+
+Y en el mismo episodio, el número de caso: el técnico apretó *"Solicitar más datos"* y a las 22:50
+le llegó la foto con el encabezado `📱 MARCOS — FOTO DEL RECLAMO` **pelado**, mientras que a las
+23:56 la misma foto llegó con `[CASO-1005]` por el otro camino. El id **ya estaba calculado veinte
+líneas más arriba, en esa misma función** --es de donde se sacó la foto--. El candado de
+`pruebas-datos-del-caso.js` mira lo que está pegado al encabezado, no el nombre de la variable: la
+primera versión medía la forma y falló dos veces seguidas contra código correcto.
+
+Prueba: `node pruebas-datos-del-caso.js`.
+
 ## Datos de cobro del proveedor (CBU / alias)
 
 Marcos toma el CBU o el alias cuando el técnico se lo manda por WhatsApp, para que el

@@ -1692,6 +1692,37 @@ function validarYSanitizarNombre(nombre) {
         // depende del caso queda sin hacerse en silencio -- la confirmación no se guardaba (se
         // pedía el id del caso y no había) y el vecino no se enteraba (se pedía su teléfono y
         // tampoco había). Se recupera del caso abierto antes de usarlo.
+        // > [!CAUTION]
+        // > **`rubroActivo`, `tecnicoDelCaso`, `edificioActivo` y `vecinoActivo` describen UN caso,
+        // > pero viven en el estado de la LÍNEA.** Todas las asignaciones de abajo son `if (!…)`, a
+        // > propósito --para no pisar una conversación viva--, así que el PRIMER caso de esa línea
+        // > las fijaba hasta el próximo reinicio de PM2. Cuando llegaba un caso nuevo, se seguía
+        // > hablando con los datos del anterior.
+        //
+        // Producción, 26/09. En esa línea conviven **julio (plomero)** y **dario (electricista)**.
+        // Venían los CASO-1003 y CASO-1004, de electricidad, con `tecnicoDelCaso = Dario` y
+        // `rubroActivo = electricidad`. Entró el CASO-1005 --agua en el palier, o sea plomería-- y
+        // se asignó a julio. En el WhatsApp del técnico quedó así:
+        //
+        //     23:08  plantilla:  "Hola julio, aguardamos tu confirmación para el [CASO-1005]"
+        //     23:56  Marcos:     "Dario, Daniel Valdés en SAN PATRICIO 159 adjuntó esto…"
+        //
+        // La plantilla la manda el barrido y lee el `tecnico` DEL CASO; los mensajes libres leen
+        // este estado, que seguía en el caso viejo. Dos nombres para la misma persona en el mismo
+        // hilo, con cuarenta y ocho minutos de diferencia.
+        //
+        // **No se sueltan los `if (!…)`**: siguen protegiendo la conversación viva. Lo que se agrega
+        // es de qué caso salieron esos datos, y si el caso cambió se releen del caso de ahora.
+        // La decisión vive en `datos-del-caso.js`, con el episodio entero escrito y su prueba.
+        try {
+            const { refrescarDatosDelCaso } = require('./datos-del-caso');
+            const { buscarCasoPorCodigo } = require('./datos');
+            const r = await refrescarDatosDelCaso(stProv, buscarCasoPorCodigo);
+            if (r.refrescado) console.log(`🔄 El técnico de ${telTech} ${r.motivo}.`);
+        } catch (e) {
+            console.error('Error releyendo los datos del caso del técnico:', e.message);
+        }
+
         if (!stProv.eventoActivoId || !stProv.vecinoActivo?.telefono || !stProv.rubroActivo) {
             try {
                 const { buscarCasoAbiertoPorTecnico } = require('./datos-pg');
@@ -1712,6 +1743,9 @@ function validarYSanitizarNombre(nombre) {
                             edificio:  casoAbierto.edificio || ''
                         };
                     }
+                    // De qué caso salieron estos datos. Sin esta marca no hay forma de saber que
+                    // envejecieron cuando el técnico pase a otro trabajo.
+                    stProv.datosDeCaso = stProv.eventoActivoId || casoAbierto.id_evento;
                     console.log(`♻️ Caso del técnico ${datosEmisor.nombre} recuperado tras reinicio: [${casoAbierto.id_evento}] (${casoAbierto.edificio})`);
                 }
             } catch (e) {
@@ -4275,6 +4309,10 @@ function validarYSanitizarNombre(nombre) {
                         // A nombre de quién quedó el caso: desde acá en adelante se le habla a él
                         // y no se vuelve a deducir por rubro.
                         colaAviso.tecnicoDelCaso = datosEmisor.nombre || colaAviso.tecnicoDelCaso;
+                        // Estos tres SÍ son de este caso: se marca para que la relectura del
+                        // próximo mensaje no pise una elección que se acaba de hacer a propósito
+                        // --acá el técnico avisó él mismo, así que el nombre es el de quien escribe--.
+                        colaAviso.datosDeCaso = idAviso;
                     }
 
                     // Lo mismo si lo dijo de una: "me llamaron, voy en 3hs, tengo llave".
@@ -4686,7 +4724,17 @@ function validarYSanitizarNombre(nombre) {
                     try {
                         const idSubido = await subirMediaWhatsApp(guardada.filePath, guardada.mimeType, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN);
                         if (idSubido) {
-                            const pie = `📱 *MARCOS — ${guardada.tipo === 'image' ? 'FOTO' : 'VIDEO'} DEL RECLAMO*\n\n` +
+                            // El número de caso va en TODO mensaje al proveedor, y este se lo
+                            // salteaba: el técnico junta trabajos de varios días --a veces de
+                            // administradores distintos-- y el número es lo único con que después
+                            // puede decir "esta factura es del CASO-1005".
+                            //
+                            // No hubo que buscarlo: `idCasoDelTecnico` se calcula veinte líneas más
+                            // arriba, y es **de donde salió esta misma foto** (`materialDelVecinoEnCaso`).
+                            // Visto en producción el 26/09: a las 22:50 salió `FOTO DEL RECLAMO` pelado
+                            // y a las 23:56 la misma foto con `[CASO-1005]`, por el otro camino.
+                            const etiquetaCaso = idCasoDelTecnico ? ` [${idCasoDelTecnico}]` : '';
+                            const pie = `📱 *MARCOS — ${guardada.tipo === 'image' ? 'FOTO' : 'VIDEO'} DEL RECLAMO${etiquetaCaso}*\n\n` +
                                 `Hola ${datosEmisor.nombre}, acá va ${guardada.tipo === 'image' ? 'la foto' : 'el video'} que ${nomVecino || 'el vecino'} ya había mandado del inconveniente en ${dirExacta}.`;
                             const { enviarImagenWhatsApp, enviarVideoWhatsApp } = require('./agentes/marcos-ops');
                             if (guardada.tipo === 'image') {
