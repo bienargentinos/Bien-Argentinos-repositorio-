@@ -2040,3 +2040,65 @@ PostgreSQL primero. Cuanto más tiempo pase, más filas hay que emparejar despu�
 
 Y mientras tanto cualquier prueba nueva va a fallar por este motivo y no por el que estemos
 probando, que es la peor forma de perder una tarde.
+
+---
+
+## 27/09 — del portal — un interruptor para el pop-up del portal (cuando te llegue el turno)
+
+El portal del vecino ya tiene un **pop-up** en la pantalla de inicio. Muestra, en este orden:
+
+1. un **aviso urgente** del edificio, si hay alguno publicado;
+2. si no, un **consejo** sobre algo que el portal hace de verdad.
+
+Y tiene **dos salidas**, que son dos cosas distintas a propósito (pedido de Daniel):
+
+- la **cruz** arriba: *no lo quiero ver ahora*. Vuelve mañana. No escribe nada en la base.
+- **"No mostrarme más estos avisos"**, abajo y separado: *no lo quiero ver nunca*. Queda en
+  `usuarios.popup_activo`, y debajo dice dónde se vuelve a prender (Mi Perfil) — un interruptor que
+  uno no sabe deshacer no se toca.
+
+### Lo que te toca
+
+Daniel pidió que el **administrador del consorcio también lo pueda apagar, para todo su edificio.**
+La columna y la función ya están; falta el botón en el panel.
+
+```js
+const { guardarPopupEdificio } = require('./db-pg');
+
+// El AC apaga el pop-up para todos los vecinos de ese edificio:
+await guardarPopupEdificio(edificio, false);
+// Y lo vuelve a prender:
+await guardarPopupEdificio(edificio, true);
+```
+
+**Llamala, no escribas el `UPDATE` a mano.** Si mañana el interruptor pasa a tener horarios o
+excepciones, tiene que cambiar en un solo lugar — es lo mismo que con `publicarAviso` y con
+`renombrarEdificio`.
+
+### El detalle que importa: son DOS decisiones, no una
+
+Están en dos lugares distintos y **ninguna pisa a la otra**:
+
+| Quién | Dónde se guarda |
+|---|---|
+| el vecino, para sí | `usuarios.popup_activo` |
+| el administrador, para su edificio | `portal_config.popup_activo` |
+
+Alcanza con que una diga que no. Y si el administrador lo vuelve a prender, **el vecino que lo había
+apagado sigue sin verlo**: su decisión no se la borra nadie. Con una sola columna, prenderlo para el
+edificio le borraría la preferencia a cada vecino que había pedido no verlo — y eso le enseña que el
+botón de apagarlo no sirve.
+
+`portal_config` la crea `db-pg.js` al arrancar, con `edificio` como clave única. No hace falta nada
+a mano.
+
+### Y una que NO hay que hacer
+
+El pop-up tiene previsto un tercer tipo de contenido —publicidad y tutoriales— y está **vacío a
+propósito**. Un anuncio inventado para que la pantalla se vea llena es el mismo error que la tarjeta
+que decía `$120.000`, los dos avisos falsos que saqué de Novedades y el alias de CBU que se fabricaba
+solo: un dato que el vecino lee como cierto. Cuando haya publicidad de verdad —con quién la paga y
+qué dice— entra por la misma puerta que un aviso.
+
+Hay un candado en `pruebas-popup-inicio.js` que exige que cada consejo salga de una clave de
+`idiomas.js` con texto en los cuatro idiomas, así no entra texto suelto por descuido.

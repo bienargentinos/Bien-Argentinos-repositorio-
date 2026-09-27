@@ -1086,6 +1086,44 @@ function shellVecino(title, activeTab, content, vecinoData) {
   // en portugués declarada como castellano se lee mal en voz alta y no dispara ese aviso.
   const lang = { es: 'es-AR', en: 'en', pt: 'pt-BR', fr: 'fr' }[t.idioma] || 'es-AR';
 
+  // Las dos salidas del pop-up. Van en el shell y no en la pantalla del inicio para que el pop-up
+  // se pueda mostrar en cualquier pantalla sin copiar estas dos funciones.
+  const jsPopup = `
+    function cerrarPopup() {
+      var caja = document.getElementById('popup-inicio');
+      if (caja) caja.remove();
+      // Se avisa al servidor para que no vuelva en esta sesión. Si el pedido falla no se hace nada:
+      // el pop-up ya está cerrado en la pantalla, que es lo que el vecino pidió.
+      fetch('/vecino/api/popup-cerrar', { method: 'POST' }).catch(function () {});
+    }
+
+    // Prender o apagar desde Mi Perfil. Se recarga la pantalla en vez de pintar el botón a mano:
+    // un botón que se pinta solo y un servidor que dice otra cosa es cómo se llega a una pantalla
+    // que miente sobre su propio estado.
+    window.elegirPopup = async function (activo) {
+      try {
+        var r = await fetch('/vecino/api/popup-' + (activo ? 'prender' : 'apagar'), { method: 'POST' });
+        var d = await r.json();
+        if (d && d.ok) location.reload();
+      } catch (e) { console.warn('popup:', e); }
+    };
+
+    function apagarPopup() {
+      var caja = document.getElementById('popup-inicio');
+      fetch('/vecino/api/popup-apagar', { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (caja) caja.remove();
+          if (d && d.mensaje) alert(d.mensaje);
+        })
+        .catch(function () {
+          // Si no se pudo guardar NO se cierra: cerrarlo haría creer que quedó apagado, y mañana
+          // vuelve. Mejor que quede a la vista y lo intente de nuevo.
+          alert(${JSON.stringify(t('pop.errorApagar'))});
+        });
+    }
+  `;
+
   return `<!DOCTYPE html>
 <html lang="${lang}">
 <head>
@@ -1181,6 +1219,7 @@ function shellVecino(title, activeTab, content, vecinoData) {
       navigator.serviceWorker.register('/sw.js').catch(function(e){ console.warn('SW:', e); });
     });
   }
+${jsPopup}
 </script>
 </head>
 <body>
@@ -2597,8 +2636,58 @@ router.post('/api/cambiar-unidad', async (req, res) => {
 // mirando ahora) y la contraseña. El email queda a la vista pero NO se edita: es la llave con la
 // que el titular lo da de alta en el departamento, así que cambiarlo acá lo dejaría afuera de su
 // propia unidad sin que nadie se entere.
+// APAGAR EL POP-UP, O CERRARLO POR HOY.
+//
+// Son dos endpoints y no uno con una bandera, porque son dos decisiones de distinto peso: cerrar no
+// escribe nada en la base y apagar sí. Mezclarlas en una sola ruta hace que un error de un
+// parámetro apague algo para siempre.
+router.post('/api/popup-cerrar', (req, res) => {
+  // Solo por esta sesión. No toca la base: mañana vuelve.
+  if (req.session) req.session.popupCerrado = true;
+  res.json({ ok: true });
+});
+
+router.post('/api/popup-apagar', async (req, res) => {
+  const v = getVecinoSession(req);
+  const t = textos(v.idioma);
+  if (req.session) req.session.popupCerrado = true;
+
+  // La sesión de demostración no tiene fila en la base. Se contesta bien igual: el vecino de la
+  // demo aprieta el botón y ve que funciona, y no se escribe en la ficha de nadie.
+  if (v.demo || !v.usuario_id) {
+    return res.json({ ok: true, demo: true, mensaje: t('pop.apagado') });
+  }
+  try {
+    const { guardarPopupUsuario } = require('./db-pg');
+    await guardarPopupUsuario(v.usuario_id, false);
+    if (req.session && req.session.vecino) req.session.vecino.popup_activo = false;
+    res.json({ ok: true, mensaje: t('pop.apagado') });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Y prenderlo de nuevo desde Mi Perfil, que es donde el pop-up dice que se prende. Prometer un
+// lugar y no tenerlo es peor que no prometer nada.
+router.post('/api/popup-prender', async (req, res) => {
+  const v = getVecinoSession(req);
+  if (req.session) req.session.popupCerrado = false;
+  if (v.demo || !v.usuario_id) return res.json({ ok: true, demo: true });
+  try {
+    const { guardarPopupUsuario } = require('./db-pg');
+    await guardarPopupUsuario(v.usuario_id, true);
+    if (req.session && req.session.vecino) req.session.vecino.popup_activo = true;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/perfil', (req, res) => {
   const v = getVecinoSession(req);
+  // Qué dice hoy su preferencia. Si no está guardada, está prendido: verlo es lo que pasa cuando
+  // nadie dijo nada, y apagarlo es una decisión explícita.
+  const popupActivo = v.popup_activo !== false;
   const t = textos(v.idioma);
   const unidades = v.unidades || [];
   const rol = etiquetaRol(v.rol);
@@ -2725,6 +2814,27 @@ router.get('/perfil', (req, res) => {
           <span>${i.nombre}</span>
           ${i.codigo === t.idioma ? '<i class="ph ph-check-circle" style="margin-left:auto;font-size:15px;color:var(--acento)"></i>' : ''}
         </button>`).join('')}
+      </div>
+    </div>
+
+    <!-- EL INTERRUPTOR DEL POP-UP.
+         El pop-up dice "lo podés volver a prender desde Mi Perfil", así que tiene que estar acá.
+         Prometer un lugar y no tenerlo es peor que no prometer nada: el vecino lo apaga, después
+         lo quiere de vuelta, y no lo encuentra. -->
+    <div class="card" style="padding:16px;background:var(--superficie);border-radius:18px;margin-bottom:14px">
+      <div style="font-size:13.5px;font-weight:900;color:var(--texto);margin-bottom:4px">${esc(t('popup.tituloPerfil'))}</div>
+      <div style="font-size:11.5px;color:var(--texto-suave);margin-bottom:12px">${esc(t('popup.perfilAyuda'))}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+        <button type="button" onclick="elegirPopup(true)" style="display:flex;align-items:center;gap:8px;padding:11px 12px;border-radius:12px;border:1.5px solid ${popupActivo ? 'var(--acento)' : 'var(--borde)'};background:${popupActivo ? 'var(--acento-tenue)' : 'var(--superficie-2)'};color:var(--texto);font-size:13px;font-weight:${popupActivo ? '800' : '600'};cursor:pointer;font-family:inherit;text-align:left">
+          <i class="ph ph-bell" style="font-size:16px"></i>
+          <span>${esc(t('popup.prendido'))}</span>
+          ${popupActivo ? '<i class="ph ph-check-circle" style="margin-left:auto;font-size:15px;color:var(--acento)"></i>' : ''}
+        </button>
+        <button type="button" onclick="elegirPopup(false)" style="display:flex;align-items:center;gap:8px;padding:11px 12px;border-radius:12px;border:1.5px solid ${!popupActivo ? 'var(--acento)' : 'var(--borde)'};background:${!popupActivo ? 'var(--acento-tenue)' : 'var(--superficie-2)'};color:var(--texto);font-size:13px;font-weight:${!popupActivo ? '800' : '600'};cursor:pointer;font-family:inherit;text-align:left">
+          <i class="ph ph-bell-slash" style="font-size:16px"></i>
+          <span>${esc(t('popup.apagado'))}</span>
+          ${!popupActivo ? '<i class="ph ph-check-circle" style="margin-left:auto;font-size:15px;color:var(--acento)"></i>' : ''}
+        </button>
       </div>
     </div>
 
@@ -3243,6 +3353,120 @@ function bloqueAvisosHtml(avisos, v, t) {
 // -------------------------------------------------------------------
 // 2. INICIO / DASHBOARD DEL VECINO
 // -------------------------------------------------------------------
+// EL POP-UP DE LA PANTALLA DE INICIO
+//
+// Tres clases de contenido, en este orden y por un motivo: primero lo que al vecino le puede
+// arruinar el día si no lo sabe, después lo que le hace la vida más fácil, y al final lo que le
+// enseña el portal. Si lo urgente quedara abajo de un consejo, el consejo estorba.
+//
+//   1. Un AVISO URGENTE del edificio. Lo publica alguien de adentro --administrador, encargado,
+//      consejo, proveedor, seguridad-- y el CHECK de la tabla `avisos` lo garantiza. Un vecino no
+//      puede anunciarle al edificio que el ascensor está suspendido.
+//   2. Un CONSEJO del portal, sobre algo que el portal hace de verdad.
+//   3. Un TUTORIAL, que hoy es lo mismo que un consejo pero con el botón que lleva a la pantalla.
+//
+// > [!CAUTION]
+// > **Acá NO va publicidad inventada.** El lugar está preparado, pero llenarlo con un anuncio de
+// > mentira sería el mismo error que la tarjeta que decía `$120.000`, los dos avisos falsos de
+// > Novedades y el alias de CBU fabricado: un dato que el vecino lee como cierto. Cuando haya
+// > publicidad de verdad --con quién la paga y qué dice-- entra por la misma puerta que un aviso.
+//
+// Los consejos rotan por día para que no sea siempre el mismo, y NO al azar: con `Math.random()`
+// el mismo vecino puede ver el mismo consejo tres veces seguidas y otro nunca. El día del año
+// reparte parejo y hace que la pantalla sea igual si recarga.
+const CONSEJOS_PORTAL = [
+  { clave: 'pop.tip.pase',        icono: 'ph-qr-code',       ruta: '/vecino/pases' },
+  { clave: 'pop.tip.reclamoFoto', icono: 'ph-camera',        ruta: '/vecino/reclamos' },
+  { clave: 'pop.tip.reserva',     icono: 'ph-calendar-check', ruta: '/vecino/amenities' },
+  { clave: 'pop.tip.idioma',      icono: 'ph-translate',     ruta: '/vecino/perfil' },
+  { clave: 'pop.tip.expensas',    icono: 'ph-receipt',       ruta: '/vecino/expensas' },
+];
+
+function consejoDelDia(hoy = new Date()) {
+  const inicioDeAnio = new Date(hoy.getFullYear(), 0, 0);
+  const dia = Math.floor((hoy - inicioDeAnio) / 86400000);
+  return CONSEJOS_PORTAL[dia % CONSEJOS_PORTAL.length];
+}
+
+// Qué mostrar, o nada. Devuelve null cuando no hay que mostrar nada, así el llamador no tiene que
+// saber por qué: puede ser que el vecino lo apagó, que el administrador lo apagó, o que no hay
+// contenido.
+function contenidoDelPopup(avisos, t, hoy = new Date()) {
+  const urgente = (avisos || []).find(a => a.clase === 'aviso' && a.urgente);
+  if (urgente) {
+    return {
+      tipo: 'urgente',
+      titulo: t('pop.urgenteTitulo'),
+      encabezado: urgente.titulo || '',
+      texto: urgente.texto || '',
+      icono: 'ph-warning-circle',
+      ruta: '/vecino/novedades',
+    };
+  }
+  const consejo = consejoDelDia(hoy);
+  return {
+    tipo: 'consejo',
+    titulo: t('pop.tipTitulo'),
+    encabezado: '',
+    texto: t(consejo.clave),
+    icono: consejo.icono,
+    ruta: consejo.ruta,
+  };
+}
+
+// El pop-up, con SUS DOS SALIDAS.
+//
+// Pedido de Daniel: la cruz de cerrar arriba, y en otra parte del mismo pop-up el botón de
+// apagarlo. Son dos cosas distintas a propósito y por eso están separadas en la pantalla:
+//
+//   - CERRAR: no lo quiero ver AHORA. Vuelve mañana.
+//   - NO MOSTRAR MÁS: no lo quiero ver NUNCA. Queda guardado en su ficha.
+//
+// Si hubiera una sola, el vecino tendría que elegir entre aguantárselo todos los días o perderse un
+// aviso urgente para siempre. Y debajo del segundo botón se dice DÓNDE se vuelve a prender: un
+// interruptor que uno no sabe deshacer no se toca, o se toca una vez y se lamenta.
+function popupHtml(contenido, t) {
+  if (!contenido) return '';
+  const esUrgente = contenido.tipo === 'urgente';
+  const color = esUrgente ? 'var(--aviso)' : 'var(--marca)';
+  const fondo = esUrgente ? 'var(--aviso-fondo)' : 'var(--superficie-2)';
+
+  return `
+    <div id="popup-inicio" style="position:fixed;inset:0;z-index:900;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.45);padding:16px;backdrop-filter:blur(2px)">
+      <div role="dialog" aria-modal="true" aria-labelledby="popup-titulo" style="width:100%;max-width:440px;background:var(--superficie);border-radius:22px;box-shadow:0 -6px 34px rgba(15,23,42,.28);overflow:hidden">
+
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:18px 18px 12px">
+          <div style="width:38px;height:38px;border-radius:12px;background:${fondo};color:${color};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <i class="${contenido.icono}" style="font-size:20px"></i>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div id="popup-titulo" style="font-size:11.5px;font-weight:800;color:${color};text-transform:uppercase;letter-spacing:.05em">${esc(contenido.titulo)}</div>
+            ${contenido.encabezado ? `<div style="font-size:15.5px;font-weight:900;color:var(--texto);margin-top:2px">${esc(contenido.encabezado)}</div>` : ''}
+          </div>
+          <!-- SALIDA 1: cerrar. No lo quiero ver ahora. -->
+          <button type="button" onclick="cerrarPopup()" aria-label="${esc(t('pop.cerrar'))}" style="width:32px;height:32px;border-radius:10px;border:1px solid var(--borde);background:var(--superficie-2);color:var(--texto-suave);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">
+            <i class="ph ph-x" style="font-size:16px"></i>
+          </button>
+        </div>
+
+        <p style="font-size:13.5px;color:var(--texto-medio);line-height:1.5;padding:0 18px 14px;margin:0">${esc(contenido.texto)}</p>
+
+        <div style="display:flex;gap:8px;padding:0 18px 14px">
+          <a href="${contenido.ruta}" style="flex:1;height:42px;border-radius:12px;background:${esUrgente ? 'var(--aviso)' : 'var(--marca)'};color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;text-decoration:none">${esc(t('pop.verMas'))}</a>
+          <button type="button" onclick="cerrarPopup()" style="flex:1;height:42px;border-radius:12px;border:1px solid var(--borde-fuerte);background:var(--superficie-2);color:var(--texto-medio);font-size:13.5px;font-weight:800;cursor:pointer">${esc(t('pop.cerrar'))}</button>
+        </div>
+
+        <!-- SALIDA 2: apagarlo. No lo quiero ver nunca más, y acá abajo dice dónde se vuelve a
+             prender, porque un interruptor que uno no sabe deshacer no se toca. -->
+        <div style="border-top:1px solid var(--superficie-3);padding:12px 18px 16px;text-align:center;background:var(--superficie-2)">
+          <button type="button" onclick="apagarPopup()" style="border:none;background:none;color:var(--texto-suave);font-size:12.5px;font-weight:700;cursor:pointer;text-decoration:underline;padding:2px 4px">${esc(t('pop.noMostrarMas'))}</button>
+          <div style="font-size:11px;color:var(--texto-tenue);margin-top:3px">${esc(t('pop.noMostrarMasAyuda'))}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 router.get('/', async (req, res) => {
   const v = getVecinoSession(req);
   const t = textos(v.idioma);
@@ -3273,6 +3497,22 @@ router.get('/', async (req, res) => {
   }
 
   const avisos = await avisosDelEdificio(v.edificio);
+
+  // ¿Le mostramos el pop-up? Se apaga desde dos lados --el vecino y el administrador del
+  // consorcio-- y alcanza con que uno diga que no. La sesión de demostración no tiene fila en la
+  // base, así que ahí se muestra: es la que se usa para verlo.
+  let popup = '';
+  try {
+    const { puedeVerPopup } = require('./db-pg');
+    const puede = v.demo ? true : await puedeVerPopup(v.usuario_id, v.edificio);
+    if (puede && !req.session.popupCerrado) {
+      popup = popupHtml(contenidoDelPopup(avisos, t), t);
+    }
+  } catch (err) {
+    // Sin poder saberlo, no se muestra. Un pop-up que aparece después de que alguien lo apagó le
+    // enseña al vecino que el botón de apagarlo no sirve.
+    console.warn('Pop-up del inicio:', err.message);
+  }
   const avisosHtml = avisos.length === 0 ? '' : bloqueAvisosHtml(avisos, v, t);
 
   // 1. Tarjeta superior de Expensas (Solo fijos/titulares) o Bienvenida (Turistas)
@@ -3628,7 +3868,7 @@ router.get('/', async (req, res) => {
     </script>
   `;
 
-  res.send(shellVecino('Inicio', 'inicio', content, v));
+  res.send(shellVecino(t('nav.inicio'), 'inicio', content + popup, v));
 });
 
 // -------------------------------------------------------------------
