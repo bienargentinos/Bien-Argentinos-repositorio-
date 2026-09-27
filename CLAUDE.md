@@ -187,6 +187,47 @@ el mismo archivo el mismo día es cómo se pierde trabajo.
 > editar y empuje apenas termina — cuanto menos tiempo queda algo sin empujar, menos hay para
 > perder.
 
+## OBLIGATORIO: cada mejora terminada deja su documento comercial
+
+> [!CAUTION]
+> **Directiva de Daniel, 27/09. Vale para TODOS los agentes y para los tres productos** (Marcos IA,
+> Edifica y el Panel). No es opcional ni queda para el final.
+
+Cada vez que se termina una mejora, un módulo o una corrección, además del registro técnico de
+siempre en este archivo hay que **generar y commitear un `.md` en `docs/comercial/`** pensado para
+la venta, el soporte y la capacitación. Archivos numerados (`05-numero-de-caso-y-facturas.md`), y
+el índice del README se actualiza en el mismo commit.
+
+Palabras de Daniel: *"Objetivo final: construir una base documental real y lista para cuando
+salgamos a vender el servicio masivamente y armar los tutoriales **sin inventar humo**."*
+
+Las secciones están en `docs/comercial/README.md`: qué problema resuelve (en lenguaje de cliente),
+cómo funciona en la práctica, argumentos comerciales, guion para video, y **"Lo que todavía no
+hace"**.
+
+### Lo de "cero humo" es verificable, no una intención
+
+Tres cerrojos, escritos enteros en el README de la carpeta:
+
+1. **Lo que se afirma tiene que estar andando HOY**, y hay que poder señalar dónde: la prueba que lo
+   cubre, la línea del log, o la conversación real donde se vio.
+2. **Los ejemplos salen de chats reales**, y si hay que armar uno se dice que es armado.
+3. **Ningún número sin medición y cuidado con los absolutos** — *"cero"*, *"100%"*, *"nunca más"*,
+   *"blindado"*. Son los primeros que un administrador desconfiado pone a prueba.
+
+> **Esto no es teórico.** El 27/09, el primer lote de documentos comerciales afirmaba *"sistema
+> blindado contra errores en técnicos que comparten líneas telefónicas"* — y ese tema está
+> **CONGELADO** más arriba en este mismo archivo, con un chat real donde la plantilla dijo "julio" y
+> los mensajes siguientes "Dario". **Antes de escribir una línea de venta, buscá el tema en
+> `CLAUDE.md`**: si acá dice que está a medias o congelado, allá no puede decir que está resuelto.
+
+> **Por qué se escribe en el momento y no después.** El motivo de cada arreglo se entiende el día
+> que se hace, con el chat real todavía a mano. Seis meses más tarde queda un `git log` que no le
+> sirve a nadie que tenga que vender.
+
+> **No confundir con `docs/para-el-tutorial.md`**, que es un buzón y **no se mantiene al día a
+> propósito**. Esta carpeta sí, y es lo que el chat del tutorial va a leer el día que arranque.
+
 ## Stack técnico
 
 - **Runtime**: Node.js + Express — `index.js` es el servidor principal (acumulación de **25 segundos** en ráfagas).

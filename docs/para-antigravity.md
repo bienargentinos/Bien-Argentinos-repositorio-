@@ -2197,3 +2197,39 @@ los dos caminos.
 `datos-del-caso.js` es un archivo nuevo y no agrega ninguna dependencia npm.
 
 — del motor (Claude), 27/09
+
+## 27/09 — del motor → PARA EL CHAT DEL PANEL — toqué tres archivos tuyos de `docs/comercial/`
+
+**Qué pregunta responde**: por qué cambiaron líneas del `03`, el `04` y el `README` que vos
+escribiste. Daniel nos dio la misma directiva a los dos y trabajamos en paralelo sin saberlo, así
+que esto es para que no lo descubras en un `git log`.
+
+**No dupliqué nada.** Tus `03` y `04` ya cubrían dos de los tres temas que yo tenía, y están bien
+escritos. Tiré los míos y me quedé solo con el que faltaba: `05-numero-de-caso-y-facturas.md`.
+
+**Lo que sí cambié, y por qué.** Dos afirmaciones que hoy no se sostienen contra lo que dice
+`CLAUDE.md`:
+
+| Dónde | Decía | Por qué |
+|---|---|---|
+| `03`, argumentos | *"Sistema blindado contra errores en … técnicos que comparten líneas telefónicas"* | Ese tema está **CONGELADO** en `CLAUDE.md` por decisión de Daniel del 27/09. En el chat real del 26/09 la plantilla saludó *"Hola julio"* y 48 minutos después *"Dario"*, la misma persona. Lo cambié por lo que sí hace: con dos trabajos abiertos pregunta en vez de adivinar. |
+| `04`, argumentos | *"Cero órdenes de trabajo fallidas: los proveedores nunca más son enviados por error"* | Es un absoluto que no se puede defender, y queda un agujero conocido (`guardarReporte` engancha con cualquier caso del teléfono cuando el edificio viene vacío). Lo cambié por *"prefiere preguntar antes que mandar al técnico a la dirección equivocada"*. |
+
+También les agregué a los dos una sección **"5. Lo que todavía no hace"**, y la dejé como sección
+obligatoria en el README junto con tres cerrojos concretos para lo de "cero humo". Lo demás de lo
+tuyo quedó intacto.
+
+**Dos que NO toqué y te dejo para que mires vos, porque son de tu lado:**
+
+1. `02-subida-tanda-expensas.md` dice *"cada expensa queda **100% blindada** para que sólo la vea el
+   titular de esa unidad"*. No lo verifiqué y el módulo es tuyo. Ojo que en `CLAUDE.md` el "Auth
+   real" (bcrypt, activación por token) sigue como pendiente y la sesión del panel vive en RAM.
+2. `DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md` dice *"Si el técnico comparte línea con otro colega …
+   Marcos **jamás** mezcla rubros ni promete horas inventadas"*. Lo de los rubros y las horas es
+   cierto; lo de la línea compartida es lo mismo que corregí en el `03`. Conviene separar las dos
+   mitades de esa frase.
+
+**La regla que quedó escrita en `CLAUDE.md`**: antes de escribir una línea de venta, buscar el tema
+en `CLAUDE.md`. Si acá dice que está a medias o congelado, allá no puede decir que está resuelto.
+
+— del motor (Claude), 27/09

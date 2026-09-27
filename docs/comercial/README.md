@@ -39,3 +39,85 @@ Cada archivo nuevo en esta carpeta debe adoptar el nombre de la funcionalidad (e
 - Síntesis directa para usar como locución o copy en Instagram / LinkedIn / Ads.
 - Gancho (Hook) -> Problema -> Solución Marcos -> Llamado a la acción (CTA).
 - 100% verídico sobre lo que el sistema realmente hace hoy.
+
+### 5. Lo que todavía no hace
+
+**Obligatoria cuando aplica.** No es una debilidad del documento: es lo que lo hace usable, porque
+**quien vende necesita saber dónde no pisar**. Un vendedor que promete de más en una demo no pierde
+una función: pierde el cliente y la credibilidad de todo lo demás.
+
+---
+
+## 🚫 Cómo se cumple lo de "cero humo" (los tres cerrojos)
+
+El objetivo dice "sin inventar datos ni funciones inexistentes". Eso es una intención; esto es cómo
+se verifica. **Son tres, y no son negociables:**
+
+### 1. Todo lo que se afirma tiene que estar andando HOY en producción
+
+Antes de escribir una línea de venta hay que poder señalar **dónde está andando**: la prueba que la
+cubre (`node pruebas-*.js`), la línea del log, o la conversación real donde se vio. Si está a
+medias, va en *"Lo que todavía no hace"*.
+
+> **El caso que obligó a escribir esta regla.** El documento 03 decía *"Sistema blindado contra
+> errores en cuadrillas o técnicos que comparten líneas telefónicas"*. En `CLAUDE.md` ese tema está
+> **CONGELADO** por decisión de Daniel del 27/09, y en el chat real de esa misma semana la plantilla
+> saludó *"Hola julio"* y los mensajes siguientes decían *"Dario"* — la misma persona, dos nombres,
+> con 48 minutos de diferencia. Vender eso como blindado se descubre en la primera demo.
+
+### 2. Los ejemplos salen de conversaciones reales
+
+Y cuando hay que armar uno para explicar, **se dice que es armado**. Un chat inventado presentado
+como real es exactamente el humo que esto viene a evitar.
+
+### 3. Ningún número ni absoluto sin respaldo
+
+- **Nada de números sin medición**: *"ahorra 5 horas por semana"*, *"reduce un 40% los reclamos"*.
+  Se puede decir qué trabajo deja de hacer una persona; no se le puede poner un número que nadie
+  contó.
+- **Cuidado con los absolutos**: *"cero"*, *"100%"*, *"nunca más"*, *"jamás"*, *"blindado"*,
+  *"sin fisuras"*. Casi siempre son más fuertes que lo que el sistema puede sostener, y son los
+  primeros que un administrador desconfiado va a poner a prueba. Se reemplazan por lo que sí se
+  puede defender: en vez de *"cero órdenes fallidas"*, **"Marcos prefiere preguntar antes que
+  mandar al técnico a la dirección equivocada"** — que es lo que de verdad hace.
+
+---
+
+## 📎 Cómo se relaciona con el resto de la documentación
+
+| Archivo | Para quién | Qué guarda |
+|---|---|---|
+| `CLAUDE.md` | los agentes que escriben código | **el porqué técnico**: qué se rompió, cómo, y qué candado lo evita |
+| `docs/comercial/` (esto) | ventas, soporte, tutoriales | **el porqué comercial**: qué problema del edificio resuelve |
+| `docs/para-el-tutorial.md` | el chat de la guía del panel | solo decisiones y motivos, y **no se mantiene al día a propósito** |
+
+**El del tutorial sigue sin mantenerse al día** --decisión de Daniel, 26/09, porque el panel todavía
+cambia varias veces por semana-- pero **esta carpeta sí**. La diferencia es que acá se escribe en el
+momento en que la mejora se termina, que es cuando el motivo está fresco y el chat real está a mano;
+el tutorial se arma al final, y cuando llegue ese día **va a leer esta carpeta** en vez de
+reconstruir todo de memoria.
+
+---
+
+## 📚 Índice
+
+| Documento | De qué se trata |
+|---|---|
+| [`01-avisos-al-edificio.md`](01-avisos-al-edificio.md) | Comunicados oficiales al edificio, con vencimiento automático |
+| [`02-subida-tanda-expensas.md`](02-subida-tanda-expensas.md) | Subida masiva de expensas con lectura automática y auditoría |
+| [`03-coordinacion-y-cierre-tecnicos.md`](03-coordinacion-y-cierre-tecnicos.md) | Coordinación y cierre de trabajos con el técnico por WhatsApp |
+| [`04-contexto-multipropiedad-vecinos.md`](04-contexto-multipropiedad-vecinos.md) | El vecino con casa y oficina en edificios distintos, con un solo teléfono |
+| [`05-numero-de-caso-y-facturas.md`](05-numero-de-caso-y-facturas.md) | De qué obra es cada factura: el número de trabajo en cada mensaje |
+| [`DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md`](DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md) | Resumen general de los productos |
+
+---
+
+## 🧾 Lo que falta escribir (deuda anotada, para no perderla)
+
+La directiva rige **de acá en adelante**, así que varias cosas ya terminadas no tienen su documento:
+los datos de cobro del proveedor con verificación de CBU, el portal del vecino, la portería con QR,
+las reservas de amenities, la ventana de 24 horas de WhatsApp y el seguimiento automático de los
+reclamos.
+
+**No se escriben todos de una**: un lote grande escrito de memoria es justo donde se cuela el humo.
+Se van haciendo de a uno, cuando se toque cada módulo o cuando Daniel lo pida.

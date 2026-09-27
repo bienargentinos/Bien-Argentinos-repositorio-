@@ -27,8 +27,8 @@ Muchos propietarios e inquilinos tienen más de una unidad administrada bajo el 
 
 ## 3. Argumentos comerciales (Puntos de venta)
 - **Experiencia humana y sin fricción:** Los vecinos no tienen que memorizar números de contrato, códigos de barras ni ingresar a menús numéricos tipo "Marque 1 para...".
-- **Cero órdenes de trabajo fallidas:** Los proveedores nunca más son enviados por error a la dirección equivocada.
-- **Ideal para administraciones medianas y grandes:** A medida que una administración suma más edificios, la cantidad de vecinos con múltiples unidades se multiplica. Marcos escala sin fisuras.
+- **Marcos prefiere preguntar antes que mandar al técnico a la dirección equivocada:** cuando no está seguro de cuál de los dos edificios es, pregunta. Una pregunta de más molesta un segundo; una visita a la puerta equivocada cuesta el viaje y la relación con el proveedor.
+- **Cuanto más grande la administración, más aparece el caso:** a medida que suma edificios, crece la cantidad de vecinos con unidades en más de uno. Es un problema que el administrador de un solo consorcio no tiene, y el de veinte tiene todas las semanas.
 - **Tranquilidad para el Administrador:** Se terminan los reclamos cruzados entre consorcios distintos.
 
 ---
@@ -42,3 +42,17 @@ Muchos propietarios e inquilinos tienen más de una unidad administrada bajo el 
 *Marcos IA no es un bot de opciones: entiende contexto, lee la conversación y sabe exactamente a qué propiedad se refiere cada mensaje.*  
 *Y si alguna vez tiene una duda real, pregunta como una persona educada antes de enviar al técnico.*  
 *Dale a tus consorcios una atención de primer nivel. Incorporá Marcos IA a tu administración."*
+
+---
+
+## 5. Lo que todavía no hace
+
+> Escrito el 27/09 por el chat del motor. Es lo que evita prometer de más en una demo.
+
+- **El vecino tiene que estar cargado en los dos edificios** para que Marcos sepa que son suyos. Si
+  figura en uno solo, el reclamo del otro no tiene a dónde ir hasta que el administrador lo cargue.
+- **No hay aviso al administrador de que ese vecino escribió desde otro edificio.** El reclamo queda
+  bien imputado, pero nadie le señala que la persona pasó de un consorcio al otro.
+- **Cuando el vecino nombra una calle donde el administrador tiene dos consorcios y no dice la
+  altura, Marcos pregunta.** Es lo correcto, pero conviene aclararlo en una demo: el administrador
+  de un solo edificio no ve nunca esa pregunta, y si aparece sin contexto parece que "no entiende".

@@ -31,7 +31,7 @@ El seguimiento de proveedores y service de mantenimiento es uno de los mayores f
 ## 3. Argumentos comerciales (Puntos de venta)
 - **Trazabilidad en tiempo real sin llamadas:** La administración ya no tiene que llamar al técnico a las 19:00 hs para preguntar *"¿fuiste al edificio de San Patricio?"*. Marcos lo acompaña por chat y registra el estado automáticamente.
 - **Protección de la privacidad del vecino:** El proveedor no recibe el número personal del copropietario salvo que la administración lo autorice para el acceso puntual.
-- **Cero confusiones entre múltiples reclamos:** Sistema blindado contra errores en cuadrillas o técnicos que comparten líneas telefónicas.
+- **Cada respuesta va al trabajo correcto:** si el técnico tiene dos trabajos abiertos, Marcos no adivina a cuál se refiere: se lo pregunta mostrándole la lista por dirección y número de caso. Equivocarse ahí reparte el gasto entre dos consorcios.
 - **Atención inmediata las 24 horas:** Si una emergencia ocurre un domingo a la noche, Marcos contacta al técnico de guardia en segundos sin que el administrador deba interrumpir su descanso.
 
 ---
@@ -45,3 +45,24 @@ El seguimiento de proveedores y service de mantenimiento es uno de los mayores f
 *Con Marcos IA: el vecino reporta por WhatsApp, Marcos le manda las fotos al plomero de guardia, coordina el ingreso y cuando el técnico dice 'ya terminé', el caso se cierra solo.*  
 *El consorcio cuidado las 24 horas, y vos disfrutando de tu fin de semana.*  
 *Esto no es el futuro, es Marcos IA. Sumá tu edificio hoy."*
+
+---
+
+## 5. Lo que todavía no hace
+
+> Escrito el 27/09 por el chat del motor. Es lo que evita prometer de más en una demo.
+
+- **En una línea telefónica compartida por dos técnicos** —un plomero y un electricista de la misma
+  empresa, con el mismo número— Marcos puede saludar con un nombre en la plantilla y con el otro en
+  los mensajes siguientes. Pasó en el chat real del 26/09: la plantilla decía *"Hola julio"* y 48
+  minutos después *"Dario"*, la misma persona. **Está identificado y congelado a propósito** por
+  decisión de Daniel del 27/09: hoy el único teléfono de prueba tiene los dos técnicos cargados
+  encima, así que cualquier regla que se escriba estaría hecha contra el banco de pruebas y no
+  contra la realidad. Se retoma cuando haya dos líneas de verdad.
+  - **Lo que sí funciona** es la separación por rubro: un trabajo de plomería y uno de electricidad
+    no se mezclan en un mismo caso.
+- **Si el técnico manda la factura junto con el "ya terminé"**, el trabajo no se cierra con ese
+  mensaje. Es deliberado: un comprobante suele ser de **otra** obra, y cerrar el equivocado cuesta
+  más que esperar. Se cierra con el mensaje siguiente.
+- **Marcos no le muestra al vecino el número de caso.** Al vecino no le sirve y lo único que hace es
+  parecer un sistema.
