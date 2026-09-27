@@ -1966,3 +1966,77 @@ se entrega mal, lo que falla es el aviso de urgencia de Marcos al administrador,
 | Correo en el VPS | ❌ Zoho, por entregabilidad |
 | Cerrar el portal sin login y `/porteria/api/puerta/abrir` | ⚠️ **antes** de hacer público el dominio |
 | "Superficie 0" / "100% entregabilidad" | ✏️ bajarlo a "muy baja" / "muy alta" |
+
+---
+
+## 27/09 — del motor → PARA EL CHAT DEL PANEL — PostgreSQL: diagnóstico primero, y NO toques el `.env`
+
+En el log de la prueba de anoche aparece esto, repetido:
+
+```
+password authentication failed for user "marcos"
+connect ECONNREFUSED 127.0.0.1:5432
+🛠️ [CASO-1001] no se pudo agendar el paso 2, así que NO se le pregunta al técnico
+🛠️ [CASO-1003] … 🛠️ [CASO-1004] …
+```
+
+Con eso el seguimiento queda **trabado** y las copias a PostgreSQL se pierden, o sea que las dos
+bases se separan mientras tanto.
+
+> [!CAUTION]
+> **Pero en el MISMO log PostgreSQL también aparece funcionando** (`✅ Esquema PostgreSQL con
+> pgvector inicializado`, `📊 Total edificios cargados de PostgreSQL: 2`). Así que puede ser un
+> problema de ahora o el rastro de un rato en que estuvo caído.
+>
+> **No arregles nada hasta saber cuál de las dos es.** Ayer perseguí tres hipótesis falsas por no
+> empezar por acá.
+
+### Lo que te pido, y las tres cosas solo leen
+
+**1. ¿Marcos puede conectarse AHORA?** Esta es la que decide todo: usa la misma conexión que el
+motor, así que si anda, la autenticación está bien en este momento.
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-permisos-pg.js
+```
+
+**2. ¿Están todas las variables puestas?** Este script dice cuáles faltan y **no muestra ningún
+valor** — lo imprime él mismo: *"No se muestra ningún valor"*.
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-env.js
+```
+
+**3. ¿Los errores son de recién o son viejos?**
+
+```bash
+pm2 logs marcos-ai --lines 400 --nostream | grep -n "password authentication\|ECONNREFUSED"
+```
+
+Lo que me sirve es **dónde caen esas líneas respecto del último arranque** (`🚀 Servidor Marcos
+corriendo`). Si están todas antes del último arranque, ya pasó. Si hay alguna después, está pasando.
+
+### Lo que NO te pido, y es a propósito
+
+> [!CAUTION]
+> **No leas, no edites y no muestres el `.env`, ni corras nada que imprima la contraseña.**
+>
+> No es desconfianza: una credencial escrita en un comando queda en el historial de la terminal y
+> en el log del agente que lo corrió. **Así fue como se filtró la de root en este proyecto**, y
+> borrarla del archivo no la borra de ninguno de los dos lugares.
+>
+> Si el diagnóstico dice que la contraseña está mal, **eso lo resuelve Daniel** y no hace falta que
+> nadie me la diga a mí tampoco. Con que me digas "está mal" alcanza para seguir.
+
+Tampoco corras `ALTER USER` ni toques PostgreSQL: si hay que cambiar la contraseña del rol, es una
+decisión y un secreto, y va por Daniel.
+
+### Por qué corre apuro
+
+No es por el log feo. Con PostgreSQL rechazando, **`copiarAPg` pierde cada escritura** y las dos
+bases se van separando en silencio — Sheets con una verdad y PostgreSQL con otra, y el motor lee
+PostgreSQL primero. Cuanto más tiempo pase, más filas hay que emparejar después con
+`emparejar-casos.js`.
+
+Y mientras tanto cualquier prueba nueva va a fallar por este motivo y no por el que estemos
+probando, que es la peor forma de perder una tarde.
