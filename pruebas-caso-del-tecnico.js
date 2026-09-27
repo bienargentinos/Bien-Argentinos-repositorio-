@@ -227,6 +227,50 @@ console.log('\n6) El caso real, de punta a punta');
         sinMemoria.caso === null && sinMemoria.candidatos.length === 3);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// UNA LINEA COMPARTIDA: EL CASO ES SUYO POR TELEFONO, AUNQUE FIGURE OTRO NOMBRE
+//
+// > [!CAUTION]
+// > **El nombre y el telefono se miran JUNTOS.** En `buscarCasoAbiertoPorTecnico` el nombre
+// > decidia y el telefono se consultaba solo `if (!row)`, asi que bastaba con que el tecnico
+// > tuviera UN caso viejo a su nombre para que el caso nuevo --a nombre de su colega de la misma
+// > linea-- no existiera.
+//
+// Produccion, 26/09. El reclamo era de plomeria, asi que el CASO-1005 se asigno a julio --el
+// plomero de la linea-- y la plantilla salio a su nombre. Al contestar, quien escribe fue
+// reconocido como Dario, que tenia 1001, 1003 y 1004 abiertos. La via del telefono nunca corrio.
+//
+// Lo que vio el tecnico en su WhatsApp:
+//
+//     Plantilla:  "Estimado/a julio ... [CASO-1005]"
+//     Despues:    "Dario ... FOTO DEL RECLAMO [CASO-1004]"   <- otro nombre, otro caso, otra foto
+//
+// Y le pregunto "quien le abre?" cuando el vecino acababa de mandar la ficha de Natalia.
+console.log('\n7) La linea compartida: el caso nuevo es suyo aunque diga otro nombre');
+{
+    const SRC = fs.readFileSync(path.join(__dirname, 'datos-pg.js'), 'utf8');
+    const ini = SRC.indexOf('async function buscarCasoAbiertoPorTecnico');
+    const cuerpo = SRC.slice(ini, SRC.indexOf('\nasync function', ini + 10));
+    const codigo = cuerpo.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+    // Ojo: el `if (!row && telTecnico)` del respaldo POR EDIFICIO sigue existiendo y esta bien --
+    // ese si es un ultimo recurso. Lo que no puede volver es que la eleccion del caso salga de una
+    // lista filtrada SOLO por nombre.
+    vale('el telefono entra en la misma busqueda que el nombre, no despues',
+        /mismoTel\(r\.get\('tel_tecnico'\), telTecnico\)/.test(codigo),
+        'Sin esto, el caso que quedo a nombre del colega de la misma linea no aparece.');
+
+    vale('y la eleccion ya no sale de una lista filtrada solo por nombre',
+        !/let row = techBuscado \?/.test(codigo),
+        'Con el ternario por nombre, basta un caso viejo suyo para que el nuevo no exista.');
+
+    vale('el mas reciente se elige entre TODOS los suyos',
+        /const suyos = abiertos\.filter/.test(codigo) && /elegirCasoMasReciente\(suyos/.test(codigo));
+
+    vale('el log cuenta los casos DE EL, no los del sistema',
+        /suyos\.length > 1/.test(codigo) && !/abiertos\.length > 1/.test(codigo),
+        'Un contador que cuenta otra cosa manda a buscar un problema que no existe.');
+}
+
 console.log(`\n${'─'.repeat(70)}`);
 console.log(`   ${ok} bien, ${fallos} mal`);
 if (fallos) {

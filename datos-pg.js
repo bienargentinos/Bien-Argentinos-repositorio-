@@ -780,10 +780,34 @@ async function buscarCasoAbiertoPorTecnico(nombreTecnico, telefonoTecnico = '') 
     // al 1001, y el 1001 se cerró solo.
     const { elegirCasoMasReciente } = require('./caso-reciente');
 
-    let row = techBuscado ? elegirCasoMasReciente(abiertos.filter(r => {
+    // > [!CAUTION]
+    // > **El nombre y el teléfono se miran JUNTOS, no uno como respaldo del otro.**
+    //
+    // Acá el nombre decidía y el teléfono se consultaba solo `if (!row)`. Con una línea compartida
+    // por dos técnicos eso deja casos afuera sin que nada avise.
+    //
+    // Producción, 26/09. El reclamo era de plomería, así que `proveedor_asignaciones` asignó el
+    // CASO-1005 a **julio** --el plomero de esa línea-- y la plantilla salió a su nombre. Cuando el
+    // técnico contestó, `buscarRolPorTelefono` lo identificó como **Dario**. Buscando por "Dario"
+    // aparecieron sus tres casos viejos, así que `row` quedó lleno y la vía del teléfono nunca
+    // corrió: el CASO-1005 no existía para esta función.
+    //
+    // Resultado, textual de su WhatsApp: la plantilla decía *"Estimado/a julio … [CASO-1005]"* y
+    // dos mensajes después le llegó *"Dario … FOTO DEL RECLAMO [CASO-1004]"* con la foto de otro
+    // trabajo, más un *"¿quién le abre?"* que el vecino acababa de contestar mandando la ficha de
+    // Natalia. Cambió de nombre y de caso en la misma conversación.
+    //
+    // El teléfono es el **mismo dato de los dos lados** --lo dice el comentario de abajo, y estaba
+    // escrito sin usarse--. Un caso es suyo si coincide por cualquiera de los dos, y recién entre
+    // todos esos se elige el más reciente. Es lo que `buscarCasosRecientesPorTecnico` ya hacía bien.
+    const suyos = abiertos.filter(r => {
+        if (telTecnico && mismoTel(r.get('tel_tecnico'), telTecnico)) return true;
+        if (!techBuscado) return false;
         const rTech = String(r.get('tecnico') || '').toLowerCase().trim();
-        return rTech && (rTech.includes(techBuscado) || techBuscado.includes(rTech));
-    }), (f, campo) => f.get(campo)) : null;
+        return Boolean(rTech) && (rTech.includes(techBuscado) || techBuscado.includes(rTech));
+    });
+
+    let row = elegirCasoMasReciente(suyos, (f, campo) => f.get(campo));
 
     // Buscar por nombre no alcanza: el caso guarda el nombre que trae la ASIGNACIÓN y el técnico
     // que escribe se identifica con el de la LISTA MAESTRA, y no tienen por qué coincidir. Visto en
@@ -812,8 +836,11 @@ async function buscarCasoAbiertoPorTecnico(nombreTecnico, telefonoTecnico = '') 
     }
 
     if (!row) return null;
-    if (abiertos.length > 1) {
-        console.log(`🔎 ${nombreTecnico || telTecnico} tiene ${abiertos.length} caso(s) abierto(s); ` +
+    // `suyos`, no `abiertos`: el contador decia cuantos casos hay abiertos en TODO el sistema, no
+    // cuantos son de este tecnico. Un contador que cuenta otra cosa manda a buscar un problema que
+    // no existe -- ya paso con el barrido del seguimiento.
+    if (suyos.length > 1) {
+        console.log(`🔎 ${nombreTecnico || telTecnico} tiene ${suyos.length} caso(s) abierto(s); ` +
                     `se toma el más reciente: [${row.get('codigo_caso') || row.get('id_evento') || '?'}] de ${row.get('edificio') || '—'}.`);
     }
     return {
