@@ -50,6 +50,21 @@ Es una solución integral de inteligencia artificial y gestión diseñada exclus
   - Si el vecino dice *"hay humedad en la oficina de San Patricio"*, Marcos asocia el reclamo a esa propiedad específica.
   - Desestima falsos positivos (entiende que *"piso 4"* es una ubicación interna y no una altura de calle). Si existe una duda genuina, consulta educadamente antes de mandar al técnico.
 
+## 5. Número de Caso Visible y Asignación de Facturas
+* **Dolor operativo resuelto:** Facturas de proveedores que llegan por WhatsApp o email sin saber a qué reparación corresponden, generando demoras en la liquidación y pagos duplicados.
+* **Cómo funciona:**
+  - Cada trabajo asignado por Marcos lleva su identificador único (ej: `[CASO-1005]`) visible en cada foto y mensaje.
+  - Cuando el proveedor envía su factura o presupuesto, Marcos o el panel la asocian directamente al caso correspondiente sin necesidad de buscar en chats viejos.
+  - Ver detalle completo en [`05-numero-de-caso-y-facturas.md`](05-numero-de-caso-y-facturas.md).
+
+## 6. Protección Antifraude y Datos Bancarios de Proveedores (CBU / Alias)
+* **Dolor operativo resuelto:** Estafas por suplantación de cuenta bancaria vía WhatsApp (BEC) y demoras por errores de tipeo en los 22 dígitos del CBU al transferir a técnicos.
+* **Cómo funciona:**
+  - El sistema valida matemáticamente la coherencia de los 22 dígitos (dígitos verificadores oficiales del BCRA) y la estructura del Alias bancario antes de guardar.
+  - Si un técnico pide un cambio de cuenta por WhatsApp, Marcos **no** pisa el CBU actual. Guarda la solicitud como pendiente y levanta una alerta en el panel de control.
+  - El administrador audita el cambio (CBU anterior vs. nuevo solicitado) y lo aprueba o rechaza con un solo clic.
+  - Ver detalle completo en [`10-proteccion-antifraude-cbu-proveedores.md`](10-proteccion-antifraude-cbu-proveedores.md).
+
 ---
 
 # PARTE 3: EL MOTOR DE MARCOS IA (ARQUITECTURA Y ROBUSTEZ)
@@ -63,15 +78,6 @@ Es una solución integral de inteligencia artificial y gestión diseñada exclus
 ### Ruteo Inteligente y Memoria
 * **Memoria por Vecino:** Recuerda el trato preferido, problemas anteriores y contexto de la unidad para brindar una atención personalizada.
 * **Separación Estricta de Roles:** Vecinos, miembros del consejo, encargados de edificio y proveedores tienen árboles de diálogo y permisos completamente aislados.
-
----
-
-## 5. Número de Caso Visible y Asignación de Facturas
-* **Dolor operativo resuelto:** Facturas de proveedores que llegan por WhatsApp o email sin saber a qué reparación corresponden, generando demoras en la liquidación y pagos duplicados.
-* **Cómo funciona:**
-  - Cada trabajo asignado por Marcos lleva su identificador único (ej: `[CASO-1005]`) visible en cada foto y mensaje.
-  - Cuando el proveedor envía su factura o presupuesto, Marcos o el panel la asocian directamente al caso correspondiente sin necesidad de buscar en chats viejos.
-  - Ver detalle completo en [`05-numero-de-caso-y-facturas.md`](05-numero-de-caso-y-facturas.md).
 
 ---
 

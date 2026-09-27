@@ -112,6 +112,7 @@ reconstruir todo de memoria.
 | [`07-portal-en-cuatro-idiomas.md`](07-portal-en-cuatro-idiomas.md) | El portal en castellano, inglés, portugués y francés |
 | [`08-pases-qr-visitas-y-proveedores.md`](08-pases-qr-visitas-y-proveedores.md) | El vecino le hace un pase a su visita desde el celular |
 | [`09-avisos-en-el-portal-y-popup.md`](09-avisos-en-el-portal-y-popup.md) | El aviso del edificio del lado del vecino, y el recordatorio de inicio |
+| [`10-proteccion-antifraude-cbu-proveedores.md`](10-proteccion-antifraude-cbu-proveedores.md) | Datos de cobro del proveedor: validación matemática de CBU y cerrojo antifraude en cambios de cuenta |
 | [`DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md`](DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md) | Resumen general de los productos |
 
 ---
