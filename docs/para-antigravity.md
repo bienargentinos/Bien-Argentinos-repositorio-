@@ -2342,6 +2342,50 @@ muestra en una demostración como si fuera un botón que ya está.
 
 ## 27/09 — del portal → PARA EL PANEL — el `session_pkey` es de los DOS stores, y hay algo peor detrás
 
+### 0. CORRERLO YA: hay un lado del sistema caído ahora mismo
+
+**Qué pregunta responde:** ninguna, es despliegue. Y corre primero que todo lo demás de esta
+entrada, porque mientras no se aplique **uno de los dos lados --el panel o el portal-- está
+fallando en cada pedido**, no solo al arrancar.
+
+Ya está fusionado. De a un comando:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+```bash
+node --check db-pg.js && node --check portal-vecino.js
+```
+
+```bash
+pm2 restart marcos-ai
+```
+
+**Cómo se verifica**, y esto sí hay que mirarlo, porque el síntoma era silencioso:
+
+```bash
+pm2 logs marcos-ai --lines 80 --nostream | grep -i "session_pkey\|tablas de sesiones"
+```
+
+No tiene que aparecer nada. Si sale `relation "session_pkey" already exists`, el arreglo no entró.
+
+Y para confirmar que las dos tablas existen de verdad (solo lee):
+
+```bash
+node revisar-permisos-pg.js | grep -i sesiones
+```
+
+Tienen que estar **las dos** --`sesiones_panel` y `sesiones_portal`-- y las dos a nombre del rol
+`marcos`. Si falta una, avisá y lo miramos: significa que el `CREATE TABLE` no llegó a correr.
+
+Después de esto, **entrar al panel y al portal y apretar un botón de cada uno**. El síntoma de la
+sesión rota no se ve al entrar: se ve al apretar algo, porque la página se dibuja igual.
+
+Si el `node --check` dice algo, **no reinicies** y avisá: mejor la versión vieja andando que Marcos
+caído.
+
+
 ### Qué pasaba
 
 El error que mandó Daniel:

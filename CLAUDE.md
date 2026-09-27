@@ -2596,6 +2596,78 @@ Candado: `pruebas-clave-app.js` exige que `requireAuth` reconozca una ruta de AP
 esto nombra `res.redirect` y `/admin/login`, y una prueba que los confunda con el código mide el
 comentario en lugar de la función.
 
+## El esquema de `db-pg.js` NO se aplica al arrancar
+
+> [!CAUTION]
+> **`index.js` nunca llama a `initPgSchema`.** Los únicos llamadores son `revisar-seguimientos.js`,
+> `reparar-datos-pg.js` e `importar-expensas-a-pg.js` — tres scripts sueltos. El servidor no está
+> entre ellos.
+
+```bash
+grep -rn "initPgSchema" --include=*.js . | grep -v node_modules
+```
+
+O sea que **agregar una columna o una tabla a `db-pg.js` no la crea en producción.** Las que hay
+existen porque alguien corrió `01-base-de-datos.sql` o uno de esos scripts a mano.
+
+Esto explica de raíz varias cosas que más arriba figuran como casos sueltos, y que se leyeron como
+"alguien rompió el esquema":
+
+- `facturas.id_evento`, `facturas.url`, `reportes.material_enviado_tecnico`, `reportes.foto_url` —
+  columnas **escritas en `db-pg.js`** que la base no tenía. Nunca se crearon.
+- La restricción `facturas_estado_chk` que *"alguien creó a mano en el servidor"*: no hay otra vía.
+
+> **Y el candado de `pruebas-columnas-pg.js` no lo agarra**, a propósito: compara el SQL del código
+> contra lo que `db-pg.js` **dice** que crea. Mide la intención, no la base. Está bien que así sea
+> --corre sin PostgreSQL prendido, que es lo que lo hace útil antes de un push-- pero **verde ahí no
+> significa que la columna exista**. Para eso están `revisar-columnas-pg.js` y
+> `revisar-permisos-pg.js`, que sí hablan con la base.
+
+**Decisión pendiente, del motor**: llamar a `initPgSchema()` al arrancar (es idempotente y está
+memoizado) o tener un script explícito de migración que el despliegue incluya. Correr DDL en cada
+arranque tiene consecuencias --si una sentencia falla a mitad, el arranque queda a medias-- así que
+no se cambió por iniciativa propia. Queda pedido en `docs/para-el-motor.md`.
+
+## Dos stores de sesión en la misma base chocan aunque las tablas se llamen distinto
+
+> [!CAUTION]
+> **`connect-pg-simple` sustituye SOLO la cadena `"session"` al crear su tabla.** El nombre de la
+> restricción queda literal como `session_pkey`, y el índice de una clave primaria en PostgreSQL es
+> único **por esquema**, no por tabla.
+
+```js
+tableDefString.replaceAll('"session"', quotedTable)   // index.js de la librería
+```
+
+El panel usa `sesiones_panel` y el portal `sesiones_portal` --nombres distintos, todo bien-- y aun
+así el segundo store que arranca choca contra el índice del primero:
+
+```
+error: relation "session_pkey" already exists
+```
+
+> [!CAUTION]
+> **No es un error de arranque que se cure solo.** El que pierde **se queda sin tabla**, su promesa
+> de creación queda **rechazada y cacheada**, y falla en CADA pedido de ahí en adelante. Ahí
+> `express-session` no puede leer la sesión, Express contesta su página de error en HTML, y una ruta
+> de API devuelve HTML donde el JavaScript espera JSON — el mismo `Unexpected token '<'` que ya está
+> anotado más arriba por otra causa. **El síntoma no se ve al entrar: la página se dibuja igual y
+> falla recién al apretar un botón.**
+
+`asegurarTablasDeSesion()` en `db-pg.js` crea **las dos** con `CREATE TABLE IF NOT EXISTS` y la
+clave primaria **en línea**, así PostgreSQL le pone el nombre solo y no hay colisión posible. La
+llama `portal-vecino.js` **antes** de construir su store; con las tablas ya creadas, `to_regclass`
+las encuentra y la librería no intenta crear nada.
+
+- **Se crean las dos, no solo la propia**: cuál falta depende de cuál ganó la carrera, y ninguno de
+  los dos lados puede saberlo desde su archivo.
+- **`createTableIfMissing` queda en `true`** como red: si la creación fallara, se vuelve al
+  comportamiento anterior en vez de quedarse sin store.
+
+Prueba: `node pruebas-pool-pg.js`. El candado verifica además que **el peligro siga existiendo en la
+librería instalada** — si algún día lo arreglan, se pone en rojo y hay que releer si esto todavía
+hace falta.
+
 ## `\w` sin acentos, tercera vez — ahora en el verificador
 
 > [!CAUTION]
