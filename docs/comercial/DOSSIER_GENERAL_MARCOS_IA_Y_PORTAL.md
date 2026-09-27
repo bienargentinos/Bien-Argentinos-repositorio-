@@ -1,0 +1,75 @@
+# DOSSIER GENERAL: MARCOS IA, PORTAL DEL VECINO Y PANEL DE GESTIÓN
+**Base de Conocimiento Integral para Capacitación, Comercialización y Soporte**
+*Fecha de consolidación: Septiembre 2026*
+
+---
+
+# PARTE 1: VISIÓN GENERAL Y PROPUESTA DE VALOR
+
+### ¿Qué es el ecosistema Marcos?
+Es una solución integral de inteligencia artificial y gestión diseñada exclusivamente para consorcios, administraciones de edificios y barrios cerrados. Se compone de tres pilares perfectamente conectados:
+1. **Marcos IA (Motor Conversacional por WhatsApp):** Un asistente inteligente que interactúa con vecinos, encargados y proveedores de forma 100% natural, resolviendo reclamos, coordinando visitas y gestionando urgencias 24/7 sin descanso.
+2. **Portal del Vecino y Portería (Edifica):** Una aplicación web moderna para residentes (propietarios, inquilinos y huéspedes temporales) donde consultan expensas protegidas, gestionan pases QR de ingreso rápido y visualizan comunicados oficiales.
+3. **Panel de Control del Administrador (Dashboard):** El centro de mando donde la administración supervisa finanzas, proveedores, reclamos y accesos con auditoría en tiempo real.
+
+### La Regla de Oro del Producto
+* **Para el Vecino:** Marcos es una persona del equipo de administración. Nunca se presenta como un bot ni utiliza frases mecánicas. Se comunica con modismos argentinos, empatía y sentido común.
+* **Para el Administrador:** Sabe que es una IA de última generación, lo que le garantiza tranquilidad: el sistema atiende a cualquier hora, no pierde mensajes y le filtra los reclamos duplicados.
+
+---
+
+# PARTE 2: MÓDULOS COMERCIALES Y SOLUCIONES OPERATIVAS
+
+## 1. Avisos al Edificio y Comunicados Urgentes
+* **Dolor operativo resuelto:** Evita el caos de los grupos tóxicos de WhatsApp y los carteles de papel pegados en el hall que nadie lee.
+* **Cómo funciona:**
+  - El administrador puede emitir un comunicado desde el panel web (`/admin/avisos`) o mandándole un mensaje directo a Marcos por WhatsApp (*"Marcos, avisá corte de agua hasta las 18 hs"*).
+  - Marcos valida la identidad (solo acepta órdenes de administradores, encargados o consejo) y publica el aviso en el portal del edificio.
+  - Cuenta con **vencimiento automático**: si el corte termina a las 18:00, a las 18:01 el aviso desaparece solo sin intervención manual.
+
+## 2. Subida Masiva y Auditoría Inteligente de Expensas (OCR)
+* **Dolor operativo resuelto:** Termina con la carga manual departamento por departamento y previene errores humanos de asignación o filtración de deudas ajenas.
+* **Cómo funciona:**
+  - El administrador arrastra hasta 60 comprobantes PDF juntos.
+  - Una IA especializada lee cada PDF, extrayendo unidad (ej: 4° B), fecha de vencimiento y monto exacto a pagar.
+  - Presenta una **Mesa de Revisión con Semáforo** (Verde = coincide con vecino; Amarillo = unidad válida sin vecino registrado aún; Gris = liquidación general; Rojo = advertencia de duplicado).
+  - Al publicar, cada expensa queda blindada con seguridad de sesión: ningún vecino puede ver el cupón o saldo de otra unidad.
+
+## 3. Coordinación de Proveedores y Cierre de Trabajos por WhatsApp
+* **Dolor operativo resuelto:** Elimina las llamadas constantes de seguimiento (*"¿fuiste a revisar la pérdida de agua?"*) y la filtración de números privados de vecinos.
+* **Cómo funciona:**
+  - Ante un reclamo, Marcos contacta automáticamente al técnico del rubro adecuado (plomería, electricidad, gas, etc.).
+  - Le remite las fotos/audios que envió el vecino y le da las instrucciones de acceso pactadas (portería o contacto autorizado).
+  - Marcos **entiende lenguaje natural de cierre**: cuando el técnico escribe *"listo, ya terminé acá"*, Marcos cierra el reclamo, frena los reenvíos de fotos y registra la resolución en el panel con fecha y hora.
+  - Si el técnico comparte línea con otro colega o atiende varios casos, Marcos jamás mezcla rubros ni promete horas de llegada inventadas al vecino.
+
+## 4. Comprensión de Contexto para Vecinos con Múltiples Propiedades
+* **Dolor operativo resuelto:** Propietarios que viven en un edificio y tienen cochera, oficina o local en otro consorcio de la misma administración.
+* **Cómo funciona:**
+  - En lugar de exigir códigos de barra o menús numéricos fríos, Marcos analiza el texto y el historial de la conversación.
+  - Si el vecino dice *"hay humedad en la oficina de San Patricio"*, Marcos asocia el reclamo a esa propiedad específica.
+  - Desestima falsos positivos (entiende que *"piso 4"* es una ubicación interna y no una altura de calle). Si existe una duda genuina, consulta educadamente antes de mandar al técnico.
+
+---
+
+# PARTE 3: EL MOTOR DE MARCOS IA (ARQUITECTURA Y ROBUSTEZ)
+
+### Respaldo Dual y Sincronización
+* **PostgreSQL + Google Sheets:** Cada evento crítico (reclamos, facturas, asignaciones de proveedores) se sincroniza en ambas bases. Si un servicio externo sufre microcortes, el sistema tiene redundancia total.
+* **Ventana de 24 Horas de Meta (WhatsApp Cloud API):**
+  - Si un técnico responde después de 24 horas y Meta reabre la ventana de conversación, Marcos despacha automáticamente todas las fotos, videos y contactos de acceso que habían quedado en cola de espera.
+  - Conservación física de medios: los archivos se resguardan en almacenamiento seguro en disco para garantizar entregas diferidas.
+
+### Ruteo Inteligente y Memoria
+* **Memoria por Vecino:** Recuerda el trato preferido, problemas anteriores y contexto de la unidad para brindar una atención personalizada.
+* **Separación Estricta de Roles:** Vecinos, miembros del consejo, encargados de edificio y proveedores tienen árboles de diálogo y permisos completamente aislados.
+
+---
+
+# PARTE 4: EL PORTAL DEL VECINO Y CONTROL DE ACCESO (EDIFICA)
+
+### Funcionalidades Residentes
+* **Inicio con Pop-up Dinámico:** Avisos de emergencia del consorcio o consejos útiles sobre el uso del edificio. El administrador puede apagar el pop-up a nivel consorcio, y el vecino puede desactivarlo a nivel personal.
+* **Pases QR de Acceso:** Generación de invitaciones temporales con código QR firmado criptográficamente para visitas, deliveries o personal de servicio.
+* **Multi-idioma Nativo:** Disponible en Español, Inglés, Portugués y Francés para adaptarse tanto a residentes permanentes como a turistas de alquileres temporales.
+* **Descarga de Documentación:** Acceso directo a expensas individuales y gastos globales del consorcio con visor seguro.
