@@ -282,25 +282,17 @@ async function buscarTecnicoAsignado({ edificio, especialidad, esUrgente = false
         const sheetAsig = pestaña(doc, 'proveedor_asignaciones');
         if (sheetAsig) {
             const rowsAsig = await sheetAsig.getRows();
-            const coincide = rowsAsig.find(r => {
-                const est = (r.get('estado') || '').toLowerCase();
-                if (est === 'eliminado' || est === 'inactivo') return false;
 
-                const rub = (r.get('rubro') || '').toLowerCase();
-                const edif = (r.get('edificio') || '').toLowerCase();
-
-                const coincideRubro = rub.includes(espNorm) || espNorm.includes(rub) ||
-                    ((espNorm.includes('electr') || espNorm.includes('luz')) && (rub.includes('electr') || rub.includes('luz') || rub.includes('electricista'))) ||
-                    ((espNorm.includes('plom') || espNorm.includes('agua')) && (rub.includes('plom') || rub.includes('agua') || rub.includes('plomero'))) ||
-                    ((espNorm.includes('cerraj') || espNorm.includes('llav')) && (rub.includes('cerraj') || rub.includes('port')));
-
-                const coincideEdificio = edif.includes(edifNorm) || edifNorm.includes(edif) || edif === '' || edif === 'todos';
-
-                return coincideRubro && coincideEdificio;
-            });
+            // La MISMA decisión que usa `datos-pg.js`. Estaba escrita dos veces, igual, y como
+            // `datos.js` lee PostgreSQL primero, arreglar solo esta copia no habría cambiado nada
+            // en producción. Es exactamente lo que pasó con `buscarPerfilEdificio`.
+            const { elegirAsignacion } = require('./elegir-asignacion');
+            const elegida = elegirAsignacion(rowsAsig, { edificio, especialidad, esUrgente }, (f, campo) => f.get(campo));
+            const coincide = elegida?.fila || null;
 
             if (coincide) {
-                console.log(`🔧 Técnico encontrado en 'proveedor_asignaciones': ${coincide.get('proveedor')} (${coincide.get('telefono')})`);
+                console.log(`🔧 Técnico encontrado en 'proveedor_asignaciones': ${coincide.get('proveedor')} ` +
+                    `(${coincide.get('telefono')}) — ${elegida.porQue}`);
                 // "acceso" viaja tal cual en la plantilla de Meta que recibe el técnico -- nunca
                 // debe leerse como que el técnico tiene que gestionarlo por su cuenta. Es Marcos
                 // quien coordina el acceso con el vecino, no el técnico. (No puede ser dinámico

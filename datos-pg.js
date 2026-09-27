@@ -272,18 +272,19 @@ async function buscarTecnicoAsignado({ edificio, especialidad, esUrgente = false
     const edifNorm = String(edificio || '').toLowerCase().trim();
 
     // 1. Asignaciones del edificio: es la lista que arma el administrador, y manda sobre el resto.
+    //
+    // La decisión vive en `elegir-asignacion.js` porque estaba escrita DOS VECES --acá y en
+    // `sheets.js`-- y con dos agujeros: la columna `prioridad` que carga el administrador no se
+    // miraba nunca (decidía el orden en que la base devolvía las filas), y no se comprobaba que el
+    // teléfono sirviera para llamar.
+    const { elegirAsignacion } = require('./elegir-asignacion');
     const asigs = await filas('proveedor_asignaciones');
-    const coincide = asigs.find(r => {
-        const est = String(r.get('estado') || '').toLowerCase();
-        if (est === 'eliminado' || est === 'inactivo') return false;
-        const rub = String(r.get('rubro') || '').toLowerCase();
-        const edif = String(r.get('edificio') || '').toLowerCase();
-        const coincideEdificio = edif.includes(edifNorm) || edifNorm.includes(edif) || edif === '' || edif === 'todos';
-        return coincideRubro(espNorm, rub) && coincideEdificio;
-    });
+    const elegida = elegirAsignacion(asigs, { edificio, especialidad, esUrgente }, (f, campo) => f.get(campo));
+    const coincide = elegida?.fila || null;
 
     if (coincide) {
-        console.log(`🔧 Técnico encontrado en 'proveedor_asignaciones': ${coincide.get('proveedor')} (${coincide.get('telefono')})`);
+        console.log(`🔧 Técnico encontrado en 'proveedor_asignaciones': ${coincide.get('proveedor')} ` +
+            `(${coincide.get('telefono')}) — ${elegida.porQue}`);
         // "acceso" viaja tal cual en la plantilla de Meta que recibe el técnico: nunca debe leerse
         // como que el técnico tiene que gestionarlo por su cuenta. Lo coordina Marcos con el vecino.
         return {

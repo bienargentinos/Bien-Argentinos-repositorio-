@@ -475,6 +475,48 @@ Daniel lo confirmó y está implementado: se identifica por la terna **teléfono
 
 Prueba: `node pruebas-tecnico-por-rubro.js` (15 casos, con Julio y Dario en la misma línea).
 
+### La prioridad que carga el administrador no se usaba en ningún lado
+
+> [!CAUTION]
+> **El panel deja marcar, por rubro, quién es *1ra opción*, *2da opción* o *urgencias* — y
+> `buscarTecnicoAsignado` elegía con `filas.find(...)`, o sea la primera fila que devolviera la
+> base.** En PostgreSQL eso no promete ningún orden, y una fila actualizada se mueve al final del
+> heap.
+
+El administrador marcaba a quién llamar primero y Marcos llamaba a cualquiera. **Con un solo
+proveedor por rubro --el caso de prueba-- acierta siempre**, así que el bug solo existe con dos:
+exactamente lo que nunca se probó. Es el mismo defecto que ya arregló `caso-reciente.js` — decidir
+por el **orden físico** de las filas.
+
+Y estaba **escrita dos veces, igual**, en `datos-pg.js` y en `sheets.js`. Como `datos.js` lee
+PostgreSQL primero, arreglar solo la de Sheets no habría cambiado nada en producción: es el mismo
+caso que `buscarPerfilEdificio`.
+
+`elegir-asignacion.js` (`elegirAsignacion`) es ahora la única copia, y cierra dos agujeros:
+
+- **Ordena por `prioridad`**, tolerando cómo lo escribe el panel (`primera`, `1ra`, `1ra Opción`).
+  **En una urgencia manda quien está marcado para urgencias**, aunque sea la 2da opción para un
+  trabajo normal — para eso existe esa marca. Fuera de una urgencia no se saltea a la 1ra opción.
+- **Saltea a quien tiene un teléfono al que no se puede llamar**, con el `telefonoUsable()` que ya
+  existía y se usaba **solo** para el contacto de ingreso. Una ficha con `11111111111` o con ocho
+  dígitos se elegía igual: la plantilla de Meta salía, rebotaba, y **el caso quedaba con un técnico
+  asignado al que nadie puede llamar**. El administrador lo ve "en proceso" y no pasa nunca nada.
+  Se baja al siguiente de la lista; si ninguno sirve, no se asigna nadie y se dice fuerte.
+
+**Dos cosas que NO cambiaron, a propósito:**
+
+- **La comparación de rubros vino copiada tal cual.** Unificarla con `atiendeRubro` de `rubros.js`
+  es lo correcto y es **su propio trabajo**: cambiaría a quién se le deriva cada caso, y eso no se
+  mezcla con un arreglo de orden y de teléfonos.
+- **Una asignación con el edificio VACÍO sigue valiendo para todos los edificios.** Es la misma
+  forma que en `porteria.js` resultó ser un agujero --que falte un dato no es una autorización--
+  pero sacarlo a ciegas puede dejar sin técnico a un edificio que hoy lo encuentra por esa vía.
+  Queda **dicho en el log** cada vez que pasa: `🔧⚠️ La asignación de "X" no tiene edificio cargado,
+  así que vale para TODOS.`
+
+Prueba: `node pruebas-elegir-asignacion.js`, con un candado que prohíbe que cualquiera de las dos
+vuelva a elegir la asignación con `.find()`.
+
 ### Pero el caso ya decidió con quién habla, y eso manda sobre el rubro
 
 > [!CAUTION]
