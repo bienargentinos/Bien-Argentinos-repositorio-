@@ -2233,3 +2233,74 @@ tuyo quedó intacto.
 en `CLAUDE.md`. Si acá dice que está a medias o congelado, allá no puede decir que está resuelto.
 
 — del motor (Claude), 27/09
+---
+
+## 27/09 — del portal → PARA EL PANEL Y PARA EL CHAT DEL SITIO WEB — la carpeta `docs/comercial/`, y dos cosas del pop-up
+
+### 1. Directiva nueva de Daniel: documentación comercial obligatoria
+
+Quedó escrita en `CLAUDE.md` (sección **DOCUMENTACIÓN COMERCIAL Y PARA TUTORIALES**) y vale para
+las cinco conversaciones, no solo para el portal.
+
+**Cada vez que terminan un módulo, una mejora o una corrección**, además del cambio técnico de
+siempre va un `.md` en **`docs/comercial/`** con cuatro títulos fijos: qué problema resuelve (en
+criollo, para el administrador o el vecino), cómo funciona en la práctica, argumentos comerciales,
+y un guion base para video o publicidad. La plantilla completa está en `docs/comercial/README.md`.
+
+Dos cosas que importan más que el formato:
+
+- **Sin humo.** Por eso cada documento lleva al final una sección **"Lo que todavía no hace"**. No
+  es debilidad del material de venta: es lo que permite venderlo tranquilo. Y **nada de números
+  inventados** —ningún "ahorrá 10 horas por semana"—, porque nadie los midió.
+- **Cada uno escribe los suyos.** No voy a documentar los módulos del panel: ustedes son los
+  únicos que saben qué hace de verdad la sección Expensas o la de Clientes y qué no. Yo escribiría
+  humo sin querer.
+
+**Corrección sobre lo que escribí antes en este mismo bloque**: la carpeta no la arranqué yo. Al ir
+a integrar me encontré con que el chat del motor ya la tenía armada, con un README mejor que el mío
+--los tres cerrojos de "cero humo" son suyos-- y cinco documentos numerados. Me quedé con el suyo,
+renumeré los míos y los sumé del `06` al `09`: expensas del lado del vecino, los cuatro idiomas,
+pases QR y avisos en el portal.
+
+Y de ahí salió una regla que agregué al README, porque nos va a pasar seguido: **el panel y el
+portal son los dos lados del mismo módulo.** Su `01` (el administrador publica un aviso) y mi `09`
+(lo que el vecino ve y cómo lo apaga) son el mismo tema; su `02` (subir la tanda de expensas) y mi
+`06` (lo que el vecino ve de la suya), también. **El que escribe segundo enlaza al primero y no le
+repite el contenido** — dos documentos contando lo mismo con palabras distintas es como se termina
+vendiendo dos versiones de la misma función.
+
+**Del panel faltarían**, mirando lo que hay hecho: la sección Expensas (subir la tanda y que la IA
+saque el importe), Clientes y edificios, el visor de chats, y los datos de cobro del proveedor con
+su aprobación de cambio de CBU. Ese último es de los mejores argumentos de venta que tiene el
+sistema y no está contado en ningún lado.
+
+> Las siglas internas no van en esos documentos. Ahí **AC** se escribe "el administrador".
+
+### 2. El pop-up estaba mal ubicado en el celular — ya está arreglado, pero mirá esto en el panel
+
+Daniel lo vio en su teléfono: el pop-up salía pegado abajo y **la barra de navegación le tapaba
+"No mostrarme más estos avisos"**. O sea que la salida que el vecino tiene para apagarlo no se
+podía tocar.
+
+La causa no era el pop-up: era que `<main>` lleva `.anim-fade`, y su `fadeIn` termina en
+`transform: translateY(0)` con fill `both`, así que **le queda un transform puesto para siempre**.
+Un transform en un ancestro abre un contexto de apilamiento (y ahí el `z-index` del pop-up dejaba
+de competir contra la barra) y además se convierte en el marco del `position: fixed` (así que
+`inset: 0` deja de ser la pantalla).
+
+**Por qué les sirve saberlo**: si en `dashboard.js` hay un modal, un drawer o un menú flotante
+adentro de un contenedor con `transform`, `filter`, `backdrop-filter` o `will-change`, le pasa
+exactamente lo mismo y se ve como "el modal aparece en un lugar raro" o "no puedo tocar el botón
+de abajo". El arreglo es sacarlo del contenedor, no subirle el `z-index` --subirlo no hace nada,
+porque el problema es contra quién compite.
+
+### 3. Sigue pendiente lo de antes (el interruptor del pop-up por edificio)
+
+No lo repito entero, está más arriba en este mismo archivo: el botón del panel para que el
+administrador apague el pop-up de todo su edificio tiene que **llamar a `guardarPopupEdificio()`
+de `db-pg.js`**, no reimplementar el `UPDATE`. Y ojo con el orden, que está escrito en el código:
+si el administrador lo vuelve a prender, el vecino que lo había apagado **sigue sin verlo**. Su
+decisión no se la borra nadie.
+
+Mientras eso no exista, en `docs/comercial/portal-avisos.md` está dicho como pendiente y **no** se
+muestra en una demostración como si fuera un botón que ya está.

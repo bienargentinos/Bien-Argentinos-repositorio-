@@ -108,6 +108,10 @@ reconstruir todo de memoria.
 | [`03-coordinacion-y-cierre-tecnicos.md`](03-coordinacion-y-cierre-tecnicos.md) | Coordinación y cierre de trabajos con el técnico por WhatsApp |
 | [`04-contexto-multipropiedad-vecinos.md`](04-contexto-multipropiedad-vecinos.md) | El vecino con casa y oficina en edificios distintos, con un solo teléfono |
 | [`05-numero-de-caso-y-facturas.md`](05-numero-de-caso-y-facturas.md) | De qué obra es cada factura: el número de trabajo en cada mensaje |
+| [`06-expensas-en-el-celular-del-vecino.md`](06-expensas-en-el-celular-del-vecino.md) | Lo que el vecino ve de su expensa, y lo que no ve de la del vecino |
+| [`07-portal-en-cuatro-idiomas.md`](07-portal-en-cuatro-idiomas.md) | El portal en castellano, inglés, portugués y francés |
+| [`08-pases-qr-visitas-y-proveedores.md`](08-pases-qr-visitas-y-proveedores.md) | El vecino le hace un pase a su visita desde el celular |
+| [`09-avisos-en-el-portal-y-popup.md`](09-avisos-en-el-portal-y-popup.md) | El aviso del edificio del lado del vecino, y el recordatorio de inicio |
 | [`DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md`](DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md) | Resumen general de los productos |
 
 ---
@@ -115,9 +119,40 @@ reconstruir todo de memoria.
 ## 🧾 Lo que falta escribir (deuda anotada, para no perderla)
 
 La directiva rige **de acá en adelante**, así que varias cosas ya terminadas no tienen su documento:
-los datos de cobro del proveedor con verificación de CBU, el portal del vecino, la portería con QR,
-las reservas de amenities, la ventana de 24 horas de WhatsApp y el seguimiento automático de los
-reclamos.
+los datos de cobro del proveedor con verificación de CBU, las reservas de amenities, la ventana de
+24 horas de WhatsApp y el seguimiento automático de los reclamos.
+
+> **Del 06 al 09 se saldó una parte** (27/09, del chat del portal): el portal del vecino y la
+> portería con QR ya tienen los suyos. Se escribieron desde la conversación que hizo esos
+> módulos, que es la única que sabe qué hacen de verdad.
 
 **No se escriben todos de una**: un lote grande escrito de memoria es justo donde se cuela el humo.
 Se van haciendo de a uno, cuando se toque cada módulo o cuando Daniel lo pida.
+
+---
+
+## Tres reglas más, agregadas el 27/09 desde el chat del portal
+
+- **Cada conversación escribe los documentos de SUS módulos.** Quien hizo el módulo es el único que
+  sabe qué hace de verdad y qué no. Documentar el módulo de otro es exactamente cómo se escribe humo
+  sin querer, y es lo que ya pasó una vez acá: el primer lote afirmaba que un tema estaba resuelto
+  cuando en `CLAUDE.md` figura como congelado.
+- **Una corrección chica no lleva archivo nuevo**: se agrega al documento del módulo que corrige.
+  Si no, la carpeta termina con cuarenta archivos y el índice deja de servir.
+- **Las siglas internas no se escriben acá.** Entre nosotros **AC** es el administrador cliente y
+  **AY** es Antigravity; el cliente no conoce ninguna de las dos. En estos documentos se dice
+  "el administrador".
+
+### Cuando dos documentos tocan el mismo tema, se cruzan en vez de competir
+
+Ya pasó con dos pares, y va a volver a pasar porque el panel y el portal son **los dos lados del
+mismo módulo**:
+
+| Un lado | El otro |
+|---|---|
+| `01` — el administrador publica el aviso | `09` — lo que el vecino ve, y cómo lo apaga |
+| `02` — el administrador sube la tanda de expensas | `06` — lo que el vecino ve de la suya |
+
+**El que se escribe segundo enlaza al primero y no le repite el contenido.** Dos documentos
+contando lo mismo con palabras distintas es como se termina vendiendo dos versiones de la misma
+función.

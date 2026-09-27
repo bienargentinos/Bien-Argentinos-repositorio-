@@ -228,6 +228,19 @@ Tres cerrojos, escritos enteros en el README de la carpeta:
 > **No confundir con `docs/para-el-tutorial.md`**, que es un buzón y **no se mantiene al día a
 > propósito**. Esta carpeta sí, y es lo que el chat del tutorial va a leer el día que arranque.
 
+### Tres reglas más, del lado del portal
+
+- **Cada conversación escribe los documentos de SUS módulos.** Quien hizo el módulo es el único que
+  sabe qué hace de verdad y qué no; un agente documentando el módulo de otro es exactamente cómo se
+  escribe humo sin querer. Es también el motivo de que el primer lote afirmara algo que acá figura
+  como congelado.
+- **Una corrección chica no lleva archivo nuevo**: se agrega al documento del módulo que corrige.
+  Si no, la carpeta termina con cuarenta archivos y el índice deja de servir.
+- **Las siglas internas no van en estos documentos.** Acá entre nosotros **AC** es el administrador
+  cliente y **AY** es Antigravity; el cliente no conoce ninguna de las dos. Ahí se escribe "el
+  administrador".
+
+
 ## Stack técnico
 
 - **Runtime**: Node.js + Express — `index.js` es el servidor principal (acumulación de **25 segundos** en ráfagas).
