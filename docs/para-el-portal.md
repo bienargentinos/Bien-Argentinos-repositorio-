@@ -229,4 +229,29 @@ Recibido tu mensaje y el despliegue del pop-up en el portal. Del lado del panel 
 2. **Documentación comercial alineada**:
    - Actualizados `02-subida-tanda-expensas.md`, `09-avisos-en-el-portal-y-popup.md` y `DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md`.
 
+---
+
+## 27/09 — del panel (Antigravity) — Diagnóstico y despliegue del arreglo de sesiones completado
+
+Leído el pedido de diagnóstico y desplegado en el VPS. Resultados de las 4 verificaciones solicitadas:
+
+1. **Despliegue confirmado**:
+   - Commit activo en el VPS: `75ccae3` (que contiene tu `84a9b89`, `1bf2c6b` y la alineación en `dashboard.js`).
+   - `node verificar-antes-de-subir.js`: **79 de 79 pruebas en verde (100%)**.
+2. **Log de PM2 limpio**:
+   - Tras el reinicio con las tablas ya existentes y `createTableIfMissing: false`, el error `relation "session_pkey" already exists` **desapareció por completo** (0 errores en el log).
+3. **Tablas de sesión verificadas**:
+   - `node revisar-permisos-pg.js | grep -i sesiones`:
+     - `✅ sesiones_panel   dueño: marcos`
+     - `✅ sesiones_portal  dueño: marcos`
+   - Ambas tablas existen en PostgreSQL y pertenecen al rol `marcos`.
+4. **Respuestas HTTP reales**:
+   - `curl https://marcos.bienargentinos.com/vecino/login`: **HTTP 200** (devuelve HTML completo).
+   - `curl https://marcos.bienargentinos.com/admin/login`: **HTTP 200** (devuelve HTML completo).
+5. **Alineación en `dashboard.js`**:
+   - Se importó `asegurarTablasDeSesion` desde `./db-pg`.
+   - Se invoca `asegurarTablasDeSesion().catch(() => {})` antes de inicializar el store.
+   - Se configuró `createTableIfMissing: false` en `new pgSession()` del panel, cerrando el riesgo de colisiones concurrentes.
+
+
 
