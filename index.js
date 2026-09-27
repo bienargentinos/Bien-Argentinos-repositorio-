@@ -267,14 +267,16 @@ async function confirmacionDelCaso(telefonoVecino, contexto = {}) {
     if (enRam) return enRam;
     try {
         const { buscarConfirmacionTecnicoDeVecino, buscarConfirmacionTecnicoDeEdificio } = require('./datos-pg');
-        const propia = await buscarConfirmacionTecnicoDeVecino(telefonoVecino);
+        // El rubro del reclamo de AHORA: sin él, la confirmación de un caso viejo del mismo vecino
+        // se le presta al reclamo nuevo. Ver `laConfirmacionEsDeEsteTrabajo` en `datos-pg.js`.
+        const propia = await buscarConfirmacionTecnicoDeVecino(telefonoVecino, contexto.rubro || '');
         if (propia) return propia;
 
         // El encargado, el suplente, la guardia o el administrador preguntan por visitas que no
         // abrieron ellos: buscar solo por su teléfono no encuentra nada. A un vecino cualquiera no
         // se le contesta por acá, porque el caso puede ser dentro de otra unidad.
         if (puedeVerVisitasDelEdificio(contexto.datosEmisor) && contexto.edificio) {
-            return await buscarConfirmacionTecnicoDeEdificio(contexto.edificio);
+            return await buscarConfirmacionTecnicoDeEdificio(contexto.edificio, contexto.rubro || '');
         }
         return null;
     } catch (err) {
@@ -4937,8 +4939,12 @@ function validarYSanitizarNombre(nombre) {
         contactoAccesoExtra: session.contactoAccesoExtra || '',
         // Lo que el técnico ya respondió sobre esta visita, para no volver a decir que se está
         // consultando algo que ya está contestado.
+        // El `rubro` es lo que evita que se le preste a este reclamo la confirmación de un caso
+        // viejo del mismo vecino. Sin él, un reclamo de plomería recién abierto salía contestado
+        // con el "en 2 hs" que el electricista había dicho DÍAS antes en otro caso.
         confirmacionTecnico: session.confirmacionTecnico || await confirmacionDelCaso(from, {
             edificio: session.edificioId || session.nombreEdificio || datosEmisor.edificio || '',
+            rubro: decisionCaso?.tipo_problema || '',
             datosEmisor
         })
     });

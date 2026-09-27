@@ -943,7 +943,36 @@ function confirmacionDeFila(row) {
     };
 }
 
-async function buscarConfirmacionTecnicoDeVecino(telefono) {
+/**
+ * ¿La confirmación de esta fila puede ser la de ESTE reclamo?
+ *
+ * > [!CAUTION]
+ * > **Una confirmación es de UN trabajo, no de una persona.** Buscar solo por teléfono le presta
+ * > al reclamo nuevo la confirmación de un caso viejo del mismo vecino.
+ *
+ * Visto en producción el 26/09. Daniel avisó por agua en el palier --plomería-- y en el PRIMER
+ * mensaje Marcos le contestó *"el técnico Darío ya confirmó la visita y estará llegando en
+ * aproximadamente dos horas"*. El técnico no había contestado nada: la plantilla acababa de rebotar
+ * por la ventana de 24hs. Esas dos horas salieron del **CASO-1004**, de electricidad y de días
+ * antes.
+ *
+ * Para el vecino eso no es un dato viejo: es una hora que nadie prometió, esperando en su casa con
+ * un caño roto. Y la próxima vez que Marcos diga una hora ya no le va a creer.
+ *
+ * **Ante la duda se acepta**, igual que en la separación de casos: si al reclamo de ahora o al caso
+ * guardado les falta el rubro, no se puede afirmar que sean trabajos distintos. Descartar de más
+ * traería de vuelta el otro bug ya documentado --decirle "estamos coordinando" a quien ya tiene la
+ * visita confirmada--, que molesta pero no manda a nadie a esperar una hora inventada.
+ */
+function laConfirmacionEsDeEsteTrabajo(fila, rubroDelReclamo) {
+    if (!rubroDelReclamo) return true;
+    const rubroDelCaso = fila.get('rubro_tecnico') || fila.get('problema') || '';
+    if (!String(rubroDelCaso).trim()) return true;
+    const { coincideRubro } = require('./rubros');
+    return coincideRubro(rubroDelReclamo, rubroDelCaso);
+}
+
+async function buscarConfirmacionTecnicoDeVecino(telefono, rubroDelReclamo = '') {
     const tel = String(telefono || '').replace(/\D/g, '');
     if (!tel) return null;
 
@@ -951,6 +980,7 @@ async function buscarConfirmacionTecnicoDeVecino(telefono) {
     const rows = await filas('reportes');
     return confirmacionDeFila(elegirCasoMasReciente(rows.filter(r => {
         if (!tieneConfirmacionVigente(r)) return false;
+        if (!laConfirmacionEsDeEsteTrabajo(r, rubroDelReclamo)) return false;
         const rTel = String(r.get('telefono') || '').replace(/\D/g, '');
         return rTel && (rTel === tel || rTel.endsWith(tel.slice(-8)));
     }), (f, campo) => f.get(campo)));
@@ -966,7 +996,7 @@ async function buscarConfirmacionTecnicoDeVecino(telefono) {
  * A un vecino cualquiera NO se le responde por esta vía: el caso puede ser dentro de otra unidad,
  * y contarle a un tercero qué pasa en el departamento de al lado no es asunto suyo.
  */
-async function buscarConfirmacionTecnicoDeEdificio(edificio) {
+async function buscarConfirmacionTecnicoDeEdificio(edificio, rubroDelReclamo = '') {
     const buscado = String(edificio || '').toLowerCase().trim();
     if (!buscado) return null;
 
@@ -974,6 +1004,9 @@ async function buscarConfirmacionTecnicoDeEdificio(edificio) {
     const rows = await filas('reportes');
     return confirmacionDeFila(elegirCasoMasReciente(rows.filter(r => {
         if (!tieneConfirmacionVigente(r)) return false;
+        // Acá el riesgo es mayor que buscando por vecino: un edificio tiene varios reclamos a la
+        // vez, así que sin el rubro cualquier visita confirmada se le presta a cualquier reclamo.
+        if (!laConfirmacionEsDeEsteTrabajo(r, rubroDelReclamo)) return false;
         const rEdif = String(r.get('edificio') || '').toLowerCase().trim();
         return rEdif && (rEdif === buscado || rEdif.includes(buscado) || buscado.includes(rEdif));
     }), (f, campo) => f.get(campo)));
