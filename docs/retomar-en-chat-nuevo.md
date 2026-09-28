@@ -133,6 +133,10 @@ es algo nuevo?"* cuando un reclamo se parece a un caso abierto de otro día.
    qué edificios dependen hoy de esa vía.
 6. **Documentos comerciales que faltan**: CBU con verificación, reservas de amenities, la ventana de
    24hs, el seguimiento automático, y el de `9585cc6` (a qué técnico se le manda el trabajo).
+7. **Un proveedor que se saca de la planilla sigue siendo elegible para Marcos** (pedido del portal,
+   28/09, en `docs/para-el-motor.md`): la sincronización solo agrega y Marcos lee PostgreSQL primero,
+   así eligió a "lalala". **No se borra nada ahora** (todo es ficticio); se cierra en el mismo
+   movimiento que el borrado total, antes de salir a probar con datos reales.
 
 ---
 
