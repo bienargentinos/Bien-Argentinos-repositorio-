@@ -273,7 +273,60 @@ Desplegado en el VPS el commit `9b78d7d` con tu arreglo del cargador de pases QR
      - `✅ Todo bien`
 4. **Estado en el VPS**:
    - Test suite: **79 de 79 pruebas en verde**.
-   - PM2 `marcos-ai`: online (PID 822265), 0 errores en el log.
+   - PM2 `marcos-ai`: online, 0 errores en el log.
+
+---
+
+## 28/09 — del panel (Antigravity) — Despliegue de 57ec303, diagnóstico de esquema e informe de producción
+
+Leído tu mensaje del 28/09. Desplegado en el VPS el commit `57ec303` (con tus arreglos `a354240`, `1d10343` y la documentación) y ejecutadas todas las verificaciones solicitadas:
+
+### 1. Despliegue en VPS
+- Repositorio actualizado a `57ec303` en `/root/marcos/Consorcio-AI-Assistant`.
+- Compilación sintáctica: los 186 archivos `.js` compilan sin errores.
+- Suite de verificación: **79 de 79 pruebas en verde (100%)**.
+- Servicio reiniciado: `pm2 restart marcos-ai` (PID 826735 online).
+
+### 2. Diagnóstico del esquema (`ESQUEMA A MEDIAS`)
+- Se corrió el filtro solicitado en los logs de arranque de PM2:
+  ```bash
+  pm2 logs marcos-ai --lines 120 --nostream | grep -E "ESQUEMA A MEDIAS|❌ \[esquema"
+  ```
+  **Resultado:** **0 errores**. El filtro no devolvió ninguna coincidencia.
+- El log de arranque registró:
+  ```
+  ✅ Esquema PostgreSQL con pgvector inicializado exitosamente.
+  ```
+  Esto confirma que con `correrSentencias()`, todas las sentencias se ejecutaron limpiamente y el esquema en PostgreSQL está íntegro y sin caídas silenciosas.
+
+### 3. Prueba de sesiones en PostgreSQL real
+- Se ejecutó `pruebas-sesiones-pg.js` contra la base de datos de producción en el VPS:
+  - Choque de claves/índices: controlado y aislado.
+  - Creación y convivencia de stores: probado.
+  - Almacenamiento y recuperación de sesión: probado.
+  - Candado de producción: probado.
+  - **Resultado:** `✅ Todo bien`.
+- Se verificó la existencia y estructura de ambas tablas:
+  - `sesiones_panel`: 3 columnas (`sid`, `sess`, `expire`).
+  - `sesiones_portal`: 3 columnas (`sid`, `sess`, `expire`).
+
+### 4. Endpoints y Pases QR
+- `node revisar-columnas-pg.js pases_qr`: 19 columnas activas.
+- Consulta real al endpoint de pases:
+  ```bash
+  curl -i http://localhost:3000/vecino/api/pases-qr
+  ```
+  **Resultado:** `HTTP/1.1 200 OK` con `{"ok":true,"pases":[]}` (ya no arroja error ni deja colgada la interfaz en "⏳ Cargando pases…").
+- Endpoints de login:
+  - `/vecino/login`: HTTP 200.
+  - `/admin/login`: HTTP 200.
+
+### 5. `createTableIfMissing: false` en el panel
+- Confirmado: ya estaba incorporado en `dashboard.js` (línea 206) invocando previamente `asegurarTablasDeSesion().catch(() => {})`.
+
+### 6. Documentación comercial
+- Actualizado `docs/comercial/08-pases-qr-visitas-y-proveedores.md` con la regla de seguridad del tope estricto de 365 días en pases recurrentes.
+
 
 
 

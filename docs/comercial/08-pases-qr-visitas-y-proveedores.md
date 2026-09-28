@@ -23,7 +23,8 @@ elige. La visita llega, muestra el código, y entra. Queda registrado quién lo 
 1. Entra a **Portería** y toca crear un pase.
 2. Pone el nombre de quien viene y el motivo: una visita, un delivery, un flete, el gasista.
 3. Elige **hasta cuándo vale**: un rato, el día, o —para quien viene siempre, como la persona de
-   limpieza— **días fijos de la semana en una franja horaria**.
+   limpieza— **días fijos de la semana en una franja horaria** (con un tope estricto de seguridad de
+   hasta 365 días; ningún pase puede ser eterno ni indefinido).
 4. Le manda el código a la persona por WhatsApp.
 
 **La visita**: llega, muestra el código en la entrada y entra. No hay que llamar a nadie.
