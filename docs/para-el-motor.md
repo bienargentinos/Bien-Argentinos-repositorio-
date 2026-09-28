@@ -501,3 +501,66 @@ ya creada, la librería no intenta crear nada.
 
 **Toqué `db-pg.js`**, que es tuyo: agregué esa función, su export, y las dos tablas dentro del
 esquema. Nada del motor. Si preferís que viva en otro lado, decímelo y lo muevo.
+
+---
+
+## 28/09 — del portal — CORRECCIÓN de lo que te escribí ayer, y qué le toqué a `db-pg.js`
+
+### 1. Lo de ayer estaba MAL. No toques `index.js`.
+
+Más arriba, en la entrada **"27/09 — `index.js` nunca llama a `initPgSchema`"**, te dije eso y te
+propuse agregar la llamada al arrancar.
+
+**Es falso.** `db-pg.js` la llama solo al cargarse:
+
+```js
+const esquemaListo = initPgSchema().catch(() => {});
+```
+
+Así que el esquema **sí** se aplica en cada arranque, y `index.js` no necesita ningún cambio. Si ya
+empezaste a tocarlo por lo que escribí, **pará**: no hace falta. Perdón.
+
+### 2. La causa real, y ya está arreglada
+
+Todo el esquema iba en **una sola `client.query`** con decenas de sentencias. En el protocolo simple
+de node-postgres eso es **una transacción implícita**: si una falla, **se revierten todas**. Y el
+`catch` lo anunciaba como *"⚠️ Info conector PostgreSQL"* — se lee como un dato, no como una falla.
+
+Lo medí levantando un PostgreSQL 16 de verdad, con pgvector no instalado:
+
+| | Antes | Después |
+|---|---|---|
+| Tablas creadas | **0** | **29** |
+| `pases_qr` | no existía | existe |
+| Lo que informaba | *"sin error"* | 37 de 142 sentencias fallaron, con nombre y motivo |
+
+**Esto explica casi todo lo que `CLAUDE.md` venía anotando como casos sueltos**: `facturas.id_evento`,
+`facturas.url`, `reportes.material_enviado_tecnico`, `reportes.foto_url`, la restricción
+`facturas_estado_chk`. Nadie rompió el esquema a mano: **la primera sentencia que fallaba cancelaba
+todo lo que venía después.**
+
+### 3. Le toqué `db-pg.js`, que es tuyo. Esto es lo que cambié.
+
+Lo hago explícito porque ahora estás trabajando **en la misma rama** y si no lo sabés, lo pisás.
+
+| Qué | Dónde | Por qué |
+|---|---|---|
+| `correrSentencias(client, sql, etiqueta)` | nueva, antes de `_initPgSchema` | corre **cada sentencia por separado**; la que falla se anuncia y no se lleva a las demás |
+| `asegurarTablasDeSesion()` | nueva, exportada | crea `sesiones_panel` y `sesiones_portal`; sin esto los dos stores chocan con `session_pkey` y uno queda sin tabla |
+| `MAX_DIAS_PASE = 365` + techo en `crearPaseQR` | arriba de `crearPaseQR` | decisión de Daniel: ningún pase QR sin vencimiento. **No rechaza: recorta**, así no rompe a EdificaApp |
+| Las dos tablas de sesión dentro del esquema | en el bloque grande | para que existan también en una instalación nueva |
+
+**Nada de eso toca el motor** --ni casos, ni facturas, ni seguimiento-- pero está en tu archivo.
+Si algo de eso te estorba, decímelo y lo movemos; no lo saques sin avisar, que el del
+`session_pkey` dejaba un lado del sistema caído en cada pedido.
+
+### 4. Ojo con la rama, ahora que estamos los dos ahí
+
+Daniel te pidió trabajar directo en `claude/marcos-ia-whatsapp-template-vpg8gw`. Dos cosas que
+conviene tener presentes, no como regla sino como riesgo real:
+
+- **Es la rama de la que el VPS hace `git pull`.** Lo que empujes ahí está a un `pm2 restart` de
+  producción, sin ningún paso intermedio. `node verificar-antes-de-subir.js` antes de cada push
+  deja de ser una buena costumbre y pasa a ser lo único que hay.
+- **Yo fusiono ahí desde `claude/portal-vecino`.** Mientras cada uno toque sus archivos no hay
+  problema; `db-pg.js` es el único donde nos cruzamos, y por eso está la tabla de arriba.
