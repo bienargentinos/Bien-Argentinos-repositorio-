@@ -334,7 +334,12 @@ async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado
     // confirmando que va a estar para recibirlo) hace que Marcos-Caso vuelva a marcar
     // contactar_tecnico=true, y sin este chequeo el técnico recibía la plantilla completa
     // duplicada por cada mensaje nuevo del vecino en el mismo caso.
-    if (estadoProv.notificado && estadoProv.eventoActivoId === id_evento) {
+    // La memoria es por TELÉFONO y una línea puede ser de varios técnicos: se compara también a
+    // quién se le avisó (ver `tecnico-avisado.js`).
+    const { mismoTecnico } = require('../tecnico-avisado');
+    const nombreTec = tecnicoAsignado?.nombre || '';
+    if (estadoProv.notificado && estadoProv.eventoActivoId === id_evento
+        && (!estadoProv.notificadoA || !nombreTec || mismoTecnico(estadoProv.notificadoA, nombreTec))) {
         console.log(`ℹ️ Técnico ya notificado del [${id_evento}], se omite el reenvío duplicado de la plantilla.`);
         return { encolado: false, yaNotificado: true };
     }
@@ -343,10 +348,11 @@ async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado
     // la bandera en RAM (estadoProv) se pierde en cada reinicio, así que además chequeamos en
     // Sheets si este mismo caso ya tiene la plantilla marcada como enviada.
     const { fueTecnicoNotificado, marcarTecnicoNotificado } = require('../datos');
-    if (await fueTecnicoNotificado(id_evento)) {
-        console.log(`ℹ️ [Sheets] Técnico ya notificado del [${id_evento}] (detectado tras reinicio), se omite el reenvío duplicado.`);
+    if (await fueTecnicoNotificado(id_evento, nombreTec)) {
+        console.log(`ℹ️ [Sheets] ${nombreTec || 'El técnico'} ya fue avisado del [${id_evento}] (detectado tras reinicio), se omite el reenvío duplicado.`);
         estadoProv.eventoActivoId = id_evento;
         estadoProv.notificado = true;
+        estadoProv.notificadoA = nombreTec;
         return { encolado: false, yaNotificado: true };
     }
 
@@ -367,8 +373,9 @@ async function notificarProveedorConCola({ vecino, decisionCaso, tecnicoAsignado
     // que venga después --la foto del reclamo, la ficha de contacto, el contacto de acceso--
     // también rebota. Un solo fallo silencioso dejaba al técnico completamente aislado.
     estadoProv.notificado = Boolean(llegoElAviso);
+    estadoProv.notificadoA = llegoElAviso ? nombreTec : null;
     if (llegoElAviso) {
-        await marcarTecnicoNotificado(id_evento);
+        await marcarTecnicoNotificado(id_evento, nombreTec);
     }
     return { encolado: false };
 }

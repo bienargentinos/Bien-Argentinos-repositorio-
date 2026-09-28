@@ -85,6 +85,9 @@ console.log('\n── UNA RESERVA NUNCA SE LLEVA PUESTO UN RECLAMO ──');
          const traeProblemaPropio = Boolean(String(problema || '').trim());
          const { coincideRubro } = require('./rubros');
          const { esReserva } = require('./reserva-evento');
+         const { rubroDelTexto } = require('./rubros');
+         const { fechaEnMs } = require('./caso-reciente');
+         const UN_DIA_MS = 24 * 60 * 60 * 1000;
          ${cuerpo}
          return esOtroCaso;`);
 
@@ -97,7 +100,9 @@ console.log('\n── UNA RESERVA NUNCA SE LLEVA PUESTO UN RECLAMO ──');
 
     // Y esto es lo que pasaba sin el chequeo: la reserva no tiene rubro, así que la regla vieja
     // decía "no se puede afirmar" y lo enganchaba igual.
-    verificar('un caso viejo SIN rubro sí lo sigue recibiendo (regla de siempre)',
+    // Desde el 28/09 un caso sin rubro de MÁS DE UN DÍA ya no lo recibe (ver
+    // pruebas-caso-nuevo-o-mismo.js). Esta fila no tiene fecha: cuenta como del día, y sí lo recibe.
+    verificar('un caso SIN rubro y sin fecha sí lo sigue recibiendo',
         conReclamo(fila('whatsapp', '')), false);
 
     verificar('y un caso de otro rubro se separa, como antes',

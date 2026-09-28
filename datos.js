@@ -267,16 +267,16 @@ async function buscarCliente(nombreAdmin) {
  * arreglar. Así que solo un `true` se toma como respuesta final; ante un `false` se le pregunta
  * igual a Sheets. El error posible queda del lado de no molestar al técnico de más.
  */
-async function fueTecnicoNotificado(id_evento) {
+async function fueTecnicoNotificado(id_evento, nombreTecnico = '') {
     if (LECTURA_PG) {
         try {
-            const yaEnPg = await require('./datos-pg').fueTecnicoNotificado(id_evento);
+            const yaEnPg = await require('./datos-pg').fueTecnicoNotificado(id_evento, nombreTecnico);
             if (yaEnPg) return true;
         } catch (err) {
             console.error(`↩️ fueTecnicoNotificado: error leyendo de PostgreSQL (${err.message}). Se consulta Sheets.`);
         }
     }
-    return sheets.fueTecnicoNotificado(id_evento);
+    return sheets.fueTecnicoNotificado(id_evento, nombreTecnico);
 }
 
 async function buscarFacturasProveedor(args) {
@@ -415,12 +415,12 @@ async function guardarAutorizacionContacto(datos) {
     return res;
 }
 
-async function marcarTecnicoNotificado(id_evento) {
-    const res = await sheets.marcarTecnicoNotificado(id_evento);
+async function marcarTecnicoNotificado(id_evento, nombreTecnico = '') {
+    const res = await sheets.marcarTecnicoNotificado(id_evento, nombreTecnico);
     if (id_evento) {
         copiarAPg(`la marca de notificación de ${id_evento}`, {
             sql: `UPDATE reportes SET tecnico_notificado = $2 WHERE codigo_caso = $1`,
-            params: [id_evento, fechaHoraAR()],
+            params: [id_evento, require('./tecnico-avisado').marcaDeAviso(fechaHoraAR(), nombreTecnico)],
         });
     }
     return res;

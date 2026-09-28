@@ -93,6 +93,33 @@ console.log('\n── ANTE LA DUDA, NO SE SEPARA ──');
         decidir({ problema: 'Algo pasa', rubro_tecnico: '', casoAbierto: { id_evento: 'CASO-1001' } }), false);
 }
 
+console.log('\n── UN CASO VIEJO SIN RUBRO YA NO SE TRAGA UN RECLAMO NUEVO (28/09) ──');
+{
+    // Prueba de cerrajería: "la cerradura del SUM" se pegó al CASO-1003, de electricidad, de hace
+    // 16 días y sin rubro (se creó cuando la columna se perdía). Al cerrajero no le llegó nada.
+    const fechaAR = (ms) => {
+        const d = new Date(ms);
+        return `${d.getUTCDate()}/${d.getUTCMonth() + 1}/${d.getUTCFullYear()}, ${d.getUTCHours()}:${String(d.getUTCMinutes()).padStart(2, '0')}:00`;
+    };
+    const hace16dias = fechaAR(Date.now() - 16 * 24 * 3600e3 - 3 * 3600e3);
+    const hoy = fechaAR(Date.now() - 3 * 3600e3 - 60e3);   // la planilla guarda la hora argentina
+    const caso1003 = { id_evento: 'CASO-1003', rubro_tecnico: '', fecha: hace16dias,
+        mensaje: 'Se solicita al técnico Dario contactar a Agus Fuego (5491138956843) para coordinar acceso al edificio San Patricio 159' };
+
+    verificar('la cerradura del SUM no se mete en el CASO-1003 viejo y sin rubro',
+        decidir({ problema: 'Se rompió la cerradura del SUM', rubro_tecnico: 'cerrajería', casoAbierto: caso1003 }), true);
+    verificar('un caso sin rubro de HOY sigue recibiendo: es la conversación en curso',
+        decidir({ problema: 'Se rompió la cerradura del SUM', rubro_tecnico: 'cerrajería', casoAbierto: { ...caso1003, fecha: hoy } }), false);
+    verificar('sin rubro cargado, se deduce del texto del caso: luz y luz es el mismo caso',
+        decidir({ problema: 'Sigue sin luz el pasillo', rubro_tecnico: 'electricidad',
+            casoAbierto: { id_evento: 'CASO-1002', rubro_tecnico: '', fecha: hace16dias, mensaje: 'Se cortó la luz del pasillo' } }), false);
+    verificar('y luz contra cerradura, se separa aunque sea de hoy',
+        decidir({ problema: 'Se rompió la cerradura del SUM', rubro_tecnico: 'cerrajería',
+            casoAbierto: { id_evento: 'CASO-1002', rubro_tecnico: '', fecha: hoy, mensaje: 'Se cortó la luz del pasillo' } }), true);
+    verificar('un mensaje sin problema propio sigue cayendo en el caso viejo (un "gracias")',
+        decidir({ problema: '', rubro_tecnico: 'cerrajería', casoAbierto: caso1003 }), false);
+}
+
 console.log('\n── EL CASO REAL QUE LO DESTAPÓ ──');
 {
     // En las pruebas de Daniel, CASO-1001 nunca se cerraba, así que cada prueba nueva del mismo

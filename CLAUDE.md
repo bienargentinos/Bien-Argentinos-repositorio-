@@ -1230,6 +1230,39 @@ notaba porque CASO-1001 no se cerraba y **cada prueba del mismo día caía adent
   dos y le muestra al administrador dos reclamos donde hay uno.
 - Prueba: `node pruebas-caso-nuevo-o-mismo.js`.
 
+#### Un caso viejo sin rubro se tragaba un reclamo nuevo, y el técnico nuevo no se enteraba (28/09)
+
+Prueba de cerrajería. El vecino avisó *"la cerradura del SUM"* y no le llegó nada a lalala. El log:
+
+```
+🧠 DECISIÓN IA: Urgencia=alta, Cerrar=false, Problema=cerrajería
+🔧 Técnico encontrado en 'proveedores': lalala (+541169241157)
+ℹ️ [Sheets] Técnico ya notificado del [CASO-1003] (detectado tras reinicio), se omite el reenvío duplicado.
+```
+
+`node revisar-casos.js CASO-1003` lo explicó: era un caso **de electricidad, de Dario, del 12/9**,
+todavía abierto y escalado, y **sin rubro** (se creó cuando la columna se perdía en silencio). Dos
+defectos encadenados:
+
+1. **"Sin rubro no se puede afirmar" pegó la cerradura adentro del caso de la luz.** Esa regla tenía
+   sentido cuando muchos casos se guardaban sin rubro; hoy todo caso nuevo sale con rubro, así que
+   uno sin rubro es casi siempre viejo. Ahora `esOtroCaso` (en `sheets.js`) primero **deduce el
+   rubro del texto del caso** (`rubroDelTexto`) y, si no puede y el caso tiene **más de un día**,
+   el reclamo nuevo abre su propio caso. Dentro del mismo día se sigue enganchando: es la
+   conversación en curso. Un mensaje sin problema propio (un "gracias") sigue cayendo en el caso.
+2. **La marca "técnico avisado" era del caso, no del técnico** --y la memoria del proceso la guardaba
+   por teléfono, que lalala comparte con Dario--. Al pegarse el reclamo, el caso pasó a lalala y
+   Marcos leyó "ya avisado". `tecnico-avisado.js`: la marca guarda `fecha → nombre`, y "ya avisado"
+   es "ya avisado **a este** técnico". Una marca vieja sin nombre **no** cuenta: en el peor caso el
+   técnico recibe la plantilla una vez de más; el otro error es un técnico que no se entera nunca.
+
+> Ojo: al pegarse, el CASO-1003 quedó con rubro `cerrajería` y técnico `lalala` (el rubro vacío se
+> completa, el técnico se reescribe). Es dato de prueba y quedó mezclado: el próximo reclamo de
+> cerrajería del mismo vecino en el 159 va a caer ahí por rubro, y ahora sí le avisa a lalala.
+
+Pruebas: `node pruebas-caso-nuevo-o-mismo.js` (el caso del 1003, con fechas) y
+`node pruebas-tecnico-avisado.js`.
+
 ### El vecino tiene la casa en un edificio y la oficina en otro
 
 > [!CAUTION]

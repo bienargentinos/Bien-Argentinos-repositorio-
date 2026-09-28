@@ -406,14 +406,14 @@ async function buscarCliente(nombreAdmin) {
 // ── CASOS ───────────────────────────────────────────────────────────────────
 
 /** Si al técnico ya se le mandó la plantilla de este caso. Evita el envío duplicado. */
-async function fueTecnicoNotificado(id_evento) {
+async function fueTecnicoNotificado(id_evento, nombreTecnico = '') {
     if (!id_evento) return false;
     const res = await pool.query(
         `SELECT tecnico_notificado FROM reportes WHERE upper(trim(codigo_caso)) = upper(trim($1)) LIMIT 1`,
         [String(id_evento)]
     );
     if (!res.rowCount) return false;
-    return !!String(res.rows[0].tecnico_notificado || '').trim();
+    return require('./tecnico-avisado').yaAvisado(res.rows[0].tecnico_notificado, nombreTecnico);
 }
 
 // ── FACTURAS ────────────────────────────────────────────────────────────────
