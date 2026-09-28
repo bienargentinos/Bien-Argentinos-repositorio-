@@ -39,10 +39,33 @@ privateKey: require('fs').readFileSync(process.env.USERPROFILE + '\\.ssh\\marcos
 ## Repositorio GitHub
 
 - Repo: `bienargentinos/bien-argentinos-repositorio-`
-- Branch de desarrollo: `claude/ecstatic-hamilton-d1564x`
+- Branch de desarrollo: `claude/marcos-ia-whatsapp-template-vpg8gw` — **es la rama a la que todo se
+  fusiona y de la que el VPS hace `git pull`.**
+
+> [!CAUTION]
+> **Un nombre de rama escrito acá se pudre, y cuando se pudre no avisa.** Hasta el 28/09 esta línea
+> decía `claude/ecstatic-hamilton-d1564x`, **cuya última commit era del 10 de agosto**. Un chat
+> nuevo que leía este archivo iba a esa rama y no encontraba el trabajo --pasó, con el chat del
+> motor-- y los `curl` de más abajo le habrían bajado al VPS **código de hace mes y medio encima de
+> producción**.
+>
+> **Antes de confiar en este nombre, verificalo.** Un comando, solo lectura, y la rama con la fecha
+> más nueva es la buena:
+>
+> ```bash
+> git ls-remote --heads origin | awk '{print $2}' | sed 's#refs/heads/##'
+> ```
+>
+> Y para ver cuál se tocó último:
+>
+> ```bash
+> for b in $(git ls-remote --heads origin | awk '{print $2}' | sed 's#refs/heads/##'); do
+>   echo "$(git log -1 --format='%ci' origin/$b 2>/dev/null)  $b"
+> done | sort -r | head -5
+> ```
 - Para transferir archivos al VPS (rama de desarrollo, no `main`):
   ```bash
-  curl -L -s "https://raw.githubusercontent.com/bienargentinos/Bien-Argentinos-repositorio-/claude/ecstatic-hamilton-d1564x/dashboard.js" \
+  curl -L -s "https://raw.githubusercontent.com/bienargentinos/Bien-Argentinos-repositorio-/claude/marcos-ia-whatsapp-template-vpg8gw/dashboard.js" \
     -o /root/marcos/Consorcio-AI-Assistant/dashboard.js && \
   node --check /root/marcos/Consorcio-AI-Assistant/dashboard.js && \
   pm2 restart marcos-ai
@@ -53,7 +76,7 @@ privateKey: require('fs').readFileSync(process.env.USERPROFILE + '\\.ssh\\marcos
   una sola vez al VPS:
   ```bash
   mkdir -p /root/marcos/Consorcio-AI-Assistant/design/assets && \
-  curl -L -s "https://raw.githubusercontent.com/bienargentinos/Bien-Argentinos-repositorio-/claude/ecstatic-hamilton-d1564x/design/assets/logo.png" \
+  curl -L -s "https://raw.githubusercontent.com/bienargentinos/Bien-Argentinos-repositorio-/claude/marcos-ia-whatsapp-template-vpg8gw/design/assets/logo.png" \
     -o /root/marcos/Consorcio-AI-Assistant/design/assets/logo.png
   ```
 
