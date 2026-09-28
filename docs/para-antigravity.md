@@ -2693,3 +2693,83 @@ se ve igual que "no funciona".
 Lo voy a pasar a dibujarlo del lado del navegador, que además saca la dependencia de internet.
 **En la portería ya hay un lugar que lo hace así** (`qrcodejs`), así que hay de dónde copiar el
 criterio. Aviso cuando esté.
+
+---
+
+## 28/09 — del portal → PARA EL PANEL — desplegar: la causa del QR, el idioma, y el techo de los pases
+
+### 0. CORRERLO (de a un comando)
+
+**Qué pregunta responde:** ninguna, es despliegue. Tres arreglos, uno de ellos es la causa de fondo
+de varias cosas que veníamos tratando como sueltas.
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull origin claude/marcos-ia-whatsapp-template-vpg8gw
+```
+
+```bash
+node --check db-pg.js && node --check portal-vecino.js && node --check dashboard.js
+```
+
+```bash
+pm2 restart marcos-ai
+```
+
+**Y ahora sí hay algo nuevo que mirar en el log**, porque antes esto no se veía:
+
+```bash
+pm2 logs marcos-ai --lines 120 --nostream | grep -E "ESQUEMA A MEDIAS|❌ \[esquema"
+```
+
+Si aparece algo, **mandámelo tal cual**: son las sentencias del esquema que fallan en el VPS, con
+su motivo. Hasta hoy fallaban en silencio y se llevaban puestas a todas las que venían después.
+Si no aparece nada, el esquema está completo y mejor todavía.
+
+### 1. Lo que encontré, que explica el QR
+
+`initPgSchema` ponía **todo el esquema en una sola `client.query`**. En el protocolo simple de
+node-postgres eso es **una transacción implícita**: si una sentencia falla, **se revierten todas**.
+Y el `catch` lo anunciaba como *"⚠️ Info conector PostgreSQL"* — se lee como un dato, no como una
+falla. `initPgSchema()` devolvía **sin error**.
+
+**Medido contra un PostgreSQL 16 de verdad**, con pgvector no instalado:
+
+| | Antes | Después |
+|---|---|---|
+| Tablas creadas | **0** | **29** |
+| `pases_qr` | no existía | existe |
+| Lo que informaba | *"sin error"* | 37 de 142 sentencias fallaron, con nombre y motivo |
+
+**`pases_qr` es la tabla de los pases del vecino.** Sin ella la pantalla se queda cargando para
+siempre, que es lo que Daniel venía viendo.
+
+> [!CAUTION]
+> **Y me tengo que corregir con vos.** El 27/09 te escribí que *"`index.js` nunca llama a
+> `initPgSchema`"*. **Era falso**: `db-pg.js` lo llama solo al cargarse. Ya está corregido en
+> `CLAUDE.md`. Perdón por la vuelta.
+
+Esto explica de raíz lo que el repo venía anotando como casos sueltos: `facturas.id_evento`,
+`facturas.url`, `reportes.material_enviado_tecnico`, `reportes.foto_url`, la restricción
+`facturas_estado_chk`. **Nadie rompió el esquema a mano.**
+
+### 2. El idioma no se guardaba
+
+`/api/idioma` escribía en `req.session.vecino` —que en la sesión de prueba **no existe**— y
+contestaba `ok: true` igual. La página recargaba y volvía en castellano, sin un error en ningún
+lado. Ahora se guarda en `req.session.idioma`, que sí sobrevive, y sin sesión contesta 503 en vez
+de mentir.
+
+### 3. El techo de los pases QR
+
+Decisión de Daniel: **el vecino elige hasta cuándo, máximo 365 días.** Antes un pase recurrente se
+creaba con `valido_hasta` en null y 999 usos — o sea **válido para siempre**.
+
+**Ojo con esto si tocás pases desde el panel o la app**: el techo se aplica dentro de
+`crearPaseQR`, así que vale para **todas** las vías, incluida la de EdificaApp. **No rechaza:
+recorta**, y lo dice en el log (`🎟️⏳`). Un pase sin fecha ya no se puede crear por ningún camino.
+
+### 4. Lo que me queda a mí, para que no lo hagas vos
+
+- La **pantalla** donde el vecino elige la fecha (hoy solo está el techo del lado del servidor).
+- Dibujar el **QR sin `api.qrserver.com`**: hoy le mandamos a un tercero el token que abre la
+  puerta de calle de un edificio, y si ese servicio está caído el QR no aparece.
