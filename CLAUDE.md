@@ -1796,6 +1796,75 @@ administrador quiere ver.
 > resultado de la función. **Tercera vez en este repo que un candado mide la forma en lugar de la
 > propiedad.**
 
+## El portal le inventaba al vecino a qué cuenta transferir
+
+> [!CAUTION]
+> **Esto estaba en producción y se descubrió por una línea de log que parecía menor.** En el VPS, en
+> cada carga de la pantalla de Amenities: `Carga datos banco: relation "cuentas_bancarias" does not
+> exist`. La tabla la leía `portal-vecino.js` y **ningún lado la creaba** — no estaba en `db-pg.js`.
+
+Pero el error de log era lo de menos. Lo que hacía el código cuando esa consulta fallaba:
+
+```js
+// Fallback de datos bancarios si no fueron configurados específicamente
+if (!datosBanco) {
+  datosBanco = {
+    banco:   'Banco Oficial del Consorcio',
+    titular: 'Consorcio ' + (v.edificio || 'Edificio'),
+    cbu:     'Consultar con Administración',
+    alias:   (v.edificio || 'consorcio').toLowerCase().replace(/[^a-z0-9]/g, '') + '.expensas',
+  };
+}
+```
+
+Un banco que no existe, un titular que nadie verificó, y **un alias ARMADO con el nombre del
+edificio** — `sanpatricio159.expensas` — mostrado **con un botón "Copiar" al lado**, a un vecino que
+estaba por transferir la seña del SUM. Toca copiar, pega en el homebanking y manda la plata: o no
+existe, o es de otra persona. Y la pantalla se veía **igual de confiable** que con datos reales.
+
+> Y no era un solo lugar: el alias inventado salía también en el recuadro del arancel
+> (*"transferir (alias: sanpatricio159.expensas)"*) y en la confirmación de la reserva.
+
+**El arreglo de fondo no es crear la tabla** --aunque hacía falta y ya está en el esquema-- es que
+**ante un dato de PAGO que falta, la única respuesta honesta es decir que falta.** Es exactamente el
+criterio que el repo ya aplica en todos lados y que acá estaba al revés: `describirAutor` no inventa
+un autor, `contacto-ingreso.js` no inventa un teléfono, `momentoPrometido` no inventa una hora, y un
+cambio de CBU no se aplica solo. **Que el vecino tenga que preguntarle a la Administración es
+molesto; que transfiera a un alias inventado no se puede deshacer.**
+
+Cómo quedó:
+
+- **`cuentas_bancarias` existe en `db-pg.js`**, y se busca por el **nombre** del edificio además de
+  por su `id`: en este sistema el nombre es la clave en todas las demás tablas y es lo que escribe el
+  panel, así que buscar solo por `id` dejaría la fila sin encontrar el día que la carguen desde ahí.
+- **Sin cuenta cargada no se muestra nada parecido a una cuenta**: ni titular, ni banco, ni alias, ni
+  CBU, ni botón de copiar. Sale un aviso que dice que la Administración todavía no los cargó y que
+  **no transfiera a ningún alias que no le haya dado ella** — en los cuatro idiomas.
+- **El navegador no arma datos de pago.** El alias del recuadro de arancel lo resuelve el servidor una
+  sola vez (`ALIAS_COBRO`) y **vacío significa "no hay ninguno"**. Si el cliente volviera a
+  componerlo, el problema volvería por otra puerta.
+
+> **Un efecto secundario que conviene notar**: la carrera del arranque (`initPgSchema` no bloquea, y
+> `portal-vecino.js` no la espera) hace que en el primer segundo tras un `pm2 restart` la tabla
+> pueda no existir todavía. Antes eso **disparaba el invento**; ahora falla hacia el lado seguro —
+> se muestra el aviso. La misma carrera, con la consecuencia dada vuelta.
+
+Prueba: `node pruebas-datos-banco-amenity.js`. Los candados miden **cada una de las cuatro cosas que
+se fabricaban por separado**, para que el día que alguien vuelva a poner una, la prueba diga cuál. Y
+la parte contra un PostgreSQL de verdad **renderiza la pantalla en los dos sentidos**: sin cuenta
+--que la página no se caiga con `datosBanco` en null, que no aparezca ninguna cuenta y que el alias
+llegue vacío al navegador-- y **con** la cuenta cargada, que los datos reales SÍ se muestren. Un
+arreglo que esconda los datos buenos sería tan malo como el que los inventaba.
+
+### Lo que esto NO resuelve
+
+- **Nadie carga todavía esa cuenta.** La tabla existe y se lee, pero **no hay pantalla en el panel
+  para que la Administración la cargue**, así que hoy todos los edificios ven el aviso. Es del panel
+  y está pedido en `docs/para-antigravity.md`. **Es el estado correcto**: mejor el aviso que un alias
+  inventado.
+- **El CBU que se cargue ahí no se verifica** con los dígitos verificadores, como sí se hace con el
+  del proveedor (`cbu.js`). Debería, y es su propio trabajo.
+
 ## El timbre de un edificio sonaba en otro
 
 > [!CAUTION]
