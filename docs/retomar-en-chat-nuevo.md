@@ -93,8 +93,10 @@ Dos cosas que van a aparecer y **no son bugs**:
 - En el log puede salir `🔧⚠️ La asignación de "lalala" no tiene edificio cargado, así que vale para
   TODOS.` Significa que esa fila está asignada a todos los edificios, no solo al 159.
 
-Y "lalala" conviene borrarlo de la planilla cuando la prueba termine — es un cerrajero de prueba
-que quedó cargado.
+> **No sugerir borrar "lalala" ni ningún otro dato.** Daniel, 28/09: **todo lo que hay cargado es
+> ficticio** --nombres, oficios, edificios, administradores, inquilinos--. Seguimos en fase de
+> prueba. La limpieza es el **borrado total** de `CLAUDE.md`, una sola vez y cuando él lo pida,
+> antes de salir a probar afuera. Hasta entonces no se proponen borrados sueltos.
 
 ---
 
