@@ -223,6 +223,21 @@ el mismo archivo el mismo día es cómo se pierde trabajo.
 > editar y empuje apenas termina — cuanto menos tiempo queda algo sin empujar, menos hay para
 > perder.
 
+> **Y esa regla incluye el caso de que una sesión no esté disponible.** Pasó el 28/09: esta
+> conversación se quedó sin límite de uso a mitad del trabajo, Daniel le pidió a Antigravity que
+> continuara, y Antigravity editó `portal-vecino.js` --que en el reparto de arriba es del chat del
+> portal--. **Eso NO es un pisotón: es la regla funcionando.** Daniel estaba hablando con
+> Antigravity, así que Antigravity era quien lo tocaba.
+>
+> Lo anoto porque al volver leí ese `git log` como una colisión y se lo marqué a Daniel, que tuvo
+> que explicarme que había sido su decisión. **Al reencontrarse con un archivo propio editado por
+> otro, la pregunta no es "quién se metió" sino "¿con quién estaba hablando Daniel?"** — y lo que
+> corresponde es conservar los dos cambios y mirar si son compatibles, que es lo que se hizo (la
+> reubicación del modal fuera de `<main>` y la línea de autoría del pase quedaron las dos).
+>
+> El precio de esperar es peor que el de un merge: si el archivo hubiera quedado congelado hasta que
+> volviera el límite, el arreglo del pop-up en celulares habría esperado un día entero.
+
 ## OBLIGATORIO: cada mejora terminada deja su documento comercial
 
 > [!CAUTION]
