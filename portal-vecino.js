@@ -4535,7 +4535,12 @@ router.get('/pases', (req, res) => {
     errorPasesAyuda: t('pases.errorAyuda'),
     errorNoJson: t('pases.errorNoJson'),
     reintentar: t('pases.reintentar'),
+    venceEl: t('pases.venceEl'),
   });
+
+  // El techo sale de db-pg.js y se interpola: escribir 365 a mano acá sería un segundo número que
+  // se desincroniza del que de verdad aplica el servidor.
+  const MAX_DIAS_PASE_UI = require('./db-pg').MAX_DIAS_PASE || 365;
 
   const content = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -4675,6 +4680,12 @@ router.get('/pases', (req, res) => {
                   <input type="time" id="pase-rec-hasta" class="inp" value="14:00" style="margin-bottom:0">
                 </div>
               </div>
+
+              <div style="margin-top:10px">
+                <label style="font-size:10.5px;font-weight:800;color:var(--texto-suave);display:block;margin-bottom:2px">${esc(t('pases.venceEl'))}</label>
+                <input type="date" id="pase-rec-vence" class="inp" style="margin-bottom:0">
+                <div style="font-size:10.5px;color:var(--texto-tenue);margin-top:4px">${esc(t('pases.venceAyuda'))}</div>
+              </div>
             </div>
           </div>
 
@@ -4727,6 +4738,9 @@ router.get('/pases', (req, res) => {
       // Los textos de esta pantalla, en el idioma del vecino. Van serializados con
       // JSON.stringify: un apóstrofe de cualquier idioma cerraría la cadena y rompería la página.
       const T = ${T};
+      // Sale de db-pg.js, no escrito a mano: un segundo 365 en esta pantalla se desincroniza del
+      // que de verdad aplica el servidor el dia que alguien cambie uno solo de los dos.
+      const MAX_DIAS_PASE = ${MAX_DIAS_PASE_UI};
       var _pasesData = [];
       var _paseSeleccionado = null;
 
@@ -4792,6 +4806,26 @@ router.get('/pases', (req, res) => {
         var chk = document.getElementById('pase-es-recurrente').checked;
         var box = document.getElementById('box-recurrente-detalles');
         box.style.display = chk ? 'block' : 'none';
+        if (chk) prepararFechaVence();
+      }
+
+      // El campo de vencimiento arranca con un tope puesto y una fecha razonable adentro.
+      //
+      // El limite va TAMBIEN en el input --min y max-- porque un calendario que deja elegir una
+      // fecha y despues el servidor la rechaza es peor que uno que no la ofrece. Pero el que manda
+      // es el del servidor: esto es comodidad, no control. El control no puede vivir en el
+      // formulario, que se saltea mandando el pedido a mano.
+      function prepararFechaVence() {
+        var campo = document.getElementById('pase-rec-vence');
+        if (!campo) return;
+        var DIA = 24 * 60 * 60 * 1000;
+        var hoy = new Date();
+        var iso = function (d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+        campo.min = iso(new Date(hoy.getTime() + DIA));
+        campo.max = iso(new Date(hoy.getTime() + MAX_DIAS_PASE * DIA));
+        // Por defecto, tres meses: es lo que dura una persona de limpieza o un cuidador sin que
+        // nadie se acuerde de revisarlo, y renovarlo es un toque.
+        if (!campo.value) campo.value = iso(new Date(hoy.getTime() + 90 * DIA));
       }
 
       // Antes esto tenia TRES salidas mudas y las tres dejaban "Cargando pases..." para siempre:
@@ -4971,6 +5005,8 @@ router.get('/pases', (req, res) => {
         var customHasta = document.getElementById('pase-custom-hasta').value;
         var horaDesde = document.getElementById('pase-rec-desde').value;
         var horaHasta = document.getElementById('pase-rec-hasta').value;
+        var campoVence = document.getElementById('pase-rec-vence');
+        var recurrenteHasta = campoVence ? campoVence.value : '';
 
         try {
           var res = await fetch('/vecino/api/pases-qr', {
@@ -4985,7 +5021,10 @@ router.get('/pases', (req, res) => {
               custom_desde: customDesde,
               custom_hasta: customHasta,
               hora_desde: horaDesde,
-              hora_hasta: horaHasta
+              hora_hasta: horaHasta,
+              // La fecha hasta la que vale un pase recurrente. La elige el vecino; el techo de
+              // MAX_DIAS_PASE lo pone el servidor, que es donde no se puede saltear.
+              recurrente_hasta: recurrenteHasta
             })
           });
           var data = await res.json();
@@ -5119,7 +5158,8 @@ router.post('/api/pases-qr', async (req, res) => {
       custom_desde = null,
       custom_hasta = null,
       hora_desde = null,
-      hora_hasta = null
+      hora_hasta = null,
+      recurrente_hasta = null
     } = req.body || {};
 
     if (!nombre_invitado) {
@@ -5151,6 +5191,47 @@ router.post('/api/pases-qr', async (req, res) => {
     } else if (validez === 'custom') {
       if (custom_desde) validoDesde = new Date(custom_desde);
       if (custom_hasta) validoHasta = new Date(custom_hasta);
+    }
+
+    // `t` no existe en este endpoint --es de las pantallas-- así que se arma acá. De paso el error
+    // le llega al vecino en SU idioma, que es lo mínimo si la aplicación está traducida.
+    const t = textos(v.idioma);
+
+    // La fecha hasta la que vale un pase RECURRENTE la elige el vecino (decisión de Daniel, 27/09).
+    //
+    // `crearPaseQR` igual recorta al techo -- es el cerrojo, y vale para todas las vías incluida la
+    // app. Pero acá se RECHAZA con un mensaje, en vez de recortar en silencio: el vecino eligió una
+    // fecha y merece saber que no se la tomamos. Recortar sin decir nada es la clase de cosa que
+    // aparece dos meses después, cuando el pase ya no abre y nadie sabe por qué.
+    const { MAX_DIAS_PASE } = require('./db-pg');
+    if (es_recurrente && recurrente_hasta) {
+      const elegida = new Date(recurrente_hasta);
+      if (isNaN(elegida.getTime())) {
+        return res.status(400).json({ ok: false, error: t('pases.errorFecha') });
+      }
+      const tope = new Date(Date.now() + MAX_DIAS_PASE * 24 * 60 * 60 * 1000);
+      if (elegida > tope) {
+        return res.status(400).json({
+          ok: false,
+          error: t('pases.errorTecho').replace('{dias}', String(MAX_DIAS_PASE)),
+        });
+      }
+      // Hasta el final de ese día: quien elige el 30 espera que el 30 todavía sirva.
+      elegida.setHours(23, 59, 59, 999);
+      validoHasta = elegida;
+    } else if (es_recurrente) {
+      // > [!CAUTION]
+      // > **Los presets de arriba (2h, 4h, el día) son para una VISITA, no para un pase
+      // > recurrente.** Un recurrente que hereda "2h" vence antes de que la persona llegue el
+      // > primer día, y el vecino ve un pase que no abre sin entender por qué.
+      //
+      // Verificado contra PostgreSQL: sin esta rama, un recurrente sin fecha elegida salía con
+      // vencimiento a las 2 horas.
+      //
+      // Se deja en `null` a propósito en vez de poner un número acá: así lo resuelve el techo de
+      // `crearPaseQR`, que es el único lugar donde vive ese criterio y además lo deja dicho en el
+      // log. Dos sitios decidiendo lo mismo es como se desincronizan.
+      validoHasta = null;
     }
 
     const { crearPaseQR } = require('./db-pg');
