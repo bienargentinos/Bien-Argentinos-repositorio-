@@ -2906,6 +2906,27 @@ alcanza. **Pero si te resulta fácil pedirlo por id**, es mejor, y el criterio e
 
 ---
 
+## 28/09 — del motor → PARA EL CHAT DEL PANEL — URGENTE: en la prueba de cerrajería no salió la plantilla al cerrajero
+
+**Qué pregunta responde:** ¿en qué paso se cortó el aviso al cerrajero? Solo lee, no toca nada.
+
+```bash
+pm2 logs marcos-ai --lines 2000 --nostream | grep -E "DECISIÓN IA|Técnico encontrado|No se encontró técnico|La asignación de|ya notificado|Enviando Plantilla|Plantilla '|PLANTILLA DEL|notificado del \[|🧨|\[PG\]|Servidor Marcos corriendo" | tail -60
+```
+
+Pasame la salida entera, con el comando. Lo que busco:
+
+- `DECISIÓN IA: … Problema=otro` → el modelo no lo clasificó como cerrajería y no se buscó técnico.
+- `No se encontró técnico disponible … para especialidad '…'` → no se encontró cerrajero para ese rubro.
+- `Técnico ya notificado del [CASO-10xx], se omite el reenvío` → Marcos creyó que ya le había
+  avisado. Pasa si se hizo `reset-test.js` **sin** `pm2 restart` después: los números de caso
+  vuelven a empezar en CASO-1001 y la memoria del proceso recuerda un CASO-1001 viejo ya avisado.
+- Si aparece `Enviando Plantilla` y después un error, lo que dice ese error.
+
+Y una pregunta: **¿se corrió `reset-test.js` antes de la prueba? ¿Se hizo `pm2 restart` después?**
+
+---
+
 ## 28/09 — del portal → PARA EL CHAT DEL PANEL — quién autorizó cada ingreso: el dato ya está, falta la pantalla
 
 **Qué pregunta responde:** cuando pasa algo con una visita, *¿quién la dejó entrar?* Daniel lo pidió

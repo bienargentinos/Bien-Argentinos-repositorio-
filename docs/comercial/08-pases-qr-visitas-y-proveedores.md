@@ -136,11 +136,6 @@ la diferencia entre "entró alguien" y "lo autorizó tal unidad, tal día, a tal
   emite desde la sesión del portal. La autenticación fuerte de cada vecino —con contraseña propia
   y activación por correo— es la tarea que está en curso. Hasta que esté, esto se ofrece como
   comodidad y trazabilidad, **no como control de seguridad de un edificio con riesgo**.
-- **La generación propia del código está hecha en el portal del vecino y en la portería, todavía no
-  en el panel del administrador.** Las dos pantallas del panel que emiten pases siguen usando el
-  servicio externo. Está pedido y es un cambio chico, pero **hasta que esté, no decir "nunca sale de
-  nuestro servidor" como algo general**: decirlo del portal y de la portería, que es donde ya es
-  cierto.
 - **Con la base de datos caída, un ingreso se valida por el código firmado pero no queda registrado.**
   Es el caso de un corte, y está identificado. Mientras no se resuelva, **no decir que queda registro
   de absolutamente todos los ingresos**.

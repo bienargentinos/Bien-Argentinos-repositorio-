@@ -23,6 +23,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { google } = require('googleapis');
+const { manejadorQrPorDato, rutaQrPorDato } = require('./qr-imagen');
 
 const router = express.Router();
 
@@ -228,6 +229,9 @@ router.use(
 
 router.use(express.urlencoded({ extended: true }));
 router.use(express.json());
+
+// Endpoint para dibujar códigos QR localmente (sin servicios externos)
+router.get('/qr.png', manejadorQrPorDato);
 
 /* ===================================================================
  * CLIENTE GOOGLE SHEETS
@@ -1499,7 +1503,7 @@ a{color:inherit;text-decoration:none}
 .ev-normal { border-left: 4px solid transparent !important; }
 .ev-id-badge { font-size: 11px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: #EEF2F6; color: #334155; font-family: monospace; letter-spacing: -.01em; border: 1px solid #CBD5E1; display: inline-block; }
 /* toast */
-.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#16233B;color:#fff;padding:12px 18px;border-radius:12px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);opacity:0;transition:.25s;z-index:90;font-weight:600;pointer-events:none}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#16233B;color:#fff;padding:12px 18px;border-radius:12px;box-shadow:0 16px 40px -12px rgba(16,35,59,.28);opacity:0;transition:.25s;z-index:100000;font-weight:600;pointer-events:none}
 .toast.show{opacity:1;bottom:28px}
 .toast.ok{background:#1B7A43}
 .toast.err{background:#C0392B}
@@ -1507,12 +1511,12 @@ a{color:inherit;text-decoration:none}
 .menu-pop{display:none}
 .menu-pop.open{display:block}
 /* drawer */
-.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:60}
+.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:99990}
 .drawer-overlay.open{display:flex;justify-content:flex-end;animation:mFade .2s ease both}
-.drawer-panel{display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:#F6F8FB;overflow-y:auto;z-index:61}
+.drawer-panel{display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:#F6F8FB;overflow-y:auto;z-index:99991}
 .drawer-panel.open{display:block;animation:mSlideR .28s cubic-bezier(.2,.8,.2,1) both}
 /* modales */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:70;align-items:center;justify-content:center;padding:20px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(16,35,59,.42);z-index:99999;align-items:center;justify-content:center;padding:20px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
 .modal-overlay.open{display:flex;animation:mFade .2s ease both}
 .modal-box{width:440px;max-width:100%;max-height:calc(100vh - 40px);background:#fff;border-radius:18px;overflow:hidden;display:flex;flex-direction:column;animation:mPop .22s ease both;box-shadow:0 30px 70px -20px rgba(16,35,59,.5);margin:auto}
 /* inputs (style-focus del prototipo) */
@@ -9308,7 +9312,7 @@ function mostrarModalVerPaseQR(pase, qrUrl) {
   var pTit = document.getElementById('ver-pase-titulo');
   var pDet = document.getElementById('ver-pase-detalle');
 
-  if (qrImg) qrImg.src = qrUrl || ('https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=' + encodeURIComponent(pase.token));
+  if (qrImg) qrImg.src = qrUrl || ('/admin/qr.png?d=' + encodeURIComponent(pase.token) + '&t=400');
   if (pTok) pTok.textContent = pase.token;
   if (pTit) pTit.textContent = 'Pase para ' + pase.nombre_invitado;
   if (pDet) {
@@ -15609,33 +15613,33 @@ router.get('/accesos-porteria', async (req, res) => {
       </div>
 
       <!-- MODAL VISUALIZAR PASE QR GENERADO CON WHATSAPP -->
-      <div id="modal-ver-pase-qr" class="modal-overlay" onclick="cerrarModal('modal-ver-pase-qr')">
-        <div class="modal-box" style="max-width:440px;text-align:center" onclick="stopEv(event)">
-          <div style="padding:20px 24px 14px;border-bottom:1px solid #EEF1F6">
+      <div id="modal-ver-pase-qr" class="modal-overlay" style="z-index:99999" onclick="cerrarModal('modal-ver-pase-qr')">
+        <div class="modal-box" style="max-width:440px;max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;text-align:center" onclick="stopEv(event)">
+          <div style="padding:16px 20px 12px;border-bottom:1px solid #EEF1F6;flex-shrink:0">
             <div style="font-size:12px;font-weight:800;color:#16A34A;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">✓ Pase Generado con Éxito</div>
-            <div id="ver-pase-titulo" style="font-size:18px;font-weight:800;color:#0F172A">Pase de Acceso Oficial</div>
+            <div id="ver-pase-titulo" style="font-size:17px;font-weight:800;color:#0F172A">Pase de Acceso Oficial</div>
           </div>
 
-          <div style="padding:22px 24px">
-            <div style="background:#fff;border:2px solid #E2E8F0;border-radius:16px;padding:16px;display:inline-block;margin-bottom:14px;box-shadow:0 4px 14px rgba(0,0,0,0.06)">
-              <img id="ver-pase-qr-img" src="" alt="Código QR" style="width:220px;height:220px;display:block">
+          <div style="padding:16px 20px;overflow-y:auto;flex:1">
+            <div style="background:#fff;border:2px solid #E2E8F0;border-radius:16px;padding:12px;display:inline-block;margin-bottom:10px;box-shadow:0 4px 14px rgba(0,0,0,0.06)">
+              <img id="ver-pase-qr-img" src="" alt="Código QR" style="width:180px;height:180px;max-width:100%;display:block;margin:0 auto;object-fit:contain">
             </div>
 
-            <div id="ver-pase-token" style="font-size:18px;font-weight:900;letter-spacing:.08em;color:#1E5FB4;font-family:monospace;margin-bottom:8px">PASS-XXXXXXXX</div>
-            <div id="ver-pase-detalle" style="font-size:13px;color:#64748B;line-height:1.4;margin-bottom:18px">Válido para ingresar por el tótem del consorcio.</div>
+            <div id="ver-pase-token" style="font-size:17px;font-weight:900;letter-spacing:.08em;color:#1E5FB4;font-family:monospace;margin-bottom:6px">PASS-XXXXXXXX</div>
+            <div id="ver-pase-detalle" style="font-size:12.5px;color:#64748B;line-height:1.4;margin-bottom:14px">Válido para ingresar por el tótem del consorcio.</div>
 
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button id="btn-compartir-wa-dash" onclick="compartirPaseWhatsAppDash()" style="width:100%;height:44px;border:none;border-radius:11px;background:#25D366;color:#fff;font-weight:800;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+              <button id="btn-compartir-wa-dash" onclick="compartirPaseWhatsAppDash()" style="width:100%;height:42px;border:none;border-radius:11px;background:#25D366;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
                 💬 Compartir por WhatsApp
               </button>
-              <button onclick="copiarLinkPaseDash()" style="width:100%;height:40px;border:1px solid #CBD5E1;border-radius:11px;background:#fff;color:#334155;font-weight:700;font-size:13px;cursor:pointer">
+              <button onclick="copiarLinkPaseDash()" style="width:100%;height:38px;border:1px solid #CBD5E1;border-radius:11px;background:#fff;color:#334155;font-weight:700;font-size:13px;cursor:pointer">
                 🔗 Copiar Enlace del Pase
               </button>
             </div>
           </div>
 
-          <div style="padding:12px 24px 18px;border-top:1px solid #EEF1F6">
-            <button onclick="cerrarModal('modal-ver-pase-qr')" style="width:100%;height:40px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13px;cursor:pointer">Cerrar</button>
+          <div style="padding:12px 20px 16px;border-top:1px solid #EEF1F6;flex-shrink:0">
+            <button onclick="cerrarModal('modal-ver-pase-qr')" style="width:100%;height:38px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#64748B;font-weight:700;font-size:13px;cursor:pointer">Cerrar</button>
           </div>
         </div>
       </div>
@@ -15752,7 +15756,7 @@ router.post('/api/pases-qr', async (req, res) => {
     res.json({
       ok: true,
       pase: nuevoPase,
-      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(token)}`
+      qrUrl: rutaQrPorDato('/admin', token, 400)
     });
   } catch (e) {
     console.error('Error creando pase QR:', e);

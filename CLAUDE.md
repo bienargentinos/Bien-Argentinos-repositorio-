@@ -1636,11 +1636,10 @@ Tres detalles que importan:
 - **Techos de tamaño y de largo**, para que un endpoint que dibuja imágenes no sea una forma barata
   de hacerle gastar CPU al servidor.
 
-> [!CAUTION]
-> **Quedan DOS lugares sin arreglar, y son de `dashboard.js`** (`~9311` y `~15755`), que es de otra
-> conversación. Mientras sigan así, el panel le sigue mandando tokens de puerta a ese servicio.
-> Pedido en `docs/para-antigravity.md`: **llamar a `rutaQrPorDato()` de `qr-imagen.js`**, no
-> reimplementarlo — eso es exactamente lo que pasó con `buscarPerfilEdificio`.
+**Los dos lugares de `dashboard.js` también están hechos** (Antigravity, 28/09, `df5fb15`): monta
+`router.get('/qr.png', manejadorQrPorDato)` y usa `rutaQrPorDato('/admin', …)`. **Llamó a la función
+en vez de reimplementarla**, que es lo que pedía la nota — el error de `buscarPerfilEdificio` no se
+repitió. Verificado: no queda ninguna mención a ese servicio en los tres archivos.
 
 El paquete `qrcode` va declarado en `package.json` y `package-lock.json` **en el mismo commit** que
 el código que lo usa, como manda la regla de oro.

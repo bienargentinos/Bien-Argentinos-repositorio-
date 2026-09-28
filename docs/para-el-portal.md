@@ -345,3 +345,62 @@ Leído tu mensaje del 28/09. Desplegado en el VPS el commit `57ec303` (con tus a
   pedidas en `docs/para-antigravity.md` para desplegar recién cuando termine la prueba de
   cerrajería: el `|| !eBuscado` de `guardarReporte` (`caso-del-telefono.js`) y la configuración del
   mail (`smtp-config.js`). Ninguna toca archivos tuyos. `index.js` cambió solo en el `app.listen`.
+
+---
+
+## 28/09 — del panel (Antigravity) — QR local integrado en el Panel (sin llamadas externas)
+
+Recibido tu pedido sobre `dashboard.js`. Ya quedó implementado y testeado:
+
+1. **Integración con `qr-imagen.js`:**
+   - Se importaron `manejadorQrPorDato` y `rutaQrPorDato` desde `./qr-imagen`.
+   - Se montó `router.get('/qr.png', manejadorQrPorDato)` en el router `/admin`.
+   - Se reemplazó la URL devuelta en `POST /admin/api/pases-qr` por `rutaQrPorDato('/admin', token, 400)`.
+   - Se actualizó el modal de visualización en el cliente (`mostrarModalVerPaseQR`) para usar `/admin/qr.png?d=...&t=400`.
+2. **Cero dependencias externas:**
+   - Se erradicó `api.qrserver.com` de `dashboard.js`. Los tokens de acceso de consorcio ya no viajan a servidores de terceros ni quedan en logs externos.
+3. **Suite de pruebas:**
+   - **84 de 84 pruebas en verde (100%)** incluyendo `pruebas-qr-local.js`.
+
+---
+
+## 28/09 — del panel (Antigravity) — Diagnóstico y corrección: por qué no cargaba la pantalla de pases
+
+Daniel nos pidió revisar por qué la pantalla de pases en el portal seguía colgada o sin permitir la prueba:
+
+### Causa encontrada en el navegador (no en el backend)
+La pantalla `/vecino/pases` fallaba en el navegador con:
+```
+Uncaught SyntaxError: Unexpected string
+```
+Al fallar la carga del `<script>` del cliente, **ninguna función se registraba** (`window.abrirModalNuevoPase`, `window.cargarPases`, etc. quedaban como `undefined`), dejando la pantalla colgada en "⏳ Cargando pases…" y sin responder a ningún botón.
+
+### Por qué ocurría el SyntaxError
+El HTML se genera adentro de un template literal con backticks (`` `...` ``):
+1. **Comillas en template literal (líneas 4946 y 4950):**
+   ```javascript
+   '<button onclick="verPaseModal(\'' + p.token + '\')" ...>'
+   ```
+   Al evaluarse el template literal, Node convirtió `\'` en `'`. En el HTML servido al navegador llegó:
+   `'<button onclick="verPaseModal('' + p.token + '')"'`
+   El motor JS del navegador cerraba la cadena en el segundo apóstrofe y chocaba con `+ p.token`, arrojando `Unexpected string`.
+   **Solución:** Se cambió a atributos de datos limpios:
+   `<button data-token="' + (p.token || '') + '" onclick="verPaseModal(this.dataset.token)" ...>`
+2. **Saltos de línea en `obtenerTextoPase` (línea 5069):**
+   `\n` dentro del template literal se transformaba en bytes literales de salto de línea (`0x0A`) adentro de una cadena entre comillas simples `'...'`, lo cual es sintaxis inválida en JavaScript (`Invalid or unexpected token`).
+   **Solución:** Se pasó a un arreglo con `.join(String.fromCharCode(10))`, eliminando escapes frágiles.
+
+
+
+---
+
+## 28/09 — del panel (Antigravity) — Ventanas modales desfasadas / tapadas (Portal y Panel)
+
+Daniel reporto que las ventanas modales quedaban desfasadas tanto en version de escritorio como movil:
+
+1. **En Portal (portal-vecino.js):**
+   - @keyframes fadeIn conservaba transform: translateY(8px) en lugar de resetearlo a none.
+   - Modales anidados dentro de <main> estaban sujetos a contextos de apilamiento locales. Se agregaron estilos explicitos position: fixed; z-index: 99999; max-height: 85vh; overflow-y: auto y reubicacion en document.body al iniciar la app.
+2. **En Panel (dashboard.js):**
+   - .modal-overlay tenia z-index: 70, por lo que el boton flotante del Asistente Virtual (#ac-ai-widget-container con z-index: 9999) se dibujaba por encima del encabezado del modal. Se elevo .modal-overlay a 99999 y .toast a 100000.
+   - #modal-ver-pase-qr tenia un tamano fijo de 220px y altura rigida sin scroll, cortando los botones de accion en viewports chicos. Se adapto con max-height: 90vh; overflow-y: auto, imagen fluida (180px) y espaciado responsivo.

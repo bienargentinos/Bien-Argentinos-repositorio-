@@ -322,7 +322,7 @@ a{color:inherit;text-decoration:none}
 button,input,textarea{font-family:inherit}
 
 /* Animaciones */
-@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @keyframes typingDot{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
 @keyframes pulseRing{0%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(56,189,248,0.7)}70%{transform:scale(1.05);box-shadow:0 0 0 25px rgba(56,189,248,0)}100%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(56,189,248,0)}}
 
@@ -2084,7 +2084,24 @@ ${jsPopup}
     </div>
   </div>
 
-  <audio id="audio-webrtc-vecino" autoplay playsinline style="display:none"></audio>
+  <script>
+    (function () {
+      function reubicarModales() {
+        var modales = document.querySelectorAll('[id^="modal-"]');
+        for (var i = 0; i < modales.length; i++) {
+          var m = modales[i];
+          if (m.parentElement && m.parentElement.tagName === 'MAIN') {
+            document.body.appendChild(m);
+          }
+        }
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', reubicarModales);
+      } else {
+        reubicarModales();
+      }
+    })();
+  </script>
 </div>
 </body>
 </html>`;
@@ -4589,8 +4606,8 @@ router.get('/pases', (req, res) => {
     </div>
 
     <!-- MODAL: NUEVO PASE QR -->
-    <div id="modal-nuevo-pase" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:16px">
-      <div style="background:#fff;border-radius:24px;max-width:440px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.25);max-height:90vh;overflow-y:auto">
+    <div id="modal-nuevo-pase" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:99999;align-items:center;justify-content:center;padding:16px;box-sizing:border-box">
+      <div style="background:#fff;border-radius:24px;max-width:440px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.25);max-height:85vh;overflow-y:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;border-bottom:1px solid var(--superficie-3);padding-bottom:10px">
           <div style="font-size:16px;font-weight:900;color:var(--marca)">🎟️ ${esc(t('pases.crearTitulo'))}</div>
           <button onclick="cerrarModal('modal-nuevo-pase')" style="border:none;background:var(--superficie-3);border-radius:50%;width:30px;height:30px;font-size:16px;cursor:pointer;color:var(--texto-suave)">✕</button>
@@ -4697,8 +4714,8 @@ router.get('/pases', (req, res) => {
     </div>
 
     <!-- MODAL: VER PASE QR Y COMPARTIR -->
-    <div id="modal-ver-pase" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.75);backdrop-filter:blur(4px);z-index:99999;align-items:center;justify-content:center;padding:16px">
-      <div style="background:#fff;border-radius:24px;max-width:400px;width:100%;padding:24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,.3)">
+    <div id="modal-ver-pase" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.75);backdrop-filter:blur(4px);z-index:99999;align-items:center;justify-content:center;padding:16px;box-sizing:border-box">
+      <div style="background:#fff;border-radius:24px;max-width:400px;width:100%;padding:24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,.3);max-height:85vh;overflow-y:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
           <span style="font-size:11px;font-weight:900;color:var(--ok);background:var(--ok-fondo);padding:3px 8px;border-radius:999px">✓ ${esc(t('pases.habilitado'))}</span>
           <button onclick="cerrarModal('modal-ver-pase')" style="border:none;background:var(--superficie-3);border-radius:50%;width:28px;height:28px;font-size:15px;cursor:pointer;color:var(--texto-suave)">✕</button>
@@ -4774,7 +4791,11 @@ router.get('/pases', (req, res) => {
       }
 
       function abrirModalNuevoPase() {
-        document.getElementById('modal-nuevo-pase').style.display = 'flex';
+        var m = document.getElementById('modal-nuevo-pase');
+        if (m) {
+          if (m.parentElement && m.parentElement.tagName === 'MAIN') document.body.appendChild(m);
+          m.style.display = 'flex';
+        }
       }
 
       function cerrarModal(id) {
@@ -4949,11 +4970,11 @@ router.get('/pases', (req, res) => {
                 '<span>' + T.vence + ': <strong>' + fHasta + '</strong></span>' +
               '</div>' +
               '<div style="display:flex;gap:8px">' +
-                '<button onclick="verPaseModal(\'' + p.token + '\')" style="flex:1;height:38px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">' +
+                '<button data-token="' + (p.token || '') + '" onclick="verPaseModal(this.dataset.token)" style="flex:1;height:38px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">' +
                   '<i class="ph ph-qr-code" style="font-size:16px"></i>' +
                   '<span>' + T.verQr + '</span>' +
                 '</button>' +
-                '<button onclick="revocarPase(\'' + p.token + '\')" style="height:38px;padding:0 12px;border:1.5px solid var(--error-borde);border-radius:10px;background:var(--error-fondo);color:var(--error);font-size:12px;font-weight:700;cursor:pointer">' +
+                '<button data-token="' + (p.token || '') + '" onclick="revocarPase(this.dataset.token)" style="height:38px;padding:0 12px;border:1.5px solid var(--error-borde);border-radius:10px;background:var(--error-fondo);color:var(--error);font-size:12px;font-weight:700;cursor:pointer">' +
                   'Revocar' +
                 '</button>' +
               '</div>' +
@@ -5069,14 +5090,25 @@ router.get('/pases', (req, res) => {
         var elAutoria = document.getElementById('ver-pase-autoria');
         if (elAutoria) elAutoria.textContent = p.autoria || '';
 
-        document.getElementById('modal-ver-pase').style.display = 'flex';
+        var m = document.getElementById('modal-ver-pase');
+        if (m) {
+          if (m.parentElement && m.parentElement.tagName === 'MAIN') document.body.appendChild(m);
+          m.style.display = 'flex';
+        }
       }
 
       function obtenerTextoPase() {
         if (!_paseSeleccionado) return '';
         var p = _paseSeleccionado;
         var url = 'https://marcos.bienargentinos.com/porteria/pase/' + encodeURIComponent(p.token);
-        return '¡Hola ' + p.nombre_invitado + '! Te comparto tu Pase QR de acceso para ' + p.edificio + (p.departamento ? ' Depto ' + p.departamento : '') + '.\n\nMostralo frente a la cámara del tótem de entrada al llegar:\n👉 ' + url + '\n\nCódigo: ' + p.token;
+        return [
+          '¡Hola ' + p.nombre_invitado + '! Te comparto tu Pase QR de acceso para ' + p.edificio + (p.departamento ? ' Depto ' + p.departamento : '') + '.',
+          '',
+          'Mostralo frente a la cámara del tótem de entrada al llegar:',
+          '👉 ' + url,
+          '',
+          'Código: ' + p.token
+        ].join(String.fromCharCode(10));
       }
 
       async function compartirPaseWhatsApp() {
