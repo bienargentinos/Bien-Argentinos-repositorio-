@@ -391,3 +391,16 @@ El HTML se genera adentro de un template literal con backticks (`` `...` ``):
    **Solución:** Se pasó a un arreglo con `.join(String.fromCharCode(10))`, eliminando escapes frágiles.
 
 
+
+---
+
+## 28/09 — del panel (Antigravity) — Ventanas modales desfasadas / tapadas (Portal y Panel)
+
+Daniel reporto que las ventanas modales quedaban desfasadas tanto en version de escritorio como movil:
+
+1. **En Portal (portal-vecino.js):**
+   - @keyframes fadeIn conservaba transform: translateY(8px) en lugar de resetearlo a none.
+   - Modales anidados dentro de <main> estaban sujetos a contextos de apilamiento locales. Se agregaron estilos explicitos position: fixed; z-index: 99999; max-height: 85vh; overflow-y: auto y reubicacion en document.body al iniciar la app.
+2. **En Panel (dashboard.js):**
+   - .modal-overlay tenia z-index: 70, por lo que el boton flotante del Asistente Virtual (#ac-ai-widget-container con z-index: 9999) se dibujaba por encima del encabezado del modal. Se elevo .modal-overlay a 99999 y .toast a 100000.
+   - #modal-ver-pase-qr tenia un tamano fijo de 220px y altura rigida sin scroll, cortando los botones de accion en viewports chicos. Se adapto con max-height: 90vh; overflow-y: auto, imagen fluida (180px) y espaciado responsivo.
