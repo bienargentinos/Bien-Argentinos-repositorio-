@@ -6988,6 +6988,7 @@ router.get('/amenities', async (req, res) => {
     notaFija: t('amen.notaFija'),
     notaPorHora: t('amen.notaPorHora'),
     notaTransferir: t('amen.notaTransferir'),
+    bancoNoCargado: t('amen.bancoNoCargado'),
     sinCostoEspacio: t('amen.sinCostoEspacio'),
     sinCosto: t('amen.sinCosto'),
     elegiFecha: t('amen.elegiFecha'),
@@ -7050,8 +7051,16 @@ router.get('/amenities', async (req, res) => {
         const r = resEd.rows[0];
         try {
           const { pool: p } = require('./db-pg');
-          const qB = `SELECT * FROM cuentas_bancarias WHERE edificio_id = $1 LIMIT 1`;
-          const resB = await p.query(qB, [r.id]);
+          // Por id O por NOMBRE del edificio: en este sistema el nombre es la clave en todas
+          // las demás tablas y es lo que escribe el panel, así que buscar solo por id dejaría la
+          // fila sin encontrar el día que la Administración la cargue desde ahí.
+          const qB = `SELECT * FROM cuentas_bancarias
+                      WHERE edificio_id = $1
+                         OR LOWER(TRIM(edificio)) = LOWER(TRIM($2))
+                         OR LOWER(TRIM(edificio)) = LOWER(TRIM($3))
+                      ORDER BY (edificio_id = $1) DESC, actualizado_en DESC NULLS LAST
+                      LIMIT 1`;
+          const resB = await p.query(qB, [r.id, r.edificio || '', r.nombre || '']);
           if (resB && resB.rows && resB.rows.length > 0) {
             datosBanco = resB.rows[0];
           }
@@ -7064,15 +7073,26 @@ router.get('/amenities', async (req, res) => {
     console.warn('Carga reservas amenities:', errDb.message);
   }
 
-  // Fallback de datos bancarios si no fueron configurados específicamente
-  if (!datosBanco) {
-    datosBanco = {
-      banco: 'Banco Oficial del Consorcio',
-      titular: 'Consorcio ' + (v.edificio || 'Edificio'),
-      cbu: 'Consultar con Administración',
-      alias: (v.edificio || 'consorcio').toLowerCase().replace(/[^a-z0-9]/g, '') + '.expensas',
-    };
-  }
+  // > [!CAUTION]
+  // > **ACA NO SE INVENTAN LOS DATOS DE TRANSFERENCIA.** Esto decia antes:
+  // >
+  // >     banco:   'Banco Oficial del Consorcio'
+  // >     titular: 'Consorcio ' + v.edificio
+  // >     alias:   v.edificio.toLowerCase().replace(/[^a-z0-9]/g,'') + '.expensas'
+  // >
+  // > Un banco que no existe, un titular que nadie verifico, y un alias ARMADO con el nombre del
+  // > edificio -- que se mostraba con un boton "Copiar" al lado, a un vecino que estaba por
+  // > transferir la senia del SUM. Toca copiar, pega en el homebanking y manda la plata: o no
+  // > existe, o es de otra persona. Y la pantalla se veia igual de confiable que con datos reales.
+  //
+  // El motivo de fondo era que `cuentas_bancarias` no existia en ningun lado (ya esta en el
+  // esquema), pero el error de verdad es el otro: ante un dato de PAGO que falta, la unica
+  // respuesta honesta es decir que falta. Es el mismo criterio que `describirAutor` con el autor
+  // del pase y que el contacto de ingreso: sin dato no se inventa uno.
+  //
+  // Se deja en `null` a proposito y la pantalla lo dice. Que el vecino tenga que preguntarle a la
+  // Administracion es molesto; que transfiera a un alias inventado no se puede deshacer.
+  const hayDatosBancoAmenities = !!(datosBanco && (datosBanco.cbu || datosBanco.alias));
 
   // Si aún no se configuraron amenities en este edificio, usar catálogo estándar con aranceles sugeridos
   if (!amenitiesList.length) {
@@ -7243,18 +7263,31 @@ router.get('/amenities', async (req, res) => {
             <div id="txt-modal-arancel-info" style="font-size:13px;font-weight:700;color:var(--acento);margin-top:2px"></div>
           </div>
 
-          <!-- Datos de transferencia bancaria -->
+          <!-- Datos de transferencia bancaria. Sin datos cargados NO se muestra nada parecido a
+               una cuenta: ni titular, ni alias, ni CBU, ni botón de copiar. El motivo largo está
+               arriba, donde antes se inventaban. -->
           <div style="background:var(--superficie-2);border:1px solid var(--borde);border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;color:var(--texto-medio)">
             <div style="font-weight:800;color:var(--texto);margin-bottom:4px">🏦 ${esc(t('amen.datosBancarios'))}</div>
-            <div>${esc(t('amen.titular'))}: <strong>${esc(datosBanco.titular || 'Consorcio')}</strong></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
-              <span>${esc(t('amen.alias'))}: <strong style="color:var(--acento)">${esc(datosBanco.alias || '—')}</strong></span>
-              ${datosBanco.alias ? `<button type="button" onclick="copiarTexto('${escJs(datosBanco.alias)}', this)" style="padding:2px 8px;border-radius:4px;border:1px solid var(--borde-fuerte);background:#fff;color:var(--acento);font-size:11px;font-weight:700;cursor:pointer">Copiar</button>` : ''}
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
-              <span>CBU: <strong style="font-family:monospace">${esc(datosBanco.cbu || '—')}</strong></span>
-              ${datosBanco.cbu ? `<button type="button" onclick="copiarTexto('${escJs(datosBanco.cbu)}', this)" style="padding:2px 8px;border-radius:4px;border:1px solid var(--borde-fuerte);background:#fff;color:var(--acento);font-size:11px;font-weight:700;cursor:pointer">Copiar</button>` : ''}
-            </div>
+            ${!hayDatosBancoAmenities ? `
+              <div style="color:#92400E;background:#FEF3C7;border:1px solid #FDE68A;border-radius:8px;padding:8px 10px;line-height:1.45">
+                ⚠️ ${esc(t('amen.bancoNoCargado'))}
+              </div>
+            ` : `
+              ${datosBanco.titular ? `<div>${esc(t('amen.titular'))}: <strong>${esc(datosBanco.titular)}</strong></div>` : ''}
+              ${datosBanco.banco ? `<div style="margin-top:3px">${esc(datosBanco.banco)}</div>` : ''}
+              ${datosBanco.alias ? `
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
+                  <span>${esc(t('amen.alias'))}: <strong style="color:var(--acento)">${esc(datosBanco.alias)}</strong></span>
+                  <button type="button" onclick="copiarTexto('${escJs(datosBanco.alias)}', this)" style="padding:2px 8px;border-radius:4px;border:1px solid var(--borde-fuerte);background:#fff;color:var(--acento);font-size:11px;font-weight:700;cursor:pointer">${esc(t('amen.copiar'))}</button>
+                </div>
+              ` : ''}
+              ${datosBanco.cbu ? `
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
+                  <span>CBU: <strong style="font-family:monospace">${esc(datosBanco.cbu)}</strong></span>
+                  <button type="button" onclick="copiarTexto('${escJs(datosBanco.cbu)}', this)" style="padding:2px 8px;border-radius:4px;border:1px solid var(--borde-fuerte);background:#fff;color:var(--acento);font-size:11px;font-weight:700;cursor:pointer">${esc(t('amen.copiar'))}</button>
+                </div>
+              ` : ''}
+            `}
           </div>
 
           <!-- Selector de Archivo con Preview -->
@@ -7299,6 +7332,9 @@ router.get('/amenities', async (req, res) => {
     <script>
       // Los textos de esta pantalla en el idioma del vecino, serializados una sola vez.
       const TA = ${TA};
+      // El alias al que transferir, resuelto POR EL SERVIDOR. Vacío = la Administración todavía no
+      // lo cargó, y entonces no se nombra ninguno. El navegador no arma datos de pago.
+      const ALIAS_COBRO = ${JSON.stringify((datosBanco && datosBanco.alias) || '')};
       var _todasReservas = ${JSON.stringify(todasReservasEdificio)};
       var _amenitiesList = ${JSON.stringify(amenitiesList)};
       var _horasSeleccionadas = [];
@@ -7350,7 +7386,11 @@ router.get('/amenities', async (req, res) => {
             : TA.notaPorHora;
           box.innerHTML = '<div style="font-size:13.5px;font-weight:800;margin-bottom:4px">💰 ' + TA.arancel + ': <span class="txt-destacado-oro">$' + Number(amObj.precio).toLocaleString('es-AR') + '</span> <span style="font-size:12px;font-weight:600;opacity:0.9">(' + modoTexto + ')</span></div>' +
             '<div style="font-size:12px;line-height:1.45;margin-bottom:6px">' + calculoNota + '</div>' +
-            '<div style="font-size:11.5px;line-height:1.4;opacity:0.95">' + TA.notaTransferir + ' (' + TA.alias + ': <strong class="txt-destacado-oro">${escJs(datosBanco.alias || '')}</strong>)</div>';
+            '<div style="font-size:11.5px;line-height:1.4;opacity:0.95">'
+              + (ALIAS_COBRO
+                  ? (TA.notaTransferir + ' (' + TA.alias + ': <strong class="txt-destacado-oro">' + ALIAS_COBRO + '</strong>)')
+                  : ('⚠️ ' + TA.bancoNoCargado))
+              + '</div>';
         } else {
           box.className = 'arancel-box arancel-gratis';
           box.innerHTML = '<div style="font-size:13px;font-weight:800;margin-bottom:2px">🟢 ' + TA.sinCostoEspacio + '</div>' +

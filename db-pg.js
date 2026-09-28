@@ -689,6 +689,34 @@ async function _initPgSchema() {
             CREATE INDEX IF NOT EXISTS idx_pases_qr_edificio ON pases_qr (edificio);
             CREATE INDEX IF NOT EXISTS idx_pases_qr_estado ON pases_qr (estado);
 
+            -- A DONDE TRANSFIERE EL VECINO la senia o el arancel de un amenity.
+            --
+            -- portal-vecino.js la leia y NINGUN lado la creaba, asi que en produccion salia
+            -- "Carga datos banco: relation cuentas_bancarias does not exist" en cada carga de la
+            -- pantalla de Amenities. Y lo que hacia el codigo cuando eso fallaba era peor que el
+            -- error: INVENTABA los datos de transferencia --un banco, un titular y un alias armado
+            -- con el nombre del edificio-- y los mostraba con un boton "Copiar" al lado, a alguien
+            -- que estaba por mandar plata. Ver el comentario en portal-vecino.js.
+            --
+            -- Se guarda el nombre del edificio ADEMAS del id: en este sistema el nombre es la clave
+            -- en todas las demas tablas y es lo que escribe el panel, asi que buscar solo por id
+            -- dejaria la fila sin encontrar cuando la cargue el panel.
+            CREATE TABLE IF NOT EXISTS cuentas_bancarias (
+                id SERIAL PRIMARY KEY,
+                edificio_id INTEGER,
+                edificio VARCHAR(150),
+                banco VARCHAR(150),
+                titular VARCHAR(200),
+                cuit VARCHAR(50),
+                cbu VARCHAR(50),
+                alias VARCHAR(100),
+                notas TEXT,
+                actualizado_en TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cuentas_bancarias_edificio ON cuentas_bancarias (edificio);
+            CREATE INDEX IF NOT EXISTS idx_cuentas_bancarias_edificio_id ON cuentas_bancarias (edificio_id);
+
             CREATE TABLE IF NOT EXISTS eventos_acceso (
                 id SERIAL PRIMARY KEY,
                 fecha TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

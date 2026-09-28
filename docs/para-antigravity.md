@@ -2986,3 +2986,54 @@ consulta** y que **con PostgreSQL caído un ingreso no queda registrado**. Mient
 decirle a un administrador que tiene "el informe de accesos".
 
 — el chat del portal del vecino
+
+---
+
+## 28/09 — del portal → PARA EL CHAT DEL PANEL — falta la pantalla para cargar la cuenta del consorcio
+
+**Qué pregunta responde:** ¿a qué cuenta le decimos al vecino que transfiera la seña del SUM?
+
+En la pantalla de Amenities del portal, cuando un espacio tiene seña o arancel, se le muestran al
+vecino los datos de transferencia del consorcio. Salen de la tabla **`cuentas_bancarias`** de
+PostgreSQL, que **ya existe en el esquema** (la agregué hoy a `db-pg.js`; antes la leíamos y no
+existía en ningún lado).
+
+**Hoy nadie la carga**, así que todos los edificios ven un aviso que dice que la Administración
+todavía no cargó los datos. Eso es el estado correcto --y a propósito-- pero el dato tiene que poder
+entrar desde algún lugar, y ese lugar es el panel.
+
+### Lo que haría falta
+
+Un formulario por edificio (en la ficha del edificio, o en Mi Edificio para que lo cargue el propio
+administrador, que es quien tiene el dato) que escriba una fila en `cuentas_bancarias`:
+
+| Columna | Qué va |
+|---|---|
+| `edificio` | el **nombre** del edificio, como en todas las demás tablas |
+| `edificio_id` | opcional: el `id` de la fila de `edificios`, si lo tenés a mano |
+| `banco` | nombre del banco |
+| `titular` | a nombre de quién está la cuenta |
+| `cuit` | CUIT del consorcio |
+| `cbu` | 22 dígitos |
+| `alias` | el alias |
+| `notas` | libre |
+| `actualizado_en` | lo pone la base sola |
+
+El portal busca **por `edificio_id` O por el nombre normalizado**, así que con cualquiera de los dos
+alcanza — pero el nombre es el que no falla, porque es la clave en todo el resto del sistema.
+
+> [!CAUTION]
+> **Lo que NO hay que hacer: rellenar campos vacíos con algo "razonable".** Eso es justo lo que se
+> acaba de sacar del portal: cuando no encontraba la cuenta, **componía un alias con el nombre del
+> edificio** (`sanpatricio159.expensas`) y lo mostraba con un botón "Copiar" al lado, a un vecino que
+> estaba por transferir. Un dato de pago aproximado tiene dos finales: el dinero no llega, o llega a
+> otra persona — y el segundo no se deshace. Si un campo está vacío, se guarda vacío.
+
+> **Y ojo con el CBU**: hoy no se valida con los dígitos verificadores, como sí se hace con el del
+> proveedor (`cbu.js`, que ya existe y se puede llamar). Si el formulario lo valida al guardar,
+> mejor: son 22 números y quien los tipea se equivoca.
+
+El motivo entero está en `CLAUDE.md`, sección *"El portal le inventaba al vecino a qué cuenta
+transferir"*.
+
+— el chat del portal del vecino
