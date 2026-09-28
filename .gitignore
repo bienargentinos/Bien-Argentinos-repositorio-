@@ -47,3 +47,7 @@ FETCH_HEAD
 # Los ejemplos de expensas se generan con `node ejemplo-expensas.js`. No van al repo: se
 # regeneran en un segundo y cambiarían en cada corrida.
 ejemplos-expensas/
+
+# Copias a PostgreSQL que fallaron y esperan reintento (`cola-pg.js`). Trae teléfonos, nombres y
+# conversaciones de vecinos reales: lo mismo que `almacenamiento/`, no puede ir al repo.
+cola-pg-pendiente.json

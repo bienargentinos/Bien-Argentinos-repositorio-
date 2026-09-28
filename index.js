@@ -19,6 +19,12 @@ const {
     buscarRolPorTelefono,
 } = require('./datos');
 
+// Solo el servidor guarda en disco las copias a PostgreSQL que fallan y retoma las que quedaron del
+// arranque anterior (`cola-pg.js`). Va acá arriba, antes de cualquier cosa que pueda escribir: lo
+// guardado es más viejo que todo lo nuevo y tiene que entrar primero. Las herramientas sueltas
+// cargan datos.js y no deben tocar esa cola.
+require('./datos').colaPg.iniciar();
+
 const { descargarMedia, guardarArchivoEstructurado } = require('./media');
 const { evaluarCaso }        = require('./agentes/marcos-caso');
 const { responderVecino }    = require('./agentes/marcos-cara');

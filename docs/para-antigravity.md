@@ -2822,3 +2822,29 @@ node revisar-smtp.js
 **El día de la baja del hosting** hay que cambiar `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
 (y `SMTP_FROM` si el usuario no es un mail) en el `.env`. Eso **no es por este canal**: el `.env` lo
 toca Daniel. Después se corre `node revisar-smtp.js --enviar <un mail de Daniel>` y se mira que llegue.
+
+---
+
+## 28/09 — del motor → PARA EL CHAT DEL PANEL — la copia a PostgreSQL que falla ya no se pierde: qué va a aparecer en el VPS
+
+**Qué pregunta responde:** ¿qué son las líneas `[PG] ⏳` / `[PG] ✅` y el archivo
+`cola-pg-pendiente.json` que van a aparecer después del próximo despliegue?
+
+Tercer arreglo del motor de hoy (`cola-pg.js`, `datos.js`, `index.js`, `reset-test.js`). **Mismo
+pedido que los dos de arriba: se despliega cuando Daniel termine la prueba de cerrajería.**
+Después del despliegue, `node verificar-antes-de-subir.js` tiene que dar **82 en verde**.
+
+Qué cambia en el servidor:
+
+- Si PostgreSQL no contesta, la copia no se pierde: queda en `cola-pg-pendiente.json` (en la
+  carpeta del proyecto) y se reintenta sola. En el log: `[PG] ⏳ …` al fallar y
+  `[PG] ✅ PostgreSQL volvió: se pusieron al día N copia(s)` al volver.
+- `[PG] ❌ … NO se reintenta` es un error del SQL (una columna que falta). **Pasame esa línea**.
+- **`cola-pg-pendiente.json` no se borra a mano ni se commitea**: tiene teléfonos y conversaciones
+  de vecinos (está en `.gitignore`, `git status` no lo muestra). Si existe, es que hay copias
+  esperando; desaparece solo cuando se ponen al día. `reset-test.js` lo borra, como corresponde.
+
+```bash
+pm2 logs marcos-ai --lines 300 --nostream | grep "\[PG\]"
+ls -la cola-pg-pendiente.json       # solo lee: si no existe, no hay nada atrasado
+```

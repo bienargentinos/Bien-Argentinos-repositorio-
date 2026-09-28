@@ -2558,8 +2558,44 @@ La decisión vive en `casos-desfasados.js` (`loQueSePuedeAplicar`), separada de 
 prueba con datos en vez de leyendo el código: un candado que mira texto se esquiva sin querer en
 cualquier refactor.
 
-> **Lo que esto NO resuelve**: limpia lo que dejó una caída, no evita la próxima. El arreglo de
-> verdad es que una copia fallida quede anotada y se reintente sola. Es su propio trabajo.
+> Esto limpia lo que dejó una caída. **La próxima ya no deja nada que limpiar**: ver abajo.
+
+### Y la copia que falla ya no se pierde (28/09)
+
+`cola-pg.js` (`crearColaPg`). La copia a PostgreSQL dejó de ser una función y pasó a ser un
+**dato** --`{ sql, params }` o `{ upsert: [tabla, clave, valores] }`--, porque una función no
+sobrevive a un `pm2 restart` y un dato sí. Las 19 copias de `datos.js` se convirtieron así.
+
+- **Falla de conexión** (la base no contesta, rechaza la contraseña --la caída del CASO-1001--, se
+  reinicia): queda en una cola que se reintenta sola (5 s, 15 s, 1 min, 3 min, 5 min…) y **se
+  guarda en `cola-pg-pendiente.json`**, que el servidor retoma al arrancar. Log: `[PG] ⏳ …` al
+  fallar y `[PG] ✅ PostgreSQL volvió: se pusieron al día N copia(s)` al recuperarse.
+- **Falla del SQL** (una columna que no existe, una restricción): se descarta como antes, porque
+  va a fallar siempre y trabaría todo lo de atrás. Pero gritado: `[PG] ❌ … NO se reintenta`.
+
+> [!CAUTION]
+> **Es UNA cola y corre de a una, a propósito.** Si una escritura vieja se reintentara después de
+> una nueva, la pisaría: un caso resuelto volvería a quedar abierto. Mientras haya algo atrasado,
+> lo nuevo espera detrás.
+
+- **Solo el servidor** guarda y retoma el archivo (`colaPg.iniciar()`, arriba de todo en
+  `index.js`, antes de cualquier cosa que escriba). Las herramientas sueltas cargan `datos.js` y no
+  deben ponerse a vaciar la cola del servidor en paralelo.
+- `cola-pg-pendiente.json` trae teléfonos y conversaciones: está en `.gitignore`, y `reset-test.js`
+  lo borra (si no, al volver PostgreSQL reinsertaría los casos de la prueba que se acaba de borrar).
+- Probado contra un PostgreSQL de verdad: caso creado, base apagada, cierre pedido (`⏳`, archivo
+  escrito), base prendida → el caso quedó `resuelto` solo y el archivo se borró.
+- La primera versión tenía un bug que la prueba encontró: identificaba la copia en curso por su
+  posición en la lista, y si al arrancar se cargaba lo guardado mientras una corría, sacaba otra y
+  repetía esa. Ahora se saca de la lista antes de ejecutarla.
+
+**Lo que esto NO resuelve**: si el proceso se muere entre que se pide la copia y su primer intento,
+se pierde como antes (solo se guarda en disco lo que ya falló una vez). Un INSERT que PostgreSQL
+llegó a escribir pero cuya respuesta se cortó se repite; hoy el único INSERT puro es el de
+`llamadas`. Para eso sigue estando `emparejar-casos.js`.
+
+Prueba: `node pruebas-cola-pg.js`, con candados: ninguna copia de `datos.js` puede volver a ser una
+función, `index.js` tiene que retomar la cola, y el archivo no puede salir del `.gitignore`.
 
 Prueba: `node pruebas-casos-desfasados.js`.
 
@@ -2944,7 +2980,7 @@ Después de cualquiera de los tres arreglos, esos dos tienen que seguir diciendo
       (`RUBROS_CATALOGO`, 14) en vez de estar escrita a mano en `dashboard.js`. En móvil son
       botones que se tocan: un `<select multiple>` necesita `Ctrl`/`Cmd`, que en un teléfono no existe.
 - [x] Casos cerrados de un solo lado por una caída de PostgreSQL — `emparejar-casos.js`
-- [ ] **Que una copia a PostgreSQL que falla no se pierda**: anotarla y reintentarla sola.
-      `emparejar-casos.js` limpia lo que dejó una caída; esto evitaría la próxima.
+- [x] **Que una copia a PostgreSQL que falla no se pierda**: `cola-pg.js` la guarda y la reintenta
+      sola, en orden (28/09).
 - [ ] Twilio + chip Movistar: agregar `VAPI_API_KEY`, `TWILIO_*` al `.env`
 - [ ] Test end-to-end WhatsApp + llamadas

@@ -27,14 +27,26 @@ const { fechaHoraAR, fechaAR } = require('./fecha');
 const soloDigitos = t => String(t || '').replace(/\D/g, '');
 
 /**
- * Ejecuta una copia a PostgreSQL sin que pueda afectar al flujo de Marcos: no se espera, no
+ * Manda una copia a PostgreSQL sin que pueda afectar al flujo de Marcos: no se espera, no
  * propaga excepciones y no interrumpe la respuesta al vecino.
+ *
+ * La copia es un DATO, no una función: `{ sql, params }` o `{ upsert: [tabla, clave, valores] }`.
+ * Así, si PostgreSQL no contesta, queda en una cola que se reintenta sola, en orden, y sobrevive a
+ * un `pm2 restart`. Antes la escritura que fallaba se perdía para siempre. Todo el porqué está en
+ * `cola-pg.js`.
  */
-function copiarAPg(descripcion, fn) {
+const { crearColaPg } = require('./cola-pg');
+const colaPg = crearColaPg({
+    ejecutar: async (item) => {
+        if (item.upsert) return upsert(...item.upsert);
+        const { pool } = require('./db-pg');
+        return pool.query(item.sql, item.params || []);
+    },
+});
+
+function copiarAPg(descripcion, copia) {
     try {
-        Promise.resolve(fn()).catch(err =>
-            console.error(`[PG] No se pudo copiar ${descripcion}: ${err.message}`)
-        );
+        colaPg.encolar({ descripcion, ...copia });
     } catch (err) {
         console.error(`[PG] No se pudo copiar ${descripcion}: ${err.message}`);
     }
@@ -188,18 +200,15 @@ async function buscarFacturasSinImputar(args) {
 async function imputarFacturaSinEdificio(args) {
     const tocadas = await sheets.imputarFacturaSinEdificio(args);
     if (tocadas > 0) {
-        copiarAPg(`la imputación de facturas de ${args?.proveedor || 'proveedor'}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE facturas SET edificio = $1, estado = 'Pendiente',
+        copiarAPg(`la imputación de facturas de ${args?.proveedor || 'proveedor'}`, {
+            sql: `UPDATE facturas SET edificio = $1, estado = 'Pendiente',
                         id_evento = COALESCE(NULLIF($3, ''), id_evento),
                         codigo_caso = COALESCE(NULLIF($3, ''), codigo_caso, id_evento)
                  WHERE lower(trim(coalesce(proveedor, ''))) = lower(trim($2))
                    AND (lower(trim(coalesce(estado, ''))) = 'sin imputar'
                         OR coalesce(trim(edificio), '') = ''
                         OR lower(trim(edificio)) = 'no especificado')`,
-                [args.edificio, args.proveedor || '', args.idEvento || '']
-            );
+            params: [args.edificio, args.proveedor || '', args.idEvento || ''],
         });
     }
     return tocadas;
@@ -306,7 +315,7 @@ async function guardarReporte(datos) {
 
     // El código [CASO-XXXX] lo asigna Sheets, así que la copia se hace recién con el resultado.
     if (res?.id_evento) {
-        copiarAPg(`el reporte ${res.id_evento}`, () => upsert('reportes', ['codigo_caso'], {
+        copiarAPg(`el reporte ${res.id_evento}`, { upsert: ['reportes', ['codigo_caso'], {
             codigo_caso:    res.id_evento,
             fecha:          datos.fechaInicio || fechaHoraAR(),
             edificio:       datos.edificio || '',
@@ -335,7 +344,7 @@ async function guardarReporte(datos) {
             chat_proveedor_json: Array.isArray(datos.chat_proveedor)
                 ? JSON.stringify(datos.chat_proveedor)
                 : (datos.chat_proveedor || ''),
-        }));
+        }] });
     }
     return res;
 }
@@ -344,7 +353,7 @@ async function guardarFactura(datos) {
     const res = await sheets.guardarFactura(datos);
     // Si ya estaba registrada no se copia de nuevo a PostgreSQL: duplicaría el gasto del otro lado.
     if (res?.duplicada) return res;
-    copiarAPg(`la factura de ${datos?.proveedor || 'proveedor'}`, () => upsert(
+    copiarAPg(`la factura de ${datos?.proveedor || 'proveedor'}`, { upsert: [
         'facturas',
         ['fecha', 'proveedor', 'monto', 'edificio'],
         {
@@ -361,31 +370,31 @@ async function guardarFactura(datos) {
             id_evento:      datos.id_evento || datos.codigo_caso || '',
             codigo_caso:    datos.codigo_caso || datos.id_evento || '',
         }
-    ));
+    ] });
     return res;
 }
 
 async function guardarMemoriaVecino(datos) {
     const res = await sheets.guardarMemoriaVecino(datos);
-    copiarAPg(`la memoria de ${datos?.nombre || 'vecino'}`, () => upsert('memoria', ['telefono'], {
+    copiarAPg(`la memoria de ${datos?.nombre || 'vecino'}`, { upsert: ['memoria', ['telefono'], {
         telefono:              soloDigitos(datos.telefono),
         nombre:                datos.nombre || '',
         fecha_ultimo_contacto: fechaHoraAR(),
         resumen_historial:     datos.resumenHistorial || '',
         notas_trato:           datos.notasTrato || '',
-    }));
+    }] });
     return res;
 }
 
 async function agregarVecinoNuevo(datos) {
     const res = await sheets.agregarVecinoNuevo(datos);
-    copiarAPg(`el vecino ${datos?.nombre || ''}`, () => upsert('vecinos', ['telefono', 'edificio'], {
+    copiarAPg(`el vecino ${datos?.nombre || ''}`, { upsert: ['vecinos', ['telefono', 'edificio'], {
         telefono:     soloDigitos(datos.telefono),
         nombre:       datos.nombre || '',
         edificio:     datos.edificio || '',
         departamento: datos.departamento || '',
         notas:        'Registro automático por bot',
-    }));
+    }] });
     return res;
 }
 
@@ -395,15 +404,12 @@ async function guardarAutorizacionContacto(datos) {
     if (tel) {
         // Sin `edificio` en la clave: la autorización es de la persona, y el mismo teléfono puede
         // figurar en más de un edificio. Se marca en todas sus filas.
-        copiarAPg(`la autorización de contacto de ${tel}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE vecinos
+        copiarAPg(`la autorización de contacto de ${tel}`, {
+            sql: `UPDATE vecinos
                     SET autoriza_contacto = COALESCE($2, autoriza_contacto),
                         contacto_acceso   = COALESCE(NULLIF($3, ''), contacto_acceso)
                   WHERE regexp_replace(coalesce(telefono, ''), '\\D', '', 'g') = $1`,
-                [tel, datos.autoriza !== false, datos.contactoAcceso || '']
-            );
+            params: [tel, datos.autoriza !== false, datos.contactoAcceso || ''],
         });
     }
     return res;
@@ -412,12 +418,9 @@ async function guardarAutorizacionContacto(datos) {
 async function marcarTecnicoNotificado(id_evento) {
     const res = await sheets.marcarTecnicoNotificado(id_evento);
     if (id_evento) {
-        copiarAPg(`la marca de notificación de ${id_evento}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE reportes SET tecnico_notificado = $2 WHERE codigo_caso = $1`,
-                [id_evento, fechaHoraAR()]
-            );
+        copiarAPg(`la marca de notificación de ${id_evento}`, {
+            sql: `UPDATE reportes SET tecnico_notificado = $2 WHERE codigo_caso = $1`,
+            params: [id_evento, fechaHoraAR()],
         });
     }
     return res;
@@ -430,12 +433,9 @@ async function fueAdminNotificado(id_evento) {
 async function marcarAdminNotificado(id_evento, motivo = '') {
     const res = await sheets.marcarAdminNotificado(id_evento, motivo);
     if (id_evento) {
-        copiarAPg(`la marca de escalación al administrador de ${id_evento}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE reportes SET admin_notificado = $2 WHERE codigo_caso = $1`,
-                [id_evento, `${fechaHoraAR()}${motivo ? ` — ${motivo}` : ''}`]
-            );
+        copiarAPg(`la marca de escalación al administrador de ${id_evento}`, {
+            sql: `UPDATE reportes SET admin_notificado = $2 WHERE codigo_caso = $1`,
+            params: [id_evento, `${fechaHoraAR()}${motivo ? ` — ${motivo}` : ''}`],
         });
     }
     return res;
@@ -448,12 +448,9 @@ async function fueContactoAccesoAvisado(id_evento) {
 async function marcarContactoAccesoAvisado(id_evento) {
     const res = await sheets.marcarContactoAccesoAvisado(id_evento);
     if (id_evento) {
-        copiarAPg(`la marca de contacto de acceso avisado de ${id_evento}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE reportes SET contacto_acceso_avisado = $2 WHERE codigo_caso = $1`,
-                [id_evento, fechaHoraAR()]
-            );
+        copiarAPg(`la marca de contacto de acceso avisado de ${id_evento}`, {
+            sql: `UPDATE reportes SET contacto_acceso_avisado = $2 WHERE codigo_caso = $1`,
+            params: [id_evento, fechaHoraAR()],
         });
     }
     return res;
@@ -466,13 +463,10 @@ async function marcarContactoAccesoAvisado(id_evento) {
 async function desmarcarEntregasAlTecnico(id_evento) {
     const res = await sheets.desmarcarEntregasAlTecnico(id_evento);
     if (id_evento) {
-        copiarAPg(`el borrado de las marcas de entrega de ${id_evento}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE reportes SET material_enviado_tecnico = NULL, contacto_acceso_avisado = NULL
+        copiarAPg(`el borrado de las marcas de entrega de ${id_evento}`, {
+            sql: `UPDATE reportes SET material_enviado_tecnico = NULL, contacto_acceso_avisado = NULL
                  WHERE codigo_caso = $1`,
-                [id_evento]
-            );
+            params: [id_evento],
         });
     }
     return res;
@@ -488,12 +482,9 @@ async function desmarcarEntregasAlTecnico(id_evento) {
 async function marcarEntregaRebotada(id_evento, rebotado = true) {
     const res = await sheets.marcarEntregaRebotada(id_evento, rebotado);
     if (id_evento) {
-        copiarAPg(`el rebote de entrega de ${id_evento}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE reportes SET entrega_rebotada = $2 WHERE codigo_caso = $1`,
-                [id_evento, rebotado ? fechaHoraAR() : null]
-            );
+        copiarAPg(`el rebote de entrega de ${id_evento}`, {
+            sql: `UPDATE reportes SET entrega_rebotada = $2 WHERE codigo_caso = $1`,
+            params: [id_evento, rebotado ? fechaHoraAR() : null],
         });
     }
     return res;
@@ -506,20 +497,17 @@ async function marcarEntregaRebotada(id_evento, rebotado = true) {
 async function reimputarUltimaFacturaAlCaso(datos) {
     const res = await sheets.reimputarUltimaFacturaAlCaso(datos);
     if (res?.numero) {
-        copiarAPg(`el cambio de caso de la factura ${res.numero}`, async () => {
-            const { pool } = require('./db-pg');
+        copiarAPg(`el cambio de caso de la factura ${res.numero}`, {
             // Se identifica por número de comprobante + proveedor, igual que la deduplicación: es
             // lo único estable de una factura entre las dos bases.
             // `codigo_caso` va también porque es el nombre con que el panel lee el caso de una
             // factura: el motor escribe `id_evento` y el alta manual del panel `codigo_caso`.
             // Escribir uno solo deja la corrección invisible de un lado.
-            await pool.query(
-                `UPDATE facturas SET id_evento = $1, codigo_caso = $1,
+            sql: `UPDATE facturas SET id_evento = $1, codigo_caso = $1,
                         edificio = COALESCE(NULLIF($2,''), edificio)
                  WHERE numero_factura = $3
                    AND lower(trim(coalesce(proveedor,''))) = lower(trim($4))`,
-                [res.hacia, res.edificio || '', res.numero, String(datos?.proveedor || '')]
-            );
+            params: [res.hacia, res.edificio || '', res.numero, String(datos?.proveedor || '')],
         });
     }
     return res;
@@ -532,12 +520,9 @@ async function fueMaterialEnviadoATecnico(id_evento) {
 async function marcarMaterialEnviadoATecnico(id_evento) {
     const res = await sheets.marcarMaterialEnviadoATecnico(id_evento);
     if (id_evento) {
-        copiarAPg(`la marca de material enviado al técnico de ${id_evento}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE reportes SET material_enviado_tecnico = $2 WHERE codigo_caso = $1`,
-                [id_evento, fechaHoraAR()]
-            );
+        copiarAPg(`la marca de material enviado al técnico de ${id_evento}`, {
+            sql: `UPDATE reportes SET material_enviado_tecnico = $2 WHERE codigo_caso = $1`,
+            params: [id_evento, fechaHoraAR()],
         });
     }
     return res;
@@ -546,12 +531,9 @@ async function marcarMaterialEnviadoATecnico(id_evento) {
 async function marcarCasoResueltoPorId(idEvento) {
     const res = await sheets.marcarCasoResueltoPorId(idEvento);
     if (res?.id_evento) {
-        copiarAPg(`el cierre de ${res.id_evento}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE reportes SET estado = 'resuelto' WHERE codigo_caso = $1`,
-                [res.id_evento]
-            );
+        copiarAPg(`el cierre de ${res.id_evento}`, {
+            sql: `UPDATE reportes SET estado = 'resuelto' WHERE codigo_caso = $1`,
+            params: [res.id_evento],
         });
     }
     return res;
@@ -559,13 +541,11 @@ async function marcarCasoResueltoPorId(idEvento) {
 
 async function guardarLlamada(datos) {
     const res = await sheets.guardarLlamada(datos);
-    copiarAPg(`la llamada de ${datos?.telefono || ''}`, async () => {
-        const { pool } = require('./db-pg');
-        await pool.query(
-            `INSERT INTO llamadas (fecha, duracion, telefono, vecino, edificio, resumen,
+    copiarAPg(`la llamada de ${datos?.telefono || ''}`, {
+        sql: `INSERT INTO llamadas (fecha, duracion, telefono, vecino, edificio, resumen,
                                    transcripcion, urgencia, estado, mensaje_enviado)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-            [
+        params: [
                 fechaHoraAR(),
                 datos.duracion || '',
                 soloDigitos(datos.telefono),
@@ -576,8 +556,7 @@ async function guardarLlamada(datos) {
                 datos.urgencia || '',
                 datos.estado || '',
                 datos.mensajeEnviado || '',
-            ]
-        );
+            ],
     });
     return res;
 }
@@ -585,7 +564,7 @@ async function guardarLlamada(datos) {
 async function guardarAccesoEdificio(datos) {
     const res = await sheets.guardarAccesoEdificio(datos);
     if (datos?.edificio && datos?.lugar) {
-        copiarAPg(`el acceso "${datos.lugar}"`, () => upsert('accesos', ['edificio', 'lugar'], {
+        copiarAPg(`el acceso "${datos.lugar}"`, { upsert: ['accesos', ['edificio', 'lugar'], {
             edificio:    datos.edificio,
             lugar:       String(datos.lugar).toLowerCase().trim(),
             ubicacion:   datos.ubicacion || '',
@@ -595,7 +574,7 @@ async function guardarAccesoEdificio(datos) {
             notas:       datos.notas || '',
             origen:      datos.origen || '',
             fecha:       fechaHoraAR(),
-        }));
+        }] });
     }
     return res;
 }
@@ -603,12 +582,9 @@ async function guardarAccesoEdificio(datos) {
 async function guardarConfirmacionTecnico(datos) {
     const res = await sheets.guardarConfirmacionTecnico(datos);
     if (datos?.id_evento) {
-        copiarAPg(`la confirmación del técnico de ${datos.id_evento}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE reportes SET tecnico_confirmado = $2, tecnico_eta = COALESCE(NULLIF($3,''), tecnico_eta) WHERE codigo_caso = $1`,
-                [datos.id_evento, fechaHoraAR(), datos.eta || '']
-            );
+        copiarAPg(`la confirmación del técnico de ${datos.id_evento}`, {
+            sql: `UPDATE reportes SET tecnico_confirmado = $2, tecnico_eta = COALESCE(NULLIF($3,''), tecnico_eta) WHERE codigo_caso = $1`,
+            params: [datos.id_evento, fechaHoraAR(), datos.eta || ''],
         });
     }
     return res;
@@ -616,13 +592,15 @@ async function guardarConfirmacionTecnico(datos) {
 
 async function programarSeguimiento(datos) {
     const res = await sheets.programarSeguimiento(datos);
-    if (datos?.id_evento) {
-        copiarAPg(`el seguimiento de ${datos.id_evento}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE reportes SET proximo_seguimiento = $2, seguimiento_paso = $3 WHERE codigo_caso = $1`,
-                [datos.id_evento, new Date(datos.cuando).toISOString(), String(datos.paso ?? 1)]
-            );
+    // La fecha se calcula acá, al pedir la copia: con una fecha inválida `toISOString` tira, y eso no
+    // puede llegarle a quien agenda el seguimiento. Se loguea y no se copia, como antes.
+    const cuando = new Date(datos?.cuando);
+    if (datos?.id_evento && isNaN(cuando)) {
+        console.error(`[PG] No se pudo copiar el seguimiento de ${datos.id_evento}: fecha inválida (${datos?.cuando}).`);
+    } else if (datos?.id_evento) {
+        copiarAPg(`el seguimiento de ${datos.id_evento}`, {
+            sql: `UPDATE reportes SET proximo_seguimiento = $2, seguimiento_paso = $3 WHERE codigo_caso = $1`,
+            params: [datos.id_evento, cuando.toISOString(), String(datos.paso ?? 1)],
         });
     }
     return res;
@@ -631,12 +609,9 @@ async function programarSeguimiento(datos) {
 async function cancelarSeguimiento(id_evento) {
     const res = await sheets.cancelarSeguimiento(id_evento);
     if (id_evento) {
-        copiarAPg(`la baja del seguimiento de ${id_evento}`, async () => {
-            const { pool } = require('./db-pg');
-            await pool.query(
-                `UPDATE reportes SET proximo_seguimiento = NULL, seguimiento_paso = NULL WHERE codigo_caso = $1`,
-                [id_evento]
-            );
+        copiarAPg(`la baja del seguimiento de ${id_evento}`, {
+            sql: `UPDATE reportes SET proximo_seguimiento = NULL, seguimiento_paso = NULL WHERE codigo_caso = $1`,
+            params: [id_evento],
         });
     }
     return res;
@@ -654,6 +629,7 @@ async function quitarAccesoEdificio(datos) {
 
 module.exports = {
     ...sheets,
+    colaPg,
     guardarReporte,
     guardarFactura,
     casoYaTieneFactura: (id) => sheets.casoYaTieneFactura(id),

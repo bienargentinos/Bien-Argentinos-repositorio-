@@ -112,8 +112,10 @@ que quedó cargado.
    **Falta que Daniel elija el proveedor nuevo** y que se cambie `SMTP_*` en el `.env` del VPS el
    mismo día de la baja, corriendo `node revisar-smtp.js --enviar <su mail>` después. De paso: el
    mail primario sale de la columna `email` de `CLIENTES` --hay que mirar que esté cargada--.
-3. **Que una copia a PostgreSQL que falla no se pierda**: anotarla y reintentarla sola.
-   `emparejar-casos.js` limpia lo que dejó una caída; esto evitaría la próxima.
+3. ~~**Que una copia a PostgreSQL que falla no se pierda.**~~ **Hecho el 28/09** (`cola-pg.js`),
+   subido y pedido para desplegar con los otros dos cuando termine la prueba de cerrajería. Las
+   copias son datos y no funciones; la que falla por conexión se reintenta sola, en orden, y
+   sobrevive a un reinicio en `cola-pg-pendiente.json`. Probado contra un PostgreSQL de verdad.
 4. **Unificar la comparación de rubros con `atiendeRubro`** (lo que quedó afuera de `9585cc6`).
 5. **El comodín del edificio vacío** en `proveedor_asignaciones`: decidir si se saca, mirando antes
    qué edificios dependen hoy de esa vía.
@@ -158,7 +160,7 @@ mismo archivo el mismo día es cómo se pierde trabajo — ya pasó tres veces.
 node verificar-antes-de-subir.js
 ```
 
-Hoy son **81 pruebas** (79 en lo desplegado). Si alguna falla, no se empuja: cada una está atada a algo que pasó de verdad
+Hoy son **82 pruebas** (79 en lo desplegado). Si alguna falla, no se empuja: cada una está atada a algo que pasó de verdad
 en producción.
 
 Y **antes de empujar hay que traer lo de los demás** (`git pull --rebase`): el portal y el panel
