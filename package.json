@@ -29,6 +29,7 @@
     "openai": "^6.35.0",
     "pg": "^8.23.0",
     "pgvector": "^0.3.0",
+    "qrcode": "^1.5.4",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {

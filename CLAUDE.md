@@ -1600,6 +1600,60 @@ Prueba: `node pruebas-clave-app.js`, con un candado que detecta si vuelve el `re
 > tocó**. Queda escrito acá porque es más directo que todo lo de arriba y no puede quedar prendido
 > cuando esto salga a la calle.
 
+## El token que abre la puerta se lo mandábamos a otra empresa
+
+> [!CAUTION]
+> **El QR del pase se le pedía a `api.qrserver.com` con el token adentro de la URL.** Ese token
+> abre la puerta de calle de un edificio. En la URL y no en el cuerpo, así que queda en el **log
+> de accesos** de esa empresa: nadie sabe cuánto lo guardan, quién lo lee ni a quién se lo venden,
+> y nosotros no nos enteramos nunca.
+
+Eran **seis** lugares, con la misma línea copiada:
+
+```js
+'https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=' + encodeURIComponent(pase.token)
+```
+
+Y tiene una segunda cara, más chica pero visible todos los días: **si ese servicio está caído o
+bloqueado, el vecino abre su pase y ve un cuadrado roto.** El pase es válido; lo único que falta es
+dibujarlo, que son treinta líneas nuestras. Es candidato fuerte a ser lo que Daniel veía como
+"el QR no funciona".
+
+`qr-imagen.js` lo dibuja en nuestro servidor con el paquete `qrcode`. **No sale un solo pedido a
+internet.** Y son **dos vías distintas, a propósito:**
+
+| | Cómo se pide | Por qué |
+|---|---|---|
+| **Portal del vecino** | `/vecino/api/pases-qr/<id>/imagen`, con sesión | Lleva el **id**, no el token. Una URL con el token adentro tampoco es gratis del lado nuestro: queda en el log de nginx. El permiso lo da el mismo filtro que alimenta la pantalla — `listarPasesEdificio` ya devuelve solo los pases de **su** edificio y **su** departamento, así que un id ajeno no está en la lista y no hay nada que dibujar. |
+| **Portería** | `/porteria/qr.png?d=<dato>` | Acá el dato **sí** va en la URL y está bien que vaya: esas páginas ya se abren con el token adentro de la URL (`/porteria/pase/<token>`), así que no expone nada nuevo. |
+
+Tres detalles que importan:
+
+- **El error nunca lleva el dato.** Loguear el motivo con el token adentro sería mover el problema
+  de su log al nuestro.
+- **`Cache-Control: private`**: un proxy compartido no tiene por qué guardarse el QR de la puerta
+  de nadie.
+- **Techos de tamaño y de largo**, para que un endpoint que dibuja imágenes no sea una forma barata
+  de hacerle gastar CPU al servidor.
+
+> [!CAUTION]
+> **Quedan DOS lugares sin arreglar, y son de `dashboard.js`** (`~9311` y `~15755`), que es de otra
+> conversación. Mientras sigan así, el panel le sigue mandando tokens de puerta a ese servicio.
+> Pedido en `docs/para-antigravity.md`: **llamar a `rutaQrPorDato()` de `qr-imagen.js`**, no
+> reimplementarlo — eso es exactamente lo que pasó con `buscarPerfilEdificio`.
+
+El paquete `qrcode` va declarado en `package.json` y `package-lock.json` **en el mismo commit** que
+el código que lo usa, como manda la regla de oro.
+
+Prueba: `node pruebas-qr-local.js`. Los candados prohíben que vuelva cualquier servicio externo de
+QR en mis tres archivos, y que el `src` del modal vuelva a llevar el token en vez del id. La parte
+del **permiso** corre contra un PostgreSQL de verdad --que un pase de otro edificio no se dibuje no
+se puede medir leyendo el código-- y distingue: el ajeno da 404, el propio devuelve el PNG.
+
+> Los candados leen el código **sin los comentarios**, porque este archivo y los otros dos nombran
+> `api.qrserver.com` para explicar por qué no se usa más. Un candado que confunde el comentario con
+> el código mide la explicación en lugar de la función — ya pasó dos veces en este repo.
+
 ## El timbre de un edificio sonaba en otro
 
 > [!CAUTION]

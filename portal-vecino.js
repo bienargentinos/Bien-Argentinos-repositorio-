@@ -5052,7 +5052,9 @@ router.get('/pases', (req, res) => {
         document.getElementById('ver-pase-invitado').textContent = p.nombre_invitado;
         document.getElementById('ver-pase-motivo').textContent = p.motivo + ' · Depto ' + (p.departamento || '');
         document.getElementById('ver-pase-token').textContent = p.token;
-        document.getElementById('ver-pase-qr-img').src = 'https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=' + encodeURIComponent(p.token);
+        // El QR lo dibuja nuestro servidor y se pide por id, no por token: el token que abre
+        // la puerta no viaja en ninguna URL. El motivo largo esta en la ruta, mas abajo.
+        document.getElementById('ver-pase-qr-img').src = '/vecino/api/pases-qr/' + encodeURIComponent(p.id) + '/imagen?t=350';
 
         var fHasta = p.valido_hasta ? new Date(p.valido_hasta).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) + ' hs' : (p.tipo_pase === 'recurrente' ? 'Días autorizados' : 'Sin límite');
         document.getElementById('ver-pase-validez').innerHTML = T.validoHasta + ': <strong>' + fHasta + '</strong>';
@@ -5135,6 +5137,37 @@ router.get('/api/pases-qr', async (req, res) => {
     res.json({ ok: true, pases });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// El QR del pase se dibuja ACA, y se pide por el ID del pase -- nunca por su token.
+//
+// Ese token abre la puerta de un edificio. Antes la imagen se le pedia a
+// api.qrserver.com con el token adentro de la URL, asi que se lo regalabamos al log de
+// accesos de otra empresa: nadie sabe cuanto lo guardan ni quien lo lee. Y una URL con
+// el token adentro tampoco es gratis del lado nuestro -- queda en el log de nginx.
+//
+// Por eso esta via lleva el id y no el token, y el pase se busca DENTRO DE LA LISTA DEL
+// PROPIO VECINO: `listarPasesEdificio` ya filtra por su edificio y su departamento, asi
+// que el permiso lo da el mismo filtro que alimenta la pantalla. Un id de otro edificio
+// no esta en esa lista y no hay nada que dibujar.
+router.get('/api/pases-qr/:id/imagen', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    const id = String(req.params.id || '').trim();
+    if (!/^[0-9]+$/.test(id)) return res.status(400).send('Id de pase invalido.');
+
+    const { listarPasesEdificio } = require('./db-pg');
+    const pases = await listarPasesEdificio(v.edificio, v.departamento);
+    const pase = pases.find(function (x) { return String(x.id) === id; });
+    if (!pase || !pase.token) return res.status(404).send('Ese pase no es de esta unidad.');
+
+    const { pngDelDato, enviarPng } = require('./qr-imagen');
+    enviarPng(res, await pngDelDato(pase.token, (req.query || {}).t));
+  } catch (err) {
+    // El motivo no lleva el token: seria escribirlo en nuestro propio log.
+    console.error('🔳 No se pudo dibujar el QR de un pase del portal:', err.message);
+    res.status(500).send('No se pudo generar el QR.');
   }
 });
 
