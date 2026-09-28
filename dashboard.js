@@ -6646,6 +6646,156 @@ async function guardarAmenityEditado(btn) {
 }
 window.guardarAmenityEditado = guardarAmenityEditado;
 
+function abrirModalCuentaBancaria(edificio, banco, titular, cuit, cbu, alias, notas) {
+  var bEd = document.getElementById('banco-edificio-nombre');
+  if (bEd) bEd.value = edificio || '';
+  var bBan = document.getElementById('banco-inp-banco');
+  if (bBan) bBan.value = banco || '';
+  var bTit = document.getElementById('banco-inp-titular');
+  if (bTit) bTit.value = titular || '';
+  var bCuit = document.getElementById('banco-inp-cuit');
+  if (bCuit) bCuit.value = cuit || '';
+  var bCbu = document.getElementById('banco-inp-cbu');
+  if (bCbu) bCbu.value = cbu || '';
+  var bAli = document.getElementById('banco-inp-alias');
+  if (bAli) bAli.value = alias || '';
+  var bNot = document.getElementById('banco-inp-notas');
+  if (bNot) bNot.value = notas || '';
+
+  var fbCbu = document.getElementById('banco-cbu-feedback');
+  if (fbCbu) fbCbu.style.display = 'none';
+  var fbAli = document.getElementById('banco-alias-feedback');
+  if (fbAli) fbAli.style.display = 'none';
+
+  abrirModal('modal-cuenta-bancaria');
+}
+window.abrirModalCuentaBancaria = abrirModalCuentaBancaria;
+
+function validarCbuFrontend(val) {
+  var fb = document.getElementById('banco-cbu-feedback');
+  if (!fb) return;
+  var c = String(val || '').replace(/\D/g, '');
+  if (!c) {
+    fb.style.display = 'none';
+    return;
+  }
+  if (c.length !== 22) {
+    fb.style.display = 'block';
+    fb.style.color = '#D97706';
+    fb.textContent = 'Llevás ' + c.length + ' de 22 dígitos.';
+    return;
+  }
+  var p1 = [7, 1, 3, 9, 7, 1, 3];
+  var p2 = [3, 9, 7, 1, 3, 9, 7, 1, 3, 9, 7, 1, 3];
+  var b1 = c.slice(0, 8);
+  var b2 = c.slice(8);
+  var s1 = 0; for (var i = 0; i < 7; i++) s1 += p1[i] * Number(b1[i]);
+  var v1 = (10 - (s1 % 10)) % 10;
+  var s2 = 0; for (var j = 0; j < 13; j++) s2 += p2[j] * Number(b2[j]);
+  var v2 = (10 - (s2 % 10)) % 10;
+
+  if (v1 !== Number(b1[7]) || v2 !== Number(b2[13])) {
+    fb.style.display = 'block';
+    fb.style.color = '#DC2626';
+    fb.textContent = '❌ CBU incorrecto: los dígitos verificadores no coinciden.';
+  } else {
+    fb.style.display = 'block';
+    fb.style.color = '#16A34A';
+    fb.textContent = '✓ CBU válido.';
+  }
+}
+window.validarCbuFrontend = validarCbuFrontend;
+
+function validarAliasFrontend(val) {
+  var fb = document.getElementById('banco-alias-feedback');
+  if (!fb) return;
+  var a = String(val || '').trim();
+  if (!a) {
+    fb.style.display = 'none';
+    return;
+  }
+  if (a.length < 6 || a.length > 20) {
+    fb.style.display = 'block';
+    fb.style.color = '#D97706';
+    fb.textContent = 'El alias debe tener entre 6 y 20 caracteres (' + a.length + ').';
+  } else if (!/^[A-Za-z0-9.\-]+$/.test(a)) {
+    fb.style.display = 'block';
+    fb.style.color = '#DC2626';
+    fb.textContent = '❌ El alias solo puede tener letras, números, puntos y guiones.';
+  } else {
+    fb.style.display = 'block';
+    fb.style.color = '#16A34A';
+    fb.textContent = '✓ Formato de alias válido.';
+  }
+}
+window.validarAliasFrontend = validarAliasFrontend;
+
+async function guardarCuentaBancariaEdificio(btn) {
+  var edificio = valEl('banco-edificio-nombre');
+  var banco = valEl('banco-inp-banco');
+  var titular = valEl('banco-inp-titular');
+  var cuit = valEl('banco-inp-cuit');
+  var cbu = valEl('banco-inp-cbu');
+  var alias = valEl('banco-inp-alias');
+  var notas = valEl('banco-inp-notas');
+
+  if (!edificio) {
+    toast('No se encontró el edificio', 'err');
+    return;
+  }
+
+  btn.disabled = true;
+  var oldTxt = btn.textContent;
+  btn.textContent = 'Guardando...';
+
+  try {
+    var res = await fetch('/admin/api/edificio-cuenta-bancaria', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        edificio: edificio,
+        banco: banco,
+        titular: titular,
+        cuit: cuit,
+        cbu: cbu,
+        alias: alias,
+        notas: notas
+      })
+    });
+    var data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || 'Error al guardar cuenta bancaria');
+    }
+    cerrarModal('modal-cuenta-bancaria');
+    toast('✓ Cuenta bancaria guardada con éxito', 'ok');
+    setTimeout(function() { location.reload(); }, 600);
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldTxt;
+  }
+}
+window.guardarCuentaBancariaEdificio = guardarCuentaBancariaEdificio;
+
+function copiarTextoAlPortapapeles(texto, label) {
+  if (!texto) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(texto).then(function() {
+      toast('✓ ' + (label || 'Texto') + ' copiado al portapapeles', 'ok');
+    });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = texto;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    toast('✓ ' + (label || 'Texto') + ' copiado al portapapeles', 'ok');
+  }
+}
+window.copiarTextoAlPortapapeles = copiarTextoAlPortapapeles;
+
 async function cambiarEstadoPagoReserva(id, estado_pago, motivo) {
   try {
     var r = await fetch('/admin/api/reserva-amenity-pago', {
@@ -9419,12 +9569,23 @@ async function cargarAuditoriaAccesos() {
         fotoHtml = '<button onclick="abrirFotoSeguridadTotem(this)" data-foto="' + escapeHtml(ev.foto_seguridad) + '" style="padding:4px 8px;border:1px solid #CBD5E1;border-radius:8px;background:#fff;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:#2E6FC0" class="hv-soft">📷 Ver Foto</button>';
       }
 
+      var autorHtml = '';
+      if (ev.autoria) {
+        if (ev.es_prueba) {
+          autorHtml = '<div style="margin-top:5px;font-size:11px;font-weight:700;color:#B45309"><span style="background:#FEF3C7;padding:2px 7px;border-radius:5px;border:1px solid #FCD34D;display:inline-block">⚠️ ' + escapeHtml(ev.autoria) + '</span></div>';
+        } else if (ev.autoria.indexOf('No consta') !== -1) {
+          autorHtml = '<div style="margin-top:4px;font-size:11.5px;color:#94A3B8;font-style:italic">👤 ' + escapeHtml(ev.autoria) + '</div>';
+        } else {
+          autorHtml = '<div style="margin-top:4px;font-size:11.5px;color:#1E5FB4;font-weight:700">👤 ' + escapeHtml(ev.autoria) + '</div>';
+        }
+      }
+
       return '<tr style="border-bottom:1px solid #EEF2F6;background:' + filaBg + ';' + filaBorder + '">' +
         '<td style="padding:12px 16px;white-space:nowrap;font-weight:700;color:#1E293B">🕒 ' + horaFmt + '</td>' +
         '<td style="padding:12px 16px;font-weight:700;color:#0F172A">' + escapeHtml(ev.edificio) + '</td>' +
         '<td style="padding:12px 16px;color:#475569">' + escapeHtml(ev.departamento || 'Entrada Principal') + '</td>' +
         '<td style="padding:12px 16px"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' + tipoBadge + badgeEstado + '</div></td>' +
-        '<td style="padding:12px 16px;color:#334155;line-height:1.4">' + escapeHtml(ev.detalle || '—') + '</td>' +
+        '<td style="padding:12px 16px;color:#334155;line-height:1.4"><div>' + escapeHtml(ev.detalle || '—') + '</div>' + autorHtml + '</td>' +
         '<td style="padding:12px 16px;text-align:center">' + fotoHtml + '</td>' +
       '</tr>';
     }).join('');
@@ -9500,12 +9661,23 @@ async function cargarPasesQR() {
 
       var btnVerQR = '<button onclick="abrirVerPaseExistente(' + p.id + ')" style="padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;color:#2E6FC0;font-size:11px;font-weight:700;cursor:pointer">Ver QR</button>';
 
+      var autorPaseHtml = '';
+      if (p.autoria) {
+        if (p.es_prueba) {
+          autorPaseHtml = '<div style="margin-top:4px;font-size:11px;font-weight:700;color:#B45309"><span style="background:#FEF3C7;padding:1px 6px;border-radius:4px;border:1px solid #FCD34D;display:inline-block">⚠️ ' + escapeHtml(p.autoria) + '</span></div>';
+        } else if (p.autoria.indexOf('No consta') !== -1) {
+          autorPaseHtml = '<div style="margin-top:3px;font-size:10.5px;color:#94A3B8;font-style:italic">👤 ' + escapeHtml(p.autoria) + '</div>';
+        } else {
+          autorPaseHtml = '<div style="margin-top:3px;font-size:10.5px;color:#1E5FB4;font-weight:600">👤 ' + escapeHtml(p.autoria) + '</div>';
+        }
+      }
+
       return '<tr style="border-bottom:1px solid #EEF2F6">' +
         '<td style="padding:12px 16px;font-family:monospace;font-weight:800;color:#1E5FB4">' + escapeHtml(p.token) + '</td>' +
         '<td style="padding:12px 16px">' + origenBadge + '</td>' +
         '<td style="padding:12px 16px;font-weight:700;color:#0F172A">' + escapeHtml(p.edificio) + (p.departamento ? ' <span style="font-weight:400;color:#64748B">(' + escapeHtml(p.departamento) + ')</span>' : '') + '</td>' +
         '<td style="padding:12px 16px;font-weight:700">' + escapeHtml(p.nombre_invitado) + '</td>' +
-        '<td style="padding:12px 16px;color:#475569">' + escapeHtml(p.motivo) + '</td>' +
+        '<td style="padding:12px 16px;color:#475569"><div>' + escapeHtml(p.motivo) + '</div>' + autorPaseHtml + '</td>' +
         '<td style="padding:12px 16px;font-size:12px;color:#334155">' + escapeHtml(vigFmt) + '</td>' +
         '<td style="padding:12px 16px;font-size:12px;color:#64748B">' + (p.usos_actuales || 0) + ' / ' + (p.usos_permitidos || 1) + '</td>' +
         '<td style="padding:12px 16px">' + estadoBadge + '</td>' +
@@ -11671,6 +11843,7 @@ router.get('/mi-edificio', async (req, res) => {
 
     let amenitiesEdificio = [];
     let reservasEdificio = [];
+    let cuentaBancariaEdificio = null;
     try {
       const { pool } = require('./db-pg');
       if (pool && cur) {
@@ -11681,6 +11854,14 @@ router.get('/mi-edificio', async (req, res) => {
         const qR = `SELECT * FROM reservas_amenities WHERE (LOWER(edificio) = LOWER($1) OR LOWER(edificio) LIKE LOWER($2)) ORDER BY fecha DESC, hora_desde ASC, id DESC LIMIT 50`;
         const resR = await pool.query(qR, [cur.nombre, '%' + cur.nombre + '%']);
         if (resR && resR.rows) reservasEdificio = resR.rows;
+
+        const qCb = `SELECT * FROM cuentas_bancarias
+                     WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))
+                        OR LOWER(TRIM(edificio)) LIKE LOWER(TRIM($2))
+                     ORDER BY actualizado_en DESC NULLS LAST
+                     LIMIT 1`;
+        const resCb = await pool.query(qCb, [cur.nombre, '%' + cur.nombre + '%']);
+        if (resCb && resCb.rows && resCb.rows.length > 0) cuentaBancariaEdificio = resCb.rows[0];
       }
     } catch (_) {}
 
@@ -11800,6 +11981,118 @@ router.get('/mi-edificio', async (req, res) => {
               </div>`;
             }).join('')}
           </div>` : '<div style="font-size:12.5px;color:#8595AD;padding:4px 0">No hay reservas registradas para este edificio todavía.</div>'}
+        </div>
+      </div>`;
+
+    const cuentaBancariaCard = `
+      <div id="seccion-cuenta-bancaria" style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:20px;scroll-margin-top:80px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:22px">🏦</span>
+            <div>
+              <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Cuenta Bancaria del Consorcio (Cobro de Amenities)</h2>
+              <div style="font-size:12.5px;color:#8595AD;margin-top:2px">Datos de transferencia para señas y aranceles de reservas en el Portal del Vecino.</div>
+            </div>
+          </div>
+          <button type="button" onclick="abrirModalCuentaBancaria('${escJs(cur ? cur.nombre : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.banco || '') : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.titular || '') : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.cuit || '') : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.cbu || '') : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.alias || '') : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.notas || '') : '')}')" style="height:36px;padding:0 16px;border:none;border-radius:9px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13px;cursor:pointer" class="hv-primary">
+            ${cuentaBancariaEdificio ? '✏️ Modificar datos bancarios' : '+ Cargar cuenta bancaria'}
+          </button>
+        </div>
+
+        ${cuentaBancariaEdificio ? `
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:14px">
+            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px">
+              <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Banco & Titular</div>
+              <div style="font-size:14.5px;font-weight:800;color:#0F172A">${esc(cuentaBancariaEdificio.banco || 'No especificado')}</div>
+              <div style="font-size:12.5px;color:#334155;margin-top:2px">${esc(cuentaBancariaEdificio.titular || '—')}</div>
+            </div>
+
+            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px">
+              <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">CUIT del Consorcio</div>
+              <div style="font-size:14.5px;font-weight:800;color:#0F172A">${esc(cuentaBancariaEdificio.cuit || '—')}</div>
+              <div style="font-size:11.5px;color:#16A34A;font-weight:700;margin-top:2px">🟢 Verificado para transferencias</div>
+            </div>
+
+            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <span style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em">CBU (22 dígitos)</span>
+                ${cuentaBancariaEdificio.cbu ? `<button type="button" onclick="copiarTextoAlPortapapeles('${escJs(cuentaBancariaEdificio.cbu)}', 'CBU')" style="background:none;border:none;color:#2E6FC0;font-size:11.5px;font-weight:700;cursor:pointer;padding:0">📋 Copiar</button>` : ''}
+              </div>
+              <div style="font-size:13.5px;font-family:monospace;font-weight:800;color:#1E5FB4;letter-spacing:.02em">${esc(cuentaBancariaEdificio.cbu || 'Sin CBU cargado')}</div>
+            </div>
+
+            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <span style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em">Alias Bancario</span>
+                ${cuentaBancariaEdificio.alias ? `<button type="button" onclick="copiarTextoAlPortapapeles('${escJs(cuentaBancariaEdificio.alias)}', 'Alias')" style="background:none;border:none;color:#2E6FC0;font-size:11.5px;font-weight:700;cursor:pointer;padding:0">📋 Copiar</button>` : ''}
+              </div>
+              <div style="font-size:14px;font-weight:800;color:#0F172A">${esc(cuentaBancariaEdificio.alias || 'Sin Alias')}</div>
+            </div>
+          </div>
+
+          ${cuentaBancariaEdificio.notas ? `
+            <div style="background:#F1F5FB;border:1px solid #DCE5F2;border-radius:10px;padding:10px 14px;font-size:12.5px;color:#334259;margin-bottom:6px">
+              ℹ️ <strong>Instrucciones para el vecino:</strong> ${esc(cuentaBancariaEdificio.notas)}
+            </div>` : ''}
+        ` : `
+          <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:12px;padding:14px 16px;color:#92400E;font-size:13px;line-height:1.5">
+            ⚠️ <strong>Aún no se configuró la cuenta bancaria de este edificio.</strong> Cuando los vecinos reserven un espacio arancelado (ej: SUM o Quincho), verán un mensaje indicando que la Administración todavía no cargó los datos y deberán coordinar personalmente. Hacé clic en <strong>+ Cargar cuenta bancaria</strong> para configurar CBU o Alias oficiales.
+          </div>
+        `}
+      </div>`;
+
+    const modalCuentaBancariaHtml = `
+      <div id="modal-cuenta-bancaria" class="modal-overlay" onclick="cerrarModal('modal-cuenta-bancaria')">
+        <div class="modal-box" style="max-width:480px;max-height:90vh;overflow-y:auto" onclick="stopEv(event)">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid #EEF1F6">
+            <div style="font-size:12px;font-weight:700;color:#2E6FC0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Cobro de Señas y Amenities</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.01em">🏦 Cuenta Bancaria del Consorcio</div>
+          </div>
+
+          <div style="padding:20px 24px">
+            <input type="hidden" id="banco-edificio-nombre" value="${esc(cur ? cur.nombre : '')}">
+            
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Nombre del Banco</label>
+              <input id="banco-inp-banco" class="inp" placeholder="Ej: Banco Galicia / Banco Nación / Santander">
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Titular de la Cuenta</label>
+              <input id="banco-inp-titular" class="inp" placeholder="Ej: Consorcio Propietarios ${esc(cur ? cur.nombre : '')}">
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">CUIT del Consorcio</label>
+              <input id="banco-inp-cuit" class="inp" placeholder="Ej: 30-71234567-8" value="${esc(cur ? (cur.cuit || '') : '')}">
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">CBU (22 dígitos)</label>
+              <input id="banco-inp-cbu" class="inp" placeholder="22 dígitos seguidos" maxlength="22" oninput="validarCbuFrontend(this.value)">
+              <div id="banco-cbu-feedback" style="font-size:11.5px;margin-top:4px;display:none"></div>
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Alias Bancario</label>
+              <input id="banco-inp-alias" class="inp" placeholder="Ej: sanpatricio.consorcio" oninput="validarAliasFrontend(this.value)">
+              <div id="banco-alias-feedback" style="font-size:11.5px;margin-top:4px;display:none"></div>
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="font-size:13px;font-weight:700;color:#334259;display:block;margin-bottom:6px">Instrucciones o Notas para el Vecino (Opcional)</label>
+              <textarea id="banco-inp-notas" class="inp" style="height:65px;resize:vertical" placeholder="Ej: Enviar comprobante adjunto en la solicitud de reserva o por WhatsApp indicando número de unidad."></textarea>
+            </div>
+
+            <div style="background:#F8FAFD;border:1px solid #E2E8F0;border-radius:10px;padding:10px 12px;font-size:12px;color:#64748B;line-height:1.4">
+              🛡️ <strong>Seguridad:</strong> El CBU se valida con los dos dígitos verificadores oficiales del BCRA para evitar transferencias fallidas o a cuentas erróneas.
+            </div>
+          </div>
+
+          <div style="display:flex;gap:11px;padding:16px 24px 22px;border-top:1px solid #EEF1F6">
+            <button onclick="cerrarModal('modal-cuenta-bancaria')" style="flex:1;height:44px;border:1px solid #DCE4F0;border-radius:11px;background:#fff;color:#334259;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-soft">Cancelar</button>
+            <button onclick="guardarCuentaBancariaEdificio(this)" style="flex:1.4;height:44px;border:none;border-radius:11px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer" class="hv-primary">Guardar Cuenta</button>
+          </div>
         </div>
       </div>`;
 
@@ -12357,6 +12650,7 @@ router.get('/mi-edificio', async (req, res) => {
         ${bloqueAccesosHtml}
         ${vecinosCard}
         ${amenitiesCard}
+        ${cuentaBancariaCard}
         ${consejoCard}
         ${proveedoresCard}
       </div>
@@ -12374,6 +12668,7 @@ router.get('/mi-edificio', async (req, res) => {
       ${modalAmenityNuevoHtml}
       ${modalAmenityEditarHtml}
       ${modalRevisarComprobanteHtml}
+      ${modalCuentaBancariaHtml}
       ${modalPlanesAcHtml(planesList, d.propios)}
       <script>window.__CUR_BUILDING__=${JSON.stringify(cur)};window.__EDIFICIOS__=${JSON.stringify(d.propios)};window.__ES_DUENO__=false;</script>`;
 
@@ -15671,11 +15966,24 @@ router.get('/api/eventos-acceso', async (req, res) => {
     }
 
     const { obtenerEventosAcceso } = require('./db-pg');
-    const eventos = await obtenerEventosAcceso({
+    const { describirAutor, esAutorDePrueba } = require('./autor-del-pase');
+    const eventosRaw = await obtenerEventosAcceso({
       edificio: (edificio && edificio !== 'todos') ? edificio : null,
       desde,
       tipo_acceso: tipo || null,
       limite: 150
+    });
+
+    const eventos = (eventosRaw || []).map(ev => {
+      const autoria = describirAutor({
+        creado_por_nombre: ev.autorizado_por_nombre,
+        departamento: ev.autorizado_por_unidad,
+        created_at: ev.pase_emitido_en
+      });
+      return Object.assign({}, ev, {
+        autoria,
+        es_prueba: esAutorDePrueba(ev.autorizado_por_nombre)
+      });
     });
 
     res.json({ ok: true, eventos });
@@ -15795,7 +16103,13 @@ router.get('/api/pases-qr', async (req, res) => {
       pases = r.rows;
     }
 
-    res.json({ ok: true, pases });
+    const { describirAutor, esAutorDePrueba } = require('./autor-del-pase');
+    const pasesEnriquecidos = (pases || []).map(p => Object.assign({}, p, {
+      autoria: describirAutor(p),
+      es_prueba: esAutorDePrueba(p.creado_por_nombre)
+    }));
+
+    res.json({ ok: true, pases: pasesEnriquecidos });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message || String(e) });
   }
@@ -18144,6 +18458,83 @@ router.post('/api/reserva-amenity-cancelar', async (req, res) => {
     res.json({ ok: true, mensaje: 'Reserva cancelada con éxito y horario liberado' });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// ── GESTIÓN DE CUENTA BANCARIA DEL CONSORCIO (COBRO DE AMENITIES) ──
+router.get('/api/edificio-cuenta-bancaria', async (req, res) => {
+  try {
+    const { edificio } = req.query || {};
+    if (!edificio) return res.status(400).json({ ok: false, error: 'Falta nombre de edificio' });
+
+    const { pool } = require('./db-pg');
+    if (!pool) return res.json({ ok: true, cuenta: null });
+
+    const q = `SELECT * FROM cuentas_bancarias
+               WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1))
+               ORDER BY actualizado_en DESC NULLS LAST
+               LIMIT 1`;
+    const r = await pool.query(q, [edificio]);
+    res.json({ ok: true, cuenta: r.rows[0] || null });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+router.post('/api/edificio-cuenta-bancaria', async (req, res) => {
+  if (bloquearSiPreview(req, res)) return;
+  try {
+    const { edificio, banco, titular, cuit, cbu, alias, notas } = req.body || {};
+    if (!edificio || !edificio.trim()) {
+      return res.status(400).json({ ok: false, error: 'El nombre del edificio es requerido' });
+    }
+
+    const cbuLimpio = String(cbu || '').trim();
+    if (cbuLimpio) {
+      const { validarCBU } = require('./cbu');
+      const v = validarCBU(cbuLimpio);
+      if (!v.valido) {
+        return res.status(400).json({ ok: false, error: 'CBU inválido: ' + v.motivo });
+      }
+    }
+
+    const aliasLimpio = String(alias || '').trim();
+    if (aliasLimpio) {
+      const { validarAlias } = require('./cbu');
+      const va = validarAlias(aliasLimpio);
+      if (!va.valido) {
+        return res.status(400).json({ ok: false, error: 'Alias inválido: ' + va.motivo });
+      }
+    }
+
+    const { pool } = require('./db-pg');
+    if (!pool) return res.status(500).json({ ok: false, error: 'PostgreSQL no disponible' });
+
+    let edificioId = null;
+    try {
+      const re = await pool.query('SELECT id FROM edificios WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1)) LIMIT 1', [edificio.trim()]);
+      if (re.rows && re.rows.length > 0) edificioId = re.rows[0].id;
+    } catch (_) {}
+
+    const exist = await pool.query('SELECT id FROM cuentas_bancarias WHERE LOWER(TRIM(edificio)) = LOWER(TRIM($1)) ORDER BY id ASC LIMIT 1', [edificio.trim()]);
+    if (exist.rows.length > 0) {
+      await pool.query(
+        `UPDATE cuentas_bancarias
+         SET banco = $1, titular = $2, cuit = $3, cbu = $4, alias = $5, notas = $6, edificio_id = COALESCE($7, edificio_id), actualizado_en = CURRENT_TIMESTAMP
+         WHERE id = $8`,
+        [banco ? banco.trim() : null, titular ? titular.trim() : null, cuit ? cuit.trim() : null, cbuLimpio || null, aliasLimpio || null, notas ? notas.trim() : null, edificioId, exist.rows[0].id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO cuentas_bancarias (edificio, edificio_id, banco, titular, cuit, cbu, alias, notas, actualizado_en)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)`,
+        [edificio.trim(), edificioId, banco ? banco.trim() : null, titular ? titular.trim() : null, cuit ? cuit.trim() : null, cbuLimpio || null, aliasLimpio || null, notas ? notas.trim() : null]
+      );
+    }
+
+    res.json({ ok: true, mensaje: 'Cuenta bancaria del consorcio guardada exitosamente.' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
 
