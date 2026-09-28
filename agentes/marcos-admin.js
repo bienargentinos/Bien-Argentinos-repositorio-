@@ -2,21 +2,31 @@ const { guardarReporte, guardarFactura, guardarMemoriaVecino, buscarPerfilEdific
 const nodemailer = require('nodemailer');
 const cron = require('node-cron');
 
-// Inicializar el transporte SMTP.
-// Se incluye el parámetro tls.rejectUnauthorized: false para solucionar el error habitual
-// de cadena de certificación no confiable / autofirmada de Ferozo en puerto 465.
-const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'mail.bienargentinos.com',
-    port: parseInt(process.env.SMTP_PORT) || 465,
-    secure: true,
-    auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-    },
-    tls: {
-        rejectUnauthorized: false
+// Inicializar el transporte SMTP. Cómo se arma --host, puerto, TLS, remitente-- lo decide
+// `smtp-config.js`, que explica por qué: el hosting de mail.bienargentinos.com se da de baja y
+// la configuración vieja hacía que la mudanza fallara en silencio.
+const { configSmtp } = require('../smtp-config');
+const smtp = configSmtp();
+const transporter = nodemailer.createTransport(smtp.transporte);
+
+/**
+ * Prueba la conexión con el servidor de mail UNA vez, al arrancar, y lo dice fuerte si no anda.
+ * Sin esto, un SMTP caído se descubre recién cuando una urgencia no le llega al administrador.
+ * No corta nada: Marcos sin mail sigue atendiendo WhatsApp.
+ */
+async function verificarSmtp() {
+    for (const p of smtp.problemas) console.warn(`🚨📧 ${p}`);
+    if (!smtp.transporte.auth.user || !smtp.transporte.auth.pass) return false;
+    try {
+        await transporter.verify();
+        console.log(`📧✅ El servidor de mail responde (${smtp.transporte.host}:${smtp.transporte.port}).`);
+        return true;
+    } catch (e) {
+        console.error(`🚨📧 El servidor de mail NO responde (${smtp.transporte.host}:${smtp.transporte.port}): ${e.message}. ` +
+            `Los avisos por mail a la Administración NO van a salir. Revisá SMTP_* en el .env y corré: node revisar-smtp.js`);
+        return false;
     }
-});
+}
 
 /**
  * Envía un correo electrónico de forma robusta con manejo explícito de errores y logs.
@@ -33,7 +43,7 @@ async function enviarEmail(to, subject, text) {
         }
 
         const info = await transporter.sendMail({
-            from: `"Marcos IA" <${process.env.SMTP_USER}>`,
+            from: `"Marcos IA" <${smtp.from}>`,
             to,
             subject,
             text,
@@ -392,6 +402,7 @@ async function notificarEscalacionAlAdmin({ vecino, decisionCaso, tecnicoAsignad
 }
 
 module.exports = {
+    verificarSmtp,
     reportarAlAdmin,
     notificarEscalacionAlAdmin,
     avisarAlAdministrador,

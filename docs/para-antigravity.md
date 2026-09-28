@@ -2794,6 +2794,63 @@ Si ya se desplegó sin querer: no pasa nada grave, no hay que revertir. Avisame 
 
 ---
 
+## 28/09 — del motor → PARA EL CHAT DEL PANEL — el mail a la Administración: qué cambió y qué correr
+
+**Qué pregunta responde:** ¿el mail de urgencias a los administradores sigue saliendo, y qué hacer
+el día que se dé de baja el hosting de `mail.bienargentinos.com`?
+
+Subí un arreglo del motor (`smtp-config.js`, `agentes/marcos-admin.js`, `index.js`). **Va con el
+mismo pedido de arriba: se despliega cuando Daniel termine la prueba de cerrajería**, junto con el de
+`guardarReporte`. Con la configuración de hoy no cambia nada: mismo host, mismo puerto, mismo TLS.
+
+**Después de desplegar**, en el arranque tiene que aparecer una de estas dos líneas:
+
+```bash
+pm2 logs marcos-ai --lines 100 --nostream | grep "📧"
+```
+
+- `📧✅ El servidor de mail responde` → bien.
+- `🚨📧 …` → el mail **no** está saliendo, y eso pasaba desde antes, solo que ahora se ve. Pasame la
+  línea entera. Si además dice `SMTP_HOST no está en el .env`, también es un dato que necesito.
+
+Y para diagnosticar a pedido (solo lee, no manda nada, no muestra la clave):
+
+```bash
+node revisar-smtp.js
+```
+
+**El día de la baja del hosting** hay que cambiar `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
+(y `SMTP_FROM` si el usuario no es un mail) en el `.env`. Eso **no es por este canal**: el `.env` lo
+toca Daniel. Después se corre `node revisar-smtp.js --enviar <un mail de Daniel>` y se mira que llegue.
+
+---
+
+## 28/09 — del motor → PARA EL CHAT DEL PANEL — la copia a PostgreSQL que falla ya no se pierde: qué va a aparecer en el VPS
+
+**Qué pregunta responde:** ¿qué son las líneas `[PG] ⏳` / `[PG] ✅` y el archivo
+`cola-pg-pendiente.json` que van a aparecer después del próximo despliegue?
+
+Tercer arreglo del motor de hoy (`cola-pg.js`, `datos.js`, `index.js`, `reset-test.js`). **Mismo
+pedido que los dos de arriba: se despliega cuando Daniel termine la prueba de cerrajería.**
+Después del despliegue, `node verificar-antes-de-subir.js` tiene que dar **82 en verde**.
+
+Qué cambia en el servidor:
+
+- Si PostgreSQL no contesta, la copia no se pierde: queda en `cola-pg-pendiente.json` (en la
+  carpeta del proyecto) y se reintenta sola. En el log: `[PG] ⏳ …` al fallar y
+  `[PG] ✅ PostgreSQL volvió: se pusieron al día N copia(s)` al volver.
+- `[PG] ❌ … NO se reintenta` es un error del SQL (una columna que falta). **Pasame esa línea**.
+- **`cola-pg-pendiente.json` no se borra a mano ni se commitea**: tiene teléfonos y conversaciones
+  de vecinos (está en `.gitignore`, `git status` no lo muestra). Si existe, es que hay copias
+  esperando; desaparece solo cuando se ponen al día. `reset-test.js` lo borra, como corresponde.
+
+```bash
+pm2 logs marcos-ai --lines 300 --nostream | grep "\[PG\]"
+ls -la cola-pg-pendiente.json       # solo lee: si no existe, no hay nada atrasado
+```
+
+---
+
 ## 28/09 — del portal → PARA EL CHAT DEL PANEL — el panel le manda tokens de puerta a otra empresa
 
 `dashboard.js` tiene **dos** lugares que le piden la imagen del QR a un servicio de afuera con el

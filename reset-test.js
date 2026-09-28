@@ -66,6 +66,7 @@ async function main() {
 
     await limpiarPostgres();
     limpiarArchivos();
+    limpiarColaPg();
     console.log('🎉 Listo.');
 }
 
@@ -94,6 +95,26 @@ function limpiarArchivos() {
         }
     }
     console.log(`✅ Multimedia: ${borradas} carpeta(s) de "almacenamiento" borradas (audios, imágenes y facturas de la prueba).`);
+}
+
+/**
+ * Las copias a PostgreSQL que quedaron esperando reintento (`cola-pg.js`).
+ *
+ * Son escrituras de la prueba que se está borrando. Si quedaran, al volver PostgreSQL volverían a
+ * meter los casos y los vecinos que el reset acaba de sacar. El archivo es la cola que retoma el
+ * servidor al arrancar. El proceso que está corriendo solo tiene copias en memoria si PostgreSQL
+ * está caído en ese momento; para descartar esas también, `pm2 restart marcos-ai` después del reset.
+ */
+function limpiarColaPg() {
+    const fs = require('fs');
+    const { ARCHIVO_DEFAULT } = require('./cola-pg');
+    if (!fs.existsSync(ARCHIVO_DEFAULT)) return;
+    try {
+        fs.unlinkSync(ARCHIVO_DEFAULT);
+        console.log('✅ Cola de copias atrasadas a PostgreSQL vaciada.');
+    } catch (e) {
+        console.log(`⚠️ No se pudo borrar ${ARCHIVO_DEFAULT}: ${e.message}`);
+    }
 }
 
 /**
