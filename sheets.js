@@ -1169,11 +1169,38 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
         // `tipo`, que es lo que la distingue de un reclamo de verdad.
         const { esReserva } = require('./reserva-evento');
 
+        // > [!CAUTION]
+        // > **Un caso viejo SIN rubro se tragaba cualquier reclamo nuevo del mismo vecino.**
+        //
+        // Prueba de cerrajería, 28/09: el vecino avisó "la cerradura del SUM" y el reclamo se pegó
+        // al CASO-1003 --de ELECTRICIDAD, de Dario, abierto hacía 16 días y ya escalado--, que no
+        // tenía rubro porque se creó cuando la columna se perdía en silencio. La regla decía "sin
+        // rubro no se puede afirmar" y no separaba. Encima le cambió el técnico a lalala, y como el
+        // caso ya tenía la marca de "técnico avisado", al cerrajero no le llegó nada.
+        //
+        // "Ante la duda no se separa" tenía sentido cuando muchos casos se guardaban sin rubro. Hoy
+        // todo caso nuevo sale con rubro, así que un caso sin rubro es casi siempre uno viejo. Ahora:
+        //   1. se intenta sacar el rubro del propio texto del caso (`rubroDelTexto`);
+        //   2. si no se puede y el caso tiene más de un día, el reclamo nuevo abre su propio caso.
+        //      Dentro del mismo día se sigue enganchando: es la conversación que está en curso.
+        const { rubroDelTexto } = require('./rubros');
+        const { fechaEnMs } = require('./caso-reciente');
+        const UN_DIA_MS = 24 * 60 * 60 * 1000;
         const esOtroCaso = (r) => {
             if (esReserva(r)) return true;                            // una reserva nunca recibe un reclamo
             if (!traeProblemaPropio || !rubroEntrante) return false;  // sin con qué comparar, no se separa
-            const rubroDelCaso = String(r.get('rubro_tecnico') || '').trim();
-            if (!rubroDelCaso) return false;                          // el caso viejo no tiene rubro: no se puede afirmar
+            let rubroDelCaso = String(r.get('rubro_tecnico') || '').trim();
+            if (!rubroDelCaso) {
+                rubroDelCaso = rubroDelTexto(`${r.get('mensaje') || ''} ${r.get('problema') || ''}`) || '';
+            }
+            if (!rubroDelCaso) {
+                const creado = fechaEnMs(r.get('fecha'));
+                const viejo = Number.isFinite(creado) && creado > 0 && (Date.now() - creado) > UN_DIA_MS;
+                if (viejo) {
+                    console.log(`🆕 El [${r.get('id_evento')}] no tiene rubro y es de hace más de un día: "${rubroEntrante}" abre su propio caso en vez de meterse ahí.`);
+                }
+                return viejo;                                         // del mismo día: la conversación en curso
+            }
             return !coincideRubro(rubroDelCaso, rubroEntrante);
         };
 
@@ -1704,7 +1731,8 @@ async function desmarcarEntregasAlTecnico(id_evento) {
     }
 }
 
-async function fueTecnicoNotificado(id_evento) {
+// La marca es por técnico, no por caso: ver `tecnico-avisado.js`.
+async function fueTecnicoNotificado(id_evento, nombreTecnico = '') {
     if (!id_evento) return false;
     try {
         const doc = await getSheet();
@@ -1712,14 +1740,14 @@ async function fueTecnicoNotificado(id_evento) {
         if (!sheet) return false;
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
-        return !!(row && row.get('tecnico_notificado'));
+        return !!row && require('./tecnico-avisado').yaAvisado(row.get('tecnico_notificado'), nombreTecnico);
     } catch (err) {
         console.error('Error chequeando tecnico_notificado:', err.message);
         return false;
     }
 }
 
-async function marcarTecnicoNotificado(id_evento) {
+async function marcarTecnicoNotificado(id_evento, nombreTecnico = '') {
     if (!id_evento) return;
     try {
         const doc = await getSheet();
@@ -1729,7 +1757,7 @@ async function marcarTecnicoNotificado(id_evento) {
         const rows = await sheet.getRows();
         const row = rows.find(r => String(r.get('id_evento') || '').toUpperCase() === String(id_evento).toUpperCase());
         if (row) {
-            row.set('tecnico_notificado', fechaHoraAR());
+            row.set('tecnico_notificado', require('./tecnico-avisado').marcaDeAviso(fechaHoraAR(), nombreTecnico));
             await row.save();
         }
     } catch (err) {

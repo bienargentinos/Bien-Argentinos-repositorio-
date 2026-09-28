@@ -100,6 +100,13 @@ Dos cosas que van a aparecer y **no son bugs**:
 
 ---
 
+## 4b. Lo que salió de la prueba de cerrajería (28/09)
+
+No le llegó la plantilla a lalala: el reclamo se pegó al CASO-1003 (viejo, de electricidad, sin
+rubro) y la marca "ya avisado" era del caso y no del técnico. Arreglado y subido
+(`esOtroCaso` en `sheets.js`, `tecnico-avisado.js`), 85 pruebas en verde. Detalle en `CLAUDE.md`,
+"Un caso viejo sin rubro se tragaba un reclamo nuevo". **Hay que desplegarlo y repetir la prueba.**
+
 ## 5. Pendientes, en orden
 
 1. ~~**`guardarReporte`, el `|| !eBuscado`.**~~ **Hecho el 28/09 y subido a la rama compartida,
@@ -162,7 +169,7 @@ mismo archivo el mismo día es cómo se pierde trabajo — ya pasó tres veces.
 node verificar-antes-de-subir.js
 ```
 
-Hoy son **82 pruebas** (79 en lo desplegado). Si alguna falla, no se empuja: cada una está atada a algo que pasó de verdad
+Hoy son **85 pruebas**. Si alguna falla, no se empuja: cada una está atada a algo que pasó de verdad
 en producción.
 
 Y **antes de empujar hay que traer lo de los demás** (`git pull --rebase`): el portal y el panel

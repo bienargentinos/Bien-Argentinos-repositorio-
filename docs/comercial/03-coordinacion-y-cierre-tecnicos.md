@@ -71,3 +71,9 @@ El seguimiento de proveedores y service de mantenimiento es uno de los mayores f
   en el registro técnico: al administrador no le llega ningún aviso de que el mail no está saliendo.
   El WhatsApp al administrador, si lo tiene prendido en el panel, no depende del mail y sigue
   saliendo.
+- **Un reclamo nuevo de un vecino que tiene un caso viejo abierto** *(corregido el 28/09 por el
+  chat del motor)*: antes podía quedar pegado adentro del caso viejo y el técnico nuevo no se
+  enteraba. Ahora, si el caso viejo es de otro oficio, o no dice de qué oficio es y tiene más de un
+  día, el reclamo abre su propio caso. Si se le asigna otro técnico a un caso, a ese técnico le
+  llega su aviso aunque el caso ya hubiera avisado a otro. Lo cubren `pruebas-caso-nuevo-o-mismo.js`
+  y `pruebas-tecnico-avisado.js`. Todavía no se probó de punta a punta con WhatsApp real.
