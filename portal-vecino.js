@@ -4716,8 +4716,14 @@ router.get('/pases', (req, res) => {
           PASS-XXXXXXXX
         </div>
 
-        <div id="ver-pase-validez" style="font-size:11.5px;color:var(--texto-medio);margin-bottom:16px;line-height:1.4">
+        <div id="ver-pase-validez" style="font-size:11.5px;color:var(--texto-medio);margin-bottom:8px;line-height:1.4">
           Válido hasta: ...
+        </div>
+
+        <!-- Quién autorizó el ingreso. Se le muestra al vecino a propósito: que sepa que el pase
+             queda firmado con su nombre es la mitad del efecto que se busca -- un permiso anónimo
+             no lo piensa nadie dos veces. El motivo está en autor-del-pase.js. -->
+        <div id="ver-pase-autoria" style="font-size:11px;color:var(--texto-medio);margin-bottom:16px;line-height:1.4;opacity:.85">
         </div>
 
         <!-- Botones de Acción -->
@@ -5059,6 +5065,10 @@ router.get('/pases', (req, res) => {
         var fHasta = p.valido_hasta ? new Date(p.valido_hasta).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) + ' hs' : (p.tipo_pase === 'recurrente' ? 'Días autorizados' : 'Sin límite');
         document.getElementById('ver-pase-validez').innerHTML = T.validoHasta + ': <strong>' + fHasta + '</strong>';
 
+        // textContent y no innerHTML: la frase lleva el nombre que cargó una persona.
+        var elAutoria = document.getElementById('ver-pase-autoria');
+        if (elAutoria) elAutoria.textContent = p.autoria || '';
+
         document.getElementById('modal-ver-pase').style.display = 'flex';
       }
 
@@ -5133,7 +5143,12 @@ router.get('/api/pases-qr', async (req, res) => {
   try {
     const v = getVecinoSession(req);
     const { listarPasesEdificio } = require('./db-pg');
-    const pases = await listarPasesEdificio(v.edificio, v.departamento);
+    const { describirAutor } = require('./autor-del-pase');
+    const pases = (await listarPasesEdificio(v.edificio, v.departamento)).map(function (pase) {
+      // La frase la arma el servidor y no el navegador: es la misma que lee la portería, y dos
+      // versiones de "quién autorizó esto" es justo lo que no puede pasar con este dato.
+      return Object.assign({}, pase, { autoria: describirAutor(pase) });
+    });
     res.json({ ok: true, pases });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -5274,7 +5289,10 @@ router.post('/api/pases-qr', async (req, res) => {
       edificio: v.edificio,
       departamento: v.departamento,
       creado_por_usuario_id: v.usuario_id || null,
-      creado_por_nombre: nombreCompleto(v),
+      // Firmado con quien lo emite. `nombreDelAutor` marca la sesión de demostración, para que un
+      // pase de prueba no pueda leerse como una autorización real el día que haya que responder
+      // quién dejó entrar a alguien. El motivo largo está en autor-del-pase.js.
+      creado_por_nombre: require('./autor-del-pase').nombreDelAutor(v),
       nombre_invitado,
       motivo,
       tipo_pase: tipoPase,

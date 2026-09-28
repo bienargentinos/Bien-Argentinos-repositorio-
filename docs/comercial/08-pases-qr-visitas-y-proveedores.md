@@ -54,6 +54,27 @@ para mostrarlo. Dos consecuencias concretas para el consorcio:
    bloqueado, el vecino abría su pase y veía un cuadro roto — el pase era válido y no había forma
    de mostrarlo.
 
+### Cada ingreso queda con el nombre de quien lo autorizó
+
+Es la primera pregunta cuando algo pasa en un edificio: *¿quién lo dejó entrar?* Con llaves
+repartidas y códigos que se pasan de boca en boca, esa pregunta no tiene respuesta.
+
+Acá cada pase queda firmado con el nombre y la unidad del vecino que lo emitió, y cuando el visitante
+llega y usa el código, **esa firma se copia al registro de ingresos junto con la fecha, la hora y la
+foto de seguridad**. El registro guarda también los intentos **rechazados**: un código revocado que
+alguien sigue intentando usar queda anotado, con el nombre de quien lo había emitido.
+
+Dos detalles que hacen la diferencia cuando el dato tiene que servir para algo serio:
+
+- **La firma se copia, no se consulta después.** Si más adelante el pase se elimina o el vecino
+  cambia de nombre, el registro del ingreso sigue diciendo lo que decía el día que pasó.
+- **Cuando no se sabe, lo dice.** Un ingreso del que no consta quién lo autorizó aparece justamente
+  así, en lugar de mostrar un nombre aproximado. El administrador necesita saber que de ese ingreso
+  no hay a quién reclamarle.
+
+**Y el vecino lo ve en su propio pase.** No está escondido: cuando abre el código para compartirlo,
+lee que queda autorizado a su nombre. Eso, por sí solo, cambia con qué ligereza se reparte un acceso.
+
 ## 3. Argumentos comerciales
 
 - **El vecino deja de bajar.** Es el beneficio que se entiende sin explicación, y es el que hace
@@ -71,6 +92,10 @@ para mostrarlo. Dos consecuencias concretas para el consorcio:
 **El dato de ingreso no se le presta a nadie.** El código que abre la puerta se genera y se muestra
 desde el mismo servidor del sistema. Es una pregunta que un administrador con edificios de categoría
 hace temprano, y la respuesta corta es que no viaja a ningún proveedor externo para dibujarse.
+
+**Responsabilidad con nombre y apellido.** Cada ingreso queda asociado al vecino que lo autorizó, con
+fecha y hora. Es lo que un consorcio no puede reconstruir hoy con llaves y códigos compartidos, y es
+la diferencia entre "entró alguien" y "lo autorizó tal unidad, tal día, a tal hora".
 
 ## 4. Guion base para video / reel / publicidad
 
@@ -116,4 +141,7 @@ hace temprano, y la respuesta corta es que no viaja a ningún proveedor externo 
   servicio externo. Está pedido y es un cambio chico, pero **hasta que esté, no decir "nunca sale de
   nuestro servidor" como algo general**: decirlo del portal y de la portería, que es donde ya es
   cierto.
+- **Con la base de datos caída, un ingreso se valida por el código firmado pero no queda registrado.**
+  Es el caso de un corte, y está identificado. Mientras no se resuelva, **no decir que queda registro
+  de absolutamente todos los ingresos**.
 - **El prototipo del timbre es un laboratorio abierto.** No es parte de lo que se vende todavía.

@@ -1654,6 +1654,101 @@ se puede medir leyendo el código-- y distingue: el ajeno da 404, el propio devu
 > `api.qrserver.com` para explicar por qué no se usa más. Un candado que confunde el comentario con
 > el código mide la explicación en lugar de la función — ya pasó dos veces en este repo.
 
+## De cada ingreso queda escrito quién lo autorizó
+
+> Pedido de Daniel, 28/09: *"el pase qr creado por un vecino debe tener una firma del vecino que lo
+> creó o algo que nos ayude a saber quién dio acceso, así si hay eventos perjudiciales se sepa quién
+> fue y el AC pueda tomar acciones legales"*.
+
+**Buena parte ya estaba, y conviene saberlo antes de tocar nada**: `pases_qr` guarda
+`creado_por_nombre` y `creado_por_usuario_id`, `eventos_acceso` es **append-only** y se escribe en
+**cada** validación de QR --incluidas las rechazadas-- con fecha, IP, user-agent y foto de
+seguridad, y `qr-firmado.js` sella el código con HMAC, así que el QR no se puede falsificar.
+
+Lo que faltaba era todo lo que hace útil a ese dato. Eran cuatro cosas:
+
+1. **Nadie lo mostraba.** Ninguna pantalla leía `creado_por_nombre`. Para verlo había que entrar con
+   `psql`, y un administrador que quiere tomar acciones legales no va a hacer eso.
+2. **La columna legible nombraba al invitado y no a quien lo dejó entrar.** El autor estaba enterrado
+   adentro de `metadata`, en JSON, donde no se puede filtrar ni ordenar: para saber qué autorizó un
+   vecino había que abrir cada evento a mano.
+3. **Un pase emitido desde la sesión de demostración quedaba firmado con un nombre que parece de una
+   persona real** (hoy "Camila"). Para un rastro legal eso es **peor que no tener ninguno**, porque
+   parece una respuesta.
+4. **Después de cada `pm2 restart` el registro fallaba en silencio** (más abajo).
+
+`autor-del-pase.js` tiene las tres primeras decisiones en un solo lugar, porque las necesitan dos
+lados --el portal al emitir y la portería al consumir y al mostrar-- y dos copias de "quién autorizó
+esto" es justo lo que no puede pasar con este dato.
+
+- **`nombreDelAutor(vecino)`** firma el pase, y **marca la sesión de demostración** con `[PRUEBA]`.
+  **Se marca y no se bloquea, a propósito**: el botón de demo es con lo que se prueba el sistema hoy,
+  y dejarlo sin emitir pases haría que las pruebas dejen de cubrir esta pantalla.
+- **`datosDeAutoria(pase)`** se **copia** al evento de acceso, no se resuelve con un join. Un rastro
+  que va a sostener una acción legal no puede cambiar después ni desaparecer si el pase se borra o el
+  vecino se renombra. Es el mismo criterio que `proveedor_asignaciones`.
+- **`describirAutor(pase)`** arma la línea que lee una persona, y **sin autor no inventa uno**: dice
+  *"No consta quién lo autorizó"*. Un pase viejo o emitido por una vía que no lo anotaba no tiene a
+  quién señalar, y el administrador necesita saber que de **ese** ingreso no hay a quién reclamarle,
+  no leer un nombre por descarte.
+
+Columnas nuevas en `eventos_acceso` (se crean con `ALTER`, así existen también en una base que ya
+tiene la tabla): `autorizado_por_nombre`, `autorizado_por_usuario_id`, `autorizado_por_unidad`,
+`pase_id`, `pase_emitido_en`, con índice por nombre y por pase.
+
+**Y se le muestra al vecino en su propio pase, a propósito**: que sepa que queda firmado con su
+nombre es la mitad del efecto que se busca — un permiso anónimo no lo piensa nadie dos veces.
+
+### La columna existía en el código y no en la base: la carrera del arranque
+
+> [!CAUTION]
+> **`initPgSchema()` corre al cargarse `db-pg.js` y no bloquea a nadie.** Solo **seis** funciones
+> hacen `await esquemaListo`, y `registrarEventoAcceso` no era una de ellas. Así que en el primer
+> segundo después de un `pm2 restart` --que pasa en **cada despliegue**, y PM2 reinicia seguido-- una
+> columna recién agregada todavía no existe, el `INSERT` falla **entero**, y el único rastro es un
+> `console.warn` adentro del `catch` de quien llamó.
+>
+> O sea: **un ingreso sin registrar, en silencio** — exactamente lo que este registro existe para
+> que no pase, y en el momento en que es más probable.
+
+**Lo encontró la prueba contra un PostgreSQL de verdad, no leyendo el código**: la primera corrida
+dijo `column "autorizado_por_nombre" of relation "eventos_acceso" does not exist` con la columna
+correctamente escrita en el esquema. Un candado de texto habría dicho que estaba todo bien.
+
+`registrarEventoAcceso` ahora espera el esquema. **Esperar ahí es gratis: la puerta ya se abrió
+cuando esto corre.**
+
+> **Las otras funciones que no lo esperan quedan como están**, y no por pereza: las demás fallan
+> **fuerte** --el endpoint devuelve el error y quien está del otro lado lo ve y reintenta-- y esta
+> fallaba muda. Revisarlas una por una es su propio trabajo.
+
+### Lo que esto NO resuelve
+
+- **El panel no tiene pantalla para mirar esto.** El dato queda con nombre propio y se puede
+  consultar, pero para el administrador todavía no hay una vista. Es del panel, y está anotado en
+  `docs/para-antigravity.md`. **No prometer "el informe de accesos" hasta que exista.**
+- **Con PostgreSQL caído, un pase se valida por firma y no queda registro de nada**
+  (`if (pool && typeof registrarEventoAcceso === 'function')`). Es el agujero que queda, y el arreglo
+  es encolar el `INSERT` como hace `cola-pg.js` — un registro de auditoría es append-only, así que no
+  tiene el riesgo de orden que ese módulo describe. Es su propio trabajo.
+- **La identidad del vecino sigue siendo la sesión del portal**, no una autenticación fuerte. Mientras
+  eso no exista, esto dice con qué sesión se emitió el pase, que es lo más firme que hay hoy. El
+  pendiente de "Auth real" es lo que lo cierra.
+
+Prueba: `node pruebas-autor-del-pase.js`. Los candados exigen que el portal firme **a través de**
+`nombreDelAutor` --si alguien vuelve a firmar con el nombre crudo, la marca de la sesión de prueba
+desaparece-- y que el `INSERT` del registro escriba las columnas nuevas (medido sobre el `INSERT`
+aislado: un `includes` sobre el archivo entero daría verdadero por el propio `ALTER` que las crea).
+La parte contra PostgreSQL verifica que quede la fila con el autor, **también en un intento
+rechazado**: un pase revocado que alguien sigue intentando usar es justo el evento que el
+administrador quiere ver.
+
+> Un candado que ya existía se puso en rojo contra código correcto: `pruebas-perfil-vecino.js` medía
+> el **texto exacto** `creado_por_nombre: nombreCompleto(v),`. La propiedad que protege --que el pase
+> lleve nombre y apellido-- sigue valiendo; lo que cambió fue la forma. Pasó a medirse sobre el
+> resultado de la función. **Tercera vez en este repo que un candado mide la forma en lugar de la
+> propiedad.**
+
 ## El timbre de un edificio sonaba en otro
 
 > [!CAUTION]
