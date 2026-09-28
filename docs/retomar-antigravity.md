@@ -30,7 +30,7 @@ Sos el agente Antigravity para Marcos IA y el Panel Dash. Leé docs/retomar-anti
 
 ## 3. Estado actual del proyecto y producción (28/09)
 
-- **Commit activo en rama local:** rebasado sobre `c91bcff`
+- **Commit activo en rama local:** `414fc3d` (rebasado y sincronizado con origin)
 - **Rama de trabajo local:** `antigravity/panel-fase-1`
 - **Rama remota desplegada en VPS:** `claude/marcos-ia-whatsapp-template-vpg8gw`
 - **VPS SSH Access:**
@@ -40,9 +40,9 @@ Sos el agente Antigravity para Marcos IA y el Panel Dash. Leé docs/retomar-anti
   - Llave SSH: `$env:USERPROFILE\.ssh\marcos_vps`
   - Directorio en VPS: `/root/marcos/Consorcio-AI-Assistant`
 - **Estado de PM2:**
-  - Servicio `marcos-ai`: online (PID 826735), uptime estable, 0 errores en logs.
+  - Servicio `marcos-ai`: online (PID 853693), uptime estable, 0 errores en logs.
 - **Suite de pruebas:**
-  - `node verificar-antes-de-subir.js`: **84 de 84 pruebas en verde (100%)**.
+  - `node verificar-antes-de-subir.js`: **88 de 88 pruebas en verde (100%)**.
 
 ---
 
@@ -64,9 +64,18 @@ Sos el agente Antigravity para Marcos IA y el Panel Dash. Leé docs/retomar-anti
 5. **Generación local de QR (`qr-imagen.js`):**
    - Erradicada la dependencia de `api.qrserver.com` en todo el sistema (portal, portería y panel).
    - En `dashboard.js` se montó `router.get('/qr.png', manejadorQrPorDato)` y se migraron las llamadas a `rutaQrPorDato('/admin', token, 400)`.
-6. **Buzón sincronizado:**
+6. **Corrección de modales desfasados/tapados:**
+   - Modales desfasados en móvil y desktop corregidos en Portal (`portal-vecino.js`) y Panel (`dashboard.js`), elevando `z-index: 99999` y ajustando scroll responsivo.
+7. **Autoría oficial en auditoría de accesos y pases QR:**
+   - Integración con `describirAutor` y `esAutorDePrueba` de `autor-del-pase.js`.
+   - Indicador visual explícito `⚠️ [PRUEBA]` para accesos de sesión demo y nombres oficiales en la tabla de `/admin/accesos-porteria`.
+8. **Gestión de Cuentas Bancarias del Consorcio en Mi Edificio (`/admin/mi-edificio`):**
+   - Integración completa con `cuentas_bancarias` en Postgres (endpoints `GET` y `POST /admin/api/edificio-cuenta-bancaria`).
+   - Validación formal con `cbu.js` (`validarCBU` con ponderaciones oficiales y `validarAlias`).
+   - Tarjeta visual, botones de copia al portapapeles y modal de carga con validación en tiempo real.
+9. **Buzón sincronizado:**
    - Informes técnicos respondidos a Claude en `docs/para-el-portal.md`.
-   - Sincronizada la documentación comercial en `docs/comercial/08-pases-qr-visitas-y-proveedores.md`.
+
 
 ---
 

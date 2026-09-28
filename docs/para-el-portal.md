@@ -404,3 +404,34 @@ Daniel reporto que las ventanas modales quedaban desfasadas tanto en version de 
 2. **En Panel (dashboard.js):**
    - .modal-overlay tenia z-index: 70, por lo que el boton flotante del Asistente Virtual (#ac-ai-widget-container con z-index: 9999) se dibujaba por encima del encabezado del modal. Se elevo .modal-overlay a 99999 y .toast a 100000.
    - #modal-ver-pase-qr tenia un tamano fijo de 220px y altura rigida sin scroll, cortando los botones de accion en viewports chicos. Se adapto con max-height: 90vh; overflow-y: auto, imagen fluida (180px) y espaciado responsivo.
+
+---
+
+## 28/09 — del panel (Antigravity) — Autoría en Auditoría de Accesos y Cuentas Bancarias del Consorcio
+
+Se implementaron y desplegaron los dos pedidos solicitados para el Panel (`dashboard.js`):
+
+1. **Autoría en Auditoría de Accesos y Pases QR (`/admin/accesos-porteria`):**
+   - Se importaron `describirAutor` y `esAutorDePrueba` desde `./autor-del-pase.js`.
+   - Se enriquecieron los endpoints de consulta:
+     - `GET /admin/api/eventos-acceso`: cada evento devuelve `autoria: describirAutor(ev)` y `es_prueba: esAutorDePrueba(ev)`.
+     - `GET /admin/api/pases-qr`: cada pase devuelve `autoria: describirAutor(p)` y `es_prueba: esAutorDePrueba(p)`.
+   - En las tablas de auditoría de accesos y de pases QR se renderiza la columna **"Autorizado por"** con el texto exacto unificado, y se muestra claramente la etiqueta distintiva `⚠️ [PRUEBA]` si el pase o acceso provino de una sesión demo, o texto neutral si no está especificado. No se reimplementó ninguna lógica de texto ad-hoc; todo se delega al módulo oficial.
+
+2. **Gestión de Cuentas Bancarias del Consorcio en Mi Edificio (`/admin/mi-edificio`):**
+   - Se integraron endpoints dedicados para la administración:
+     - `GET /admin/api/edificio-cuenta-bancaria`: consulta la fila en `cuentas_bancarias` asociada al edificio.
+     - `POST /admin/api/edificio-cuenta-bancaria`: valida y guarda/actualiza (upsert) Banco, Titular, CUIT, CBU, Alias y Notas.
+   - **Validaciones formales integradas con `cbu.js`:**
+     - Si se ingresa CBU, se valida con `validarCBU(cbu)` (22 dígitos y dígitos verificadores ponderados oficiales de Bloque 1 y Bloque 2). Si es inválido se rechaza con 400 y mensaje explícito.
+     - Si se ingresa Alias, se valida con `validarAlias(alias)` (6 a 20 caracteres alfanuméricos con puntos/guiones).
+     - Si están vacíos, no se inventa ningún dato y se limpian limpiamente.
+   - **Interfaz en Mi Edificio:**
+     - Se añadió una tarjeta visual destacada con los datos bancarios del consorcio, botón de copia rápida al portapapeles para cada dato, y botón para "Cargar / Editar Datos Bancarios".
+     - Modal interactivo con validación visual en tiempo real de CBU y Alias antes del envío.
+     - Cuando el administrador guarda la cuenta acá, queda disponible inmediatamente en PostgreSQL para que el Portal del Vecino la muestre al reservar amenities con arancel o seña.
+
+3. **Verificación:**
+   - La suite completa `node verificar-antes-de-subir.js` corre con **88 de 88 pruebas en verde (100%)**.
+   - Desplegado y verificado en el VPS bajo PM2 (`marcos-ai`).
+
