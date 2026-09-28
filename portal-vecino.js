@@ -1065,7 +1065,21 @@ function getVecinoSession(req) {
   }
   // Sin sesión se devuelve la de prueba. La arma `sesion-demo.js`, que es la MISMA que usa el
   // botón "Demo Rápido" del login: cuando eran dos copias, una tenía `unidades` y la otra no.
-  return sesionDemoVecino('propietario');
+  const demo = sesionDemoVecino('propietario');
+
+  // > [!CAUTION]
+  // > **El idioma elegido tiene que sobrevivir a esta rama.** Esta sesión se arma DE CERO en cada
+  // > pedido, así que cualquier cosa que se le escriba encima se pierde al terminar de responder.
+  //
+  // Eso es lo que hacía que cambiar el idioma "no funcionara": `/api/idioma` lo escribía en
+  // `req.session.vecino`, que acá no existe, y contestaba `ok: true` igual. La página recargaba y
+  // volvía en castellano, sin un solo error en ningún lado.
+  //
+  // `req.session.idioma` sí es de la sesión de verdad y sobrevive. Es la única parte de esta
+  // sesión de prueba que se guarda, y a propósito: es una preferencia de quien está mirando, no
+  // un dato del vecino inventado.
+  if (req.session && req.session.idioma) demo.idioma = req.session.idioma;
+  return demo;
 }
 
 // El nombre para mostrar. Los logins reales guardan `nombre` y `apellido` por separado
@@ -3091,7 +3105,17 @@ router.post('/api/idioma', async (req, res) => {
     const { idioma } = req.body || {};
     const codigo = normalizarIdioma(idioma);
 
-    if (req.session && req.session.vecino) {
+    // Sin sesión no hay dónde guardarlo, y decir que sí sería mentir: la pantalla recargaría y
+    // volvería al idioma anterior, que es justo el sintoma que se reporto.
+    if (!req.session) {
+      return res.status(503).json({ ok: false, error: 'No hay sesión donde guardar el idioma. Volvé a entrar y probá de nuevo.' });
+    }
+
+    // Se guarda SIEMPRE acá: es lo único que sobrevive cuando no hay un vecino logueado --la
+    // sesión de prueba se arma de cero en cada pedido-- y `getVecinoSession` lo vuelve a aplicar.
+    req.session.idioma = codigo;
+
+    if (req.session.vecino) {
       req.session.vecino.idioma = codigo;
       const v = req.session.vecino;
       if (v.usuario_id && !v.demo) {

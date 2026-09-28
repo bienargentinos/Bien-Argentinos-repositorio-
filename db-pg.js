@@ -121,11 +121,55 @@ function initPgSchema() {
     return promesaEsquema;
 }
 
+/**
+ * Corre un bloque de SQL SENTENCIA POR SENTENCIA, y sigue aunque una falle.
+ *
+ * Antes todo el esquema iba en UNA sola `client.query` con decenas de sentencias adentro. Eso, en
+ * el protocolo simple de node-postgres, es una transaccion implicita: **si una sola sentencia
+ * falla, se revierten TODAS**. Y el `catch` de abajo se comia el error con la etiqueta
+ * "Info conector PostgreSQL", que se lee como un dato y no como una falla.
+ *
+ * Verificado contra un PostgreSQL de verdad: sin la extension pgvector instalada, la primera
+ * sentencia (`CREATE EXTENSION IF NOT EXISTS vector`) falla y el esquema entero queda sin crear.
+ * `initPgSchema()` devolvia sin error y la base quedaba con CERO tablas -- incluida `pases_qr`,
+ * que es la que hace que la pantalla de pases del vecino no cargue nunca.
+ *
+ * De ahi salia lo que en CLAUDE.md figuraba como "el esquema real no es el que dice db-pg.js": no
+ * era que alguien lo hubiera roto a mano, era esto.
+ *
+ * Cada sentencia va sola. Una que falla se anuncia fuerte y NO se lleva puestas a las demas.
+ */
+async function correrSentencias(client, sql, etiqueta) {
+    // Los comentarios de linea se quitan ANTES de partir: un punto y coma adentro de un comentario
+    // partiria una sentencia al medio.
+    const limpio = String(sql).split('\n').map((l) => l.replace(/--.*$/, '')).join('\n');
+    const sentencias = limpio.split(';').map((x) => x.trim()).filter(Boolean);
+
+    const fallidas = [];
+    for (const sentencia of sentencias) {
+        try {
+            await client.query(sentencia);
+        } catch (e) {
+            const primeraLinea = sentencia.split('\n')[0].trim().slice(0, 110);
+            fallidas.push({ sentencia: primeraLinea, error: e.message });
+            console.error(`   ❌ [${etiqueta}] ${primeraLinea} → ${e.message}`);
+        }
+    }
+    if (fallidas.length) {
+        console.error(
+            `⚠️ ESQUEMA A MEDIAS en "${etiqueta}": ${fallidas.length} de ${sentencias.length} sentencias fallaron. ` +
+            `Lo que dependa de eso va a fallar despues, lejos de aca y sin decir por que. ` +
+            `Revisar con: node revisar-columnas-pg.js`
+        );
+    }
+    return fallidas;
+}
+
 async function _initPgSchema() {
     let client;
     try {
         client = await pool.connect();
-        await client.query(`
+        await correrSentencias(client, `
             CREATE EXTENSION IF NOT EXISTS vector;
 
             CREATE TABLE IF NOT EXISTS vecinos (
@@ -926,7 +970,7 @@ async function _initPgSchema() {
             CREATE INDEX IF NOT EXISTS idx_pg_usuario_unidades_usr ON usuario_unidades(usuario_id);
             CREATE INDEX IF NOT EXISTS idx_pg_usuario_unidades_edif_dto ON usuario_unidades(LOWER(edificio), LOWER(departamento));
             CREATE INDEX IF NOT EXISTS idx_pg_asistente_asign_asist ON asistente_asignaciones(asistente_usuario_id);
-        `);
+        `, 'esquema principal');
 
         // Seeding de usuario demo si aún no existe
         try {
@@ -1849,6 +1893,10 @@ async function edificioExiste(nombre) {
     return { existe, conocidos };
 }
 
+// Techo de vida de un pase QR. Decision de Daniel, 27/09: el vecino elige hasta cuando, y esto es
+// lo maximo que puede elegir. Un anio.
+const MAX_DIAS_PASE = 365;
+
 async function crearPaseQR(datos) {
     const {
         token,
@@ -1881,6 +1929,37 @@ async function crearPaseQR(datos) {
         );
     }
 
+    // NINGUN PASE SIN VENCIMIENTO. Decision de Daniel, 27/09: el vecino elige hasta cuando, con un
+    // techo de 365 dias.
+    //
+    // Antes un pase recurrente se creaba con `valido_hasta` en null y `usos_permitidos` en 999: o
+    // sea que valia PARA SIEMPRE dentro de su franja horaria. Eso es exactamente el problema que el
+    // QR venia a resolver -- el codigo de la persona de limpieza que dejo de venir hace ocho meses
+    // sigue abriendo hasta que alguien se acuerde de revocarlo, y acordarse es lo que nunca pasa.
+    //
+    // El techo se aplica ACA y no solo en la pantalla porque esta funcion la llaman tambien el
+    // panel y la app: un control que vive en el formulario se saltea mandando el pedido a mano.
+    // No rechaza, RECORTA: rechazar romperia a quien hoy crea pases sin fecha, y un pase mas corto
+    // de lo pedido se vuelve a emitir en treinta segundos. Una puerta que no vence nunca, no.
+    const MS_POR_DIA = 24 * 60 * 60 * 1000;
+    const desdeRef = valido_desde ? new Date(valido_desde) : new Date();
+    const techo = new Date(desdeRef.getTime() + MAX_DIAS_PASE * MS_POR_DIA);
+    let hasta = valido_hasta ? new Date(valido_hasta) : null;
+    if (!hasta || isNaN(hasta.getTime())) {
+        hasta = techo;
+        console.warn(
+            `🎟️⏳ Pase QR para "${nombre_invitado}" en ${edificio} sin fecha de vencimiento: ` +
+            `se le pone el techo de ${MAX_DIAS_PASE} dias. Un pase que no vence nunca es una llave regalada.`
+        );
+    } else if (hasta > techo) {
+        console.warn(
+            `🎟️⏳ Pase QR para "${nombre_invitado}" en ${edificio} pedia vencer el ${hasta.toISOString()}, ` +
+            `mas que el techo de ${MAX_DIAS_PASE} dias: se recorta al ${techo.toISOString()}.`
+        );
+        hasta = techo;
+    }
+    const validoHastaFinal = hasta;
+
     const res = await pool.query(
         `INSERT INTO pases_qr (
             token, origen, edificio, departamento, creado_por_usuario_id,
@@ -1894,7 +1973,7 @@ async function crearPaseQR(datos) {
         [
             token, origen, edificio, departamento, creado_por_usuario_id,
             creado_por_nombre, nombre_invitado, motivo, tipo_pase,
-            valido_desde, valido_hasta, JSON.stringify(dias_semana || []),
+            valido_desde, validoHastaFinal, JSON.stringify(dias_semana || []),
             hora_desde, hora_hasta, Number(usos_permitidos) || 1
         ]
     );

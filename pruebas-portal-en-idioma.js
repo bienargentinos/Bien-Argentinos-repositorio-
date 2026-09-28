@@ -219,6 +219,46 @@ async function main() {
         }
     }
 
+    console.log('\n── CAMBIAR EL IDIOMA TIENE QUE QUEDAR ──');
+    {
+        // CANDADO. Daniel: "el idioma no lo cambia, no funciona". El endpoint guardaba en
+        // req.session.vecino --que en la sesion de prueba NO EXISTE, porque getVecinoSession la
+        // arma de cero en cada pedido-- y contestaba ok:true igual. La pantalla recargaba y volvia
+        // al idioma anterior, sin un solo error en ningun lado.
+        //
+        // Se mide sobre la pagina SERVIDA despues de recargar, que es lo unico que prueba que el
+        // cambio quedo. Un candado que leyera el codigo no habria visto nada: el codigo "guardaba".
+        const ses = await pedir('POST', '/vecino/auth', { cuerpo: 'rol=propietario' });
+
+        const r = await pedir('POST', '/vecino/api/idioma', {
+            cookie: ses.cookie, json: true, cuerpo: JSON.stringify({ idioma: 'en' }),
+        });
+        afirmar('el cambio contesta bien', r.codigo === 200);
+
+        const luego = await pedir('GET', '/vecino/', { cookie: ses.cookie });
+        afirmar('y en el pedido SIGUIENTE la pagina viene en el idioma nuevo',
+            /<html[^>]*lang="en"/.test(luego.cuerpo));
+        // Y no solo el atributo: el texto tambien.
+        const t = require('./idiomas').textos('en');
+        afirmar('el texto tambien cambio', luego.cuerpo.includes(t('nav.inicio')));
+
+        // Vuelve a castellano y tambien queda: no es que se haya quedado clavado en ingles.
+        await pedir('POST', '/vecino/api/idioma', {
+            cookie: ses.cookie, json: true, cuerpo: JSON.stringify({ idioma: 'es' }),
+        });
+        const volvio = await pedir('GET', '/vecino/', { cookie: ses.cookie });
+        // El castellano se sirve como es-AR, no como "es": la primera version de este candado
+        // exigia "es" exacto y dio rojo contra codigo correcto.
+        afirmar('y se puede volver al castellano', /<html[^>]*lang="es-AR"/.test(volvio.cuerpo));
+
+        // Sin sesion no hay donde guardarlo: decir que si seria repetir el mismo bug.
+        const PV2 = require('fs').readFileSync(require('path').join(__dirname, 'portal-vecino.js'), 'utf8');
+        const ep = PV2.match(/router\.post\('\/api\/idioma'[\s\S]*?\n}\);/);
+        afirmar('existe el endpoint', !!ep);
+        afirmar('sin sesion no contesta que si', !!ep && /if \(!req\.session\)/.test(ep[0]));
+        afirmar('guarda en la sesion, no solo en el vecino', !!ep && /req\.session\.idioma = codigo/.test(ep[0]));
+    }
+
     server.close();
     console.log(`\n${fallos === 0 ? '✅ Todo bien' : `❌ ${fallos} fallo(s)`}\n`);
     process.exit(fallos === 0 ? 0 : 1);
