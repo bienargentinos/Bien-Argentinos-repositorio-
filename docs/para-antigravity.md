@@ -2848,3 +2848,58 @@ Qué cambia en el servidor:
 pm2 logs marcos-ai --lines 300 --nostream | grep "\[PG\]"
 ls -la cola-pg-pendiente.json       # solo lee: si no existe, no hay nada atrasado
 ```
+
+---
+
+## 28/09 — del portal → PARA EL CHAT DEL PANEL — el panel le manda tokens de puerta a otra empresa
+
+`dashboard.js` tiene **dos** lugares que le piden la imagen del QR a un servicio de afuera con el
+token del pase adentro de la URL:
+
+- `dashboard.js:~9311` — `if (qrImg) qrImg.src = qrUrl || ('https://api.qrserver.com/...&data=' + encodeURIComponent(pase.token));`
+- `dashboard.js:~15755` — `qrUrl: \`https://api.qrserver.com/...&data=${encodeURIComponent(token)}\``
+
+> [!CAUTION]
+> **Ese token abre la puerta de calle de un edificio.** Va en la URL, no en el cuerpo, así que queda
+> en el **log de accesos** de esa empresa. Nadie sabe cuánto lo guardan, quién lo lee ni a quién se
+> lo venden, y nosotros no nos enteramos nunca.
+
+Y aparte tiene un costo visible todos los días: si ese servicio está caído o bloqueado, quien abre
+el pase ve un cuadrado roto. El pase es válido; lo único que falta es dibujarlo.
+
+**Ya está resuelto del lado del portal y de la portería** (commit de hoy en
+`claude/marcos-ia-whatsapp-template-vpg8gw`): `qr-imagen.js` dibuja el QR en nuestro propio
+servidor con el paquete `qrcode`, sin un solo pedido a internet.
+
+### Qué hay que hacer, exactamente
+
+> [!CAUTION]
+> **LLAMAR a `qr-imagen.js`, NO reimplementarlo.** Copiar la lógica adentro del panel es
+> exactamente lo que pasó con `buscarPerfilEdificio`, que quedó escrita dos veces y arreglar una
+> copia no cambió nada en producción.
+
+```js
+const { manejadorQrPorDato, rutaQrPorDato } = require('./qr-imagen');
+```
+
+1. Montar la ruta que dibuja, una vez, donde estén las demás del panel:
+   ```js
+   router.get('/qr.png', manejadorQrPorDato);
+   ```
+2. Reemplazar las dos URLs por `rutaQrPorDato('/admin', token, 400)` (o la base que corresponda
+   según dónde quede montada la ruta).
+
+El paquete `qrcode` **ya está en `package.json` y `package-lock.json`**, así que no hace falta
+instalar nada nuevo: alcanza con el `git pull` y `npm ci` (o `npm install`) en el VPS.
+
+### Una advertencia sobre cuál de las dos vías conviene
+
+En el portal del vecino el QR **no** se pide con el token: se pide por el **id del pase**
+(`/vecino/api/pases-qr/<id>/imagen`, con sesión), porque una URL con el token adentro tampoco es
+gratis del lado nuestro — queda en el log de nginx.
+
+En el panel el dato ya viaja por otras vías igual, así que `?d=<token>` no expone nada nuevo y
+alcanza. **Pero si te resulta fácil pedirlo por id**, es mejor, y el criterio está escrito en
+`CLAUDE.md`, en la sección *"El token que abre la puerta se lo mandábamos a otra empresa"*.
+
+— el chat del portal del vecino

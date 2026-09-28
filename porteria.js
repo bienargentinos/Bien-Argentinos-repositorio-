@@ -13,6 +13,7 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const { claveEdificio, mismoEdificio, claveUnidad } = require('./edificio-clave');
+const { manejadorQrPorDato, rutaQrPorDato } = require('./qr-imagen');
 
 let datosPg = null;
 try {
@@ -23,6 +24,17 @@ let marcosOps = null;
 try {
   marcosOps = require('./agentes/marcos-ops');
 } catch (_) {}
+
+// Dibuja un QR en NUESTRO servidor. Antes las tres pantallas de aca le pedian la imagen
+// a api.qrserver.com con el dato adentro de la URL -- y cuando ese dato es el token de un
+// pase, es el token que abre la puerta de un edificio yendose al log de accesos de otra
+// empresa. Encima, si ese servicio esta caido o bloqueado, el cartel de la porteria
+// muestra un cuadrado roto y el visitante no tiene como tocar el timbre.
+//
+// Aca el dato SI va en la URL, y esta bien que vaya: estas paginas ya se abren con el
+// token en la URL (`/porteria/pase/<token>`), asi que no expone nada nuevo. En el portal
+// del vecino es distinto y alla se pide por id de pase, con sesion.
+router.get('/qr.png', manejadorQrPorDato);
 
 let renderTotemHtml = null;
 try {
@@ -167,7 +179,7 @@ body{font-family:'Hanken Grotesk',sans-serif;background:#0F172A;color:#fff;min-h
       estadoReal = 'vencido';
     }
     const esActivo = estadoReal === 'activo';
-    const qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=' + encodeURIComponent(pase.token);
+    const qrImg = rutaQrPorDato('/porteria', pase.token, 350);
 
     // Formatear fechas
     const fDesde = pase.valido_desde ? new Date(pase.valido_desde).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : 'Inmediata';
@@ -260,7 +272,7 @@ body{font-family:'Hanken Grotesk',sans-serif;background:#070D1E;background:linea
 router.get('/:edificio/qr', (req, res) => {
   const nombreEdificio = req.params.edificio || 'Consorcio';
   const urlPorteria = 'https://marcos.bienargentinos.com/porteria/' + encodeURIComponent(nombreEdificio);
-  const qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=' + encodeURIComponent(urlPorteria);
+  const qrImg = rutaQrPorDato('/porteria', urlPorteria, 400);
 
   res.send(`<!DOCTYPE html>
 <html lang="es-AR">
@@ -1696,7 +1708,7 @@ router.post(['/api/pases-qr', '/api/pases-qr/crear'], async (req, res) => {
     res.json({
       ok: true,
       pase: nuevoPase,
-      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(token)}`,
+      qrUrl: 'https://marcos.bienargentinos.com' + rutaQrPorDato('/porteria', token, 400),
       linkAcceso: `https://marcos.bienargentinos.com/porteria/pase/${token}`
     });
   } catch (e) {

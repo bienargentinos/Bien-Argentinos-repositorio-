@@ -37,6 +37,23 @@ edificio que existe y para la unidad del vecino que lo emite**. Un pase escrito 
 edificio mal no abre nada — y lo que el vecino ve entonces es "el QR no anda", sin entender por
 qué. Por eso se verifica al emitirlo y no en la puerta, con la persona parada afuera.
 
+### El código se genera en nuestro servidor, no en el de un tercero
+
+Hasta septiembre de 2026 la imagen del código QR se le pedía a un servicio gratuito de internet, y
+el código de ingreso viajaba dentro de esa dirección web. Dicho sin vueltas: **el código que abre la
+puerta del edificio pasaba por el registro de accesos de otra empresa**, sobre la que nosotros no
+tenemos ningún control ni visibilidad.
+
+Hoy el código se dibuja dentro del mismo servidor que lo emitió. No sale ningún pedido a internet
+para mostrarlo. Dos consecuencias concretas para el consorcio:
+
+1. **El código de ingreso no se comparte con nadie más.** Ni con nosotros mismos más de lo
+   necesario: en el portal del vecino la imagen se pide por el número interno del pase, así que el
+   código de ingreso no aparece en ninguna dirección web.
+2. **El pase se ve aunque internet ande mal.** Antes, si ese servicio de afuera estaba caído o
+   bloqueado, el vecino abría su pase y veía un cuadro roto — el pase era válido y no había forma
+   de mostrarlo.
+
 ## 3. Argumentos comerciales
 
 - **El vecino deja de bajar.** Es el beneficio que se entiende sin explicación, y es el que hace
@@ -50,6 +67,10 @@ qué. Por eso se verifica al emitirlo y no en la puerta, con la persona parada a
 - **Sirve igual para el proveedor.** El técnico que viene a arreglar la bomba entra con su pase,
   en la franja en que lo esperan, sin que el encargado tenga que quedarse.
 - **No hay que instalar nada en el celular de la visita.** Se le manda un código y listo.
+
+**El dato de ingreso no se le presta a nadie.** El código que abre la puerta se genera y se muestra
+desde el mismo servidor del sistema. Es una pregunta que un administrador con edificios de categoría
+hace temprano, y la respuesta corta es que no viaja a ningún proveedor externo para dibujarse.
 
 ## 4. Guion base para video / reel / publicidad
 
@@ -90,4 +111,9 @@ qué. Por eso se verifica al emitirlo y no en la puerta, con la persona parada a
   emite desde la sesión del portal. La autenticación fuerte de cada vecino —con contraseña propia
   y activación por correo— es la tarea que está en curso. Hasta que esté, esto se ofrece como
   comodidad y trazabilidad, **no como control de seguridad de un edificio con riesgo**.
+- **La generación propia del código está hecha en el portal del vecino y en la portería, todavía no
+  en el panel del administrador.** Las dos pantallas del panel que emiten pases siguen usando el
+  servicio externo. Está pedido y es un cambio chico, pero **hasta que esté, no decir "nunca sale de
+  nuestro servidor" como algo general**: decirlo del portal y de la portería, que es donde ya es
+  cierto.
 - **El prototipo del timbre es un laboratorio abierto.** No es parte de lo que se vende todavía.
