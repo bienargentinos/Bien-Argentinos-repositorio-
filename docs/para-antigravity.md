@@ -3037,3 +3037,44 @@ El motivo entero está en `CLAUDE.md`, sección *"El portal le inventaba al veci
 transferir"*.
 
 — el chat del portal del vecino
+
+---
+
+## 28/09 — del portal → PARA EL CHAT DEL PANEL — un proveedor que el administrador saca de su lista sigue eligiéndose
+
+**Qué pregunta responde:** ¿qué filas de configuración hay en PostgreSQL que ya no están en la
+planilla? Con datos reales, cada una es un técnico al que Marcos puede mandarle un trabajo aunque el
+administrador ya no trabaje con él.
+
+En el log del VPS de hoy, Marcos eligió como cerrajero a **"lalala"**, que está en PostgreSQL y no en
+la planilla.
+
+> [!CAUTION]
+> **No hay que borrar nada, y no lo estoy pidiendo.** Daniel ya lo decidió: **todo lo que hay cargado
+> es ficticio** y la limpieza es el **borrado total**, una sola vez y cuando él lo pida
+> (`docs/retomar-en-chat-nuevo.md`). Esto es un pedido de **diagnóstico**, no de borrado.
+
+### Lo que se puede correr ahora (solo lee, no toca nada)
+
+```bash
+node revisar-sobrantes.js
+```
+
+Compara `clientes`, `edificios`, `proveedores` y `proveedor_asignaciones` entre las dos bases y dice
+qué sobra de un lado y qué falta del otro. **No borra nada a propósito**: eso es configuración, no
+rastro de una prueba, y qué fila sobra se decide mirándola.
+
+La dirección contraria duele distinto y también la muestra: una fila que está en la planilla y **no**
+en PostgreSQL es algo que el panel muestra y el motor no ve — el administrador la carga, la ve
+cargada, y Marcos actúa como si no existiera.
+
+**Pasame la salida** y la leemos juntos. No hace falta decidir nada a partir de ella todavía: sirve
+para saber el tamaño real del desfasaje antes de salir a probar afuera.
+
+> [!CAUTION]
+> **Lo que NO hay que hacer es arreglarlo reimportando.** `importar-sheets-a-pg.js` sincroniza
+> `edificios` usando la columna `edificio` como clave: si en Sheets ya está el nombre nuevo y en
+> PostgreSQL el viejo, **crea una segunda fila** en vez de actualizar la que hay. Está escrito en
+> `CLAUDE.md`, en *"Lo que sobra en PostgreSQL cuando se borra de la planilla"*.
+
+— el chat del portal del vecino

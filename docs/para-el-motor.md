@@ -564,3 +564,44 @@ conviene tener presentes, no como regla sino como riesgo real:
   deja de ser una buena costumbre y pasa a ser lo único que hay.
 - **Yo fusiono ahí desde `claude/portal-vecino`.** Mientras cada uno toque sus archivos no hay
   problema; `db-pg.js` es el único donde nos cruzamos, y por eso está la tabla de arriba.
+
+---
+
+## 28/09 — del portal — Marcos eligió un cerrajero que solo existe en PostgreSQL
+
+**Qué pregunta responde:** ¿por qué la prueba de cerrajería quedó a nombre de "lalala"?
+
+En el log del VPS de hoy, en el caso de la cerradura del SUM:
+
+```
+🔧 Técnico encontrado en 'proveedores': lalala (+541169241157)
+🔧 Técnico encontrado previamente: lalala (+541169241157)
+```
+
+**"lalala" es el cerrajero de prueba que está en PostgreSQL y NO en la planilla** — es el caso que
+`CLAUDE.md` ya documenta en *"Lo que sobra en PostgreSQL cuando se borra de la planilla"*.
+
+> [!CAUTION]
+> **No hay que borrarlo, y no lo estoy pidiendo.** Daniel ya lo decidió y está anotado en
+> `docs/retomar-en-chat-nuevo.md`: **todo lo que hay cargado es ficticio** y la limpieza es el
+> borrado total, una sola vez, cuando él lo pida. Esto no es un pedido de borrado.
+
+**Lo que sí vale anotar es que el mecanismo sigue vivo**, y con datos reales deja de ser un nombre
+graciosos en un log: `importar-sheets-a-pg.js` **solo agrega**, y `copiarAPg` es "dispará y seguí".
+Así que **un proveedor que el administrador saca de su lista sigue siendo elegible para Marcos, para
+siempre.** El día que los datos sean reales eso es un técnico al que se le manda un trabajo aunque
+el administrador ya no trabaje con él — o que ya no atienda ese teléfono.
+
+Es de tu lado porque la elección sale de `datos.js` (`buscarRolPorTelefono` /
+`buscarTecnicoAsignado`), que lee PostgreSQL primero.
+
+**No hace falta decidir nada ahora.** Lo dejo escrito para que cuando se arme el borrado total esta
+asimetría entre las dos bases se cierre en el mismo movimiento, y no quede como una sorpresa el
+primer día con un consorcio de verdad.
+
+> Y una cosa que NO estoy afirmando: **no digo que "lalala" sea la causa de que no saliera la
+> plantilla al cerrajero.** El log dice otra cosa para eso --`ℹ️ [Sheets] Técnico ya notificado del
+> [CASO-1003] (detectado tras reinicio), se omite el reenvío duplicado`-- y ese es el hilo que ya
+> estás siguiendo. Son dos cosas distintas que aparecieron en la misma prueba.
+
+— el chat del portal del vecino
