@@ -2669,6 +2669,29 @@ número está escrito de cuatro formas entre las dos bases.
 tampoco la toca. Qué fila sobra se decide mirándola.
 
 > [!CAUTION]
+> **NO SE PROPONEN BORRADOS SUELTOS. Decisión de Daniel, 28/09**: *todo lo que hay cargado es
+> ficticio* --nombres, oficios, edificios, administradores, inquilinos-- porque seguimos en fase de
+> prueba. La limpieza es el **borrado total** de más arriba, **una sola vez y cuando él lo pida**,
+> antes de salir a probar afuera. Hasta entonces ningún agente propone borrar "lalala" ni ninguna
+> otra fila.
+>
+> Esto estaba escrito **solo** en `docs/retomar-en-chat-nuevo.md`, que **se sobreescribe al terminar
+> cada tanda de trabajo** — o sea que la decisión se habría perdido en la próxima. Va acá, que es lo
+> que lee todo chat nuevo y no se reescribe.
+
+> **Y el 28/09 dejó de ser un dato feo: Marcos ELIGIÓ a "lalala" para un caso real.** En la prueba de
+> la cerradura del SUM, el log dice `🔧 Técnico encontrado en 'proveedores': lalala (+541169241157)`.
+> Antes esta sección decía que "Marcos sigue viendo" esa fila; ahora está medido que además la
+> **elige**. Con datos ficticios es un nombre gracioso en un log. Con datos reales es un trabajo
+> mandado a un técnico con el que el administrador ya no trabaja, o a un teléfono que ya no atiende
+> — y nadie se entera hasta que alguien pregunta por qué no fue nadie.
+>
+> **La asimetría entre las dos bases tiene que cerrarse en el mismo movimiento que el borrado total**,
+> o va a ser la sorpresa del primer día con un consorcio de verdad. Queda pedido en
+> `docs/para-el-motor.md` (la elección sale de `datos.js`) y en `docs/para-antigravity.md` (el
+> diagnóstico, que solo lee, se corre en el VPS).
+
+> [!CAUTION]
 > **No arreglar esto reimportando.** `importar-sheets-a-pg.js` sincroniza `edificios` usando la
 > columna `edificio` como **clave**. Si en Sheets ya está el nombre nuevo y en PostgreSQL el
 > viejo, no actualiza la fila: **crea una segunda**. Para corregir datos ya desfasados está
