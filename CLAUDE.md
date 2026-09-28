@@ -2596,37 +2596,53 @@ Candado: `pruebas-clave-app.js` exige que `requireAuth` reconozca una ruta de AP
 esto nombra `res.redirect` y `/admin/login`, y una prueba que los confunda con el código mide el
 comentario en lugar de la función.
 
-## El esquema de `db-pg.js` NO se aplica al arrancar
+## Una sola sentencia que falla se lleva puesto el esquema ENTERO
 
 > [!CAUTION]
-> **`index.js` nunca llama a `initPgSchema`.** Los únicos llamadores son `revisar-seguimientos.js`,
-> `reparar-datos-pg.js` e `importar-expensas-a-pg.js` — tres scripts sueltos. El servidor no está
-> entre ellos.
+> **CORRECCIÓN de lo que decía antes esta sección.** El 27/09 escribí acá que *"`index.js` nunca
+> llama a `initPgSchema`"* y que por eso el esquema no se aplicaba. **Era falso.** `db-pg.js` lo
+> llama solo al cargarse (`const esquemaListo = initPgSchema().catch(() => {})`), así que el
+> esquema **sí** se aplica en cada arranque. La causa real es otra y es peor.
 
-```bash
-grep -rn "initPgSchema" --include=*.js . | grep -v node_modules
+Todo el esquema iba en **una sola `client.query`** con decenas de sentencias adentro. En el
+protocolo simple de node-postgres eso es **una transacción implícita**: si una sola sentencia falla,
+**se revierten todas**. Y el `catch` lo anunciaba así:
+
+```
+⚠️ Info conector PostgreSQL: extension "vector" is not available
 ```
 
-O sea que **agregar una columna o una tabla a `db-pg.js` no la crea en producción.** Las que hay
-existen porque alguien corrió `01-base-de-datos.sql` o uno de esos scripts a mano.
+*"Info"*. Se lee como un dato, no como una falla. Y `initPgSchema()` devolvía **sin error**.
 
-Esto explica de raíz varias cosas que más arriba figuran como casos sueltos, y que se leyeron como
-"alguien rompió el esquema":
+**Medido contra un PostgreSQL de verdad**, con pgvector no instalado:
 
-- `facturas.id_evento`, `facturas.url`, `reportes.material_enviado_tecnico`, `reportes.foto_url` —
-  columnas **escritas en `db-pg.js`** que la base no tenía. Nunca se crearon.
-- La restricción `facturas_estado_chk` que *"alguien creó a mano en el servidor"*: no hay otra vía.
+| | Antes | Después |
+|---|---|---|
+| Tablas creadas | **0** | **29** |
+| `pases_qr` | no existía | existe |
+| Lo que informaba | *"sin error"* | 37 de 142 sentencias fallaron, cada una con su nombre |
 
-> **Y el candado de `pruebas-columnas-pg.js` no lo agarra**, a propósito: compara el SQL del código
-> contra lo que `db-pg.js` **dice** que crea. Mide la intención, no la base. Está bien que así sea
-> --corre sin PostgreSQL prendido, que es lo que lo hace útil antes de un push-- pero **verde ahí no
-> significa que la columna exista**. Para eso están `revisar-columnas-pg.js` y
+`pases_qr` es la tabla de los pases del vecino. Sin ella, la pantalla de Pases QR del portal se
+queda cargando para siempre — que es exactamente el síntoma que se reportó.
+
+**De acá sale casi todo lo que este archivo venía anotando como casos sueltos**: `facturas.id_evento`,
+`facturas.url`, `reportes.material_enviado_tecnico`, `reportes.foto_url` y la restricción
+`facturas_estado_chk`. No era que alguien hubiera roto el esquema a mano: es que **la primera
+sentencia que fallaba cancelaba todo lo que venía después**, en silencio.
+
+`correrSentencias(client, sql, etiqueta)` corre **cada sentencia por separado**. Una que falla se
+anuncia fuerte, con su primera línea y su error, y **no se lleva puestas a las demás**. Al final
+dice cuántas fallaron sobre el total.
+
+- **Sigue sin cortar el arranque**: una base a medias es mala, pero Marcos sin arrancar es peor.
+  Lo que cambia es que ahora **se ve**.
+- **Los comentarios de línea se quitan antes de partir por `;`**: un punto y coma adentro de un
+  comentario partiría una sentencia al medio.
+
+> **Y el candado de `pruebas-columnas-pg.js` sigue sin ver nada de esto**, a propósito: compara el
+> SQL del código contra lo que `db-pg.js` **dice** que crea. Mide la intención, no la base. Verde
+> ahí no significa que la columna exista. Para eso están `revisar-columnas-pg.js` y
 > `revisar-permisos-pg.js`, que sí hablan con la base.
-
-**Decisión pendiente, del motor**: llamar a `initPgSchema()` al arrancar (es idempotente y está
-memoizado) o tener un script explícito de migración que el despliegue incluya. Correr DDL en cada
-arranque tiene consecuencias --si una sentencia falla a mitad, el arranque queda a medias-- así que
-no se cambió por iniciativa propia. Queda pedido en `docs/para-el-motor.md`.
 
 ## Dos stores de sesión en la misma base chocan aunque las tablas se llamen distinto
 
