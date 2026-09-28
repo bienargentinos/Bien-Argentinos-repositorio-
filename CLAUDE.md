@@ -85,6 +85,19 @@ que serían seis archivos y nadie se acuerda de seis nombres:
 `docs/portal-vecino-y-porteria.md` como el informe de arranque del portal. **Ninguno de los dos es
 un buzón**: no se dejan pedidos ahí.
 
+### Cuando una conversación se corta y hay que abrir otra
+
+Un chat largo se vuelve caro y lento --en cada mensaje se manda de nuevo todo lo hablado antes-- así
+que en algún momento hay que abrir uno nuevo. Lo que no se puede perder es el estado, y un resumen
+pegado a mano siempre deja afuera justo lo que no se estaba mirando ese día.
+
+**`docs/retomar-en-chat-nuevo.md`** guarda ese estado: qué está desplegado, qué está subido sin
+desplegar, la prueba en curso, los pendientes en orden y lo que está congelado. **Tampoco es un
+buzón**: se sobreescribe al terminar una tanda de trabajo, no se le agrega al final.
+
+El chat nuevo arranca con `CLAUDE.md` --que tiene el porqué de cada arreglo-- y después ese archivo,
+que tiene solo en qué punto quedamos.
+
 **Cada uno lee el suyo y no lo edita.** Para contestar se escribe en el buzón del otro.
 
 > [!CAUTION]
