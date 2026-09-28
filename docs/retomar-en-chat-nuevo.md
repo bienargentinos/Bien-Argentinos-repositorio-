@@ -105,10 +105,13 @@ que quedó cargado.
    `docs/para-antigravity.md`). Sin edificio, ahora solo engancha si todos los casos abiertos de ese
    teléfono son de un mismo edificio; si hay dos, no elige y lo dice con `🧨` en el log
    (`caso-del-telefono.js`, `pruebas-caso-del-telefono.js`).
-2. **`SMTP_HOST` apunta a `mail.bienargentinos.com`, y ese hosting se está dando de baja.** Hay que
-   cambiarlo **en el mismo movimiento** que la baja, o los mails de escalamiento al administrador
-   dejan de salir **en silencio**. De paso: el mail primario sale de la columna `email` de la tab
-   `CLIENTES`, el `.env` es el último respaldo — hay que mirar que esté cargada.
+2. **`SMTP_HOST` y la baja del hosting de mail: la parte del código está hecha (28/09), falta la del
+   `.env`.** `smtp-config.js` arma la conexión (el puerto decide TLS directo o STARTTLS, la
+   verificación del certificado queda apagada solo para el host viejo, `SMTP_FROM` opcional), Marcos
+   prueba el mail al arrancar (`📧✅` / `🚨📧` en el log) y `node revisar-smtp.js` lo prueba a pedido.
+   **Falta que Daniel elija el proveedor nuevo** y que se cambie `SMTP_*` en el `.env` del VPS el
+   mismo día de la baja, corriendo `node revisar-smtp.js --enviar <su mail>` después. De paso: el
+   mail primario sale de la columna `email` de `CLIENTES` --hay que mirar que esté cargada--.
 3. **Que una copia a PostgreSQL que falla no se pierda**: anotarla y reintentarla sola.
    `emparejar-casos.js` limpia lo que dejó una caída; esto evitaría la próxima.
 4. **Unificar la comparación de rubros con `atiendeRubro`** (lo que quedó afuera de `9585cc6`).
@@ -155,7 +158,7 @@ mismo archivo el mismo día es cómo se pierde trabajo — ya pasó tres veces.
 node verificar-antes-de-subir.js
 ```
 
-Hoy son **80 pruebas** (79 en lo desplegado). Si alguna falla, no se empuja: cada una está atada a algo que pasó de verdad
+Hoy son **81 pruebas** (79 en lo desplegado). Si alguna falla, no se empuja: cada una está atada a algo que pasó de verdad
 en producción.
 
 Y **antes de empujar hay que traer lo de los demás** (`git pull --rebase`): el portal y el panel

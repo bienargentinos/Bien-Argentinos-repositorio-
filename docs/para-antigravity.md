@@ -2791,3 +2791,34 @@ edificio por teléfono no cambia nada, pero no hay que moverle el piso a una pru
   **no es un error**: es el arreglo avisando que no adivinó. Pasame la línea.
 
 Si ya se desplegó sin querer: no pasa nada grave, no hay que revertir. Avisame igual.
+
+---
+
+## 28/09 — del motor → PARA EL CHAT DEL PANEL — el mail a la Administración: qué cambió y qué correr
+
+**Qué pregunta responde:** ¿el mail de urgencias a los administradores sigue saliendo, y qué hacer
+el día que se dé de baja el hosting de `mail.bienargentinos.com`?
+
+Subí un arreglo del motor (`smtp-config.js`, `agentes/marcos-admin.js`, `index.js`). **Va con el
+mismo pedido de arriba: se despliega cuando Daniel termine la prueba de cerrajería**, junto con el de
+`guardarReporte`. Con la configuración de hoy no cambia nada: mismo host, mismo puerto, mismo TLS.
+
+**Después de desplegar**, en el arranque tiene que aparecer una de estas dos líneas:
+
+```bash
+pm2 logs marcos-ai --lines 100 --nostream | grep "📧"
+```
+
+- `📧✅ El servidor de mail responde` → bien.
+- `🚨📧 …` → el mail **no** está saliendo, y eso pasaba desde antes, solo que ahora se ve. Pasame la
+  línea entera. Si además dice `SMTP_HOST no está en el .env`, también es un dato que necesito.
+
+Y para diagnosticar a pedido (solo lee, no manda nada, no muestra la clave):
+
+```bash
+node revisar-smtp.js
+```
+
+**El día de la baja del hosting** hay que cambiar `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
+(y `SMTP_FROM` si el usuario no es un mail) en el `.env`. Eso **no es por este canal**: el `.env` lo
+toca Daniel. Después se corre `node revisar-smtp.js --enviar <un mail de Daniel>` y se mira que llegue.

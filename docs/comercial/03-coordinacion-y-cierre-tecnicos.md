@@ -66,3 +66,8 @@ El seguimiento de proveedores y service de mantenimiento es uno de los mayores f
   más que esperar. Se cierra con el mensaje siguiente.
 - **Marcos no le muestra al vecino el número de caso.** Al vecino no le sirve y lo único que hace es
   parecer un sistema.
+- **Los avisos por mail a la administración dependen de que el servidor de mail esté configurado.**
+  *(Agregado el 28/09 por el chat del motor.)* Si el mail no conecta, Marcos lo avisa al arrancar,
+  en el registro técnico: al administrador no le llega ningún aviso de que el mail no está saliendo.
+  El WhatsApp al administrador, si lo tiene prendido en el panel, no depende del mail y sigue
+  saliendo.

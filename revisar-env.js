@@ -42,6 +42,8 @@ const IMPORTANTES = [
 const OPCIONALES = [
     ['ELEVENLABS_API_KEY', 'las notas de voz; sin esto contesta siempre por texto'],
     ['ADMIN_PHONE',        'WhatsApp de la Administración'],
+    ['SMTP_PORT',          'por defecto 465; el proveedor nuevo puede usar 587'],
+    ['SMTP_FROM',          'remitente, si el usuario del mail no es una dirección'],
     ['DASHBOARD_SECRET',   'firma de las sesiones del panel'],
     ['PORT',               'por defecto 3000'],
     ['TZ_AR',              'por defecto America/Argentina/Buenos_Aires'],
