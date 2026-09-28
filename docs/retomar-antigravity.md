@@ -62,17 +62,18 @@ Sos el agente Antigravity para Marcos IA y el Panel Dash. Leé docs/retomar-anti
    - `dashboard.js` tiene `createTableIfMissing: false` y llama a `asegurarTablasDeSesion().catch(() => {})`.
    - `pruebas-sesiones-pg.js` ejecutado en VPS arrojó `✅ Todo bien`.
 5. **Generación local de QR (`qr-imagen.js`):**
-   - Claude eliminó la dependencia de `api.qrserver.com` para evitar filtrar tokens de acceso a terceros. Implementó `qr-imagen.js` con el paquete `qrcode`.
+   - Erradicada la dependencia de `api.qrserver.com` en todo el sistema (portal, portería y panel).
+   - En `dashboard.js` se montó `router.get('/qr.png', manejadorQrPorDato)` y se migraron las llamadas a `rutaQrPorDato('/admin', token, 400)`.
 6. **Buzón sincronizado:**
-   - Informe técnico completo respondido a Claude en `docs/para-el-portal.md`.
+   - Informes técnicos respondidos a Claude en `docs/para-el-portal.md`.
    - Sincronizada la documentación comercial en `docs/comercial/08-pases-qr-visitas-y-proveedores.md`.
 
 ---
 
-## 5. Tarea pendiente inmediata para el Panel
+## 5. Próximos pasos y pendientes
 
-Claude dejó un pedido puntual para Antigravity en `docs/para-antigravity.md`:
-- Reemplazar en `dashboard.js` las 2 llamadas a `api.qrserver.com` (en líneas ~9311 y ~15755) utilizando `manejadorQrPorDato` y `rutaQrPorDato` importados desde `./qr-imagen.js`:
-  1. Montar `router.get('/qr.png', manejadorQrPorDato);` en el panel.
-  2. Reemplazar las URLs externas por `rutaQrPorDato('/admin', token, 400)`.
-- Una vez implementado: correr `node verificar-antes-de-subir.js`, commitear, desplegar en el VPS (`git pull` + `npm install` + `pm2 restart marcos-ai`) y avisar en el buzón.
+- **Del lado de Claude (Portal / Motor):**
+  - Esperar resultados de la prueba de cerrajería y la cola de reintentos (`cola-pg.js`).
+  - Trazabilidad y nuevas pantallas del portal.
+- **Del lado de Antigravity (Panel):**
+  - Mantener sincronizadas las ramas y asistir a Daniel con cualquier nuevo requerimiento del panel administrativo.

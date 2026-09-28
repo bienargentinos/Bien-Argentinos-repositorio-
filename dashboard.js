@@ -23,6 +23,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { google } = require('googleapis');
+const { manejadorQrPorDato, rutaQrPorDato } = require('./qr-imagen');
 
 const router = express.Router();
 
@@ -228,6 +229,9 @@ router.use(
 
 router.use(express.urlencoded({ extended: true }));
 router.use(express.json());
+
+// Endpoint para dibujar códigos QR localmente (sin servicios externos)
+router.get('/qr.png', manejadorQrPorDato);
 
 /* ===================================================================
  * CLIENTE GOOGLE SHEETS
@@ -9308,7 +9312,7 @@ function mostrarModalVerPaseQR(pase, qrUrl) {
   var pTit = document.getElementById('ver-pase-titulo');
   var pDet = document.getElementById('ver-pase-detalle');
 
-  if (qrImg) qrImg.src = qrUrl || ('https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=' + encodeURIComponent(pase.token));
+  if (qrImg) qrImg.src = qrUrl || ('/admin/qr.png?d=' + encodeURIComponent(pase.token) + '&t=400');
   if (pTok) pTok.textContent = pase.token;
   if (pTit) pTit.textContent = 'Pase para ' + pase.nombre_invitado;
   if (pDet) {
@@ -15752,7 +15756,7 @@ router.post('/api/pases-qr', async (req, res) => {
     res.json({
       ok: true,
       pase: nuevoPase,
-      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(token)}`
+      qrUrl: rutaQrPorDato('/admin', token, 400)
     });
   } catch (e) {
     console.error('Error creando pase QR:', e);
