@@ -308,7 +308,20 @@ const PANTALLA_VACIA = 'Todavía no tenés ningún departamento asignado';
             }
         }
         afirmar('el reclamo guarda el nombre completo', SRC.includes('vecino: nombreCompleto(v),'));
-        afirmar('el pase QR también', SRC.includes('creado_por_nombre: nombreCompleto(v),'));
+        // El pase QR pasó a firmarse con `nombreDelAutor(v)`, que marca la sesión de demostración
+        // para que un pase de prueba no se lea como una autorización real (autor-del-pase.js).
+        // Lo que este candado protege es la PROPIEDAD --que el pase lleve nombre y apellido, no solo
+        // el nombre-- así que se mide sobre el resultado de la función y no sobre el texto exacto
+        // de la línea: medir la forma es lo que puso esta prueba en rojo contra código correcto.
+        {
+            const { nombreDelAutor } = require('./autor-del-pase');
+            const firma = nombreDelAutor({ nombre: 'Camila', apellido: 'Morales' });
+            afirmar('el pase QR se firma con nombre Y apellido',
+                firma.includes('Camila') && firma.includes('Morales'));
+            afirmar('y el portal lo firma a través de esa función',
+                /creado_por_nombre:\s*require\('\.\/autor-del-pase'\)\.nombreDelAutor\(v\)/.test(SRC)
+                || /creado_por_nombre:\s*nombreDelAutor\(v\)/.test(SRC));
+        }
         afirmar('y el aviso al administrador', SRC.includes('*Vecino:* ${nombreCompleto(v)}'));
     }
 

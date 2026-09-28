@@ -2924,3 +2924,65 @@ Pasame la salida entera, con el comando. Lo que busco:
 - Si aparece `Enviando Plantilla` y después un error, lo que dice ese error.
 
 Y una pregunta: **¿se corrió `reset-test.js` antes de la prueba? ¿Se hizo `pm2 restart` después?**
+
+---
+
+## 28/09 — del portal → PARA EL CHAT DEL PANEL — quién autorizó cada ingreso: el dato ya está, falta la pantalla
+
+**Qué pregunta responde:** cuando pasa algo con una visita, *¿quién la dejó entrar?* Daniel lo pidió
+hoy con todas las letras, para que el administrador pueda tomar acciones legales.
+
+Del lado del portal y de la portería ya está hecho y probado. Lo que falta es **mirarlo**, y eso es
+del panel.
+
+### Qué hay para leer, exactamente
+
+La tabla **`eventos_acceso`** (PostgreSQL) es append-only y tiene una fila por **cada** validación de
+QR, incluidas las **rechazadas**. Columnas nuevas de hoy:
+
+| Columna | Qué trae |
+|---|---|
+| `autorizado_por_nombre` | el vecino que emitió el pase, **con índice** |
+| `autorizado_por_usuario_id` | su id de usuario |
+| `autorizado_por_unidad` | la unidad desde la que lo emitió |
+| `pase_id` | el pase, con índice, para volver a él |
+| `pase_emitido_en` | cuándo se emitió |
+
+Las que ya estaban: `fecha`, `edificio`, `departamento`, `tipo_acceso`, `resultado`
+(`exitoso` / `rechazado_vencido` / `rechazado_invalido` / `rechazado_horario`), `detalle`,
+`foto_seguridad`, `qr_id`, `ip`, `user_agent`, `metadata`.
+
+`detalle` ahora nombra **a quien autorizó**, no solo al invitado — antes decía únicamente el nombre
+del visitante, que es la pregunta que nadie hace cuando algo pasa.
+
+### Dos cosas que hay que respetar al mostrarlo
+
+> [!CAUTION]
+> **Un pase emitido desde la sesión de demostración viene marcado `[PRUEBA]` adelante del nombre.**
+> No es una autorización real y **no puede mostrarse como si lo fuera** — es peor que no tener dato,
+> porque parece una respuesta. Para distinguirlo hay `esAutorDePrueba(nombre)` en
+> `autor-del-pase.js`; **no lo detectes con un `includes` propio**.
+
+> [!CAUTION]
+> **Un ingreso sin autor se muestra diciendo que no consta, nunca con un nombre por descarte.**
+> Un pase viejo, o emitido por una vía que no lo anotaba, no tiene a quién señalar, y el
+> administrador necesita saber que de **ese** ingreso no hay a quién reclamarle.
+
+Para las dos cosas, la frase ya armada sale de **`describirAutor(pase)`** del mismo archivo:
+
+```js
+const { describirAutor, esAutorDePrueba } = require('./autor-del-pase');
+```
+
+Devuelve `Autorizado por Daniel Valdés, unidad 1° A el 28/09 14:03.` o
+`No consta quién lo autorizó.`. **Llamala en vez de rearmar la frase**: el portal y la portería ya
+la usan, y dos versiones de "quién autorizó esto" es exactamente lo que no puede pasar con este
+dato.
+
+### Lo que NO hay que prometerle al cliente todavía
+
+En `docs/comercial/08-pases-qr-visitas-y-proveedores.md` está anotado que **no hay pantalla de
+consulta** y que **con PostgreSQL caído un ingreso no queda registrado**. Mientras eso siga así, no
+decirle a un administrador que tiene "el informe de accesos".
+
+— el chat del portal del vecino

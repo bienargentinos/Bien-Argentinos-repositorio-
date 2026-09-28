@@ -706,6 +706,30 @@ async function _initPgSchema() {
 
             CREATE INDEX IF NOT EXISTS idx_eventos_acceso_edificio_fecha ON eventos_acceso (edificio, fecha DESC);
             CREATE INDEX IF NOT EXISTS idx_eventos_acceso_tipo ON eventos_acceso (tipo_acceso);
+            -- QUIEN AUTORIZO EL INGRESO. Pedido de Daniel, 28/09: si un pase QR termina en un
+            -- evento perjudicial, el administrador tiene que poder saber que vecino lo emitio para
+            -- tomar acciones legales.
+            --
+            -- El dato ya se guardaba en pases_qr.creado_por_nombre, y el evento se llevaba el
+            -- pase entero adentro de metadata. Pero ahi no se puede filtrar ni ordenar: para saber
+            -- que autorizo un vecino habia que abrir cada JSON a mano. Con su propia columna es una
+            -- consulta.
+            --
+            -- Se copia el nombre del momento (no se hace join contra pases_qr) y es a proposito: un
+            -- rastro para una accion legal no puede cambiar despues, ni desaparecer si el pase se
+            -- borra o el vecino se renombra. Mismo criterio que proveedor_asignaciones.
+            --
+            -- (Nada de acentos graves aca: todo el esquema vive dentro de un template literal de
+            -- JavaScript y uno solo cierra la cadena y rompe el archivo entero.)
+            ALTER TABLE eventos_acceso ADD COLUMN IF NOT EXISTS autorizado_por_nombre VARCHAR(150);
+            ALTER TABLE eventos_acceso ADD COLUMN IF NOT EXISTS autorizado_por_usuario_id INTEGER;
+            ALTER TABLE eventos_acceso ADD COLUMN IF NOT EXISTS autorizado_por_unidad VARCHAR(50);
+            ALTER TABLE eventos_acceso ADD COLUMN IF NOT EXISTS pase_id INTEGER;
+            ALTER TABLE eventos_acceso ADD COLUMN IF NOT EXISTS pase_emitido_en TIMESTAMP WITH TIME ZONE;
+
+            CREATE INDEX IF NOT EXISTS idx_eventos_acceso_autorizo ON eventos_acceso (autorizado_por_nombre);
+            CREATE INDEX IF NOT EXISTS idx_eventos_acceso_pase ON eventos_acceso (pase_id);
+
             CREATE INDEX IF NOT EXISTS idx_eventos_acceso_resultado ON eventos_acceso (resultado);
 
 
@@ -2094,6 +2118,21 @@ async function validarConsumirPaseQR(rawToken, edificio) {
 }
 
 async function registrarEventoAcceso(datos) {
+    // ESPERA A QUE EL ESQUEMA ESTE APLICADO, y hace falta de verdad.
+    //
+    // `initPgSchema()` corre al cargarse este archivo, sin bloquear a nadie. Asi que en el primer
+    // segundo despues de un `pm2 restart` --que pasa en cada despliegue, y PM2 reinicia seguido--
+    // una columna recien agregada todavia no existe, el INSERT falla ENTERO, y el unico rastro es
+    // un `console.warn` adentro del catch de quien llamo. O sea: un ingreso sin registrar, en
+    // silencio, que es exactamente lo que este registro existe para que no pase.
+    //
+    // Lo descubrio la prueba contra PostgreSQL de verdad, no leyendo el codigo: la primera corrida
+    // dijo `column "autorizado_por_nombre" does not exist` con la columna correctamente escrita en
+    // el esquema.
+    //
+    // Esperar acá es gratis: la puerta ya se abrió cuando esto corre.
+    try { await esquemaListo; } catch (_) {}
+
     const {
         edificio,
         departamento = '',
@@ -2104,15 +2143,24 @@ async function registrarEventoAcceso(datos) {
         qr_id = null,
         ip = null,
         user_agent = null,
-        metadata = {}
+        metadata = {},
+        // Quien autorizo el ingreso. Ver el comentario de las columnas en el esquema.
+        autorizado_por_nombre = null,
+        autorizado_por_usuario_id = null,
+        autorizado_por_unidad = null,
+        pase_id = null,
+        pase_emitido_en = null
     } = datos;
 
     const res = await pool.query(
         `INSERT INTO eventos_acceso (
             edificio, departamento, tipo_acceso, resultado, detalle,
-            foto_seguridad, qr_id, ip, user_agent, metadata
+            foto_seguridad, qr_id, ip, user_agent, metadata,
+            autorizado_por_nombre, autorizado_por_usuario_id, autorizado_por_unidad,
+            pase_id, pase_emitido_en
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb,
+            $11, $12, $13, $14, $15
         ) RETURNING *`,
         [
             edificio || 'Consorcio',
@@ -2124,7 +2172,12 @@ async function registrarEventoAcceso(datos) {
             qr_id,
             ip,
             user_agent,
-            JSON.stringify(metadata || {})
+            JSON.stringify(metadata || {}),
+            autorizado_por_nombre,
+            Number.isFinite(Number(autorizado_por_usuario_id)) ? Number(autorizado_por_usuario_id) : null,
+            autorizado_por_unidad,
+            Number.isFinite(Number(pase_id)) ? Number(pase_id) : null,
+            pase_emitido_en
         ]
     );
     return res.rows[0];

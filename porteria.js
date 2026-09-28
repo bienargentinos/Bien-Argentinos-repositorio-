@@ -14,6 +14,7 @@ const router = express.Router();
 const path = require('path');
 const { claveEdificio, mismoEdificio, claveUnidad } = require('./edificio-clave');
 const { manejadorQrPorDato, rutaQrPorDato } = require('./qr-imagen');
+const { datosDeAutoria, describirAutor } = require('./autor-del-pase');
 
 let datosPg = null;
 try {
@@ -251,6 +252,10 @@ body{font-family:'Hanken Grotesk',sans-serif;background:#070D1E;background:linea
         <span class="info-val">${esc(pase.hora_desde)} a ${esc(pase.hora_hasta)} hs</span>
       </div>
     ` : ''}
+    <div class="info-row" style="border-top:1px solid #F1F5F9;border-bottom:none">
+      <span class="info-label">Quién autorizó:</span>
+      <span class="info-val">${esc(describirAutor(pase))}</span>
+    </div>
   </div>
 
   <div style="font-size:12.5px;color:#334155;line-height:1.4;margin-bottom:14px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:10px 12px">
@@ -1435,18 +1440,27 @@ router.post('/api/validar-qr', async (req, res) => {
     // Registrar en eventos_acceso siempre para auditoría
     if (pool && typeof registrarEventoAcceso === 'function') {
       try {
-        await registrarEventoAcceso({
+        // QUIEN AUTORIZO EL INGRESO va en columnas propias, no solo adentro de `metadata`.
+        // Pedido de Daniel, 28/09: si un pase termina en un evento perjudicial, el administrador
+        // tiene que poder saber que vecino lo emitio. Dentro del JSON el dato estaba, pero no se
+        // podia filtrar ni ordenar: habia que abrir cada evento a mano.
+        //
+        // Y va tambien en `detalle`, que es la columna que una persona lee: nombraba al invitado
+        // --quien entro-- y no a quien lo dejo entrar, que es la primera pregunta cuando pasa algo.
+        await registrarEventoAcceso(Object.assign({
           edificio: (validacion.pase && validacion.pase.edificio) || edificio || 'Consorcio',
           departamento: (validacion.pase && validacion.pase.departamento) || '',
           tipo_acceso: 'QR',
           resultado: validacion.resultado || (validacion.valido ? 'exitoso' : 'rechazado_invalido'),
-          detalle: validacion.mensaje + (validacion.pase ? (' (Invitado: ' + validacion.pase.nombre_invitado + ')') : ''),
+          detalle: validacion.mensaje
+            + (validacion.pase ? (' (Invitado: ' + validacion.pase.nombre_invitado + ')') : '')
+            + (validacion.pase ? (' ' + describirAutor(validacion.pase)) : ''),
           foto_seguridad: fotoFinal,
           qr_id: rawQr,
           ip,
           user_agent: userAgent,
           metadata: { pase: validacion.pase || null }
-        });
+        }, datosDeAutoria(validacion.pase)));
       } catch (errEv) {
         console.warn('⚠️ No se pudo registrar evento de acceso QR:', errEv.message);
       }
