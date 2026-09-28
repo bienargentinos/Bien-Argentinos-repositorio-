@@ -100,12 +100,11 @@ que quedó cargado.
 
 ## 5. Pendientes, en orden
 
-1. ~~**`guardarReporte`, el `|| !eBuscado`.**~~ **Hecho el 28/09, SIN desplegar.** Está en la rama
-   `claude/admiring-feynman-ivj9zx` (partida de `claude/marcos-ia-whatsapp-template-vpg8gw`), no en
-   la que despliega Antigravity. Sin edificio, ahora solo engancha si todos los casos abiertos de ese
+1. ~~**`guardarReporte`, el `|| !eBuscado`.**~~ **Hecho el 28/09 y subido a la rama compartida,
+   pero pedido que NO se despliegue hasta que Daniel termine la prueba de cerrajería** (nota en
+   `docs/para-antigravity.md`). Sin edificio, ahora solo engancha si todos los casos abiertos de ese
    teléfono son de un mismo edificio; si hay dos, no elige y lo dice con `🧨` en el log
-   (`caso-del-telefono.js`, `pruebas-caso-del-telefono.js`). Entra a la rama compartida cuando Daniel
-   diga que terminó la prueba de cerrajería — no antes, para no moverle el piso.
+   (`caso-del-telefono.js`, `pruebas-caso-del-telefono.js`).
 2. **`SMTP_HOST` apunta a `mail.bienargentinos.com`, y ese hosting se está dando de baja.** Hay que
    cambiarlo **en el mismo movimiento** que la baja, o los mails de escalamiento al administrador
    dejan de salir **en silencio**. De paso: el mail primario sale de la columna `email` de la tab
@@ -156,7 +155,7 @@ mismo archivo el mismo día es cómo se pierde trabajo — ya pasó tres veces.
 node verificar-antes-de-subir.js
 ```
 
-Hoy son **80 pruebas** en `claude/admiring-feynman-ivj9zx` (79 en lo desplegado). Si alguna falla, no se empuja: cada una está atada a algo que pasó de verdad
+Hoy son **80 pruebas** (79 en lo desplegado). Si alguna falla, no se empuja: cada una está atada a algo que pasó de verdad
 en producción.
 
 Y **antes de empujar hay que traer lo de los demás** (`git pull --rebase`): el portal y el panel

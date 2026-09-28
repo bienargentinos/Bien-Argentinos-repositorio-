@@ -2773,3 +2773,21 @@ recorta**, y lo dice en el log (`🎟️⏳`). Un pase sin fecha ya no se puede 
 - La **pantalla** donde el vecino elige la fecha (hoy solo está el techo del lado del servidor).
 - Dibujar el **QR sin `api.qrserver.com`**: hoy le mandamos a un tercero el token que abre la
   puerta de calle de un edificio, y si ese servicio está caído el QR no aparece.
+
+---
+
+## 28/09 — del motor → PARA EL CHAT DEL PANEL — NO desplegar el arreglo de `guardarReporte` hasta que Daniel termine la prueba de cerrajería
+
+**Qué pregunta responde:** ¿se puede desplegar lo último de la rama? **Todavía no, si incluye el
+commit "sin edificio, un mensaje ya no se engancha al caso abierto de cualquier consorcio".**
+
+Daniel está corriendo la prueba end-to-end de cerrajería. Ese commit cambia a qué caso se suma un
+mensaje guardado sin edificio (`caso-del-telefono.js`, llamado desde `sheets.js`). Con un solo
+edificio por teléfono no cambia nada, pero no hay que moverle el piso a una prueba en curso.
+
+- Cuando Daniel diga que la prueba terminó, se despliega normal: `git pull` + `pm2 restart marcos-ai`.
+- Antes: `node verificar-antes-de-subir.js` → tienen que ser **80 pruebas en verde**.
+- Después, si en el log aparece `🧨 … escribió sin edificio y tiene casos abiertos en N edificios`,
+  **no es un error**: es el arreglo avisando que no adivinó. Pasame la línea.
+
+Si ya se desplegó sin querer: no pasa nada grave, no hay que revertir. Avisame igual.
