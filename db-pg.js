@@ -2254,6 +2254,9 @@ module.exports = {
     pool,
     initPgSchema,
     asegurarTablasDeSesion,
+    // El techo de vida de un pase QR. Se exporta para que la pantalla muestre el mismo numero
+    // que despues aplica el servidor, y no dos que se desincronizan.
+    MAX_DIAS_PASE,
     guardarTextoMensajeWa,
     buscarTextoMensajeWa,
     buscarSimilitudVectorial,
