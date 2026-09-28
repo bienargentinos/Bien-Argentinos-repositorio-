@@ -6,7 +6,7 @@ const { rubroDelCaso } = require('../rubros');
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-if (!global.colasProveedores) global.colasProveedores = new Map();
+require('../lineas-telefono').mapaDeLineas();
 if (!global.timersEscalacionProveedores) global.timersEscalacionProveedores = new Map();
 
 // ── FILTRO DE LO QUE SALE HACIA AFUERA ───────────────────────────────────────

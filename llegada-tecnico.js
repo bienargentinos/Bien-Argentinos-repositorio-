@@ -154,4 +154,29 @@ function comoDecirLaLlegada({ eta, confirmadoEn, ahora = new Date() } = {}) {
              frase: `llega ${cuando}, o sea en ${enPalabras(falta)}` };
 }
 
-module.exports = { momentoDeLlegada, comoDecirLaLlegada, duracionEnMs, instanteAR, enPalabras };
+/**
+ * ¿Una confirmación de visita sigue siendo de HOY, o ya es historia?
+ *
+ * > [!CAUTION]
+ * > **Una confirmación de hace días no es una confirmación.** Prueba de cerrajería, 28/09: el vecino
+ * > avisó por una puerta, y Marcos le contestó que el técnico ya había confirmado la visita. Esa
+ * > confirmación era de Dario, del 12/9, en un caso que seguía abierto. Daniel: *"cómo me va a
+ * > contestar la hora de visita de un caso de muchos días atrás... no reconoce el tiempo
+ * > transcurrido"*.
+ *
+ * El filtro por rubro de `laConfirmacionEsDeEsteTrabajo` ya existía y no alcanzó: el caso viejo había
+ * quedado con el rubro del reclamo nuevo. El tiempo no se puede falsear así.
+ *
+ * **48 horas** cubren "voy mañana a la tarde" dicho a la noche, que es la promesa más larga que se ve
+ * en la práctica. Sin fecha legible, no se la da por vigente: afirmarle una visita a alguien que
+ * espera en su casa es el error caro.
+ */
+const VIGENCIA_CONFIRMACION_MS = 48 * 60 * 60 * 1000;
+function confirmacionEsReciente(cuandoTexto, ahora = new Date()) {
+    const cuando = instanteAR(cuandoTexto);
+    if (!cuando) return false;
+    const edad = ahora.getTime() - cuando.getTime();
+    return edad >= -60 * 60 * 1000 && edad <= VIGENCIA_CONFIRMACION_MS;
+}
+
+module.exports = { momentoDeLlegada, comoDecirLaLlegada, duracionEnMs, instanteAR, enPalabras, confirmacionEsReciente, VIGENCIA_CONFIRMACION_MS };
