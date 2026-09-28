@@ -102,10 +102,13 @@ Dos cosas que van a aparecer y **no son bugs**:
 
 ## 4b. Lo que salió de la prueba de cerrajería (28/09)
 
-No le llegó la plantilla a lalala: el reclamo se pegó al CASO-1003 (viejo, de electricidad, sin
-rubro) y la marca "ya avisado" era del caso y no del técnico. Arreglado y subido
-(`esOtroCaso` en `sheets.js`, `tecnico-avisado.js`), 85 pruebas en verde. Detalle en `CLAUDE.md`,
-"Un caso viejo sin rubro se tragaba un reclamo nuevo". **Hay que desplegarlo y repetir la prueba.**
+Dos vueltas de prueba, cinco arreglos, todos en `CLAUDE.md` bajo "Un caso viejo sin rubro se tragaba
+un reclamo nuevo". Lo último subido: confirmación de visita con vencimiento de 48 hs, un problema
+nuevo nunca entra en un caso de más de un día, y la memoria de la línea normaliza el número (con y
+sin el 9). **Hay que desplegar y repetir la prueba.**
+
+**Pendiente #0, pedido por Daniel:** que Marcos PREGUNTE *"¿es lo mismo que el reclamo del 12/9 o
+es algo nuevo?"* cuando un reclamo se parece a un caso abierto de otro día.
 
 ## 5. Pendientes, en orden
 
@@ -169,7 +172,7 @@ mismo archivo el mismo día es cómo se pierde trabajo — ya pasó tres veces.
 node verificar-antes-de-subir.js
 ```
 
-Hoy son **85 pruebas**. Si alguna falla, no se empuja: cada una está atada a algo que pasó de verdad
+Hoy son **88 pruebas**. Si alguna falla, no se empuja: cada una está atada a algo que pasó de verdad
 en producción.
 
 Y **antes de empujar hay que traer lo de los demás** (`git pull --rebase`): el portal y el panel

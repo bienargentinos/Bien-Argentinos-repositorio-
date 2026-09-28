@@ -1256,9 +1256,30 @@ defectos encadenados:
    es "ya avisado **a este** técnico". Una marca vieja sin nombre **no** cuenta: en el peor caso el
    técnico recibe la plantilla una vez de más; el otro error es un técnico que no se entera nunca.
 
-> Ojo: al pegarse, el CASO-1003 quedó con rubro `cerrajería` y técnico `lalala` (el rubro vacío se
-> completa, el técnico se reescribe). Es dato de prueba y quedó mezclado: el próximo reclamo de
-> cerrajería del mismo vecino en el 159 va a caer ahí por rubro, y ahora sí le avisa a lalala.
+##### La segunda vuelta de la prueba: tres cosas más
+
+Repetida la prueba con eso desplegado, la plantilla **sí** le llegó a lalala, pero:
+
+1. **Al vecino se le dijo *"el técnico confirmó la visita para hoy, 13/09"*.** Era la confirmación de
+   Dario del 12/9, guardada en el CASO-1003. El filtro por rubro no la frenó porque el 1003 había
+   quedado con el rubro del reclamo nuevo. Ahora `tieneConfirmacionVigente` (en `datos-pg.js`)
+   exige además que la confirmación sea de las **últimas 48 horas** (`confirmacionEsReciente`, en
+   `llegada-tecnico.js`). Daniel: *"no reconoce el tiempo transcurrido"*.
+2. **El reclamo nuevo volvió a caer en el CASO-1003**, ahora por rubro coincidente. Regla nueva en
+   `esOtroCaso`: **un problema nuevo no se mete en un caso de más de un día**, coincida o no el
+   rubro. Un mensaje sin problema propio (un "gracias", "¿ya viene?") sigue yendo al caso.
+3. **El "Ok" del técnico se leyó como del CASO-1004 y le llegó la foto de otro caso.** La memoria de
+   la línea se anotó bajo `541169241157` (como está en la planilla) y la respuesta llegó de
+   `5491169241157` (con el 9). No era la línea compartida: le pasa a **cualquier** técnico cargado
+   sin el 9. `lineas-telefono.js` (`MapaDeLineas`) hace que `global.colasProveedores` normalice la
+   clave sola --últimos 10 dígitos-- en sus treinta usos, en vez de corregir treinta llamadas.
+
+> **Lo que falta, y es lo que pidió Daniel:** que ante un reclamo parecido a un caso abierto de otro
+> día, Marcos **pregunte** *"¿es lo mismo que nos avisó el 12/9 o pasó algo nuevo hoy?"*, y según la
+> respuesta siga el caso viejo (y su técnico) o abra uno nuevo. Lo de arriba es el piso seguro
+> --abrir aparte--, no la respuesta final.
+
+Pruebas: `node pruebas-lineas-telefono.js`.
 
 Pruebas: `node pruebas-caso-nuevo-o-mismo.js` (el caso del 1003, con fechas) y
 `node pruebas-tecnico-avisado.js`.

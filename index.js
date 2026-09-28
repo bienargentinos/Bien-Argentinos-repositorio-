@@ -25,6 +25,10 @@ const {
 // cargan datos.js y no deben tocar esa cola.
 require('./datos').colaPg.iniciar();
 
+// La memoria de cada línea de técnico, con el número normalizado: el mismo celular llega escrito
+// con y sin el 9 según de dónde venga. Ver `lineas-telefono.js`.
+require('./lineas-telefono').mapaDeLineas();
+
 const { descargarMedia, guardarArchivoEstructurado } = require('./media');
 const { evaluarCaso }        = require('./agentes/marcos-caso');
 const { responderVecino }    = require('./agentes/marcos-cara');
@@ -1358,7 +1362,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
         const vPg = await buscarVecinoDeCasoAbierto({ edificio: edificioNombre, nombreTecnico: datosEmisor?.nombre });
         if (vPg?.telefono) {
             console.log(`📌 [PostgreSQL] Vecino activo recuperado para técnico ${datosEmisor?.nombre}: ${vPg.nombre} (${vPg.telefono})`);
-            if (!global.colasProveedores) global.colasProveedores = new Map();
+            require('./lineas-telefono').mapaDeLineas();
             if (!global.colasProveedores.has(telClean)) global.colasProveedores.set(telClean, { vecinoActivo: vPg });
             else global.colasProveedores.get(telClean).vecinoActivo = vPg;
             return vPg;
@@ -1399,7 +1403,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
                     edificio: row.get('edificio') || edificioNombre || ''
                 };
                 console.log(`📌 [Sheets EVENTOS] Vecino activo recuperado para técnico ${datosEmisor?.nombre}: ${vObj.nombre} (${vObj.telefono})`);
-                if (!global.colasProveedores) global.colasProveedores = new Map();
+                require('./lineas-telefono').mapaDeLineas();
                 if (!global.colasProveedores.has(telClean)) global.colasProveedores.set(telClean, { vecinoActivo: vObj });
                 else global.colasProveedores.get(telClean).vecinoActivo = vObj;
                 return vObj;
@@ -1415,7 +1419,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
         const vPg = await buscarUltimoVecinoDeEdificio(edificioNombre);
         if (vPg?.telefono) {
             console.log(`📌 [PostgreSQL] Vecino recuperado para edificio ${edificioNombre}: ${vPg.nombre} (${vPg.telefono})`);
-            if (!global.colasProveedores) global.colasProveedores = new Map();
+            require('./lineas-telefono').mapaDeLineas();
             if (!global.colasProveedores.has(telClean)) global.colasProveedores.set(telClean, { vecinoActivo: vPg });
             else global.colasProveedores.get(telClean).vecinoActivo = vPg;
             return vPg;
@@ -1446,7 +1450,7 @@ async function obtenerVecinoActivoDeProveedor({ telTech, edificioNombre, datosEm
                     edificio: rowVec.get('edificio') || edificioNombre
                 };
                 console.log(`📌 [Sheets VECINOS] Vecino recuperado para edificio ${edificioNombre}: ${vObj.nombre} (${vObj.telefono})`);
-                if (!global.colasProveedores) global.colasProveedores = new Map();
+                require('./lineas-telefono').mapaDeLineas();
                 if (!global.colasProveedores.has(telClean)) global.colasProveedores.set(telClean, { vecinoActivo: vObj });
                 else global.colasProveedores.get(telClean).vecinoActivo = vObj;
                 return vObj;
@@ -1685,7 +1689,7 @@ function validarYSanitizarNombre(nombre) {
     // Si quien escribe es Proveedor, Encargado o Admin, detectar edificio activo real del evento o asignación
     if (datosEmisor.rol === 'proveedor') {
         const telTech = String(from).replace(/\D/g, '');
-        if (!global.colasProveedores) global.colasProveedores = new Map();
+        require('./lineas-telefono').mapaDeLineas();
         if (!global.colasProveedores.has(telTech)) {
             global.colasProveedores.set(telTech, { eventoActivoId: null, edificioActivo: null, colaPendientes: [] });
         }

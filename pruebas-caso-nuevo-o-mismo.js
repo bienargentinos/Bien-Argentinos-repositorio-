@@ -112,7 +112,15 @@ console.log('\n── UN CASO VIEJO SIN RUBRO YA NO SE TRAGA UN RECLAMO NUEVO (2
         decidir({ problema: 'Se rompió la cerradura del SUM', rubro_tecnico: 'cerrajería', casoAbierto: { ...caso1003, fecha: hoy } }), false);
     verificar('sin rubro cargado, se deduce del texto del caso: luz y luz es el mismo caso',
         decidir({ problema: 'Sigue sin luz el pasillo', rubro_tecnico: 'electricidad',
-            casoAbierto: { id_evento: 'CASO-1002', rubro_tecnico: '', fecha: hace16dias, mensaje: 'Se cortó la luz del pasillo' } }), false);
+            casoAbierto: { id_evento: 'CASO-1002', rubro_tecnico: '', fecha: hoy, mensaje: 'Se cortó la luz del pasillo' } }), false);
+    // Segunda vuelta de la prueba: el 1003 había quedado con rubro "cerrajería" y el reclamo nuevo
+    // volvió a caer ahí, con la confirmación de Dario de 16 días antes.
+    verificar('mismo rubro pero de hace 16 días: un problema nuevo abre su propio caso',
+        decidir({ problema: 'Se rompió la cerradura del SUM', rubro_tecnico: 'cerrajería',
+            casoAbierto: { ...caso1003, rubro_tecnico: 'cerrajería' } }), true);
+    verificar('mismo rubro y de hoy: es la conversación en curso',
+        decidir({ problema: 'Sigue sin cerrar la puerta del SUM', rubro_tecnico: 'cerrajería',
+            casoAbierto: { ...caso1003, rubro_tecnico: 'cerrajería', fecha: hoy } }), false);
     verificar('y luz contra cerradura, se separa aunque sea de hoy',
         decidir({ problema: 'Se rompió la cerradura del SUM', rubro_tecnico: 'cerrajería',
             casoAbierto: { id_evento: 'CASO-1002', rubro_tecnico: '', fecha: hoy, mensaje: 'Se cortó la luz del pasillo' } }), true);

@@ -1186,21 +1186,25 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
         const { rubroDelTexto } = require('./rubros');
         const { fechaEnMs } = require('./caso-reciente');
         const UN_DIA_MS = 24 * 60 * 60 * 1000;
+        // Y aunque el rubro coincida: un problema NUEVO no se mete en un caso de hace días.
+        // Segunda vuelta de la misma prueba: el CASO-1003 había quedado con rubro "cerrajería" y el
+        // reclamo volvió a caer ahí, arrastrando la confirmación de Dario del 12/9. Daniel: *"si se
+        // repite el incidente lo ideal es que pregunte si corresponde a la repetición del evento o
+        // sucedió hoy"*. Preguntar es el paso siguiente; hasta entonces, el piso seguro es abrirlo
+        // aparte: un caso de más lo ve el administrador, uno mezclado no lo ve nadie.
         const esOtroCaso = (r) => {
             if (esReserva(r)) return true;                            // una reserva nunca recibe un reclamo
             if (!traeProblemaPropio || !rubroEntrante) return false;  // sin con qué comparar, no se separa
+            const creado = fechaEnMs(r.get('fecha'));
+            if (Number.isFinite(creado) && creado > 0 && (Date.now() - creado) > UN_DIA_MS) {
+                console.log(`🆕 El [${r.get('id_evento')}] es de hace más de un día (${r.get('fecha')}): el reclamo nuevo de "${rubroEntrante}" abre su propio caso en vez de meterse ahí.`);
+                return true;
+            }
             let rubroDelCaso = String(r.get('rubro_tecnico') || '').trim();
             if (!rubroDelCaso) {
                 rubroDelCaso = rubroDelTexto(`${r.get('mensaje') || ''} ${r.get('problema') || ''}`) || '';
             }
-            if (!rubroDelCaso) {
-                const creado = fechaEnMs(r.get('fecha'));
-                const viejo = Number.isFinite(creado) && creado > 0 && (Date.now() - creado) > UN_DIA_MS;
-                if (viejo) {
-                    console.log(`🆕 El [${r.get('id_evento')}] no tiene rubro y es de hace más de un día: "${rubroEntrante}" abre su propio caso en vez de meterse ahí.`);
-                }
-                return viejo;                                         // del mismo día: la conversación en curso
-            }
+            if (!rubroDelCaso) return false;                          // del mismo día y sin rubro: la conversación en curso
             return !coincideRubro(rubroDelCaso, rubroEntrante);
         };
 

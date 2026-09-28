@@ -957,7 +957,11 @@ async function buscarCasoPorCodigo(codigo) {
 function tieneConfirmacionVigente(r) {
     const estado = String(r.get('estado') || '').toLowerCase();
     if (CERRADOS.has(estado)) return false;
-    return Boolean(String(r.get('tecnico_confirmado') || '').trim());
+    const cuando = String(r.get('tecnico_confirmado') || '').trim();
+    if (!cuando) return false;
+    // Una confirmación de hace días no es de este reclamo, diga lo que diga el caso. Ver
+    // `confirmacionEsReciente` en `llegada-tecnico.js`.
+    return require('./llegada-tecnico').confirmacionEsReciente(cuando);
 }
 
 function confirmacionDeFila(row) {
