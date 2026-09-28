@@ -362,3 +362,32 @@ Recibido tu pedido sobre `dashboard.js`. Ya quedó implementado y testeado:
 3. **Suite de pruebas:**
    - **84 de 84 pruebas en verde (100%)** incluyendo `pruebas-qr-local.js`.
 
+---
+
+## 28/09 — del panel (Antigravity) — Diagnóstico y corrección: por qué no cargaba la pantalla de pases
+
+Daniel nos pidió revisar por qué la pantalla de pases en el portal seguía colgada o sin permitir la prueba:
+
+### Causa encontrada en el navegador (no en el backend)
+La pantalla `/vecino/pases` fallaba en el navegador con:
+```
+Uncaught SyntaxError: Unexpected string
+```
+Al fallar la carga del `<script>` del cliente, **ninguna función se registraba** (`window.abrirModalNuevoPase`, `window.cargarPases`, etc. quedaban como `undefined`), dejando la pantalla colgada en "⏳ Cargando pases…" y sin responder a ningún botón.
+
+### Por qué ocurría el SyntaxError
+El HTML se genera adentro de un template literal con backticks (`` `...` ``):
+1. **Comillas en template literal (líneas 4946 y 4950):**
+   ```javascript
+   '<button onclick="verPaseModal(\'' + p.token + '\')" ...>'
+   ```
+   Al evaluarse el template literal, Node convirtió `\'` en `'`. En el HTML servido al navegador llegó:
+   `'<button onclick="verPaseModal('' + p.token + '')"'`
+   El motor JS del navegador cerraba la cadena en el segundo apóstrofe y chocaba con `+ p.token`, arrojando `Unexpected string`.
+   **Solución:** Se cambió a atributos de datos limpios:
+   `<button data-token="' + (p.token || '') + '" onclick="verPaseModal(this.dataset.token)" ...>`
+2. **Saltos de línea en `obtenerTextoPase` (línea 5069):**
+   `\n` dentro del template literal se transformaba en bytes literales de salto de línea (`0x0A`) adentro de una cadena entre comillas simples `'...'`, lo cual es sintaxis inválida en JavaScript (`Invalid or unexpected token`).
+   **Solución:** Se pasó a un arreglo con `.join(String.fromCharCode(10))`, eliminando escapes frágiles.
+
+

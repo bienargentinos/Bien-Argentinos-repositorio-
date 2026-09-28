@@ -4943,11 +4943,11 @@ router.get('/pases', (req, res) => {
                 '<span>' + T.vence + ': <strong>' + fHasta + '</strong></span>' +
               '</div>' +
               '<div style="display:flex;gap:8px">' +
-                '<button onclick="verPaseModal(\'' + p.token + '\')" style="flex:1;height:38px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">' +
+                '<button data-token="' + (p.token || '') + '" onclick="verPaseModal(this.dataset.token)" style="flex:1;height:38px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">' +
                   '<i class="ph ph-qr-code" style="font-size:16px"></i>' +
                   '<span>' + T.verQr + '</span>' +
                 '</button>' +
-                '<button onclick="revocarPase(\'' + p.token + '\')" style="height:38px;padding:0 12px;border:1.5px solid var(--error-borde);border-radius:10px;background:var(--error-fondo);color:var(--error);font-size:12px;font-weight:700;cursor:pointer">' +
+                '<button data-token="' + (p.token || '') + '" onclick="revocarPase(this.dataset.token)" style="height:38px;padding:0 12px;border:1.5px solid var(--error-borde);border-radius:10px;background:var(--error-fondo);color:var(--error);font-size:12px;font-weight:700;cursor:pointer">' +
                   'Revocar' +
                 '</button>' +
               '</div>' +
@@ -5066,7 +5066,14 @@ router.get('/pases', (req, res) => {
         if (!_paseSeleccionado) return '';
         var p = _paseSeleccionado;
         var url = 'https://marcos.bienargentinos.com/porteria/pase/' + encodeURIComponent(p.token);
-        return '¡Hola ' + p.nombre_invitado + '! Te comparto tu Pase QR de acceso para ' + p.edificio + (p.departamento ? ' Depto ' + p.departamento : '') + '.\n\nMostralo frente a la cámara del tótem de entrada al llegar:\n👉 ' + url + '\n\nCódigo: ' + p.token;
+        return [
+          '¡Hola ' + p.nombre_invitado + '! Te comparto tu Pase QR de acceso para ' + p.edificio + (p.departamento ? ' Depto ' + p.departamento : '') + '.',
+          '',
+          'Mostralo frente a la cámara del tótem de entrada al llegar:',
+          '👉 ' + url,
+          '',
+          'Código: ' + p.token
+        ].join(String.fromCharCode(10));
       }
 
       async function compartirPaseWhatsApp() {
