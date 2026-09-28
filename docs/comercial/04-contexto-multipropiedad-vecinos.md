@@ -22,6 +22,9 @@ Muchos propietarios e inquilinos tienen más de una unidad administrada bajo el 
    - Si el vecino dice *"hay olor a gas en el 4° B"*, Marcos entiende que "4" es el piso, no la altura catastral de otro edificio.
 4. **Pregunta Clarificadora ante la Duda:**
    - Si el vecino dice únicamente *"no tengo agua caliente"* y tiene propiedades en dos edificios distintos sin contexto previo que permita deducirlo, Marcos le responde con amabilidad: *"Hola Daniel, ¿este reclamo corresponde a tu departamento de San Patricio 159 o al de San Patricio 270?"*.
+5. **Ni siquiera por atrás se pega un mensaje al caso de otro consorcio** *(agregado el 28/09 por el chat del motor)*:
+   - Cuando Marcos guarda un mensaje sin saber todavía de qué edificio es, solo lo suma a un reclamo abierto de esa persona si todos sus reclamos abiertos son del mismo edificio. Si tiene reclamos abiertos en dos consorcios, no elige ninguno: el mensaje queda en un registro propio y el log lo dice.
+   - Hoy esto casi nunca se ve, porque cuando no sabe el edificio Marcos pregunta antes de guardar (punto 4). Es la red de abajo por si alguna vez el mensaje llega a guardarse igual. Lo cubre la prueba `pruebas-caso-del-telefono.js`.
 
 ---
 
@@ -56,3 +59,7 @@ Muchos propietarios e inquilinos tienen más de una unidad administrada bajo el 
 - **Cuando el vecino nombra una calle donde el administrador tiene dos consorcios y no dice la
   altura, Marcos pregunta.** Es lo correcto, pero conviene aclararlo en una demo: el administrador
   de un solo edificio no ve nunca esa pregunta, y si aparece sin contexto parece que "no entiende".
+- **Si un mensaje llega a guardarse sin edificio y la persona tiene reclamos abiertos en dos
+  consorcios, queda como un registro aparte sin edificio.** No se pega al consorcio equivocado, pero
+  el administrador lo ve suelto en Eventos y tiene que asignarlo él. No hay todavía un aviso que se lo
+  señale.
