@@ -1297,10 +1297,34 @@ que cambió de tema.
   es de "Rivadavia 4" (dijo oficina, confianza 0.9) — abre otro asunto.`
 
 > **No hizo falta tocar `guardarReporte`**: el paso 2 ya exige `rEdif === eBuscado`, así que con el
-> edificio bien resuelto el caso de la casa no se traga el reclamo de la oficina. Lo que queda
-> pendiente ahí es el `|| !eBuscado`: **con el edificio vacío engancha con cualquier caso abierto de
-> ese teléfono.** Hoy no muerde porque cuando no se sabe el edificio se pregunta y se corta antes de
-> guardar, pero es una bomba con el seguro puesto.
+> edificio bien resuelto el caso de la casa no se traga el reclamo de la oficina.
+
+#### El `|| !eBuscado`: la bomba con el seguro puesto, desactivada (28/09)
+
+El paso 2 de `guardarReporte` decía `(rEdif === eBuscado || !eBuscado)`: **con el edificio vacío
+enganchaba con cualquier caso abierto de ese teléfono, en cualquier consorcio.** No mordía porque
+quien llama pregunta el edificio y corta antes de guardar --lo protegía el que llama, no la
+función--, y cualquier llamada nueva sin edificio y sin `id_evento` lo destapaba.
+
+`caso-del-telefono.js` (`casoAbiertoDelTelefono`) decide ahora ese paso:
+
+- **Con edificio**: igual que antes.
+- **Sin edificio y todos sus casos abiertos en un solo edificio**: se engancha al más reciente, como
+  antes. Es el caso normal y cambiarlo partiría conversaciones en dos.
+- **Sin edificio y casos abiertos en dos o más edificios** (el vacío cuenta como uno): **no se
+  elige**, y el log lo dice: `🧨 … escribió sin edificio y tiene casos abiertos en 2 edificios …: NO
+  se engancha a ninguno por teléfono.`
+- `esOtroCaso` (rubro y reserva) se aplica **antes** de contar edificios: un caso que igual no se
+  podría elegir no vuelve ambiguo a otro que sí.
+
+> **Lo que queda igual, a propósito: el paso 4** (la cola de un caso recién cerrado). Solo corre con
+> mensajes **sin problema propio** --un "gracias", una factura-- y con el edificio vacío se queda con
+> la fila más reciente de ese teléfono, abierta o cerrada. Eso es seguir el hilo, que es lo que pidió
+> Daniel, y en Sheets "la más reciente" es de verdad la última agregada. Si alguna vez se ve un
+> "gracias" pegado al consorcio equivocado, es ahí.
+
+Prueba: `node pruebas-caso-del-telefono.js`, con un candado que prohíbe que el comodín vuelva a
+`sheets.js`.
 
 Pruebas: `node pruebas-edificio-del-mensaje.js` y `node pruebas-hilo-del-vecino.js` (esta última no
 llama a Gemini: prueba el mecanismo, con el modelo inyectado).

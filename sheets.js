@@ -1177,20 +1177,23 @@ async function guardarReporte({ edificio, vecino, depto, problema, urgencia, est
             return !coincideRubro(rubroDelCaso, rubroEntrante);
         };
 
-        // 2. Buscar por teléfono y edificio si no se encontró por ID
+        // 2. Buscar por teléfono y edificio si no se encontró por ID.
+        //
+        // Con el edificio vacío esto enganchaba con CUALQUIER caso abierto de ese teléfono, en
+        // cualquier consorcio (`|| !eBuscado`). La decisión vive en `caso-del-telefono.js`: sin
+        // edificio se engancha solo si todos sus casos abiertos son de un mismo edificio.
         if (!rowExistente && telBuscado && telBuscado.length >= 6) {
-            rowExistente = [...rows].reverse().find(r => {
-                const rTel = String(r.get('telefono') || '').replace(/\D/g, '');
-                const rEdif = String(r.get('edificio') || '').toLowerCase();
-                const eBuscado = String(edificio || '').toLowerCase();
-                const rEst = String(r.get('estado') || '').toLowerCase().trim();
-                if (!((rTel === telBuscado || rTel.includes(telBuscado)) && (rEdif === eBuscado || !eBuscado) && rEst !== 'resuelto' && rEst !== 'cerrado')) return false;
-                if (esOtroCaso(r)) {
-                    console.log(`🆕 ${vecino || telBuscado} tiene abierto el [${r.get('id_evento')}] de "${r.get('rubro_tecnico')}", pero esto es de "${rubroEntrante}": se abre un caso nuevo.`);
-                    return false;
-                }
+            const { casoAbiertoDelTelefono } = require('./caso-del-telefono');
+            const esOtroCasoDelVecino = (r) => {
+                if (!esOtroCaso(r)) return false;
+                console.log(`🆕 ${vecino || telBuscado} tiene abierto el [${r.get('id_evento')}] de "${r.get('rubro_tecnico')}", pero esto es de "${rubroEntrante}": se abre un caso nuevo.`);
                 return true;
-            });
+            };
+            const r2 = casoAbiertoDelTelefono(rows, { telBuscado, edificio, esOtroCaso: esOtroCasoDelVecino });
+            if (r2.ambiguo) {
+                console.warn(`🧨 ${vecino || telBuscado} escribió sin edificio y tiene casos abiertos en ${r2.edificios.length} edificios (${r2.edificios.map(e => `"${e || 'sin edificio'}"`).join(', ')}): NO se engancha a ninguno por teléfono.`);
+            }
+            rowExistente = r2.fila;
         }
 
         // 3. Buscar evento activo no resuelto del edificio si escribe otro participante o técnico
