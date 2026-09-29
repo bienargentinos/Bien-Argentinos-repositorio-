@@ -11990,8 +11990,8 @@ router.get('/mi-edificio', async (req, res) => {
           <div style="display:flex;align-items:center;gap:10px">
             <span style="font-size:22px">🏦</span>
             <div>
-              <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Cuenta Bancaria del Consorcio (Cobro de Amenities)</h2>
-              <div style="font-size:12.5px;color:#8595AD;margin-top:2px">Datos de transferencia para señas y aranceles de reservas en el Portal del Vecino.</div>
+              <h2 style="font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0;color:#16233B">Cuenta Bancaria del Consorcio (Expensas y Amenities)</h2>
+              <div style="font-size:12.5px;color:#8595AD;margin-top:2px">Datos de transferencia oficiales del edificio para cobro de expensas, señas y aranceles de reservas.</div>
             </div>
           </div>
           <button type="button" onclick="abrirModalCuentaBancaria('${escJs(cur ? cur.nombre : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.banco || '') : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.titular || '') : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.cuit || '') : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.cbu || '') : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.alias || '') : '')}', '${escJs(cuentaBancariaEdificio ? (cuentaBancariaEdificio.notas || '') : '')}')" style="height:36px;padding:0 16px;border:none;border-radius:9px;background:linear-gradient(180deg,#2E6FC0,#1E5FB4);color:#fff;font-weight:700;font-size:13px;cursor:pointer" class="hv-primary">
@@ -14011,20 +14011,32 @@ router.get('/expensas', async (req, res) => {
 
     const contenido = `
       <div style="animation:mFade .3s ease both;max-width:820px">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px">
           <h1 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0">Expensas</h1>
-          ${d.propios.length > 1 ? `
-            <a href="/admin/set-filtro?edificio=&volver=${encodeURIComponent('/admin/expensas')}"
-              style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#1E5FB4;font-size:13px;font-weight:700;text-decoration:none" class="hv-soft">
-              🏢 Cambiar de edificio
-            </a>` : ''}
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <a href="${edTarget ? `/admin/set-filtro?edificio=${encodeURIComponent(edTarget)}&volver=${encodeURIComponent('/admin/mi-edificio#seccion-cuenta-bancaria')}` : '/admin/mi-edificio#seccion-cuenta-bancaria'}"
+              style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border:1px solid #C9D5E8;border-radius:10px;background:#F0F5FC;color:#1E5FB4;font-size:12.5px;font-weight:700;text-decoration:none" class="hv-soft" title="Ver o configurar CBU y datos bancarios para expensas y amenities">
+              🏦 CBU / Datos Bancarios
+            </a>
+            ${d.propios.length > 1 ? `
+              <a href="/admin/set-filtro?edificio=&volver=${encodeURIComponent('/admin/expensas')}"
+                style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border:1px solid #DCE4F0;border-radius:10px;background:#fff;color:#1E5FB4;font-size:12.5px;font-weight:700;text-decoration:none" class="hv-soft">
+                🏢 Cambiar de edificio
+              </a>` : ''}
+          </div>
         </div>
         <p style="color:#64748B;font-size:15px;margin:0 0 20px">Subí las expensas del mes de <strong>${esc(edTarget || 'tu edificio')}</strong>. <strong style="color:#334259">Marcos queda habilitado para compartirlas</strong> con los vecinos que las pidan por WhatsApp, o para enviarlas cuando vos se lo indiques.</p>
         ${filtroEdificiosHtml}
         <div style="background:#fff;border:1px solid #E7ECF3;border-radius:16px;padding:20px 22px;margin-bottom:26px">
+          ${edTarget ? `
+            <div style="text-align:center;padding:14px 16px;margin:-4px 0 20px;background:linear-gradient(180deg,#F8FAFD 0%,#F1F5F9 100%);border:1.5px solid #D6E4F8;border-radius:12px">
+              <div style="font-size:11px;font-weight:800;color:#64748B;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px">Edificio de destino</div>
+              <h2 style="font-size:clamp(18px, 4.5vw, 24px);font-weight:800;color:#1E5FB4;letter-spacing:-.02em;margin:0;line-height:1.25;word-break:break-word">
+                Destino: ${esc(edTarget)}
+              </h2>
+            </div>` : ''}
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
             <div style="font-size:15px;font-weight:800">Publicar nueva expensa</div>
-            ${edTarget ? `<span style="font-size:12px;font-weight:700;color:#1E5FB4;background:#EAF1FB;padding:4px 10px;border-radius:8px">Destino: 🏢 ${esc(edTarget)}</span>` : ''}
           </div>
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
             <div style="flex:1;min-width:130px">
