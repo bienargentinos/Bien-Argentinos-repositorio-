@@ -496,6 +496,7 @@ async function _initPgSchema() {
             --
             -- DEFAULT TRUE: quien no dijo nada lo ve. Apagarlo es una decision explicita.
             ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS popup_activo BOOLEAN DEFAULT TRUE;
+            ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 
             -- Y el mismo interruptor por EDIFICIO, para que el administrador lo pueda apagar para
             -- todos los suyos sin tocar la preferencia de cada vecino. Son dos decisiones distintas
@@ -626,6 +627,8 @@ async function _initPgSchema() {
             );
 
             ALTER TABLE usuario_unidades ADD COLUMN IF NOT EXISTS timbre_no_molestar_activo BOOLEAN DEFAULT FALSE;
+            ALTER TABLE usuario_unidades ADD COLUMN IF NOT EXISTS nombre_timbre VARCHAR(150);
+            ALTER TABLE vecinos ADD COLUMN IF NOT EXISTS nombre_timbre VARCHAR(150);
 
             CREATE TABLE IF NOT EXISTS asistente_asignaciones (
                 id SERIAL PRIMARY KEY,
@@ -1476,31 +1479,33 @@ async function obtenerUsuarioPorEmail(email) {
 
 async function obtenerUsuarioPorId(id) {
     if (!id) return null;
-    const res = await pool.query('SELECT id, email, nombre, apellido, telefono, idioma, activo, created_at FROM usuarios WHERE id = $1', [id]);
+    const res = await pool.query('SELECT id, email, nombre, apellido, telefono, idioma, avatar_url, activo, created_at FROM usuarios WHERE id = $1', [id]);
     return res.rows[0] || null;
 }
 
 // Datos de contacto del propio usuario, desde "Mi Perfil" del portal del vecino.
 //
-// Solo toca las tres columnas que el vecino puede cambiar de sí mismo. El email NO está: es la
+// Solo toca las columnas que el vecino puede cambiar de sí mismo. El email NO está: es la
 // llave con la que el propietario lo da de alta en la unidad (`/api/buscar-usuario-email`), así
 // que cambiarlo solo lo desvincularía de su propio departamento sin avisarle a nadie.
 //
 // `COALESCE(NULLIF(...))` deja el valor viejo cuando llega vacío: un formulario que manda el campo
 // en blanco no tiene por qué borrar el teléfono que ya estaba.
-async function actualizarPerfilUsuario(usuarioId, { nombre, apellido, telefono, idioma } = {}) {
+async function actualizarPerfilUsuario(usuarioId, { nombre, apellido, telefono, idioma, avatar_url } = {}) {
     if (!usuarioId) throw new Error('Falta el usuario');
     const res = await pool.query(
         `UPDATE usuarios
-            SET nombre   = COALESCE(NULLIF($2, ''), nombre),
-                apellido = COALESCE(NULLIF($3, ''), apellido),
-                telefono = COALESCE(NULLIF($4, ''), telefono),
-                idioma   = COALESCE(NULLIF($5, ''), idioma),
+            SET nombre     = COALESCE(NULLIF($2, ''), nombre),
+                apellido   = COALESCE(NULLIF($3, ''), apellido),
+                telefono   = COALESCE(NULLIF($4, ''), telefono),
+                idioma     = COALESCE(NULLIF($5, ''), idioma),
+                avatar_url = COALESCE(NULLIF($6, ''), avatar_url),
                 updated_at = NOW()
           WHERE id = $1
-      RETURNING id, email, nombre, apellido, telefono, idioma`,
+      RETURNING id, email, nombre, apellido, telefono, idioma, avatar_url`,
         [usuarioId, String(nombre || '').trim(), String(apellido || '').trim(),
-         String(telefono || '').trim(), String(idioma || '').trim()]
+         String(telefono || '').trim(), String(idioma || '').trim(),
+         typeof avatar_url !== 'undefined' ? String(avatar_url || '').trim() : '']
     );
     if (!res.rows[0]) throw new Error('No existe ese usuario');
     return res.rows[0];
@@ -1690,7 +1695,7 @@ async function obtenerUnidadesDeUsuario(usuarioId) {
         SELECT uu.id AS asignacion_id, uu.edificio, uu.departamento, uu.rol,
                uu.fecha_desde, uu.fecha_hasta, uu.timbre_activo,
                uu.timbre_silencio_desde, uu.timbre_silencio_hasta,
-               uu.puede_ver_expensas, uu.estado, uu.notas
+               uu.puede_ver_expensas, uu.estado, uu.notas, uu.nombre_timbre
         FROM usuario_unidades uu
         WHERE uu.usuario_id = $1 AND uu.estado = 'activo'
           AND (uu.fecha_hasta IS NULL OR uu.fecha_hasta >= NOW())
@@ -1823,24 +1828,39 @@ async function reubicarHuesped(turistaUsuarioId, origenEdificio, origenDepto, de
     return resNueva.rows[0];
 }
 
-async function actualizarConfigTimbre(usuarioId, edificio, departamento, timbreActivo, silencioDesde, silencioHasta, noMolestarActivo) {
+async function actualizarConfigTimbre(usuarioId, edificio, departamento, timbreActivo, silencioDesde, silencioHasta, noMolestarActivo, nombreTimbre) {
     if (typeof timbreActivo === 'object' && timbreActivo !== null) {
         const opts = timbreActivo;
         timbreActivo = opts.timbre_activo;
         silencioDesde = opts.timbre_silencio_desde;
         silencioHasta = opts.timbre_silencio_hasta;
         noMolestarActivo = opts.timbre_no_molestar_activo;
+        nombreTimbre = opts.nombre_timbre;
     }
     const res = await pool.query(
         `UPDATE usuario_unidades 
          SET timbre_activo = $1,
              timbre_silencio_desde = $2,
              timbre_silencio_hasta = $3,
-             timbre_no_molestar_activo = $4
+             timbre_no_molestar_activo = $4,
+             nombre_timbre = COALESCE($8, nombre_timbre)
          WHERE usuario_id = $5 AND LOWER(edificio) = LOWER($6) AND LOWER(departamento) = LOWER($7) AND estado = 'activo'
          RETURNING *`,
-        [Boolean(timbreActivo), silencioDesde || '23:00', silencioHasta || '07:30', Boolean(noMolestarActivo), usuarioId, edificio, departamento]
+        [Boolean(timbreActivo), silencioDesde || '23:00', silencioHasta || '07:30', Boolean(noMolestarActivo), usuarioId, edificio, departamento, typeof nombreTimbre !== 'undefined' ? String(nombreTimbre || '').trim() : null]
     );
+
+    // Reflejar también en tabla vecinos para que la consulta de portería lo lea directamente
+    if (typeof nombreTimbre !== 'undefined') {
+        try {
+            await pool.query(
+                `UPDATE vecinos
+                 SET nombre_timbre = $1
+                 WHERE LOWER(edificio) = LOWER($2) AND (LOWER(departamento) = LOWER($3) OR LOWER(unidad) = LOWER($3))`,
+                [String(nombreTimbre || '').trim(), edificio, departamento]
+            );
+        } catch (_) {}
+    }
+
     return res.rows[0] || null;
 }
 

@@ -374,12 +374,15 @@ router.get('/:edificio', async (req, res) => {
   // Si no hay vecinos cargados todavía, generar grilla estándar por defecto
   let unidades = [];
   if (vecinos.length > 0) {
-    unidades = vecinos.map(v => ({
-      depto: v.departamento || v.unidad || 'UF',
-      nombre: v.nombre || 'Vecino',
-      telefono: v.telefono || '',
-      id: v.id || 0
-    }));
+    unidades = vecinos.map(v => {
+      const rotulo = (v.nombre_timbre && v.nombre_timbre.trim()) || v.nombre || 'Vecino';
+      return {
+        depto: v.departamento || v.unidad || 'UF',
+        nombre: rotulo,
+        telefono: v.telefono || '',
+        id: v.id || 0
+      };
+    });
   } else {
     const pisos = ['PB', '1°', '2°', '3°', '4°', '5°', '6°', '7°', '8°'];
     const letras = ['A', 'B'];

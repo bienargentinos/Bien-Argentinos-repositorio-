@@ -81,7 +81,9 @@ function sesionDemoVecino(rol = 'propietario', telefono = '', hoy = new Date()) 
         timbre_silencio_desde: '23:00',
         timbre_silencio_hasta: '07:30',
         timbre_no_molestar_activo: false,
-        unidades: UNIDADES_PROPIETARIO.map(u => ({ ...u })),
+        avatar_url: '',
+        nombre_timbre: 'Oficina Portas',
+        unidades: UNIDADES_PROPIETARIO.map(u => ({ ...u, nombre_timbre: 'Oficina Portas' })),
     };
 }
 

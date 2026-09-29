@@ -177,6 +177,27 @@ const uploadComprobante = multer({
   limits: { fileSize: 15 * 1024 * 1024 }
 });
 
+// Almacenamiento de avatares / fotos de perfil de vecinos
+const storageAvatares = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = path.join(__dirname, 'almacenamiento', 'avatares');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const usr = (req.session && req.session.vecino && req.session.vecino.usuario_id) || 'usr';
+    const name = 'avatar_' + usr + '_' + Date.now() + ext;
+    cb(null, name);
+  }
+});
+const uploadAvatar = multer({
+  storage: storageAvatares,
+  limits: { fileSize: 8 * 1024 * 1024 }
+});
+
 // Intentar cargar adaptadores de datos
 let datosPg = null;
 try {
@@ -1322,8 +1343,8 @@ ${jsPopup}
   <header style="background:linear-gradient(180deg,var(--marca) 0%,#1A4A8F 100%);color:#ffffff;padding:16px 16px 20px;position:sticky;top:0;z-index:40;box-shadow:0 4px 15px rgba(15,50,106,.2)">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
       <div style="display:flex;align-items:center;gap:12px">
-        <a href="/vecino/perfil" title="Mi Perfil" style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.4);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;text-decoration:none;flex-shrink:0">
-          ${iniciales(v)}
+        <a href="/vecino" title="Inicio" style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.4);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;text-decoration:none;flex-shrink:0;overflow:hidden">
+          ${v.avatar_url ? `<img src="${esc(v.avatar_url)}" alt="Avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : iniciales(v)}
         </a>
         <div>
           <div style="display:flex;align-items:center;gap:6px">
@@ -2667,6 +2688,8 @@ router.post('/api/login-email', async (req, res) => {
         timbre_activo: uActiva.timbre_activo !== false,
         timbre_silencio_desde: uActiva.timbre_silencio_desde || '23:00',
         timbre_silencio_hasta: uActiva.timbre_silencio_hasta || '07:30',
+        avatar_url: u.avatar_url || '',
+        nombre_timbre: uActiva.nombre_timbre || '',
         unidades: unidades.length > 0 ? unidades : [uActiva]
       };
     }
@@ -2697,6 +2720,8 @@ router.post('/api/registro-email', async (req, res) => {
         apellido: u.apellido,
         email: u.email,
         telefono: u.telefono,
+        avatar_url: '',
+        nombre_timbre: '',
         idioma: idiomaDelNavegador(req.headers['accept-language']),
         edificio: '',
         departamento: '',
@@ -2734,6 +2759,7 @@ router.post('/api/cambiar-unidad', async (req, res) => {
         v.timbre_activo = uEncontrada.timbre_activo !== false;
         v.timbre_silencio_desde = uEncontrada.timbre_silencio_desde || '23:00';
         v.timbre_silencio_hasta = uEncontrada.timbre_silencio_hasta || '07:30';
+        v.nombre_timbre = uEncontrada.nombre_timbre || '';
       }
     }
     res.json({ ok: true });
@@ -2876,13 +2902,27 @@ router.get('/perfil', (req, res) => {
 
     <!-- IDENTIDAD -->
     <div class="card" style="padding:18px 16px;background:#fff;border-radius:18px;margin-bottom:14px;display:flex;align-items:center;gap:14px">
-      <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--marca),var(--acento));color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900;flex-shrink:0">${iniciales(v)}</div>
-      <div style="min-width:0">
+      <div style="position:relative;width:60px;height:60px;flex-shrink:0;cursor:pointer" onclick="document.getElementById('inp-avatar-upload').click()" title="Cambiar foto de perfil">
+        <div id="avatar-preview-box" style="width:100%;height:100%;border-radius:50%;overflow:hidden;background:linear-gradient(135deg,var(--marca),var(--acento));color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;box-shadow:0 3px 10px rgba(15,50,106,.2)">
+          ${v.avatar_url ? `<img id="avatar-img-elem" src="${esc(v.avatar_url)}" alt="Foto" style="width:100%;height:100%;object-fit:cover">` : `<span id="avatar-ini-elem">${iniciales(v)}</span>`}
+        </div>
+        <div style="position:absolute;bottom:-2px;right:-2px;width:24px;height:24px;border-radius:50%;background:var(--marca);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.25)">
+          <i class="ph ph-camera"></i>
+        </div>
+      </div>
+      <input type="file" id="inp-avatar-upload" accept="image/*" style="display:none" onchange="subirAvatarFoto(this)">
+      <div style="min-width:0;flex:1">
         <div style="font-size:16.5px;font-weight:900;color:var(--texto);letter-spacing:-.01em">${esc(nombreCompleto(v))}</div>
         <div style="font-size:12px;color:var(--texto-suave);word-break:break-all">${esc(v.email || 'Sin email registrado')}</div>
-        <div style="margin-top:5px">${etiquetaRolHtml(v.rol, t)}</div>
+        <div style="margin-top:5px;display:flex;align-items:center;gap:10px">
+          ${etiquetaRolHtml(v.rol, t)}
+          <button type="button" onclick="document.getElementById('inp-avatar-upload').click()" style="background:none;border:none;color:var(--acento);font-size:12px;font-weight:800;cursor:pointer;padding:0;text-decoration:underline">
+            Cambiar foto
+          </button>
+        </div>
       </div>
     </div>
+    <div id="avatar-upload-feedback" style="display:none;margin-top:-6px;margin-bottom:12px;padding:8px 12px;border-radius:10px;font-size:12px;font-weight:700"></div>
 
     ${esDemo ? `
     <div style="padding:11px 13px;border-radius:12px;background:var(--aviso-fondo);border:1px solid var(--aviso-borde);font-size:12px;color:var(--aviso);margin-bottom:14px;line-height:1.45">
@@ -3055,6 +3095,55 @@ router.get('/perfil', (req, res) => {
         btn.disabled = false;
       }
 
+      async function subirAvatarFoto(inp) {
+        if (!inp.files || !inp.files[0]) return;
+        var file = inp.files[0];
+        var fd = new FormData();
+        fd.append('avatar', file);
+        var fb = document.getElementById('avatar-upload-feedback');
+        if (fb) {
+          fb.style.display = 'block';
+          fb.style.background = '#EBF3FC';
+          fb.style.border = '1px solid #93C5FD';
+          fb.style.color = '#1E40AF';
+          fb.innerText = 'Subiendo imagen...';
+        }
+        try {
+          var res = await fetch('/vecino/api/perfil/avatar', {
+            method: 'POST',
+            body: fd
+          });
+          var data = await res.json();
+          if (data.ok && data.avatar_url) {
+            var box = document.getElementById('avatar-preview-box');
+            if (box) {
+              box.innerHTML = '<img id="avatar-img-elem" src="' + data.avatar_url + '" alt="Foto" style="width:100%;height:100%;object-fit:cover">';
+            }
+            if (fb) {
+              fb.style.background = '#DCFCE7';
+              fb.style.border = '1px solid #86EFAC';
+              fb.style.color = '#15803D';
+              fb.innerText = '🟢 ¡Foto de perfil actualizada!';
+              setTimeout(function(){ fb.style.display = 'none'; }, 3000);
+            }
+          } else {
+            if (fb) {
+              fb.style.background = '#FEE2E2';
+              fb.style.border = '1px solid #FCA5A5';
+              fb.style.color = '#B91C1C';
+              fb.innerText = data.error || 'No se pudo subir la foto.';
+            }
+          }
+        } catch (e) {
+          if (fb) {
+            fb.style.background = '#FEE2E2';
+            fb.style.border = '1px solid #FCA5A5';
+            fb.style.color = '#B91C1C';
+            fb.innerText = 'Error al subir la imagen: ' + e.message;
+          }
+        }
+      }
+
       async function usarUnidad(edificio, departamento) {
         try {
           var res = await fetch('/vecino/api/cambiar-unidad', {
@@ -3106,6 +3195,36 @@ router.post('/api/perfil', async (req, res) => {
   } catch (err) {
     console.error('Error en /vecino/api/perfil:', err);
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Actualizar foto de perfil (avatar)
+router.post('/api/perfil/avatar', uploadAvatar.single('avatar'), async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    let avatarUrl = '';
+
+    if (req.file) {
+      avatarUrl = '/archivos/avatares/' + req.file.filename;
+    } else if (req.body && req.body.avatar_url) {
+      avatarUrl = String(req.body.avatar_url || '').trim();
+    } else {
+      return res.status(400).json({ ok: false, error: 'No se envió ninguna imagen' });
+    }
+
+    if (req.session && req.session.vecino) {
+      req.session.vecino.avatar_url = avatarUrl;
+    }
+
+    if (v.usuario_id && !v.demo) {
+      const { actualizarPerfilUsuario } = require('./db-pg');
+      await actualizarPerfilUsuario(v.usuario_id, { avatar_url: avatarUrl });
+    }
+
+    return res.json({ ok: true, avatar_url: avatarUrl, mensaje: 'Foto de perfil actualizada' });
+  } catch (err) {
+    console.error('Error en /vecino/api/perfil/avatar:', err);
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -3805,6 +3924,21 @@ router.get('/', async (req, res) => {
             <input type="time" id="timbre-silencio-hasta" class="inp-time-timbre" value="${esc(v.timbre_silencio_hasta || '07:30')}" onchange="guardarConfigTimbre()">
           </div>
         </div>
+
+        <!-- Rótulo / Nombre en el Timbre Digital -->
+        <div style="border-top:1px solid var(--superficie-3);padding-top:10px;margin-top:10px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:var(--texto-medio);margin-bottom:6px">
+            <i class="ph ph-tag" style="font-size:14px;color:var(--marca)"></i>
+            <span>Rótulo en el Timbre Digital (opcional)</span>
+          </label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="timbre-nombre-etiqueta" class="inp-rotulo-timbre" value="${esc(v.nombre_timbre || '')}" placeholder="Ej: Oficina Portas, Odontología Richi..." style="flex:1;height:38px;border-radius:10px;border:1.5px solid var(--borde);padding:0 12px;font-size:13px;background:var(--superficie-2);color:var(--texto);outline:none" onchange="guardarConfigTimbre()">
+            <button type="button" onclick="guardarConfigTimbre()" style="padding:0 14px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12.5px;font-weight:800;cursor:pointer;flex-shrink:0">Guardar</button>
+          </div>
+          <div style="font-size:11px;color:var(--texto-suave);margin-top:4px;line-height:1.35">
+            Se mostrará en la pantalla del tótem o portería de entrada debajo de tu departamento.
+          </div>
+        </div>
       </div>
 
       <div id="timbre-guardado-msg" style="display:none;font-size:11.5px;color:var(--ok);font-weight:800;margin-top:8px;text-align:right">
@@ -4225,6 +4359,9 @@ router.get('/', async (req, res) => {
           }
         }
 
+        const inpEtiqueta = document.getElementById('timbre-nombre-etiqueta');
+        const nombreEtiqueta = inpEtiqueta ? inpEtiqueta.value.trim() : undefined;
+
         try {
           const res = await fetch('/vecino/api/timbre-config', {
             method: 'POST',
@@ -4233,7 +4370,8 @@ router.get('/', async (req, res) => {
               timbre_activo: activo,
               timbre_no_molestar_activo: nmActivo,
               timbre_silencio_desde: desde,
-              timbre_silencio_hasta: hasta
+              timbre_silencio_hasta: hasta,
+              nombre_timbre: nombreEtiqueta
             })
           });
           const data = await res.json();
@@ -5699,7 +5837,7 @@ router.post('/api/puerta/abrir', async (req, res) => {
 router.post('/api/timbre-config', async (req, res) => {
   try {
     const v = getVecinoSession(req);
-    const { timbre_activo, timbre_silencio_desde, timbre_silencio_hasta, timbre_no_molestar_activo } = req.body || {};
+    const { timbre_activo, timbre_silencio_desde, timbre_silencio_hasta, timbre_no_molestar_activo, nombre_timbre } = req.body || {};
 
     // Actualizar en sesión activa
     if (req.session && req.session.vecino) {
@@ -5707,6 +5845,7 @@ router.post('/api/timbre-config', async (req, res) => {
       if (typeof timbre_no_molestar_activo !== 'undefined') req.session.vecino.timbre_no_molestar_activo = Boolean(timbre_no_molestar_activo);
       if (timbre_silencio_desde) req.session.vecino.timbre_silencio_desde = timbre_silencio_desde;
       if (timbre_silencio_hasta) req.session.vecino.timbre_silencio_hasta = timbre_silencio_hasta;
+      if (typeof nombre_timbre !== 'undefined') req.session.vecino.nombre_timbre = String(nombre_timbre || '').trim();
     }
 
     // Persistir en PostgreSQL si el usuario tiene ID
@@ -5716,7 +5855,8 @@ router.post('/api/timbre-config', async (req, res) => {
         timbre_activo: Boolean(timbre_activo),
         timbre_silencio_desde,
         timbre_silencio_hasta,
-        timbre_no_molestar_activo: Boolean(timbre_no_molestar_activo)
+        timbre_no_molestar_activo: Boolean(timbre_no_molestar_activo),
+        nombre_timbre: typeof nombre_timbre !== 'undefined' ? String(nombre_timbre || '').trim() : undefined
       });
     }
 
