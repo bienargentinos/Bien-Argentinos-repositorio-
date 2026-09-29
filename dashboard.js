@@ -233,6 +233,65 @@ router.use(express.json());
 // Endpoint para dibujar códigos QR localmente (sin servicios externos)
 router.get('/qr.png', manejadorQrPorDato);
 
+// ── PWA MANIFEST DEL PANEL DASH ──────────────────────────────────────────
+router.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
+  res.type('application/manifest+json');
+  res.send(JSON.stringify({
+    id: '/admin',
+    name: 'Marcos IA · Panel Consorcio',
+    short_name: 'Marcos Dash',
+    description: 'Panel de Administración y Gestión de Consorcios con Marcos IA',
+    start_url: '/admin',
+    scope: '/admin',
+    display: 'standalone',
+    display_override: ['standalone', 'window-controls-overlay', 'minimal-ui'],
+    background_color: '#F8FAFD',
+    theme_color: '#0F326A',
+    orientation: 'any',
+    icons: [
+      {
+        src: '/admin/assets/logo.png',
+        sizes: '192x192',
+        type: 'image/png',
+        purpose: 'any maskable'
+      },
+      {
+        src: '/admin/assets/logo.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'any maskable'
+      }
+    ],
+    shortcuts: [
+      {
+        name: 'Resumen Consorcios',
+        short_name: 'Resumen',
+        url: '/admin',
+        icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+      },
+      {
+        name: 'Eventos y Reclamos',
+        short_name: 'Eventos',
+        url: '/admin/eventos',
+        icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+      },
+      {
+        name: 'Expensas',
+        short_name: 'Expensas',
+        url: '/admin/expensas',
+        icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+      },
+      {
+        name: 'Mi Edificio',
+        short_name: 'Mi Edificio',
+        url: '/admin/mi-edificio',
+        icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+      }
+    ]
+  }));
+});
+
+
 /* ===================================================================
  * CLIENTE GOOGLE SHEETS
  * =================================================================== */
@@ -9845,6 +9904,13 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(cargarAuditoriaAccesos, 15000); // Polling en vivo cada 15 seg
   }
 });
+
+// Registro de Service Worker para PWA del Dash
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/sw.js').catch(function(e) { console.warn('SW Dash:', e); });
+  });
+}
 `;
 
 /* ===================================================================
@@ -10230,7 +10296,8 @@ function shell(req, d, activeKey, contenido) {
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Marcos IA">
+<meta name="apple-mobile-web-app-title" content="Marcos Dash">
+<link rel="manifest" href="/admin/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/admin/assets/logo.png">
 <link rel="icon" type="image/png" href="/admin/assets/logo.png">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
