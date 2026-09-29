@@ -1850,6 +1850,8 @@ new QRCode(document.getElementById("qrcode"), {
 </html>`);
 });
 
+router.registrarAperturaPuerta = registrarAperturaPuerta;
+router.encontrarLlamadaActiva = encontrarLlamadaActiva;
 module.exports = router;
 
 // Para `pruebas-porteria-edificio.js`: a quién le corresponde una llamada y de qué edificio es una

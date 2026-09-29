@@ -3664,48 +3664,71 @@ router.get('/', async (req, res) => {
   }
 
   const tarjetaSuperior = (v.puede_ver_expensas !== false) ? `
-    <!-- Tarjeta Principal de Expensas (Estilo Mercado Pago) -->
-    <div class="card" style="padding:18px;background:#ffffff;margin-bottom:14px;box-shadow:0 4px 18px rgba(15,23,42,.06);border-radius:20px">
+    <!-- Tarjeta Principal de Expensas (Estilo Mercado Pago con Privacidad y Minimizar) -->
+    <div class="card" id="tarjeta-expensas" style="padding:18px;background:#ffffff;margin-bottom:14px;box-shadow:0 4px 18px rgba(15,23,42,.06);border-radius:20px;transition:all .3s ease">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid var(--superficie-3);padding-bottom:10px">
         <div style="display:flex;gap:16px;font-size:13px;font-weight:800">
           <span style="color:var(--marca);border-bottom:2px solid #0F326A;padding-bottom:8px">${esc(t('inicio.expensasTab'))}</span>
           <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/amenities'">${esc(t('inicio.reservasTab'))}</span>
           <span style="color:var(--texto-tenue);cursor:pointer" onclick="location.href='/vecino/reclamos'">${esc(t('inicio.reclamosTab'))}</span>
         </div>
-        ${expensa && expensa.periodo ? `<span style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--superficie-3);color:var(--texto-medio);border:1px solid var(--borde)">${esc(expensa.periodo)}</span>` : ''}
-      </div>
-
-      <div style="margin-bottom:16px">
-        <!-- LA LIQUIDACIÓN GENERAL NO MUESTRA NINGÚN MONTO.
-             Su total son los gastos del consorcio --salió $1.284.650,40-- y nadie paga eso. Primero
-             se le puso otra etiqueta; Daniel lo resolvió mejor: el número no hace falta acá. El
-             detalle de gastos ya está adentro del documento que comparte la Administración, así que
-             mostrarlo suelto arriba de la pantalla solo agrega una cifra grande que no es de nadie.
-             El dato se sigue guardando: lo que cambia es que no se le muestra al vecino. -->
-        ${expensa && expensa.esDelEdificio ? `
-        <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('expensa.liquidacionEdificio'))}</div>
-        <div style="font-size:13.5px;color:var(--texto-medio);line-height:1.45;margin-top:4px">${esc(t('expensa.delEdificio'))}</div>
-        ` : expensa && expensa.monto !== null ? `
-        <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('inicio.totalAPagar'))}</div>
-        <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
-          <div style="font-size:32px;font-weight:900;color:var(--texto);letter-spacing:-.03em">${esc(montoEnPesos(expensa.monto))}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${expensa && expensa.periodo ? `<span style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--superficie-3);color:var(--texto-medio);border:1px solid var(--borde)">${esc(expensa.periodo)}</span>` : ''}
+          <button type="button" id="btn-minimizar-expensa" onclick="toggleMinimizarExpensa()" title="Minimizar / Expandir expensas" style="background:var(--superficie-2);border:1px solid var(--borde);border-radius:8px;padding:3px 7px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;color:var(--texto-medio);font-size:13px;line-height:1">
+            <i class="ph ph-caret-up" id="icono-minimizar-expensa"></i>
+          </button>
         </div>
-        ${expensa.vencimiento ? `<div style="font-size:12px;color:var(--texto-suave);margin-top:2px">${esc(t('expensa.vence', { fecha: new Date(expensa.vencimiento).toLocaleDateString('es-AR') }))}</div>` : ''}
-        ` : `
-        <div style="font-size:13.5px;color:var(--texto-medio);line-height:1.45">${esc(t('expensa.sinCargar'))}</div>
-        `}
       </div>
 
-      <!-- Acciones de la Expensa -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:var(--marca);color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(15,50,106,.25);text-decoration:none">
-          <i class="ph ph-credit-card" style="font-size:18px"></i>
-          <span>${esc(t('inicio.pagarExpensa'))}</span>
-        </a>
-        <a href="${expensa && enlaceDeExpensa(expensa) ? enlaceDeExpensa(expensa) : '/vecino/expensas'}"${expensa && enlaceDeExpensa(expensa) ? ' target="_blank" rel="noopener"' : ''} style="height:44px;border-radius:12px;background:var(--superficie-3);color:var(--marca);font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--borde);text-decoration:none">
-          <i class="ph ph-${expensa && enlaceDeExpensa(expensa) ? 'download-simple' : 'receipt'}" style="font-size:18px"></i>
-          <span>${esc(expensa && enlaceDeExpensa(expensa) ? t('expensa.descargar') : t('inicio.verRecibo'))}</span>
-        </a>
+      <!-- Contenedor Colapsable de Expensas -->
+      <div id="cuerpo-tarjeta-expensa">
+        <div style="margin-bottom:16px">
+          <!-- LA LIQUIDACIÓN GENERAL NO MUESTRA NINGÚN MONTO.
+               Su total son los gastos del consorcio --salió $1.284.650,40-- y nadie paga eso. Primero
+               se le puso otra etiqueta; Daniel lo resolvió mejor: el número no hace falta acá. El
+               detalle de gastos ya está adentro del documento que comparte la Administración, así que
+               mostrarlo suelto arriba de la pantalla solo agrega una cifra grande que no es de nadie.
+               El dato se sigue guardando: lo que cambia es que no se le muestra al vecino. -->
+          ${expensa && expensa.esDelEdificio ? `
+          <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('expensa.liquidacionEdificio'))}</div>
+          <div style="font-size:13.5px;color:var(--texto-medio);line-height:1.45;margin-top:4px">${esc(t('expensa.delEdificio'))}</div>
+          ` : expensa && expensa.monto !== null ? `
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:12px;font-weight:700;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em">${esc(t('inicio.totalAPagar'))}</div>
+            <button type="button" id="btn-ojo-expensa" onclick="toggleOjoExpensa()" title="Ocultar o mostrar importe" style="background:none;border:none;cursor:pointer;color:var(--texto-suave);display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 6px;border-radius:6px">
+              <i class="ph ph-eye" id="icono-ojo-expensa" style="font-size:16px"></i>
+              <span id="texto-ojo-expensa" style="font-weight:700;font-size:11px">Ocultar</span>
+            </button>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
+            <div id="monto-expensa-visible" style="font-size:32px;font-weight:900;color:var(--texto);letter-spacing:-.03em">${esc(montoEnPesos(expensa.monto))}</div>
+            <div id="monto-expensa-oculto" style="display:none;font-size:28px;font-weight:900;color:var(--texto-tenue);letter-spacing:3px">$ ••••••••</div>
+          </div>
+          ${expensa.vencimiento ? `<div style="font-size:12px;color:var(--texto-suave);margin-top:2px">${esc(t('expensa.vence', { fecha: new Date(expensa.vencimiento).toLocaleDateString('es-AR') }))}</div>` : ''}
+          ` : `
+          <div style="font-size:13.5px;color:var(--texto-medio);line-height:1.45">${esc(t('expensa.sinCargar'))}</div>
+          `}
+        </div>
+
+        <!-- Acciones de la Expensa -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <a href="/vecino/expensas" style="height:44px;border-radius:12px;background:var(--marca);color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(15,50,106,.25);text-decoration:none">
+            <i class="ph ph-credit-card" style="font-size:18px"></i>
+            <span>${esc(t('inicio.pagarExpensa'))}</span>
+          </a>
+          <a href="${expensa && enlaceDeExpensa(expensa) ? enlaceDeExpensa(expensa) : '/vecino/expensas'}"${expensa && enlaceDeExpensa(expensa) ? ' target="_blank" rel="noopener"' : ''} style="height:44px;border-radius:12px;background:var(--superficie-3);color:var(--marca);font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--borde);text-decoration:none">
+            <i class="ph ph-${expensa && enlaceDeExpensa(expensa) ? 'download-simple' : 'receipt'}" style="font-size:18px"></i>
+            <span>${esc(expensa && enlaceDeExpensa(expensa) ? t('expensa.descargar') : t('inicio.verRecibo'))}</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- Resumen cuando la tarjeta está minimizada -->
+      <div id="resumen-expensa-minimizado" style="display:none;align-items:center;justify-content:space-between;padding:4px 0;cursor:pointer" onclick="toggleMinimizarExpensa()">
+        <span style="font-size:12.5px;color:var(--texto-medio);font-weight:700">Tarjeta de expensas minimizada</span>
+        <span style="font-size:12px;color:var(--marca);font-weight:800;display:flex;align-items:center;gap:4px">
+          Ver detalle <i class="ph ph-caret-down"></i>
+        </span>
       </div>
     </div>
   ` : `
@@ -3802,10 +3825,7 @@ router.get('/', async (req, res) => {
   // hacer algo con él.
 
   const content = `
-    ${tarjetaSuperior}
-    ${tarjetaTimbre}
-
-    <!-- Servicios Rápidos en Fila (Estilo Mercado Pago Icons) -->
+    <!-- Bloque 1: Accesos Directos (Debajo de la franja azul del header) -->
     <div style="margin-bottom:14px">
       <div style="font-size:13.5px;font-weight:800;color:var(--texto);margin-bottom:10px">${esc(t('inicio.accesosDirectos'))}</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(68px,1fr));gap:8px">
@@ -3856,6 +3876,51 @@ router.get('/', async (req, res) => {
       </div>
     </div>
 
+    <!-- Bloque 2: Apertura de Puerta con Deslizador (Slide to Unlock) -->
+    <div class="card" style="padding:16px 18px;background:#ffffff;margin-bottom:14px;border-radius:20px;border:1px solid var(--borde);box-shadow:0 4px 14px rgba(15,23,42,.04)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:12px;background:rgba(2,132,199,0.12);color:#0284C7;display:flex;align-items:center;justify-content:center;font-size:20px">
+            <i class="ph ph-door-open"></i>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:900;color:var(--texto);line-height:1.2">Puerta de Calle</div>
+            <div style="font-size:11.5px;color:var(--texto-suave)">Acceso principal · ${esc(v.edificio || 'Edificio')}</div>
+          </div>
+        </div>
+        <span id="slide-puerta-estado" style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:#F1F5F9;color:var(--texto-medio);border:1px solid #E2E8F0">
+          Entrada
+        </span>
+      </div>
+
+      <div id="slide-puerta-track" style="position:relative;width:100%;height:52px;background:#F1F5F9;border-radius:999px;border:1px solid #CBD5E1;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:none;display:flex;align-items:center">
+        <!-- Barra de relleno de avance -->
+        <div id="slide-puerta-fill" style="position:absolute;left:0;top:0;bottom:0;width:0px;background:linear-gradient(90deg,#0284C7,#10B981);border-radius:999px;opacity:0.35;pointer-events:none"></div>
+        
+        <!-- Texto explicativo con flechitas animadas -->
+        <div id="slide-puerta-label" style="width:100%;text-align:center;font-size:12.5px;font-weight:800;color:#64748B;pointer-events:none;padding-left:36px;padding-right:16px;display:flex;align-items:center;justify-content:center;gap:6px">
+          <span>Deslizá para abrir</span>
+          <i class="ph ph-caret-double-right" style="color:#0284C7;font-size:14px"></i>
+        </div>
+
+        <!-- Botón deslizable (Thumb) -->
+        <div id="slide-puerta-thumb" style="position:absolute;left:3px;top:3px;width:46px;height:46px;border-radius:50%;background:#0F326A;color:#ffffff;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:grab;box-shadow:0 3px 10px rgba(15,50,106,.3);z-index:2;touch-action:none">
+          <i class="ph ph-lock-key-open" id="slide-puerta-icono"></i>
+        </div>
+      </div>
+
+      <div id="slide-puerta-msg" style="display:none;margin-top:8px;font-size:12px;font-weight:800;text-align:center;color:#15803D">
+        🟢 ¡Puerta de calle abierta! Ingreso habilitado
+      </div>
+    </div>
+
+    <!-- Bloque 3: Tarjeta de Expensas (con privacidad de monto y opción de minimizar) -->
+    ${tarjetaSuperior}
+
+    <!-- Bloque 4: Mi Timbre Digital & Modo No Molestar -->
+    ${tarjetaTimbre}
+
+    <!-- Bloque 5: PWA, Banner Asistente Marcos IA, Avisos y Novedades -->
     <!-- Tarjeta Instalar App en el Celular -->
     <div id="card-instalar-pwa" class="card card-touch" style="padding:14px 16px;background:linear-gradient(135deg,var(--marca),var(--acento));color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;box-shadow:0 4px 14px rgba(15,50,106,.2);border-radius:18px" onclick="instalarPwa()">
       <div style="display:flex;align-items:center;gap:12px">
@@ -3885,19 +3950,8 @@ router.get('/', async (req, res) => {
     </div>
 
     <!-- AVISOS DEL EDIFICIO -->
-    <!--
-      Antes acá había tres filas fijas --Ascensor, Bombas, Portón-- que decían "En servicio normal"
-      SIEMPRE, en todos los edificios. Esa es una afirmación que no se puede respaldar nunca: que
-      no haya un reclamo abierto no prueba que el ascensor ande.
-
-      El vecino que sube después de leer "en servicio normal" y encuentra el ascensor parado no
-      vuelve a mirar esta sección. Y una sección que nadie mira es peor que no tenerla.
-
-      Ahora el bloque SOLO aparece cuando hay algo que decir, y dice únicamente lo que se sabe: un
-      aviso publicado por alguien del edificio, o un reclamo abierto. Sin novedades no se renderiza
-      nada -- el silencio es honesto, "todo normal" es una promesa.
-    -->
     ${avisosHtml}
+
     <!-- Novedades del Consorcio -->
     <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:13.5px;font-weight:900;color:var(--texto)">${esc(t('inicio.novedades'))}</span>
@@ -3915,6 +3969,218 @@ router.get('/', async (req, res) => {
 
     <!-- Scripts de Interacción Home -->
     <script>
+      // 1. Privacidad y Minimización de Tarjeta de Expensas
+      function initExpensaStorage() {
+        try {
+          var ocultar = localStorage.getItem('marcos_ocultar_monto_expensa') === 'true';
+          if (ocultar) aplicarOcultarMonto(true);
+          var minimizar = localStorage.getItem('marcos_expensa_minimizada') === 'true';
+          if (minimizar) aplicarMinimizarExpensa(true);
+        } catch (_) {}
+      }
+
+      function aplicarOcultarMonto(ocultar) {
+        var vis = document.getElementById('monto-expensa-visible');
+        var ocl = document.getElementById('monto-expensa-oculto');
+        var ico = document.getElementById('icono-ojo-expensa');
+        var txt = document.getElementById('texto-ojo-expensa');
+        if (!vis || !ocl) return;
+        if (ocultar) {
+          vis.style.display = 'none';
+          ocl.style.display = 'block';
+          if (ico) ico.className = 'ph ph-eye-slash';
+          if (txt) txt.innerText = 'Mostrar';
+        } else {
+          vis.style.display = 'block';
+          ocl.style.display = 'none';
+          if (ico) ico.className = 'ph ph-eye';
+          if (txt) txt.innerText = 'Ocultar';
+        }
+      }
+
+      function toggleOjoExpensa() {
+        try {
+          var actual = localStorage.getItem('marcos_ocultar_monto_expensa') === 'true';
+          var nuevo = !actual;
+          localStorage.setItem('marcos_ocultar_monto_expensa', nuevo ? 'true' : 'false');
+          aplicarOcultarMonto(nuevo);
+        } catch (_) {}
+      }
+
+      function aplicarMinimizarExpensa(min) {
+        var cuerpo = document.getElementById('cuerpo-tarjeta-expensa');
+        var resumen = document.getElementById('resumen-expensa-minimizado');
+        var ico = document.getElementById('icono-minimizar-expensa');
+        if (!cuerpo) return;
+        if (min) {
+          cuerpo.style.display = 'none';
+          if (resumen) resumen.style.display = 'flex';
+          if (ico) ico.className = 'ph ph-caret-down';
+        } else {
+          cuerpo.style.display = 'block';
+          if (resumen) resumen.style.display = 'none';
+          if (ico) ico.className = 'ph ph-caret-up';
+        }
+      }
+
+      function toggleMinimizarExpensa() {
+        try {
+          var actual = localStorage.getItem('marcos_expensa_minimizada') === 'true';
+          var nuevo = !actual;
+          localStorage.setItem('marcos_expensa_minimizada', nuevo ? 'true' : 'false');
+          aplicarMinimizarExpensa(nuevo);
+        } catch (_) {}
+      }
+
+      // 2. Control de Puerta de Calle con Deslizador (Slide to Unlock)
+      function initSlidePuerta() {
+        var track = document.getElementById('slide-puerta-track');
+        var thumb = document.getElementById('slide-puerta-thumb');
+        var fill = document.getElementById('slide-puerta-fill');
+        var label = document.getElementById('slide-puerta-label');
+        var estado = document.getElementById('slide-puerta-estado');
+        var icono = document.getElementById('slide-puerta-icono');
+        var msg = document.getElementById('slide-puerta-msg');
+        if (!track || !thumb) return;
+
+        var isDragging = false;
+        var startX = 0;
+        var currentX = 0;
+        var maxDrag = 0;
+        var ejecutando = false;
+
+        function calcMax() {
+          maxDrag = Math.max(0, track.clientWidth - thumb.clientWidth - 6);
+        }
+        calcMax();
+        window.addEventListener('resize', calcMax);
+
+        function onStart(e) {
+          if (ejecutando) return;
+          isDragging = true;
+          calcMax();
+          thumb.style.transition = 'none';
+          if (fill) fill.style.transition = 'none';
+          startX = e.type.indexOf('touch') !== -1 ? e.touches[0].clientX : e.clientX;
+          currentX = 0;
+          document.addEventListener('mousemove', onMove, { passive: false });
+          document.addEventListener('touchmove', onMove, { passive: false });
+          document.addEventListener('mouseup', onEnd);
+          document.addEventListener('touchend', onEnd);
+          document.addEventListener('touchcancel', onEnd);
+        }
+
+        function onMove(e) {
+          if (!isDragging || ejecutando) return;
+          var clientX = e.type.indexOf('touch') !== -1 ? e.touches[0].clientX : e.clientX;
+          var delta = clientX - startX;
+          if (delta < 0) delta = 0;
+          if (delta > maxDrag) delta = maxDrag;
+          currentX = delta;
+          thumb.style.left = (3 + currentX) + 'px';
+          if (fill) fill.style.width = (currentX + 24) + 'px';
+          if (label && maxDrag > 0) {
+            var ratio = currentX / maxDrag;
+            label.style.opacity = String(Math.max(0, 1 - ratio * 1.5));
+          }
+          if (e.cancelable && e.type.indexOf('touch') !== -1) {
+            e.preventDefault();
+          }
+        }
+
+        async function onEnd() {
+          if (!isDragging) return;
+          isDragging = false;
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('touchmove', onMove);
+          document.removeEventListener('mouseup', onEnd);
+          document.removeEventListener('touchend', onEnd);
+          document.removeEventListener('touchcancel', onEnd);
+
+          if (currentX >= maxDrag * 0.85 && !ejecutando) {
+            // Activación exitosa
+            ejecutando = true;
+            thumb.style.transition = 'left 0.15s ease';
+            thumb.style.left = (3 + maxDrag) + 'px';
+            if (fill) {
+              fill.style.transition = 'width 0.15s ease, opacity 0.2s';
+              fill.style.width = '100%';
+              fill.style.opacity = '1';
+            }
+            track.style.background = '#DCFCE7';
+            track.style.borderColor = '#86EFAC';
+            thumb.style.background = '#15803D';
+            if (icono) icono.className = 'ph ph-check';
+            if (estado) {
+              estado.innerText = '¡Abierta!';
+              estado.style.background = '#DCFCE7';
+              estado.style.color = '#15803D';
+              estado.style.borderColor = '#86EFAC';
+            }
+            if (label) {
+              label.style.opacity = '1';
+              label.innerHTML = '<span style="color:#15803D;font-weight:900">🟢 ¡Puerta Abierta!</span>';
+            }
+            if (msg) msg.style.display = 'block';
+
+            if (navigator.vibrate) {
+              try { navigator.vibrate([40, 60, 40]); } catch(_) {}
+            }
+
+            try {
+              var resp = await fetch('/vecino/api/puerta/abrir', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+              });
+              var resJson = await resp.json();
+              if (!resJson.ok && resJson.mensaje) {
+                if (msg) msg.innerText = resJson.mensaje;
+              }
+            } catch (errApi) {
+              console.warn('Error llamando apertura:', errApi);
+            }
+
+            setTimeout(function() {
+              thumb.style.transition = 'left 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.3s';
+              if (fill) fill.style.transition = 'width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s';
+              thumb.style.left = '3px';
+              thumb.style.background = '#0F326A';
+              if (fill) {
+                fill.style.width = '0px';
+                fill.style.opacity = '0.35';
+              }
+              track.style.background = '#F1F5F9';
+              track.style.borderColor = '#CBD5E1';
+              if (icono) icono.className = 'ph ph-lock-key-open';
+              if (estado) {
+                estado.innerText = 'Entrada';
+                estado.style.background = '#F1F5F9';
+                estado.style.color = 'var(--texto-medio)';
+                estado.style.borderColor = '#E2E8F0';
+              }
+              if (label) {
+                label.style.opacity = '1';
+                label.innerHTML = '<span>Deslizá para abrir</span> <i class="ph ph-caret-double-right" style="color:#0284C7;font-size:14px"></i>';
+              }
+              if (msg) msg.style.display = 'none';
+              ejecutando = false;
+            }, 2500);
+
+          } else {
+            thumb.style.transition = 'left 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)';
+            if (fill) fill.style.transition = 'width 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)';
+            thumb.style.left = '3px';
+            if (fill) fill.style.width = '0px';
+            if (label) label.style.opacity = '1';
+          }
+        }
+
+        thumb.addEventListener('mousedown', onStart);
+        thumb.addEventListener('touchstart', onStart, { passive: false });
+      }
+
+      // 3. Timbre y Silencio Nocturno
       function toggleNoMolestar() {
         const chkNm = document.getElementById('chk-nm-activo');
         const boxNm = document.getElementById('box-horario-no-molestar');
@@ -3981,13 +4247,16 @@ router.get('/', async (req, res) => {
         } catch (_) {}
       }
 
-      // cargarResumenOcupantes se fue junto con la tarjeta que alimentaba: era un fetch a
-      // /vecino/api/ocupantes-unidad en CADA carga del inicio, para un dato que ahora se ve al
-      // entrar a Integrantes. El endpoint sigue vivo, lo usa esa pagina.
-      //
-      // Sin acentos graves a proposito: este comentario vive DENTRO de un template literal y un
-      // acento grave lo cierra, rompiendo el archivo entero. Es el mismo error que ya rompio
-      // db-pg.js en produccion.
+      // Inicialización general
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+          initExpensaStorage();
+          initSlidePuerta();
+        });
+      } else {
+        initExpensaStorage();
+        initSlidePuerta();
+      }
     </script>
   `;
 
@@ -5351,6 +5620,78 @@ router.post('/api/pases-qr/revocar', async (req, res) => {
     res.json({ ok: true, pase: rev });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 0. Abrir Puerta de Calle desde Portal Vecino (Deslizador / Botón de Acceso)
+router.post('/api/puerta/abrir', async (req, res) => {
+  try {
+    const v = getVecinoSession(req);
+    if (!v) {
+      return res.status(401).json({ ok: false, error: 'Sesión no iniciada' });
+    }
+
+    if (v.demo) {
+      return res.json({
+        ok: true,
+        abierto: true,
+        mensaje: 'Modo demo: ¡Puerta de calle abierta!',
+        demo: true
+      });
+    }
+
+    const edificio = v.edificio;
+    const depto = v.departamento || '';
+    const nom = nombreCompleto(v);
+    const motivo = 'Apertura desde Portal Vecino: ' + nom + ' (' + (depto || 's/u') + ')';
+
+    let apertura = null;
+    try {
+      const porteriaMod = require('./porteria');
+      const regAp = (porteriaMod && (porteriaMod.registrarAperturaPuerta || (porteriaMod._paraPruebas && porteriaMod._paraPruebas.registrarAperturaPuerta)));
+      const encLlamada = (porteriaMod && (porteriaMod.encontrarLlamadaActiva || (porteriaMod._paraPruebas && porteriaMod._paraPruebas.encontrarLlamadaActiva)));
+
+      if (typeof regAp === 'function') {
+        apertura = regAp(edificio, motivo, depto);
+      }
+
+      if (typeof encLlamada === 'function') {
+        const llamada = encLlamada(null, edificio, depto);
+        if (llamada) llamada.abrioLaPuerta = true;
+      }
+    } catch (ePorteria) {
+      console.warn('⚠️ No se pudo registrar apertura en porteria:', ePorteria.message);
+    }
+
+    // Registrar en eventos_acceso
+    try {
+      const { pool, registrarEventoAcceso } = require('./db-pg');
+      if (pool && typeof registrarEventoAcceso === 'function') {
+        const ip = (req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : (req.socket ? req.socket.remoteAddress : req.ip)) || '';
+        await registrarEventoAcceso({
+          edificio,
+          departamento: depto,
+          tipo_acceso: 'Apertura móvil vecino',
+          resultado: 'exitoso',
+          detalle: motivo,
+          qr_id: null,
+          ip,
+          user_agent: String(req.headers['user-agent'] || ''),
+          autorizado_por_nombre: nom,
+          autorizado_por_usuario_id: v.usuario_id || null,
+          autorizado_por_unidad: depto || null,
+          metadata: { usuario_id: v.usuario_id, rol: v.rol, origen: 'portal_vecino_slide' }
+        });
+      }
+    } catch (eDb) {
+      console.warn('⚠️ No se pudo registrar apertura móvil en base de datos:', eDb.message);
+    }
+
+    console.log('🚪✅ ' + nom + ' abrió la puerta de calle de ' + edificio + ' (' + (depto || 's/u') + ') desde el Portal.');
+    return res.json({ ok: true, abierto: true, mensaje: '¡Puerta de calle abierta!', apertura });
+  } catch (err) {
+    console.error('Error en /vecino/api/puerta/abrir:', err);
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
