@@ -1082,6 +1082,7 @@ input:checked + .slider-timbre:before {
 
 function getVecinoSession(req) {
   if (req.session && req.session.vecino) {
+    if (req.session.idioma) req.session.vecino.idioma = req.session.idioma;
     return req.session.vecino;
   }
   // Sin sesión se devuelve la de prueba. La arma `sesion-demo.js`, que es la MISMA que usa el
@@ -1309,14 +1310,14 @@ function shellVecino(title, activeTab, content, vecinoData, popup) {
       }
     }
   };
-  window.abrirIdiomas = function(ev) {
-    ev.stopPropagation();
-    var m = document.getElementById('menu-idiomas');
+  window.abrirMenuAjustes = function(ev) {
+    if (ev) ev.stopPropagation();
+    var m = document.getElementById('menu-ajustes-vecino');
     if (m) m.style.display = (m.style.display === 'block') ? 'none' : 'block';
   };
-  document.addEventListener('click', function() {
-    var m = document.getElementById('menu-idiomas');
-    if (m) m.style.display = 'none';
+  document.addEventListener('click', function(e) {
+    var m = document.getElementById('menu-ajustes-vecino');
+    if (m && !m.contains(e.target)) m.style.display = 'none';
   });
   window.elegirIdioma = async function(codigo) {
     try {
@@ -1339,54 +1340,114 @@ ${jsPopup}
 <body>
 <div class="app-shell">
   
-  <!-- TOPBAR VECINO (Estilo Mercado Pago con Cabecera Azul Consorcio) -->
-  <header style="background:linear-gradient(180deg,var(--marca) 0%,#1A4A8F 100%);color:#ffffff;padding:16px 16px 20px;position:sticky;top:0;z-index:40;box-shadow:0 4px 15px rgba(15,50,106,.2)">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <div style="display:flex;align-items:center;gap:12px">
-        <a href="/vecino" title="Inicio" style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.4);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;text-decoration:none;flex-shrink:0;overflow:hidden">
+  <!-- TOPBAR VECINO REDISEÑADA (2 FILAS ESPACIOSAS - ESTILO INSTITUCIONAL DESCONGESTIONADO) -->
+  <header style="background:linear-gradient(180deg,var(--marca) 0%,#1A4A8F 100%);color:#ffffff;padding:14px 16px 16px;position:sticky;top:0;z-index:40;box-shadow:0 4px 18px rgba(15,50,106,.22)">
+    
+    <!-- Fila 1: Identidad del Vecino & Acciones Principales -->
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <!-- Identidad: Avatar + Saludo + Badge -->
+      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+        <a href="/vecino/perfil" title="${esc(t('topbar.perfil') || 'Mi Perfil')}" style="width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;text-decoration:none;flex-shrink:0;overflow:hidden">
           ${v.avatar_url ? `<img src="${esc(v.avatar_url)}" alt="Avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : iniciales(v)}
         </a>
-        <div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <a href="/vecino/perfil" style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em;color:#fff;text-decoration:none">${esc(t('topbar.hola', { nombre: primerNombre(v) }))}</a>
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <a href="/vecino/perfil" style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em;color:#fff;text-decoration:none;white-space:nowrap">${esc(t('topbar.hola', { nombre: primerNombre(v) }))}</a>
             ${etiquetaRolHtml(v.rol, t, { sobreOscuro: true })}
           </div>
-          ${v.unidades && v.unidades.length > 1 ? `
-          <button type="button" onclick="abrirModalCambiarUnidad()" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--dorado);margin-top:3px;background:rgba(0,0,0,.3);border:1px solid rgba(251,191,36,0.5);border-radius:6px;padding:2px 8px;cursor:pointer">
-            <span><i class="ph ph-buildings" style="font-size:12px;vertical-align:-1px"></i> ${esc(v.edificio)} · Depto ${esc(v.departamento)}</span>
-            <span style="font-size:9px">▼</span>
-          </button>
-          ` : `
-          <div style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:rgba(255,255,255,.85);margin-top:2px">
-            <span>${esc(v.edificio)}</span> · <span style="background:rgba(255,255,255,.2);padding:1px 6px;border-radius:6px">Depto ${esc(v.departamento)}</span>
+          <div style="font-size:11px;color:rgba(255,255,255,.8);display:flex;align-items:center;gap:4px;margin-top:2px">
+            <span style="width:6px;height:6px;border-radius:50%;background:#10B981;display:inline-block"></span>
+            <span>Marcos IA Concierge 24/7</span>
           </div>
-          `}
         </div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px">
+
+      <!-- Acciones de Cabecera (Avisos y Menú de Opciones Limpio) -->
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <a href="/vecino/novedades" title="${esc(t('nav.avisos') || 'Avisos')}" style="position:relative;width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none;transition:background .2s">
+          <i class="ph ph-bell" style="font-size:19px"></i>
+        </a>
+        
         <div style="position:relative">
-          <button type="button" onclick="abrirIdiomas(event)" title="${esc(t('topbar.idioma'))}" style="width:36px;height:36px;border-radius:50%;border:none;background:rgba(255,255,255,.15);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff">
-            <i class="ph ph-translate" style="font-size:19px"></i>
+          <button type="button" onclick="abrirMenuAjustes(event)" title="Opciones" style="width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.15);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;transition:background .2s">
+            <i class="ph ph-dots-three-vertical" style="font-size:20px"></i>
           </button>
-          <div id="menu-idiomas" style="display:none;position:absolute;right:0;top:42px;background:var(--superficie);border:1px solid var(--borde);border-radius:14px;box-shadow:var(--sombra-alta);overflow:hidden;z-index:60;min-width:168px">
-            ${IDIOMAS.map(i => `
-            <button type="button" onclick="elegirIdioma('${i.codigo}')" style="display:flex;align-items:center;gap:9px;width:100%;padding:11px 14px;border:none;background:${i.codigo === t.idioma ? 'var(--acento-tenue)' : 'transparent'};color:var(--texto);font-size:13.5px;font-weight:${i.codigo === t.idioma ? '800' : '600'};cursor:pointer;text-align:left;font-family:inherit">
-              <span style="font-size:15px">${i.bandera}</span><span>${i.nombre}</span>
-              ${i.codigo === t.idioma ? '<i class="ph ph-check" style="margin-left:auto;font-size:14px;color:var(--acento)"></i>' : ''}
-            </button>`).join('')}
+          
+          <!-- Dropdown de Ajustes y Opciones -->
+          <div id="menu-ajustes-vecino" style="display:none;position:absolute;right:0;top:44px;background:var(--superficie,#ffffff);border:1px solid var(--borde,#e2e8f0);border-radius:16px;box-shadow:0 12px 32px rgba(15,30,60,.28);overflow:hidden;z-index:90;min-width:215px;padding:6px 0">
+            <div style="padding:10px 14px;border-bottom:1px solid var(--borde,#e2e8f0);display:flex;align-items:center;gap:10px;background:var(--superficie-suave,rgba(0,0,0,.02))">
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--marca,#0D2449);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;flex-shrink:0">
+                ${iniciales(v)}
+              </div>
+              <div style="min-width:0;flex:1">
+                <div style="font-size:13.5px;font-weight:800;color:var(--texto,#0f172a);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(nombreCompleto(v))}</div>
+                <div style="font-size:11px;color:var(--texto-suave,#64748b)">${esc(v.rol || 'Vecino')} · Depto ${esc(v.departamento)}</div>
+              </div>
+            </div>
+
+            <a href="/vecino/perfil" style="display:flex;align-items:center;gap:10px;padding:10px 14px;color:var(--texto,#0f172a);text-decoration:none;font-size:13px;font-weight:600">
+              <i class="ph ph-user-circle" style="font-size:18px;color:var(--acento,#2563EB)"></i>
+              <span>${esc(t('topbar.perfil') || 'Mi Perfil')}</span>
+            </a>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;color:var(--texto,#0f172a);font-size:13px;font-weight:600;cursor:pointer" onclick="toggleTheme()">
+              <div style="display:flex;align-items:center;gap:10px">
+                <i class="ph ph-moon" style="font-size:18px;color:var(--acento,#2563EB)"></i>
+                <span>Modo Oscuro</span>
+              </div>
+              <i class="ph ph-sun" style="font-size:16px;color:var(--texto-suave,#64748b)"></i>
+            </div>
+
+            <!-- Selector de Idioma Integrado -->
+            <div style="padding:8px 14px 10px;border-top:1px solid var(--borde,#e2e8f0)">
+              <div style="font-size:11px;font-weight:700;color:var(--texto-suave,#64748b);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                <i class="ph ph-translate" style="font-size:14px"></i>
+                <span>${esc(t('topbar.idioma') || 'Idioma')}</span>
+              </div>
+              <div style="display:flex;gap:4px">
+                ${IDIOMAS.map(i => `
+                <button type="button" onclick="elegirIdioma('${i.codigo}')" style="flex:1;padding:5px 6px;border:1px solid ${i.codigo === t.idioma ? 'var(--acento,#2563EB)' : 'var(--borde,#e2e8f0)'};background:${i.codigo === t.idioma ? 'var(--acento-tenue,rgba(37,99,235,0.1))' : 'transparent'};color:var(--texto,#0f172a);border-radius:8px;font-size:11.5px;font-weight:${i.codigo === t.idioma ? '800' : '600'};cursor:pointer;display:flex;align-items:center;justify-content:center;gap:3px;font-family:inherit">
+                  <span>${i.bandera}</span><span>${i.codigo.toUpperCase()}</span>
+                </button>`).join('')}
+              </div>
+            </div>
+
+            <div style="border-top:1px solid var(--borde,#e2e8f0);padding-top:4px">
+              <a href="/vecino/logout" style="display:flex;align-items:center;gap:10px;padding:9px 14px;color:#EF4444;text-decoration:none;font-size:13px;font-weight:700">
+                <i class="ph ph-sign-out" style="font-size:18px"></i>
+                <span>${esc(t('topbar.salir') || 'Cerrar sesión')}</span>
+              </a>
+            </div>
           </div>
         </div>
-        <a href="/vecino/perfil" title="${esc(t('topbar.perfil'))}" style="width:36px;height:36px;border-radius:50%;background:${activeTab === 'perfil' ? 'rgba(255,255,255,.35)' : 'rgba(255,255,255,.15)'};display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none">
-          <i class="ph ph-user-circle" style="font-size:19px"></i>
-        </a>
-        <button onclick="toggleTheme()" style="width:36px;height:36px;border-radius:50%;border:none;background:rgba(255,255,255,.15);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff">
-          <i class="ph ph-moon" style="font-size:18px"></i>
-        </button>
-        <a href="/vecino/logout" title="${esc(t('topbar.salir'))}" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none">
-          <i class="ph ph-sign-out" style="font-size:18px"></i>
-        </a>
       </div>
     </div>
+
+    <!-- Fila 2: Cápsula de Unidad / Ubicación (Pill Selector Amplio) -->
+    ${v.unidades && v.unidades.length > 1 ? `
+    <button type="button" onclick="abrirModalCambiarUnidad()" style="width:100%;margin-top:10px;display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:rgba(0,0,0,.22);border:1px solid rgba(251,191,36,0.55);border-radius:12px;cursor:pointer;color:#fff;font-family:inherit;transition:background .2s">
+      <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700">
+        <i class="ph ph-buildings" style="font-size:16px;color:var(--dorado)"></i>
+        <span>${esc(v.edificio)}</span>
+        <span style="opacity:.5">•</span>
+        <span style="background:rgba(251,191,36,0.22);color:var(--dorado);padding:1px 7px;border-radius:6px;font-size:11.5px">Depto ${esc(v.departamento)}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dorado);font-weight:800">
+        <span>Cambiar</span>
+        <i class="ph ph-caret-down" style="font-size:12px"></i>
+      </div>
+    </button>
+    ` : `
+    <div style="width:100%;margin-top:9px;display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:12px;color:#fff">
+      <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700">
+        <i class="ph ph-buildings" style="font-size:15px;color:rgba(255,255,255,.85)"></i>
+        <span>${esc(v.edificio)}</span>
+        <span style="opacity:.4">•</span>
+        <span style="background:rgba(255,255,255,.2);padding:1px 7px;border-radius:6px;font-size:11.5px">Depto ${esc(v.departamento)}</span>
+      </div>
+      <span style="font-size:11px;color:rgba(255,255,255,.75);font-weight:700">Unidad Activa</span>
+    </div>
+    `}
   </header>
 
   <!-- CONTENIDO PRINCIPAL -->
@@ -3259,6 +3320,7 @@ router.post('/api/idioma', async (req, res) => {
         await actualizarPerfilUsuario(v.usuario_id, { idioma: codigo });
       }
     }
+    await new Promise((resolve) => req.session.save(() => resolve()));
     res.json({ ok: true, idioma: codigo });
   } catch (err) {
     console.error('Error en /vecino/api/idioma:', err);
@@ -3463,7 +3525,10 @@ router.post('/auth', async (req, res) => {
   const telLimpio = limpio.replace(/\D/g, '');
 
   if (req.session) {
-    req.session.vecino = sesionDemoVecino(rol === 'turista' ? 'turista' : 'propietario', telLimpio);
+    const vDemo = sesionDemoVecino(rol === 'turista' ? 'turista' : 'propietario', telLimpio);
+    req.session.vecino = vDemo;
+    req.session.idioma = vDemo.idioma || 'es';
+    await new Promise((resolve) => req.session.save(() => resolve()));
   }
   res.redirect('/vecino');
 });
@@ -3855,13 +3920,13 @@ router.get('/', async (req, res) => {
     <div class="card" style="padding:20px;background:linear-gradient(135deg,#0F2B5C,#1E3A8A);color:#fff;margin-bottom:14px;box-shadow:0 4px 18px rgba(15,43,92,.2);border-radius:20px;border:1px solid rgba(251,191,36,0.3)">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <span style="font-size:11.5px;font-weight:900;padding:3px 10px;border-radius:999px;background:rgba(251,191,36,0.2);color:var(--dorado);border:1px solid rgba(251,191,36,0.4)">
-          🧳 Estadía Temporal
+          🧳 ${esc(t('inicio.estadiaTemporal'))}
         </span>
         <span style="font-size:12px;color:var(--texto-tenue)">${esc(t('inicio.paseHuesped'))}</span>
       </div>
-      <div style="font-size:22px;font-weight:900;margin-bottom:4px;letter-spacing:-.02em">¡Bienvenido a ${esc(v.edificio)}!</div>
+      <div style="font-size:22px;font-weight:900;margin-bottom:4px;letter-spacing:-.02em">${esc(t('inicio.bienvenidoA', { edificio: v.edificio }))}</div>
       <div style="font-size:13px;color:var(--texto-tenue);line-height:1.4;margin-bottom:16px">
-        Alojado en depto <strong style="color:var(--dorado)">${esc(v.departamento)}</strong>. Tenés acceso habilitado a reservas de amenities, timbre personal y Marcos IA 24/7.
+        ${esc(t('inicio.alojadoEn'))} <strong style="color:var(--dorado)">${esc(v.departamento)}</strong>. ${esc(t('inicio.huespedBienvenida'))}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <a href="/vecino/amenities" style="height:44px;border-radius:12px;background:#FBBF24;color:var(--texto);font-size:13.5px;font-weight:900;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none">
@@ -3870,7 +3935,7 @@ router.get('/', async (req, res) => {
         </a>
         <a href="/vecino/chat" style="height:44px;border-radius:12px;background:rgba(255,255,255,0.15);color:#fff;font-size:13.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid rgba(255,255,255,0.25);text-decoration:none">
           <i class="ph ph-chat-circle-dots" style="font-size:18px"></i>
-          <span>Asistente 24/7</span>
+          <span>${esc(t('inicio.asistencia24'))}</span>
         </a>
       </div>
     </div>
@@ -3887,7 +3952,7 @@ router.get('/', async (req, res) => {
           <div>
             <div style="font-size:14px;font-weight:900;color:var(--texto)">${esc(t('inicio.timbre'))}</div>
             <div id="timbre-estado-lbl" style="font-size:12px;color:${v.timbre_activo !== false ? '#15803D' : '#DC2626'};font-weight:700">
-              ${v.timbre_activo !== false ? '● Activo · Suena en tu celu' : '○ Silenciado'}
+              ${v.timbre_activo !== false ? '● ' + esc(t('inicio.timbreActivo')) : '○ ' + esc(t('inicio.silenciado'))}
             </div>
           </div>
         </div>
@@ -3906,7 +3971,7 @@ router.get('/', async (req, res) => {
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span id="nm-estado-lbl" style="font-size:11.5px;font-weight:700;color:${v.timbre_no_molestar_activo ? '#D97706' : '#64748B'}">
-              ${v.timbre_no_molestar_activo ? 'Activado' : 'Desactivado (24 hs libre)'}
+              ${v.timbre_no_molestar_activo ? esc(t('inicio.nmActivado')) : esc(t('inicio.nmDesactivado'))}
             </span>
             <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;margin:0">
               <input type="checkbox" id="chk-nm-activo" ${v.timbre_no_molestar_activo ? 'checked' : ''} onchange="toggleNoMolestar()" style="opacity:0;width:0;height:0">
@@ -3918,9 +3983,9 @@ router.get('/', async (req, res) => {
         <div id="box-horario-no-molestar" class="timbre-horario-row" style="display:${v.timbre_no_molestar_activo ? 'flex' : 'none'};margin-top:6px">
           <span class="timbre-horario-label">${esc(t('inicio.horarioSilencio'))}</span>
           <div style="display:flex;align-items:center;gap:6px">
-            <span class="timbre-de-label">De</span>
+            <span class="timbre-de-label">${esc(t('inicio.de'))}</span>
             <input type="time" id="timbre-silencio-desde" class="inp-time-timbre" value="${esc(v.timbre_silencio_desde || '23:00')}" onchange="guardarConfigTimbre()">
-            <span class="timbre-a-label">a</span>
+            <span class="timbre-a-label">${esc(t('inicio.a'))}</span>
             <input type="time" id="timbre-silencio-hasta" class="inp-time-timbre" value="${esc(v.timbre_silencio_hasta || '07:30')}" onchange="guardarConfigTimbre()">
           </div>
         </div>
@@ -4015,7 +4080,7 @@ router.get('/', async (req, res) => {
           <div style="width:42px;height:42px;border-radius:14px;background:#F3E8FF;color:#7E22CE;display:flex;align-items:center;justify-content:center;font-size:22px">
             <i class="ph ph-bell-ringing"></i>
           </div>
-          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">Avisos</span>
+          <span style="font-size:11.5px;font-weight:800;color:var(--texto)">${esc(t('nav.avisos'))}</span>
         </a>
 
       </div>
@@ -4029,12 +4094,12 @@ router.get('/', async (req, res) => {
             <i class="ph ph-door-open"></i>
           </div>
           <div>
-            <div style="font-size:14px;font-weight:900;color:var(--texto);line-height:1.2">Puerta de Calle</div>
-            <div style="font-size:11.5px;color:var(--texto-suave)">Acceso principal · ${esc(v.edificio || 'Edificio')}</div>
+            <div style="font-size:14px;font-weight:900;color:var(--texto);line-height:1.2">${esc(t('puerta.titulo'))}</div>
+            <div style="font-size:11.5px;color:var(--texto-suave)">${esc(t('puerta.accesoPrincipal', { edificio: v.edificio || 'Edificio' }))}</div>
           </div>
         </div>
         <span id="slide-puerta-estado" style="font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;background:#F1F5F9;color:var(--texto-medio);border:1px solid #E2E8F0">
-          Entrada
+          ${esc(t('puerta.estadoEntrada'))}
         </span>
       </div>
 
@@ -4044,7 +4109,7 @@ router.get('/', async (req, res) => {
         
         <!-- Texto explicativo con flechitas animadas -->
         <div id="slide-puerta-label" style="width:100%;text-align:center;font-size:12.5px;font-weight:800;color:#64748B;pointer-events:none;padding-left:36px;padding-right:16px;display:flex;align-items:center;justify-content:center;gap:6px">
-          <span>Deslizá para abrir</span>
+          <span>${esc(t('puerta.deslizarParaAbrir'))}</span>
           <i class="ph ph-caret-double-right" style="color:#0284C7;font-size:14px"></i>
         </div>
 
@@ -4055,7 +4120,7 @@ router.get('/', async (req, res) => {
       </div>
 
       <div id="slide-puerta-msg" style="display:none;margin-top:8px;font-size:12px;font-weight:800;text-align:center;color:#15803D">
-        🟢 ¡Puerta de calle abierta! Ingreso habilitado
+        ${esc(t('puerta.puertaAbiertaMsg'))}
       </div>
     </div>
 
@@ -4303,14 +4368,14 @@ router.get('/', async (req, res) => {
             thumb.style.background = '#15803D';
             if (icono) icono.className = 'ph ph-check';
             if (estado) {
-              estado.innerText = '¡Abierta!';
+              estado.innerText = ${JSON.stringify(t('puerta.estadoAbierta'))};
               estado.style.background = '#DCFCE7';
               estado.style.color = '#15803D';
               estado.style.borderColor = '#86EFAC';
             }
             if (label) {
               label.style.opacity = '1';
-              label.innerHTML = '<span style="color:#15803D;font-weight:900">🟢 ¡Puerta Abierta!</span>';
+              label.innerHTML = '<span style="color:#15803D;font-weight:900">🟢 ' + ${JSON.stringify(t('puerta.estadoAbierta'))} + '</span>';
             }
             if (msg) msg.style.display = 'block';
 
@@ -4345,14 +4410,14 @@ router.get('/', async (req, res) => {
               track.style.borderColor = '#CBD5E1';
               if (icono) icono.className = 'ph ph-lock-key-open';
               if (estado) {
-                estado.innerText = 'Entrada';
+                estado.innerText = ${JSON.stringify(t('puerta.estadoEntrada'))};
                 estado.style.background = '#F1F5F9';
                 estado.style.color = 'var(--texto-medio)';
                 estado.style.borderColor = '#E2E8F0';
               }
               if (label) {
                 label.style.opacity = '1';
-                label.innerHTML = '<span>Deslizá para abrir</span> <i class="ph ph-caret-double-right" style="color:#0284C7;font-size:14px"></i>';
+                label.innerHTML = '<span>' + ${JSON.stringify(t('puerta.deslizarParaAbrir'))} + '</span> <i class="ph ph-caret-double-right" style="color:#0284C7;font-size:14px"></i>';
               }
               if (msg) msg.style.display = 'none';
               ejecutando = false;
@@ -4380,7 +4445,7 @@ router.get('/', async (req, res) => {
         const activo = chkNm ? chkNm.checked : false;
         if (boxNm) boxNm.style.display = activo ? 'flex' : 'none';
         if (lblNm) {
-          lblNm.innerText = activo ? 'Activado' : 'Desactivado (24 hs libre)';
+          lblNm.innerText = activo ? ${JSON.stringify(t('inicio.nmActivado'))} : ${JSON.stringify(t('inicio.nmDesactivado'))};
           lblNm.style.color = activo ? '#D97706' : '#64748B';
         }
         if (sNmBg) sNmBg.style.backgroundColor = activo ? '#F59E0B' : '#CBD5E1';
@@ -4404,14 +4469,14 @@ router.get('/', async (req, res) => {
             icoBox.style.color = '#15803D';
             icoBox.innerHTML = '<i class="ph ph-bell-ringing"></i>';
             lbl.style.color = '#15803D';
-            lbl.innerText = '● Activo · Suena en tu celu';
+            lbl.innerText = '● ' + ${JSON.stringify(t('inicio.timbreActivo'))};
             sBg.style.backgroundColor = '#10B981';
           } else {
             icoBox.style.background = '#FEE2E2';
             icoBox.style.color = '#DC2626';
             icoBox.innerHTML = '<i class="ph ph-bell-slash"></i>';
             lbl.style.color = '#DC2626';
-            lbl.innerText = '○ Silenciado';
+            lbl.innerText = '○ ' + ${JSON.stringify(t('inicio.silenciado'))};
             sBg.style.backgroundColor = '#CBD5E1';
           }
         }
