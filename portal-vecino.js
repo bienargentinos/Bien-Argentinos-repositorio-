@@ -1347,12 +1347,12 @@ ${jsPopup}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
       <!-- Identidad: Avatar + Saludo + Badge -->
       <div style="display:flex;align-items:center;gap:10px;min-width:0">
-        <a href="/vecino" title="Inicio" style="width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;text-decoration:none;flex-shrink:0;overflow:hidden">
+        <a href="/vecino/perfil" title="${esc(t('topbar.perfil') || 'Mi Perfil')}" style="width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;text-decoration:none;flex-shrink:0;overflow:hidden">
           ${v.avatar_url ? `<img src="${esc(v.avatar_url)}" alt="Avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : iniciales(v)}
         </a>
         <div style="min-width:0">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <a href="/vecino" style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em;color:#fff;text-decoration:none;white-space:nowrap">${esc(t('topbar.hola', { nombre: primerNombre(v) }))}</a>
+            <a href="/vecino/perfil" style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em;color:#fff;text-decoration:none;white-space:nowrap">${esc(t('topbar.hola', { nombre: primerNombre(v) }))}</a>
             ${etiquetaRolHtml(v.rol, t, { sobreOscuro: true })}
           </div>
           <div style="font-size:11px;color:rgba(255,255,255,.8);display:flex;align-items:center;gap:4px;margin-top:2px">
