@@ -3927,16 +3927,27 @@ router.get('/', async (req, res) => {
 
         <!-- Rótulo / Nombre en el Timbre Digital -->
         <div style="border-top:1px solid var(--superficie-3);padding-top:10px;margin-top:10px">
-          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:var(--texto-medio);margin-bottom:6px">
-            <i class="ph ph-tag" style="font-size:14px;color:var(--marca)"></i>
-            <span>Rótulo en el Timbre Digital (opcional)</span>
-          </label>
-          <div style="display:flex;gap:8px">
-            <input type="text" id="timbre-nombre-etiqueta" class="inp-rotulo-timbre" value="${esc(v.nombre_timbre || '')}" placeholder="Ej: Oficina Portas, Odontología Richi..." style="flex:1;height:38px;border-radius:10px;border:1.5px solid var(--borde);padding:0 12px;font-size:13px;background:var(--superficie-2);color:var(--texto);outline:none" onchange="guardarConfigTimbre()">
-            <button type="button" onclick="guardarConfigTimbre()" style="padding:0 14px;border:none;border-radius:10px;background:var(--marca);color:#fff;font-size:12.5px;font-weight:800;cursor:pointer;flex-shrink:0">Guardar</button>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:var(--texto-medio)">
+              <i class="ph ph-tag" style="font-size:14px;color:var(--marca)"></i>
+              <span>Nombre o Rótulo en tu Timbre</span>
+            </span>
           </div>
-          <div style="font-size:11px;color:var(--texto-suave);margin-top:4px;line-height:1.35">
-            Se mostrará en la pantalla del tótem o portería de entrada debajo de tu departamento.
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--superficie-2);border:1px solid var(--borde);border-radius:12px;padding:9px 12px">
+            <div style="min-width:0;flex:1">
+              <div id="rotulo-timbre-display" style="font-size:13px;font-weight:800;color:${v.nombre_timbre ? 'var(--texto)' : 'var(--texto-suave)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                ${v.nombre_timbre ? '🏷️ ' + esc(v.nombre_timbre) : 'Sin rótulo (solo depto)'}
+              </div>
+            </div>
+            <button type="button" onclick="abrirModalRotuloTimbre()" style="padding:6px 14px;border:none;border-radius:9px;background:var(--marca);color:#fff;font-size:12px;font-weight:800;cursor:pointer;flex-shrink:0;display:inline-flex;align-items:center;gap:5px;box-shadow:0 2px 6px rgba(15,50,106,.15)">
+              <i class="ph ph-pencil-simple" style="font-size:13px"></i>
+              <span id="btn-rotulo-timbre-texto">${v.nombre_timbre ? 'Editar' : 'Configurar'}</span>
+            </button>
+          </div>
+
+          <div style="font-size:11px;color:var(--texto-suave);margin-top:5px;line-height:1.35">
+            Nombre identificador que se muestra en el tótem de entrada (ej: consultorio o apellido).
           </div>
         </div>
       </div>
@@ -4099,6 +4110,52 @@ router.get('/', async (req, res) => {
       </div>
       <div style="font-size:14px;font-weight:800;color:var(--texto);margin-bottom:4px">${esc(t('inicio.avisoTanques'))}</div>
       <div style="font-size:12.5px;color:var(--texto-suave);line-height:1.4">${esc(t('inicio.avisoTanquesTexto'))}</div>
+    </div>
+
+    <!-- MODAL POPUP: CONFIGURAR NOMBRE O RÓTULO DEL TIMBRE DIGITAL -->
+    <div id="modal-rotulo-timbre" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.65);backdrop-filter:blur(3px);z-index:99999;align-items:center;justify-content:center;padding:16px" onclick="if(event.target===this)cerrarModalRotuloTimbre()">
+      <div style="background:#ffffff;border-radius:20px;max-width:420px;width:100%;padding:22px 20px;box-shadow:0 16px 40px rgba(0,0,0,0.25);border:1px solid var(--borde);position:relative" onclick="event.stopPropagation()">
+        <!-- Header con X -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--superficie-3)">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:34px;height:34px;border-radius:10px;background:var(--acento-tenue);color:#0284C7;display:flex;align-items:center;justify-content:center;font-size:18px">
+              <i class="ph ph-tag"></i>
+            </div>
+            <div>
+              <h3 style="margin:0;font-size:15px;font-weight:900;color:var(--texto)">Rótulo en tu Timbre Digital</h3>
+              <div style="font-size:11.5px;color:var(--texto-suave)">Pantalla de portería y tótem</div>
+            </div>
+          </div>
+          <button type="button" onclick="cerrarModalRotuloTimbre()" title="Cerrar" style="width:32px;height:32px;border-radius:8px;background:var(--superficie-2);border:none;font-size:16px;cursor:pointer;color:var(--texto-medio);display:flex;align-items:center;justify-content:center">✕</button>
+        </div>
+
+        <!-- Explicación descriptiva y ejemplos -->
+        <div style="font-size:13px;color:var(--texto-medio);line-height:1.5;margin-bottom:12px">
+          Podés asignar un <strong>nombre o rótulo identificador</strong> a tu unidad. Se mostrará en la pantalla táctil de entrada o tótem del edificio debajo de tu departamento.
+        </div>
+        <div style="font-size:12px;color:var(--texto-suave);background:var(--superficie-2);padding:10px 12px;border-radius:10px;border:1px solid var(--borde);margin-bottom:16px;line-height:1.4">
+          💡 <strong>Ejemplos:</strong> <em>Oficina Portas</em>, <em>Odontología Richi</em>, <em>Estudio Pérez</em>.<br>
+          Las visitas podrán buscarte por depto o por este nombre. Si lo dejás en blanco, solo se verá tu número de unidad.
+        </div>
+
+        <!-- Input -->
+        <div style="margin-bottom:16px">
+          <label for="modal-inp-rotulo-timbre" style="display:block;font-size:12.5px;font-weight:800;color:var(--texto);margin-bottom:6px">Nombre o Rótulo:</label>
+          <input type="text" id="modal-inp-rotulo-timbre" maxlength="60" value="${esc(v.nombre_timbre || '')}" placeholder="Ej: Oficina Portas, Odontología Richi..." style="width:100%;height:42px;border-radius:12px;border:1.5px solid var(--borde);padding:0 12px;font-size:14px;background:#fff;color:var(--texto);box-sizing:border-box;outline:none" onkeydown="if(event.key==='Enter'){event.preventDefault();guardarRotuloTimbre();}">
+        </div>
+
+        <!-- Feedback de error o guardado -->
+        <div id="modal-rotulo-msg" style="display:none;font-size:12.5px;font-weight:700;margin-bottom:12px;text-align:center"></div>
+
+        <!-- Botones de Acción (Cancelar y Guardar) -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <button type="button" onclick="cerrarModalRotuloTimbre()" style="height:42px;border-radius:12px;background:var(--superficie-2);color:var(--texto-medio);border:1px solid var(--borde);font-size:13.5px;font-weight:700;cursor:pointer">Cancelar</button>
+          <button type="button" id="btn-modal-guardar-rotulo" onclick="guardarRotuloTimbre()" style="height:42px;border-radius:12px;background:var(--marca);color:#fff;border:none;font-size:13.5px;font-weight:800;cursor:pointer;box-shadow:0 3px 10px rgba(15,50,106,.25);display:flex;align-items:center;justify-content:center;gap:6px">
+            <i class="ph ph-floppy-disk"></i>
+            <span>Guardar</span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Scripts de Interacción Home -->
@@ -4359,8 +4416,8 @@ router.get('/', async (req, res) => {
           }
         }
 
-        const inpEtiqueta = document.getElementById('timbre-nombre-etiqueta');
-        const nombreEtiqueta = inpEtiqueta ? inpEtiqueta.value.trim() : undefined;
+        const inpModal = document.getElementById('modal-inp-rotulo-timbre');
+        const nombreEtiqueta = inpModal ? inpModal.value.trim() : undefined;
 
         try {
           const res = await fetch('/vecino/api/timbre-config', {
@@ -4378,11 +4435,108 @@ router.get('/', async (req, res) => {
           if (data.ok) {
             const msg = document.getElementById('timbre-guardado-msg');
             if (msg) {
+              msg.innerText = '✓ Preferencias del timbre guardadas';
               msg.style.display = 'block';
               setTimeout(function() { msg.style.display = 'none'; }, 3000);
             }
           }
         } catch (_) {}
+      }
+
+      // Modal de Rótulo en el Timbre Digital
+      function abrirModalRotuloTimbre() {
+        var m = document.getElementById('modal-rotulo-timbre');
+        if (m) {
+          m.style.display = 'flex';
+          var inp = document.getElementById('modal-inp-rotulo-timbre');
+          if (inp) {
+            setTimeout(function() { inp.focus(); }, 120);
+          }
+        }
+      }
+
+      function cerrarModalRotuloTimbre() {
+        var m = document.getElementById('modal-rotulo-timbre');
+        if (m) m.style.display = 'none';
+        var msg = document.getElementById('modal-rotulo-msg');
+        if (msg) msg.style.display = 'none';
+      }
+
+      async function guardarRotuloTimbre() {
+        var inp = document.getElementById('modal-inp-rotulo-timbre');
+        var btn = document.getElementById('btn-modal-guardar-rotulo');
+        var msg = document.getElementById('modal-rotulo-msg');
+        var nuevoRotulo = inp ? inp.value.trim() : '';
+
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Guardando...';
+        }
+
+        var chk = document.getElementById('chk-timbre-activo');
+        var chkNm = document.getElementById('chk-nm-activo');
+        var desde = document.getElementById('timbre-silencio-desde') ? document.getElementById('timbre-silencio-desde').value : '23:00';
+        var hasta = document.getElementById('timbre-silencio-hasta') ? document.getElementById('timbre-silencio-hasta').value : '07:30';
+        var activo = chk ? chk.checked : true;
+        var nmActivo = chkNm ? chkNm.checked : false;
+
+        try {
+          var res = await fetch('/vecino/api/timbre-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              timbre_activo: activo,
+              timbre_no_molestar_activo: nmActivo,
+              timbre_silencio_desde: desde,
+              timbre_silencio_hasta: hasta,
+              nombre_timbre: nuevoRotulo
+            })
+          });
+          var data = await res.json();
+          if (data && data.ok) {
+            var disp = document.getElementById('rotulo-timbre-display');
+            var btnTexto = document.getElementById('btn-rotulo-timbre-texto');
+            if (disp) {
+              if (nuevoRotulo) {
+                disp.innerText = '🏷️ ' + nuevoRotulo;
+                disp.style.color = 'var(--texto)';
+              } else {
+                disp.innerText = 'Sin rótulo (solo depto)';
+                disp.style.color = 'var(--texto-suave)';
+              }
+            }
+            if (btnTexto) {
+              btnTexto.innerText = nuevoRotulo ? 'Editar' : 'Configurar';
+            }
+            if (inp) inp.value = nuevoRotulo;
+
+            cerrarModalRotuloTimbre();
+
+            var toast = document.getElementById('timbre-guardado-msg');
+            if (toast) {
+              toast.innerText = '✓ Rótulo del timbre actualizado';
+              toast.style.display = 'block';
+              setTimeout(function() { toast.style.display = 'none'; }, 3000);
+            }
+          } else {
+            if (msg) {
+              msg.style.display = 'block';
+              msg.style.color = '#DC2626';
+              msg.innerText = (data && data.mensaje) ? data.mensaje : 'Error al guardar el rótulo';
+            }
+          }
+        } catch (err) {
+          if (msg) {
+            msg.style.display = 'block';
+            msg.style.color = '#DC2626';
+            msg.innerText = 'Error de conexión';
+          }
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="ph ph-floppy-disk"></i> Guardar';
+          }
+        }
       }
 
       // Inicialización general
