@@ -30,7 +30,7 @@ Sos el agente Antigravity para Marcos IA y el Panel Dash. Leé docs/retomar-anti
 
 ## 3. Estado actual del proyecto y producción (28/09)
 
-- **Commit activo en rama local:** `414fc3d` (rebasado y sincronizado con origin)
+- **Commit activo en rama local:** `9289048` (rebasado y sincronizado con origin)
 - **Rama de trabajo local:** `antigravity/panel-fase-1`
 - **Rama remota desplegada en VPS:** `claude/marcos-ia-whatsapp-template-vpg8gw`
 - **VPS SSH Access:**
@@ -40,7 +40,7 @@ Sos el agente Antigravity para Marcos IA y el Panel Dash. Leé docs/retomar-anti
   - Llave SSH: `$env:USERPROFILE\.ssh\marcos_vps`
   - Directorio en VPS: `/root/marcos/Consorcio-AI-Assistant`
 - **Estado de PM2:**
-  - Servicio `marcos-ai`: online (PID 853693), uptime estable, 0 errores en logs.
+  - Servicio `marcos-ai`: online (PID 854280), uptime estable, 0 errores en logs.
 - **Suite de pruebas:**
   - `node verificar-antes-de-subir.js`: **88 de 88 pruebas en verde (100%)**.
 
@@ -73,7 +73,12 @@ Sos el agente Antigravity para Marcos IA y el Panel Dash. Leé docs/retomar-anti
    - Integración completa con `cuentas_bancarias` en Postgres (endpoints `GET` y `POST /admin/api/edificio-cuenta-bancaria`).
    - Validación formal con `cbu.js` (`validarCBU` con ponderaciones oficiales y `validarAlias`).
    - Tarjeta visual, botones de copia al portapapeles y modal de carga con validación en tiempo real.
-9. **Buzón sincronizado:**
+9. **Mejoras en Expensas (`/admin/expensas`):**
+   - Botón directo `🏦 CBU / Datos Bancarios` vinculado a la cuenta del consorcio.
+   - Título de Destino centrado, imponente y sin ícono, responsivo en pantallas móviles.
+10. **PWA completa en el Panel Dash (`dashboard.js`):**
+   - Endpoint `/admin/manifest.webmanifest`, meta tags `apple-mobile-web-app-capable` y registro automático de Service Worker para instalación como App nativa en celulares y computadoras.
+11. **Buzón sincronizado:**
    - Informes técnicos respondidos a Claude en `docs/para-el-portal.md`.
 
 
