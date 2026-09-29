@@ -1347,12 +1347,12 @@ ${jsPopup}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
       <!-- Identidad: Avatar + Saludo + Badge -->
       <div style="display:flex;align-items:center;gap:10px;min-width:0">
-        <a href="/vecino/perfil" title="${esc(t('topbar.perfil') || 'Mi Perfil')}" style="width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;text-decoration:none;flex-shrink:0;overflow:hidden">
+        <a href="/vecino" title="Inicio" style="width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;text-decoration:none;flex-shrink:0;overflow:hidden">
           ${v.avatar_url ? `<img src="${esc(v.avatar_url)}" alt="Avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : iniciales(v)}
         </a>
         <div style="min-width:0">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <a href="/vecino/perfil" style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em;color:#fff;text-decoration:none;white-space:nowrap">${esc(t('topbar.hola', { nombre: primerNombre(v) }))}</a>
+            <a href="/vecino" style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em;color:#fff;text-decoration:none;white-space:nowrap">${esc(t('topbar.hola', { nombre: primerNombre(v) }))}</a>
             ${etiquetaRolHtml(v.rol, t, { sobreOscuro: true })}
           </div>
           <div style="font-size:11px;color:rgba(255,255,255,.8);display:flex;align-items:center;gap:4px;margin-top:2px">
@@ -3567,7 +3567,60 @@ function montoRedondo(n) {
 // Un fallo de base NO tira la pantalla abajo: se loguea y se devuelve vacío. El vecino entra al
 // portal para abrir la puerta o reservar la parrilla; perder eso por un aviso que no se pudo leer
 // sería el peor cambio posible.
-async function avisosDelEdificio(edificio) {
+// Cache de avisos traducidos en memoria (idioma:titulo:texto -> { titulo, texto })
+const _cacheTraduccionesAvisos = new Map();
+
+async function traducirTextoAviso(titulo, texto, idioma) {
+  if (!idioma || idioma === 'es' || (!titulo && !texto)) {
+    return { titulo, texto, traducido: false };
+  }
+  const claveCache = `${idioma}:${titulo || ''}::${texto || ''}`;
+  if (_cacheTraduccionesAvisos.has(claveCache)) {
+    return { ..._cacheTraduccionesAvisos.get(claveCache), traducido: true };
+  }
+
+  // Intentar con Gemini si está la API key disponible
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const { GoogleGenAI } = require('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const nombresIdioma = { en: 'English', pt: 'Português', fr: 'Français' };
+      const target = nombresIdioma[idioma] || idioma;
+      const prompt = `Translate this residential building notice from Spanish into ${target}.
+Keep the tone and meaning intact.
+Respond with ONLY valid JSON with keys "titulo" and "texto". Do NOT include markdown code blocks.
+
+Input:
+Title: ${titulo || ''}
+Body: ${texto || ''}`;
+
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout traducción')), 2500));
+      const geminiPromise = ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      });
+
+      const resp = await Promise.race([geminiPromise, timeoutPromise]);
+      const raw = String(resp?.text || '').replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(raw);
+      if (parsed && (parsed.titulo || parsed.texto)) {
+        const resultado = {
+          titulo: parsed.titulo || titulo,
+          texto: parsed.texto || texto,
+          traducido: true,
+        };
+        _cacheTraduccionesAvisos.set(claveCache, resultado);
+        return resultado;
+      }
+    } catch (err) {
+      console.warn('Traducción aviso con Gemini:', err.message);
+    }
+  }
+
+  return { titulo, texto, traducido: false };
+}
+
+async function avisosDelEdificio(edificio, idioma = 'es') {
   if (!edificio) return [];
   const salida = [];
 
@@ -3614,6 +3667,20 @@ async function avisosDelEdificio(edificio) {
     console.warn('Reclamos abiertos del edificio:', err.message);
   }
 
+  // Si el usuario tiene un idioma distinto a español, traducimos los avisos
+  if (idioma && idioma !== 'es') {
+    for (const a of salida) {
+      if (a.clase === 'aviso') {
+        const res = await traducirTextoAviso(a.titulo, a.texto, idioma);
+        a.originalTitulo = a.titulo;
+        a.originalTexto = a.texto;
+        a.titulo = res.titulo;
+        a.texto = res.texto;
+        a.traducido = res.traducido;
+      }
+    }
+  }
+
   return salida;
 }
 
@@ -3625,18 +3692,34 @@ async function avisosDelEdificio(edificio) {
 function bloqueAvisosHtml(avisos, v, t) {
   const fila = (a) => {
     if (a.clase === 'aviso') {
+      const locale = v.idioma === 'en' ? 'en-US' : v.idioma === 'pt' ? 'pt-BR' : v.idioma === 'fr' ? 'fr-FR' : 'es-AR';
       const hasta = a.hasta
-        ? `<span style="font-size:11.5px;color:var(--aviso);font-weight:700">· ${esc(t('avisos.hasta', { fecha: new Date(a.hasta).toLocaleDateString('es-AR') }))}</span>`
+        ? `<span style="font-size:11.5px;color:var(--aviso);font-weight:700">· ${esc(t('avisos.hasta', { fecha: new Date(a.hasta).toLocaleDateString(locale) }))}</span>`
         : `<span style="font-size:11.5px;color:var(--aviso);font-weight:700">· ${esc(t('avisos.sinFecha'))}</span>`;
+      const rolClave = a.rol ? 'rol.' + String(a.rol).toLowerCase().trim() : '';
+      const rolTraducido = (rolClave && t(rolClave) !== rolClave) ? t(rolClave) : (a.rol || '');
+      const publicadoPor = a.porQuien ? t('avisos.publicadoPor', { quien: a.porQuien, rol: rolTraducido }) : '';
+      const esOtroIdioma = (v.idioma && v.idioma !== 'es');
+      const origTit = a.originalTitulo || a.titulo || '';
+      const origTxt = a.originalTexto || a.texto || '';
+
       return `
-      <div style="padding:12px 14px;border-radius:14px;background:var(--aviso-fondo);border:1px solid var(--aviso-borde)">
+      <div class="bloque-aviso-card" style="padding:12px 14px;border-radius:14px;background:var(--aviso-fondo);border:1px solid var(--aviso-borde)" data-idioma="${esc(v.idioma || 'es')}" data-orig-tit="${esc(origTit)}" data-orig-txt="${esc(origTxt)}" data-trad-tit="${esc(a.titulo || '')}" data-trad-txt="${esc(a.texto || '')}" data-traducido="${a.traducido ? '1' : '0'}">
         <div style="display:flex;align-items:center;gap:7px;margin-bottom:3px;flex-wrap:wrap">
           <i class="ph ph-warning-circle" style="font-size:15px;color:var(--aviso)"></i>
-          <span style="font-size:13.5px;font-weight:900;color:var(--aviso)">${esc(a.titulo || '')}</span>
+          <span class="aviso-tit-txt" style="font-size:13.5px;font-weight:900;color:var(--aviso)">${esc(a.titulo || '')}</span>
           ${hasta}
         </div>
-        ${a.texto ? `<div style="font-size:12.5px;color:var(--texto-medio);line-height:1.45">${esc(a.texto)}</div>` : ''}
-        ${a.porQuien ? `<div style="font-size:11px;color:var(--texto-tenue);margin-top:5px">${esc(t('avisos.publicadoPor', { quien: a.porQuien, rol: a.rol || '' }))}</div>` : ''}
+        <div class="aviso-cpo-txt" style="font-size:12.5px;color:var(--texto-medio);line-height:1.45;${a.texto ? '' : 'display:none'}">${esc(a.texto || '')}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;flex-wrap:wrap;gap:6px">
+          ${publicadoPor ? `<div style="font-size:11px;color:var(--texto-tenue)">${esc(publicadoPor)}</div>` : '<div></div>'}
+          ${esOtroIdioma ? `
+          <div style="font-size:11px;color:var(--texto-tenue);display:inline-flex;align-items:center;gap:5px">
+            <span style="opacity:0.85">🌐 ${esc(t('avisos.traduccionIa'))}</span>
+            <span>·</span>
+            <button type="button" class="btn-toggle-aviso-orig" onclick="toggleAvisoOrig(this)" style="background:none;border:none;padding:0;color:var(--marca);font-size:11px;font-weight:700;cursor:pointer;text-decoration:underline">${esc(t('avisos.verOriginal'))}</button>
+          </div>` : ''}
+        </div>
       </div>`;
     }
     // Un reclamo: se dice que está abierto y desde cuándo. Nada más.
@@ -3650,10 +3733,78 @@ function bloqueAvisosHtml(avisos, v, t) {
       </div>`;
   };
 
+  const scriptAvisos = (v.idioma && v.idioma !== 'es') ? `
+  <script>
+    window.__TXT_VER_ORIGINAL = ${JSON.stringify(t('avisos.verOriginal'))};
+    window.__TXT_VER_TRADUCCION = ${JSON.stringify(t('avisos.verTraduccion'))};
+    function toggleAvisoOrig(btn) {
+      var card = btn.closest('.bloque-aviso-card');
+      if (!card) return;
+      var titEl = card.querySelector('.aviso-tit-txt');
+      var txtEl = card.querySelector('.aviso-cpo-txt');
+      var viendoOrig = card.getAttribute('data-viendo-orig') === '1';
+      if (viendoOrig) {
+        if (titEl) titEl.textContent = card.getAttribute('data-trad-tit') || '';
+        if (txtEl) {
+          var tVal = card.getAttribute('data-trad-txt') || '';
+          txtEl.textContent = tVal;
+          txtEl.style.display = tVal ? '' : 'none';
+        }
+        card.removeAttribute('data-viendo-orig');
+        btn.textContent = window.__TXT_VER_ORIGINAL;
+      } else {
+        if (titEl) titEl.textContent = card.getAttribute('data-orig-tit') || '';
+        if (txtEl) {
+          var tVal = card.getAttribute('data-orig-txt') || '';
+          txtEl.textContent = tVal;
+          txtEl.style.display = tVal ? '' : 'none';
+        }
+        card.setAttribute('data-viendo-orig', '1');
+        btn.textContent = window.__TXT_VER_TRADUCCION;
+      }
+    }
+    (function() {
+      var cards = document.querySelectorAll('.bloque-aviso-card[data-idioma]');
+      cards.forEach(function(card) {
+        var idioma = card.getAttribute('data-idioma');
+        if (!idioma || idioma === 'es') return;
+        var yaTrad = card.getAttribute('data-traducido') === '1';
+        if (yaTrad) return;
+        var origTit = card.getAttribute('data-orig-tit') || '';
+        var origTxt = card.getAttribute('data-orig-txt') || '';
+        if (!origTit && !origTxt) return;
+        var sep = ' ___SEP___ ';
+        var textoAtraducir = origTit + (origTxt ? sep + origTxt : '');
+        var url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' + encodeURIComponent(idioma) + '&dt=t&q=' + encodeURIComponent(textoAtraducir);
+        fetch(url)
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (!d || !d[0]) return;
+            var tradCompleta = d[0].map(function(item) { return item[0]; }).join('');
+            var partes = tradCompleta.split(sep);
+            var tTrad = partes[0] || origTit;
+            var cTrad = partes[1] || '';
+            card.setAttribute('data-trad-tit', tTrad);
+            card.setAttribute('data-trad-txt', cTrad);
+            card.setAttribute('data-traducido', '1');
+            var titEl = card.querySelector('.aviso-tit-txt');
+            var txtEl = card.querySelector('.aviso-cpo-txt');
+            if (titEl) titEl.textContent = tTrad;
+            if (txtEl && cTrad) {
+              txtEl.textContent = cTrad;
+              txtEl.style.display = '';
+            }
+          })
+          .catch(function() {});
+      });
+    })();
+  </script>` : '';
+
   return `
     <div class="card" style="padding:16px;background:var(--superficie);margin-bottom:14px;border-radius:18px">
       <div style="font-size:12.5px;font-weight:800;color:var(--texto-suave);text-transform:uppercase;letter-spacing:.04em;margin-bottom:11px">${esc(t('avisos.titulo', { edificio: v.edificio }))}</div>
       <div style="display:flex;flex-direction:column;gap:9px">${avisos.map(fila).join('')}</div>
+      ${scriptAvisos}
     </div>`;
 }
 
@@ -3803,7 +3954,7 @@ router.get('/', async (req, res) => {
     console.warn('Expensa de la unidad:', err.message);
   }
 
-  const avisos = await avisosDelEdificio(v.edificio);
+  const avisos = await avisosDelEdificio(v.edificio, v.idioma);
 
   // ¿Le mostramos el pop-up? Se apaga desde dos lados --el vecino y el administrador del
   // consorcio-- y alcanza con que uno diga que no. La sesión de demostración no tiene fila en la
@@ -7190,7 +7341,7 @@ router.get('/novedades', async (req, res) => {
   const v = getVecinoSession(req);
   const t = textos(v.idioma);
 
-  const avisos = await avisosDelEdificio(v.edificio);
+  const avisos = await avisosDelEdificio(v.edificio, v.idioma);
 
   const content = `
     <div style="margin-bottom:16px">
