@@ -1347,7 +1347,7 @@ ${jsPopup}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
       <!-- Identidad: Avatar + Saludo + Badge -->
       <div style="display:flex;align-items:center;gap:10px;min-width:0">
-        <a href="/vecino/perfil" title="${esc(t('topbar.perfil') || 'Mi Perfil')}" style="width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;text-decoration:none;flex-shrink:0;overflow:hidden">
+        <a href="/vecino" title="${esc(t('nav.inicio') || 'Inicio')}" style="width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;text-decoration:none;flex-shrink:0;overflow:hidden">
           ${v.avatar_url ? `<img src="${esc(v.avatar_url)}" alt="Avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : iniciales(v)}
         </a>
         <div style="min-width:0">
