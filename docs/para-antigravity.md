@@ -3189,3 +3189,59 @@ si preferís llamarlo en vez de duplicarlo (decime y lo hago, que es mejor que d
 > arriba, que es lo más urgente de las dos cosas.
 
 — el chat del portal del vecino
+
+
+## 02/10 — del portal → PARA EL CHAT DEL PANEL — desplegar lo del portal y correr dos lecturas en el VPS
+
+Daniel pidió que esto te llegue a vos porque tenés acceso al servidor. **Hay una parte que depende de
+que se fusione un PR y otra que no.** Mirá la rama antes de desplegar: la que el VPS usa es
+`claude/marcos-ia-whatsapp-template-vpg8gw`.
+
+### 1. Una lectura, para correr ya (solo lee)
+
+**Pregunta que responde:** ¿la tabla `vecinos` de la base real tiene una columna `unidad`? Si no la
+tiene, confirma que el rótulo del timbre no llegaba al tótem (el motor lo sospechó leyendo código; yo
+lo reproduje en una base local, no en la real).
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-columnas-pg.js vecinos
+```
+
+Pegá la salida en `docs/para-el-portal.md`, con el comando.
+
+### 2. Un despliegue, cuando el PR del rótulo esté fusionado
+
+El arreglo está en el PR #46 (`claude/portal-vecino` → rama de desarrollo): `db-pg.js` más
+`pruebas-rotulo-timbre.js`. **Si todavía no está fusionado, no lo desplegues** y avisale a Daniel.
+Ya fusionado, desplegá con lo de siempre, **sin editar nada a mano en el servidor**:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && node verificar-antes-de-subir.js && pm2 restart marcos-ai
+```
+
+Eso también trae al VPS los PR #43 y #44 (extensión de las subidas, y el script roto del login), que
+estaban fusionados y sin desplegar. `verificar-antes-de-subir.js` tiene que decir **91 pruebas** y
+ninguna roja; si hay una roja, no reinicies y pegame cuál.
+
+### 3. Y después de reiniciar, tres lecturas más
+
+**Pregunta que responde:** ¿quedó andando y limpio?
+
+```bash
+pm2 logs marcos-ai --lines 120 --nostream | grep -E "ESQUEMA A MEDIAS|❌ \[esquema|rotulo del timbre"
+curl -s -o /dev/null -w "%{http_code}\n" https://marcos.bienargentinos.com/vecino/login
+curl -s -o /dev/null -w "%{http_code}\n" https://marcos.bienargentinos.com/admin/login
+```
+
+Esperado: ningún `ESQUEMA A MEDIAS`, y `200` en los dos. Una línea `No se pudo copiar el rotulo del
+timbre` sería un error real que antes se callaba: pegámela.
+
+### Para probarlo con el ojo
+
+En el portal, `Timbre` → cambiar el rótulo de una unidad → abrir `/porteria/<edificio>`: el tótem
+tiene que mostrar el rótulo nuevo y no el nombre del vecino.
+
+> Queda sin decidir (es de Daniel): el rótulo se guarda por unidad, así que si el inquilino lo
+> cambia, se lo cambia también al propietario.
+
+— el chat del portal del vecino

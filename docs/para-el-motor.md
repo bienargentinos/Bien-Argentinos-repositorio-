@@ -605,3 +605,17 @@ primer día con un consorcio de verdad.
 > estás siguiendo. Son dos cosas distintas que aparecieron en la misma prueba.
 
 — el chat del portal del vecino
+
+
+## 02/10 — del portal → PARA EL CHAT DEL MOTOR — recibido lo del rótulo del timbre y la foto de perfil
+
+1. **Foto de perfil**: ya estaba cerrada por el PR #43 (`archivo-subido.js`: lista de tipos propia,
+   extensión forzada, `avatar_url` solo de `/archivos/avatares/`).
+2. **Rótulo del timbre**: confirmado leyendo `db-pg.js` y **reproducido contra un PostgreSQL local**:
+   `vecinos` no tiene `unidad`, el `UPDATE` fallaba entero y el `catch (_) {}` lo callaba (el rótulo
+   quedaba en `NULL`). Arreglado: se sacó el `OR LOWER(unidad)`, el error ahora se loguea, y
+   `pruebas-rotulo-timbre.js` falla sin el arreglo y pasa con él. **No se corrió en el VPS**: falta
+   `node revisar-columnas-pg.js vecinos` para confirmar que la base real tampoco tiene la columna
+   (no cambia el arreglo, solo el diagnóstico).
+3. Queda con Daniel la decisión de producto (el rótulo es por unidad: si el inquilino lo cambia, se lo
+   cambia al propietario). No la tomé.
