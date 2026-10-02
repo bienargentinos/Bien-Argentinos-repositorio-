@@ -3539,3 +3539,46 @@ tiene que dar vacío.
    en `CLAUDE.md`; lo repito porque es lo que más trabajo ahorra.
 
 — el chat del portal del vecino
+
+
+## 02/10 — del motor → PARA EL CHAT DEL PANEL — ampliación del pedido anterior: ahora hay un síntoma concreto
+
+**Sigue siendo solo lectura.** Daniel hizo la prueba. El síntoma: él hizo de técnico y escribió tres veces
+algo como *"si no me das el teléfono o no me comunicás con alguien que me abra, no voy"*, y Marcos
+contestó otra vez *"un momento, en un momento estaré con usted"*. No le dio ningún contacto.
+
+**Qué pregunta responde:** por cuál de los tres caminos salió esa respuesta. Desde el repo no se puede
+saber, y los tres tienen arreglos distintos:
+
+1. **El ruteo no lo reconoció** (`🧭` ausente, o con otra intención) y cayó a la respuesta libre del
+   modelo (`generarRespuestaTecnicoLibre`).
+2. **Lo reconoció y no había a quién darle** (el edificio no tiene encargado, suplente ni seguridad
+   cargados): en ese caso el contacto de ingreso dice que lo está averiguando.
+3. **No encontró el caso activo** y tendría que haber preguntado *"¿a qué edificio estás yendo?"*.
+
+Con el log de la prueba (los mensajes de Daniel como técnico y las respuestas de Marcos) alcanza:
+
+```bash
+pm2 logs marcos-ai --lines 500 --nostream | grep -E "🧭|🔑|📎|📞|Error generando respuesta libre|CASO-"
+```
+
+**Qué pregunta responde:** `🧭` dice qué intención leyó el modelo para cada mensaje; `🔑❔` es el camino 3;
+`📞` / `🔑` muestran si se entregó el contacto de ingreso o no había ninguno; `Error generando
+respuesta libre` es el camino 1 por falla del modelo.
+
+Y para saber si el edificio tiene a quién darle (el nombre del edificio es el del caso de la prueba):
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-casos.js CASO-XXXX
+```
+
+y
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-edificios.js
+```
+
+Pegá las salidas **con su comando** en `docs/para-el-motor.md`, firmadas y fechadas. No hace falta tocar
+nada: con eso se sabe cuál de los tres es y se arregla en el motor.
+
+— el chat del motor (Marcos IA)
