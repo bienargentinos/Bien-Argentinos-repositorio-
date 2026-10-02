@@ -27,6 +27,32 @@ No hace falta que sea prolijo. Sí que sea cierto.
 
 ## Entradas
 
+### 2026-10-02 — Autenticación segura y recuperación de contraseña por email ($0 costo Meta) en portal-vecino.js y db-pg.js
+
+- **Qué se hizo**:
+  - **Eliminación de cargos salientes de Meta WhatsApp**:
+    - Se neutralizaron `/vecino/api/solicitar-pin` y `/vecino/api/verificar-pin` (responden 400 con motivo explícito) y se quitó la pestaña de login por PIN de WhatsApp de `/vecino/login`.
+    - Con esto se erradica por completo la emisión de mensajes OTP por WhatsApp (categoría *Authentication* de Meta), garantizando $0 costo en la factura de WhatsApp de Daniel.
+  - **Base de datos (`db-pg.js`)**:
+    - Schema: agregadas columnas `reset_token` VARCHAR(128) y `reset_token_expira` TIMESTAMP a `usuarios`.
+    - Nuevas funciones: `guardarTokenRecuperacion(email, token, expiraMs)`, `validarTokenRecuperacion(token)` y `restablecerPasswordConToken(token, nuevaPassword)`.
+    - Soporte de fallback en memoria (`_tokensRecuperacionMemoria`) para asegurar funcionamiento completo tanto en PostgreSQL como en entornos de prueba / CI sin base de datos activa.
+    - Se exportaron las funciones y se blindó `obtenerUsuarioPorEmail` con chequeo de `pool.sinBase`.
+  - **Flujo de recuperación y correo en `portal-vecino.js`**:
+    - Implementada función `enviarEmailRecuperacion({ email, nombre, link })` utilizando `nodemailer` y `configSmtp` existente.
+    - En `/vecino/login`: reemplazado el botón de PIN de WhatsApp por enlace *"¿Olvidaste tu contraseña?"* y formulario interactivo `#box-recuperar-pass`.
+    - `POST /vecino/api/solicitar-recuperacion`: generación de token criptográfico seguro (64 caracteres hex) con expiración de 1 hora. Respuesta neutra para mitigar ataques de enumeración de usuarios (OWASP). Despacho del email de recuperación con enlace único.
+    - `GET /vecino/recuperar-password`: vista responsiva que valida el token y muestra formulario de nueva contraseña (o mensaje claro de enlace expirado/inválido).
+    - `POST /vecino/api/restablecer-password`: valida token, chequea largo mínimo de contraseña ($\ge 6$), actualiza el hash seguro con bcrypt y consume/invalida el token para un solo uso.
+    - Corrección en rotación de popups diarios: en la línea 3967 de `portal-vecino.js` se agregó `v.puede_ver_expensas !== false` en el consejo de expensas para que a los huéspedes nunca se les recomiende ver expensas en el popup, evitando regresiones en tests de cambio de fecha.
+  - **Pruebas y Documentación comercial**:
+    - Se creó `pruebas-recuperar-password.js` testeando el ciclo completo (generación de token, expiración, consumo, cambio de clave, validaciones y neutralización de OTP WhatsApp).
+    - Se creó el documento comercial `docs/comercial/12-autenticacion-y-recuperacion-de-password.md` y se añadió al índice de `docs/comercial/README.md`.
+- **Verificaciones**:
+  - `node --check db-pg.js`: ✅ OK.
+  - `node --check portal-vecino.js`: ✅ OK.
+  - `node verificar-antes-de-subir.js`: ✅ 89 de 89 pruebas en verde (100% OK).
+
 ### 2026-09-27 — Store de sesiones del Panel alineado con asegurarTablasDeSesion (`dashboard.js`)
 
 - **Qué se hizo**:

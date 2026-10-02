@@ -497,6 +497,8 @@ async function _initPgSchema() {
             -- DEFAULT TRUE: quien no dijo nada lo ve. Apagarlo es una decision explicita.
             ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS popup_activo BOOLEAN DEFAULT TRUE;
             ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+            ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token VARCHAR(128);
+            ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token_expira TIMESTAMP;
 
             -- Y el mismo interruptor por EDIFICIO, para que el administrador lo pueda apagar para
             -- todos los suyos sin tocar la preferencia de cada vecino. Son dos decisiones distintas
@@ -1473,8 +1475,13 @@ async function registrarOUsuario(email, password, nombre, apellido, telefono) {
 async function obtenerUsuarioPorEmail(email) {
     const emailNorm = String(email || '').trim().toLowerCase();
     if (!emailNorm) return null;
-    const res = await pool.query('SELECT * FROM usuarios WHERE LOWER(email) = $1 AND activo = TRUE', [emailNorm]);
-    return res.rows[0] || null;
+    if (pool && pool.sinBase) return null;
+    try {
+        const res = await pool.query('SELECT * FROM usuarios WHERE LOWER(email) = $1 AND activo = TRUE', [emailNorm]);
+        return res.rows[0] || null;
+    } catch (_) {
+        return null;
+    }
 }
 
 async function obtenerUsuarioPorId(id) {
@@ -1536,6 +1543,100 @@ async function cambiarPasswordUsuario(usuarioId, passwordActual, passwordNueva) 
     await pool.query('UPDATE usuarios SET password_hash = $2, updated_at = NOW() WHERE id = $1',
         [usuarioId, hashPassword(nueva)]);
     return { ok: true, eraPrimera: !u.password_hash };
+}
+
+// Recuperación de contraseña por email (token seguro).
+const _tokensRecuperacionMemoria = new Map();
+
+async function guardarTokenRecuperacion(email, token, expiraMs = 3600000) {
+    const emailNorm = String(email || '').trim().toLowerCase();
+    if (!emailNorm || !token) throw new Error('Email y token son requeridos');
+
+    const expiraFecha = new Date(Date.now() + expiraMs);
+
+    _tokensRecuperacionMemoria.set(token, {
+        email: emailNorm,
+        expira: Date.now() + expiraMs
+    });
+
+    if (pool && !pool.sinBase) {
+        try {
+            await pool.query(
+                `UPDATE usuarios 
+                 SET reset_token = $1, reset_token_expira = $2, updated_at = NOW() 
+                 WHERE LOWER(email) = $3 AND activo = TRUE`,
+                [token, expiraFecha, emailNorm]
+            );
+        } catch (err) {
+            console.warn('guardarTokenRecuperacion PG:', err.message);
+        }
+    }
+    return { ok: true, expiraFecha };
+}
+
+async function validarTokenRecuperacion(token) {
+    if (!token || typeof token !== 'string') return null;
+
+    if (pool && !pool.sinBase) {
+        try {
+            const res = await pool.query(
+                `SELECT id, email, nombre, apellido, reset_token_expira 
+                 FROM usuarios 
+                 WHERE reset_token = $1 AND reset_token_expira > NOW() AND activo = TRUE`,
+                [token]
+            );
+            if (res.rows && res.rows.length > 0) {
+                return res.rows[0];
+            }
+        } catch (err) {
+            console.warn('validarTokenRecuperacion PG:', err.message);
+        }
+    }
+
+    const mem = _tokensRecuperacionMemoria.get(token);
+    if (mem && mem.expira > Date.now()) {
+        return { email: mem.email, nombre: 'Vecino' };
+    }
+    return null;
+}
+
+async function restablecerPasswordConToken(token, nuevaPassword) {
+    if (!token) throw new Error('Token requerido');
+    const pass = String(nuevaPassword || '');
+    if (pass.length < 6) return { ok: false, error: 'La contraseña debe tener al menos 6 caracteres' };
+
+    const u = await validarTokenRecuperacion(token);
+    if (!u) {
+        return { ok: false, error: 'El enlace de recuperación es inválido o ha expirado. Solicitá uno nuevo.' };
+    }
+
+    const nuevoHash = hashPassword(pass);
+
+    if (pool && !pool.sinBase) {
+        try {
+            if (u.id) {
+                await pool.query(
+                    `UPDATE usuarios 
+                     SET password_hash = $1, reset_token = NULL, reset_token_expira = NULL, updated_at = NOW() 
+                     WHERE id = $2`,
+                    [nuevoHash, u.id]
+                );
+            } else if (u.email) {
+                await pool.query(
+                    `UPDATE usuarios 
+                     SET password_hash = $1, reset_token = NULL, reset_token_expira = NULL, updated_at = NOW() 
+                     WHERE LOWER(email) = LOWER($2)`,
+                    [nuevoHash, u.email]
+                );
+            }
+        } catch (err) {
+            console.error('restablecerPasswordConToken PG:', err.message);
+            throw err;
+        }
+    }
+
+    _tokensRecuperacionMemoria.delete(token);
+    return { ok: true };
 }
 
 // La expensa mas reciente de una unidad.
@@ -2402,5 +2503,8 @@ module.exports = {
     validarConsumirPaseQR,
     registrarEventoAcceso,
     obtenerEventosAcceso,
-    desvincularIntegrante
+    desvincularIntegrante,
+    guardarTokenRecuperacion,
+    validarTokenRecuperacion,
+    restablecerPasswordConToken
 };

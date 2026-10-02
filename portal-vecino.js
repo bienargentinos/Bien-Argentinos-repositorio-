@@ -153,6 +153,9 @@ router.use(express.json());
 
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
+const { configSmtp } = require('./smtp-config');
 const multer = require('multer');
 const { sesionDemoVecino } = require('./sesion-demo');
 const { IDIOMAS, textos, normalizarIdioma, idiomaDelNavegador } = require('./idiomas');
@@ -227,6 +230,54 @@ function escJs(s) {
     .replace(/"/g, '\\"')
     .replace(/\n/g, '\\n')
     .replace(/\r/g, '');
+}
+
+async function enviarEmailRecuperacion({ email, nombre, link }) {
+  try {
+    const smtp = configSmtp();
+    if (!smtp.transporte.auth.user || !smtp.transporte.auth.pass) {
+      console.warn('🚨📧 [RECUPERAR PASS] Faltan SMTP_USER o SMTP_PASS en el .env: no se puede enviar mail.');
+      return false;
+    }
+    const transporter = nodemailer.createTransport(smtp.transporte);
+    const html = '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;max-width:540px;margin:0 auto;padding:24px;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;color:#1e293b">' +
+      '<div style="text-align:center;margin-bottom:20px">' +
+        '<div style="font-size:24px;font-weight:900;color:#0F326A;letter-spacing:-0.5px">🏢 Portal del Vecino</div>' +
+        '<div style="font-size:13px;color:#64748B;margin-top:2px">Recuperación de Acceso</div>' +
+      '</div>' +
+      '<p style="font-size:15px;line-height:1.5;margin:0 0 16px">Hola <strong>' + esc(nombre || 'Vecino') + '</strong>,</p>' +
+      '<p style="font-size:14px;line-height:1.5;color:#334155;margin:0 0 20px">' +
+        'Recibimos una solicitud para restablecer la contraseña de tu cuenta en el Portal del Vecino. Hacé clic en el siguiente botón para crear una nueva contraseña:' +
+      '</p>' +
+      '<div style="text-align:center;margin:28px 0">' +
+        '<a href="' + esc(link) + '" style="display:inline-block;background:#0F326A;color:#ffffff;font-size:14px;font-weight:800;text-decoration:none;padding:14px 28px;border-radius:12px;box-shadow:0 4px 12px rgba(15,50,106,.25)">' +
+          '🔑 Restablecer mi Contraseña' +
+        '</a>' +
+      '</div>' +
+      '<p style="font-size:12px;color:#64748B;line-height:1.5;margin:20px 0 0;padding-top:16px;border-top:1px solid #e2e8f0">' +
+        '⏱️ Este enlace es válido por <strong>1 hora</strong> y solo puede usarse una vez.<br>' +
+        'Si vos no solicitaste este cambio, podés ignorar este correo; tu contraseña actual se mantendrá segura.' +
+      '</p>' +
+    '</div>';
+
+    const text = 'Hola ' + (nombre || 'Vecino') + ',\n\n' +
+      'Recibimos una solicitud para restablecer tu contraseña en el Portal del Vecino.\n\n' +
+      'Ingresá en el siguiente enlace para crear una nueva contraseña:\n' + link + '\n\n' +
+      'Este enlace es válido por 1 hora.\nSi no solicitaste este cambio, podés ignorar este mensaje.';
+
+    const info = await transporter.sendMail({
+      from: '"Portal del Vecino" <' + smtp.from + '>',
+      to: email,
+      subject: '🔑 Recuperación de contraseña — Portal del Vecino',
+      text,
+      html
+    });
+    console.log('📧 [RECUPERAR PASS] Mail enviado con éxito a ' + email + '. ID: ' + info.messageId);
+    return true;
+  } catch (err) {
+    console.error('🚨📧 [RECUPERAR PASS] Error enviando mail:', err.message);
+    return false;
+  }
 }
 
 // Estilos visuales oficiales de Marcos IA (Tokens exactos)
@@ -2247,17 +2298,7 @@ ${CSS_FORMULARIOS}
     <span>📲 Instalar App en mi Celular</span>
   </button>
 
-  <!-- PESTAÑAS: EMAIL vs WHATSAPP -->
-  <div style="display:flex;background:var(--superficie-3);border-radius:12px;padding:4px;margin-bottom:16px;gap:4px">
-    <button type="button" id="tab-btn-email" onclick="cambiarTabLogin('email')" style="flex:1;padding:8px 6px;border:none;border-radius:10px;font-weight:800;font-size:12.5px;cursor:pointer;background:#fff;color:var(--marca);box-shadow:0 1px 3px rgba(0,0,0,.08)">
-      ✉️ Con Email
-    </button>
-    <button type="button" id="tab-btn-wa" onclick="cambiarTabLogin('wa')" style="flex:1;padding:8px 6px;border:none;border-radius:10px;font-weight:800;font-size:12.5px;cursor:pointer;background:transparent;color:var(--texto-suave)">
-      💬 WhatsApp PIN
-    </button>
-  </div>
-
-  <!-- SECCIÓN 1: LOGIN Y REGISTRO CON EMAIL -->
+  <!-- SECCIÓN: LOGIN Y REGISTRO CON EMAIL -->
   <div id="seccion-email">
     <!-- Formulario Iniciar Sesión -->
     <div id="box-login-email">
@@ -2267,6 +2308,12 @@ ${CSS_FORMULARIOS}
 
         <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Contraseña</label>
         <input id="inp-login-pass" type="password" class="inp" placeholder="••••••••" required value="admin123">
+
+        <div style="display:flex;justify-content:flex-end;margin-top:-6px;margin-bottom:14px">
+          <button type="button" onclick="mostrarRecuperarPass(true)" style="background:none;border:none;color:var(--acento);font-size:12px;font-weight:700;cursor:pointer;padding:0">
+            ¿Olvidaste tu contraseña?
+          </button>
+        </div>
 
         <button id="btn-submit-login-email" type="submit" class="btn-primary" style="margin-bottom:12px">
           <i class="ph ph-sign-in" style="font-size:20px"></i>
@@ -2339,8 +2386,6 @@ ${CSS_FORMULARIOS}
         <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Contraseña</label>
         <input id="inp-reg-pass" type="password" class="inp" placeholder="Mínimo 6 caracteres" required>
 
-        <!-- Depto y Rol eliminados para registro limpio -->
-
         <button id="btn-submit-reg" type="submit" class="btn-primary" style="margin-bottom:10px">
           <span>Crear Cuenta e Ingresar</span>
         </button>
@@ -2352,90 +2397,31 @@ ${CSS_FORMULARIOS}
         </button>
       </div>
     </div>
-  </div>
 
-  <!-- SECCIÓN 2: LOGIN CON WHATSAPP Y PIN -->
-  <div id="seccion-wa" style="display:none">
-    <!-- PASO 1: INGRESAR TELÉFONO -->
-    <div id="paso-1-telefono">
-      <form onsubmit="solicitarPinWhatsApp(event)">
-        <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Número de Celular</label>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-          <select id="sel-wa-prefix" class="inp" onchange="actualizarPlaceholderTel('sel-wa-prefix', 'inp-login-tel')" style="width:125px;margin-bottom:0;padding:0 4px;font-size:11.5px;font-weight:700">
-            <optgroup label="América">
-              <option value="+54" selected>🇦🇷 Argentina (+54)</option>
-              <option value="+598">🇺🇾 Uruguay (+598)</option>
-              <option value="+56">🇨🇱 Chile (+56)</option>
-              <option value="+55">🇧🇷 Brasil (+55)</option>
-              <option value="+595">🇵🇾 Paraguay (+595)</option>
-              <option value="+591">🇧🇴 Bolivia (+591)</option>
-              <option value="+51">🇵🇪 Perú (+51)</option>
-              <option value="+57">🇨🇴 Colombia (+57)</option>
-              <option value="+58">🇻🇪 Venezuela (+58)</option>
-              <option value="+593">🇪🇨 Ecuador (+593)</option>
-              <option value="+52">🇲🇽 México (+52)</option>
-              <option value="+1">🇺🇸 EE.UU. (+1)</option>
-              <option value="+1">🇨🇦 Canadá (+1)</option>
-            </optgroup>
-            <optgroup label="Europa">
-              <option value="+34">🇪🇸 España (+34)</option>
-              <option value="+39">🇮🇹 Italia (+39)</option>
-              <option value="+33">🇫🇷 Francia (+33)</option>
-              <option value="+49">🇩🇪 Alemania (+49)</option>
-              <option value="+44">🇬🇧 Reino Unido (+44)</option>
-              <option value="+351">🇵🇹 Portugal (+351)</option>
-              <option value="+41">🇨🇭 Suiza (+41)</option>
-              <option value="+31">🇳🇱 Países Bajos (+31)</option>
-              <option value="+45">🇩🇰 Dinamarca (+45)</option>
-              <option value="+46">🇸🇪 Suecia (+46)</option>
-              <option value="+47">🇳🇴 Noruega (+47)</option>
-            </optgroup>
-            <optgroup label="Asia y Oceanía">
-              <option value="+86">🇨🇳 China (+86)</option>
-              <option value="+81">🇯🇵 Japón (+81)</option>
-              <option value="+82">🇰🇷 Corea del Sur (+82)</option>
-              <option value="+61">🇦🇺 Australia (+61)</option>
-              <option value="+64">🇳🇿 Nueva Zelanda (+64)</option>
-              <option value="+972">🇮🇱 Israel (+972)</option>
-            </optgroup>
-            <optgroup label="Otros">
-              <option value="">🌐 Otro (+ manual)</option>
-            </optgroup>
-          </select>
-          <input id="inp-login-tel" type="tel" class="inp" style="margin-bottom:0;flex-grow:1" placeholder="Ej: 11 5054 2005" required>
-        </div>
+    <!-- Formulario Recuperar Contraseña -->
+    <div id="box-recuperar-pass" style="display:none">
+      <div style="font-size:15px;font-weight:900;color:var(--texto);margin-bottom:6px">Recuperar Contraseña</div>
+      <p style="font-size:12.5px;color:var(--texto-medio);margin:0 0 14px;line-height:1.4">
+        Ingresá tu correo electrónico registrado y te enviaremos un enlace seguro para restablecer tu contraseña.
+      </p>
+      <form onsubmit="solicitarRecuperacion(event)">
+        <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Correo Electrónico</label>
+        <input id="inp-recuperar-email" type="email" class="inp" placeholder="ejemplo@correo.com" required>
 
-        <button id="btn-pedir-pin" type="submit" class="btn-primary" style="margin-bottom:12px">
-          <i class="ph ph-whatsapp-logo" style="font-size:20px"></i>
-          <span>Recibir Código por WhatsApp</span>
+        <button id="btn-submit-recuperar" type="submit" class="btn-primary" style="margin-bottom:12px">
+          <i class="ph ph-paper-plane-tilt" style="font-size:18px"></i>
+          <span>Enviar Enlace de Recuperación</span>
         </button>
       </form>
-    </div>
 
-    <!-- PASO 2: INGRESAR CÓDIGO DE 4 DÍGITOS -->
-    <div id="paso-2-pin" style="display:none">
-      <div style="background:var(--ok-fondo);border:1px solid var(--ok-borde);border-radius:14px;padding:12px;margin-bottom:14px;text-align:center">
-        <div style="font-size:12px;color:var(--ok);font-weight:800;margin-bottom:2px">Te enviamos el código a tu WhatsApp:</div>
-        <div id="txt-tel-destino" style="font-size:13.5px;font-weight:900;color:var(--ok)"></div>
-        <div id="txt-pin-hint" style="font-size:11px;color:var(--ok);margin-top:4px;font-weight:700;display:none"></div>
+      <div id="recuperar-ok-msg" style="display:none;background:var(--ok-fondo);border:1px solid var(--ok-borde);border-radius:12px;padding:12px;margin-bottom:12px;text-align:center">
+        <div style="font-size:12.5px;font-weight:800;color:var(--ok)">✓ Enlace enviado</div>
+        <div id="txt-recuperar-ok" style="font-size:11.5px;color:var(--ok);margin-top:4px">Revisá tu casilla de correo.</div>
       </div>
 
-      <form onsubmit="verificarPinWhatsApp(event)">
-        <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:8px;text-align:center">Código de 4 Dígitos</label>
-        <input id="inp-login-pin" type="text" maxlength="4" class="pin-box" placeholder="••••" autofocus>
-
-        <button id="btn-verificar-pin" type="submit" class="btn-primary" style="margin-bottom:12px">
-          <i class="ph ph-lock-key-open" style="font-size:20px"></i>
-          <span>Ingresar con PIN</span>
-        </button>
-      </form>
-
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
-        <button type="button" onclick="volverPaso1()" style="background:none;border:none;color:var(--texto-suave);font-size:12px;font-weight:700;cursor:pointer">
-          ← Cambiar número
-        </button>
-        <button type="button" onclick="reenviarPinWhatsApp()" style="background:none;border:none;color:var(--acento);font-size:12px;font-weight:700;cursor:pointer">
-          🔄 Reenviar código
+      <div style="text-align:center;margin-top:8px">
+        <button type="button" onclick="mostrarRecuperarPass(false)" style="background:none;border:none;color:var(--texto-suave);font-size:12.5px;font-weight:700;cursor:pointer">
+          ← Volver a Iniciar Sesión
         </button>
       </div>
     </div>
@@ -2477,38 +2463,25 @@ ${CSS_FORMULARIOS}
     }
   }
 
-  function cambiarTabLogin(tab) {
-    var btnEmail = document.getElementById('tab-btn-email');
-    var btnWa = document.getElementById('tab-btn-wa');
-    var secEmail = document.getElementById('seccion-email');
-    var secWa = document.getElementById('seccion-wa');
-    var err = document.getElementById('login-error-msg');
-    err.style.display = 'none';
-
-    if (tab === 'email') {
-      btnEmail.style.background = '#fff';
-      btnEmail.style.color = '#0F326A';
-      btnEmail.style.boxShadow = '0 1px 3px rgba(0,0,0,.08)';
-      btnWa.style.background = 'transparent';
-      btnWa.style.color = '#64748B';
-      btnWa.style.boxShadow = 'none';
-      secEmail.style.display = 'block';
-      secWa.style.display = 'none';
-    } else {
-      btnWa.style.background = '#fff';
-      btnWa.style.color = '#0F326A';
-      btnWa.style.boxShadow = '0 1px 3px rgba(0,0,0,.08)';
-      btnEmail.style.background = 'transparent';
-      btnEmail.style.color = '#64748B';
-      btnEmail.style.boxShadow = 'none';
-      secWa.style.display = 'block';
-      secEmail.style.display = 'none';
+  function mostrarRecuperarPass(mostrar) {
+    document.getElementById('box-login-email').style.display = mostrar ? 'none' : 'block';
+    document.getElementById('box-registro-email').style.display = 'none';
+    document.getElementById('box-recuperar-pass').style.display = mostrar ? 'block' : 'none';
+    document.getElementById('login-error-msg').style.display = 'none';
+    var okMsg = document.getElementById('recuperar-ok-msg');
+    if (okMsg) okMsg.style.display = 'none';
+    if (mostrar) {
+      var inp = document.getElementById('inp-recuperar-email');
+      var emailLogin = document.getElementById('inp-login-email');
+      if (inp && emailLogin && emailLogin.value) inp.value = emailLogin.value;
+      if (inp) inp.focus();
     }
   }
 
   function mostrarRegistroEmail(mostrar) {
     document.getElementById('box-login-email').style.display = mostrar ? 'none' : 'block';
     document.getElementById('box-registro-email').style.display = mostrar ? 'block' : 'none';
+    document.getElementById('box-recuperar-pass').style.display = 'none';
     document.getElementById('login-error-msg').style.display = 'none';
   }
 
@@ -2594,109 +2567,44 @@ ${CSS_FORMULARIOS}
     }
   }
 
-  async function solicitarPinWhatsApp(e) {
-    if (e) e.preventDefault();
-    var inp = document.getElementById('inp-login-tel');
-    var btn = document.getElementById('btn-pedir-pin');
+  async function solicitarRecuperacion(e) {
+    e.preventDefault();
+    var email = document.getElementById('inp-recuperar-email').value.trim();
+    var btn = document.getElementById('btn-submit-recuperar');
     var err = document.getElementById('login-error-msg');
+    var okBox = document.getElementById('recuperar-ok-msg');
     err.style.display = 'none';
+    if (okBox) okBox.style.display = 'none';
 
-    var rawTel = inp.value.trim();
-    if (!rawTel) {
-      alert('Ingresá tu número de teléfono');
-      return;
-    }
-    
-    var prefix = document.getElementById('sel-wa-prefix').value;
-    if (prefix && !rawTel.startsWith('+')) {
-      rawTel = prefix + rawTel.replace(/^\+?549?/, '').trim();
-    } else if (!prefix && !rawTel.startsWith('+')) {
-      rawTel = '+' + rawTel.trim();
-    }
+    if (!email) return;
 
     btn.disabled = true;
-    btn.innerHTML = '<span>⏳ Enviando código...</span>';
+    btn.innerHTML = '<span>⏳ Enviando enlace...</span>';
 
     try {
-      var res = await fetch('/vecino/api/solicitar-pin', {
+      var res = await fetch('/vecino/api/solicitar-recuperacion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telefono: rawTel })
+        body: JSON.stringify({ email: email })
       });
       var data = await res.json();
       btn.disabled = false;
-      btn.innerHTML = '<i class="ph ph-whatsapp-logo" style="font-size:20px"></i><span>Recibir Código por WhatsApp</span>';
-
+      btn.innerHTML = '<i class="ph ph-paper-plane-tilt" style="font-size:18px"></i><span>Enviar Enlace de Recuperación</span>';
       if (data && data.ok) {
-        _telActual = data.telefono;
-        document.getElementById('txt-tel-destino').textContent = '+' + data.telefono;
-        if (data.pinDemo) {
-          var hint = document.getElementById('txt-pin-hint');
-          hint.textContent = '💡 Código de prueba: ' + data.pinDemo;
-          hint.style.display = 'block';
+        if (okBox) {
+          document.getElementById('txt-recuperar-ok').textContent = data.mensaje || 'Revisá tu casilla de correo.';
+          okBox.style.display = 'block';
         }
-        document.getElementById('paso-1-telefono').style.display = 'none';
-        document.getElementById('paso-2-pin').style.display = 'block';
-        document.getElementById('inp-login-pin').focus();
       } else {
         err.style.display = 'block';
-        err.textContent = data.error || 'No se pudo enviar el código. Verificá tu número.';
+        err.textContent = data.error || 'No se pudo enviar el correo de recuperación.';
       }
-    } catch(ex) {
+    } catch (ex) {
       btn.disabled = false;
-      btn.innerHTML = '<i class="ph ph-whatsapp-logo" style="font-size:20px"></i><span>Recibir Código por WhatsApp</span>';
+      btn.innerHTML = '<i class="ph ph-paper-plane-tilt" style="font-size:18px"></i><span>Enviar Enlace de Recuperación</span>';
       err.style.display = 'block';
       err.textContent = 'Error de conexión: ' + ex.message;
     }
-  }
-
-  async function verificarPinWhatsApp(e) {
-    if (e) e.preventDefault();
-    var inp = document.getElementById('inp-login-pin');
-    var btn = document.getElementById('btn-verificar-pin');
-    var err = document.getElementById('login-error-msg');
-    err.style.display = 'none';
-
-    var pin = inp.value.trim();
-    if (pin.length !== 4) {
-      alert('El código debe tener 4 dígitos.');
-      return;
-    }
-
-    btn.disabled = true;
-    btn.innerHTML = '<span>⏳ Verificando...</span>';
-
-    try {
-      var res = await fetch('/vecino/api/verificar-pin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telefono: _telActual, pin: pin })
-      });
-      var data = await res.json();
-      if (data && data.ok) {
-        window.location.href = data.redirect || '/vecino';
-      } else {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="ph ph-lock-key-open" style="font-size:20px"></i><span>Ingresar con PIN</span>';
-        err.style.display = 'block';
-        err.textContent = data.error || 'Código incorrecto o expirado.';
-      }
-    } catch(ex) {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="ph ph-lock-key-open" style="font-size:20px"></i><span>Ingresar con PIN</span>';
-      err.style.display = 'block';
-      err.textContent = 'Error de conexión: ' + ex.message;
-    }
-  }
-
-  function volverPaso1() {
-    document.getElementById('paso-2-pin').style.display = 'none';
-    document.getElementById('paso-1-telefono').style.display = 'block';
-    document.getElementById('login-error-msg').style.display = 'none';
-  }
-
-  function reenviarPinWhatsApp() {
-    solicitarPinWhatsApp(null);
   }
 
   function instalarPwaLogin() {
@@ -2705,6 +2613,205 @@ ${CSS_FORMULARIOS}
 </script>
 </body>
 </html>`);
+});
+
+// -------------------------------------------------------------------
+// RECUPERACIÓN DE CONTRASEÑA POR EMAIL
+// -------------------------------------------------------------------
+router.get('/recuperar-password', async (req, res) => {
+  const token = String(req.query.token || '').trim();
+  const { validarTokenRecuperacion } = require('./db-pg');
+  const u = token ? await validarTokenRecuperacion(token) : null;
+  const esValido = !!u;
+
+  res.send('<!DOCTYPE html>\n' +
+'<html lang="es">\n' +
+'<head>\n' +
+'  <meta charset="UTF-8">\n' +
+'  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\n' +
+'  <title>Restablecer Contraseña — Portal del Vecino</title>\n' +
+'  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">\n' +
+'  <style>\n' +
+     CSS_TOKENS + '\n' +
+     CSS_FORMULARIOS + '\n' +
+'    body {\n' +
+'      background: var(--fondo);\n' +
+'      color: var(--texto);\n' +
+'      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;\n' +
+'      margin: 0;\n' +
+'      padding: 20px;\n' +
+'      display: flex;\n' +
+'      align-items: center;\n' +
+'      justify-content: center;\n' +
+'      min-height: 100vh;\n' +
+'      min-height: 100dvh;\n' +
+'      box-sizing: border-box;\n' +
+'    }\n' +
+'    .card-recuperar {\n' +
+'      background: var(--superficie);\n' +
+'      border-radius: 20px;\n' +
+'      box-shadow: 0 10px 30px rgba(15,23,42,.08);\n' +
+'      max-width: 400px;\n' +
+'      width: 100%;\n' +
+'      padding: 28px 22px;\n' +
+'      box-sizing: border-box;\n' +
+'    }\n' +
+'  </style>\n' +
+'</head>\n' +
+'<body>\n' +
+'  <div class="card-recuperar">\n' +
+'    <div style="text-align:center;margin-bottom:20px">\n' +
+'      <div style="width:52px;height:52px;border-radius:14px;background:var(--superficie-2);color:var(--marca);display:flex;align-items:center;justify-content:center;margin:0 auto 12px">\n' +
+'        <i class="ph ph-key" style="font-size:26px"></i>\n' +
+'      </div>\n' +
+'      <h1 style="font-size:20px;font-weight:900;color:var(--texto);margin:0 0 6px">Crear Nueva Contraseña</h1>\n' +
+'      <p style="font-size:13px;color:var(--texto-medio);margin:0">Portal del Vecino</p>\n' +
+'    </div>\n' +
+     (!esValido ? (
+'      <div style="background:var(--error-fondo);border:1px solid var(--error-borde);border-radius:14px;padding:16px;text-align:center;margin-bottom:16px">\n' +
+'        <div style="font-size:14px;font-weight:800;color:var(--error);margin-bottom:4px">Enlace no válido o expirado</div>\n' +
+'        <p style="font-size:12px;color:var(--error);line-height:1.4;margin:0">\n' +
+'          Este enlace de recuperación ya fue utilizado o venció su tiempo de validez (1 hora).\n' +
+'        </p>\n' +
+'      </div>\n' +
+'      <a href="/vecino/login" class="btn-primary" style="display:flex;align-items:center;justify-content:center;text-decoration:none">\n' +
+'        <span>Volver a Iniciar Sesión</span>\n' +
+'      </a>\n'
+     ) : (
+'      <form onsubmit="restablecerPass(event)">\n' +
+'        <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Nueva Contraseña</label>\n' +
+'        <input id="inp-nueva-pass" type="password" class="inp" placeholder="Mínimo 6 caracteres" minlength="6" required autofocus>\n' +
+'\n' +
+'        <label style="font-size:11.5px;font-weight:800;color:var(--texto-medio);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:5px">Confirmar Nueva Contraseña</label>\n' +
+'        <input id="inp-confirmar-pass" type="password" class="inp" placeholder="Repetí la contraseña" minlength="6" required>\n' +
+'\n' +
+'        <div id="msg-error" style="display:none;background:var(--error-fondo);border:1px solid var(--error-borde);color:var(--error);padding:10px;border-radius:10px;font-size:12.5px;margin-bottom:12px;text-align:center"></div>\n' +
+'\n' +
+'        <button id="btn-submit" type="submit" class="btn-primary" style="margin-bottom:12px">\n' +
+'          <i class="ph ph-check-circle" style="font-size:20px"></i>\n' +
+'          <span>Guardar Contraseña</span>\n' +
+'        </button>\n' +
+'      </form>\n' +
+'      <div style="text-align:center;margin-top:8px">\n' +
+'        <a href="/vecino/login" style="color:var(--texto-suave);font-size:12.5px;font-weight:700;text-decoration:none">\n' +
+'          ← Cancelar y volver\n' +
+'        </a>\n' +
+'      </div>\n' +
+'\n' +
+'      <script>\n' +
+'        var _token = \'' + escJs(token) + '\';\n' +
+'        async function restablecerPass(e) {\n' +
+'          e.preventDefault();\n' +
+'          var p1 = document.getElementById(\'inp-nueva-pass\').value;\n' +
+'          var p2 = document.getElementById(\'inp-confirmar-pass\').value;\n' +
+'          var err = document.getElementById(\'msg-error\');\n' +
+'          var btn = document.getElementById(\'btn-submit\');\n' +
+'          err.style.display = \'none\';\n' +
+'\n' +
+'          if (p1.length < 6) {\n' +
+'            err.style.display = \'block\';\n' +
+'            err.textContent = \'La contraseña debe tener al menos 6 caracteres.\';\n' +
+'            return;\n' +
+'          }\n' +
+'          if (p1 !== p2) {\n' +
+'            err.style.display = \'block\';\n' +
+'            err.textContent = \'Las contraseñas no coinciden.\';\n' +
+'            return;\n' +
+'          }\n' +
+'\n' +
+'          btn.disabled = true;\n' +
+'          btn.innerHTML = \'<span>⏳ Guardando...</span>\';\n' +
+'\n' +
+'          try {\n' +
+'            var res = await fetch(\'/vecino/api/restablecer-password\', {\n' +
+'              method: \'POST\',\n' +
+'              headers: { \'Content-Type\': \'application/json\' },\n' +
+'              body: JSON.stringify({ token: _token, password: p1 })\n' +
+'            });\n' +
+'            var data = await res.json();\n' +
+'            if (data && data.ok) {\n' +
+'              alert(\'¡Contraseña actualizada exitosamente! Ahora podés iniciar sesión.\');\n' +
+'              window.location.href = \'/vecino/login\';\n' +
+'            } else {\n' +
+'              btn.disabled = false;\n' +
+'              btn.innerHTML = \'<span>Guardar Contraseña</span>\';\n' +
+'              err.style.display = \'block\';\n' +
+'              err.textContent = data.error || \'Error al actualizar contraseña\';\n' +
+'            }\n' +
+'          } catch (ex) {\n' +
+'            btn.disabled = false;\n' +
+'            btn.innerHTML = \'<span>Guardar Contraseña</span>\';\n' +
+'            err.style.display = \'block\';\n' +
+'            err.textContent = \'Error de conexión: \' + ex.message;\n' +
+'          }\n' +
+'        }\n' +
+'      </script>\n'
+     )) +
+'  </div>\n' +
+'</body>\n' +
+'</html>');
+});
+
+// API SOLICITAR ENLACE DE RECUPERACIÓN DE CONTRASEÑA
+router.post('/api/solicitar-recuperacion', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    const emailNorm = String(email || '').trim().toLowerCase();
+    if (!emailNorm || !emailNorm.includes('@')) {
+      return res.status(400).json({ ok: false, error: 'Ingresá un correo electrónico válido' });
+    }
+
+    const { obtenerUsuarioPorEmail, guardarTokenRecuperacion } = require('./db-pg');
+    const u = await obtenerUsuarioPorEmail(emailNorm);
+
+    const token = crypto.randomBytes(32).toString('hex');
+    await guardarTokenRecuperacion(emailNorm, token, 3600000);
+
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.get('host') || 'marcos.bienargentinos.com';
+    const baseUrl = proto + '://' + host;
+    const link = baseUrl + '/vecino/recuperar-password?token=' + encodeURIComponent(token);
+
+    if (u) {
+      enviarEmailRecuperacion({
+        email: u.email,
+        nombre: u.nombre,
+        link
+      }).catch(err => {
+        console.warn('Fallo al enviar correo de recuperacion:', err.message);
+      });
+    }
+
+    res.json({
+      ok: true,
+      mensaje: 'Si el correo está registrado, te enviamos las instrucciones para restablecer tu contraseña.'
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// API RESTABLECER CONTRASEÑA CON TOKEN
+router.post('/api/restablecer-password', async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+    if (!token || !password) {
+      return res.status(400).json({ ok: false, error: 'Token y contraseña requeridos' });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({ ok: false, error: 'La contraseña debe tener al menos 6 caracteres' });
+    }
+
+    const { restablecerPasswordConToken } = require('./db-pg');
+    const r = await restablecerPasswordConToken(token, password);
+    if (!r.ok) {
+      return res.status(400).json({ ok: false, error: r.error || 'Token inválido o expirado' });
+    }
+
+    res.json({ ok: true, mensaje: 'Contraseña actualizada exitosamente.' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // API LOGIN CON EMAIL Y CONTRASEÑA
@@ -3351,154 +3458,20 @@ router.post('/api/cambiar-password', async (req, res) => {
   }
 });
 
-// API SOLICITAR PIN DE ACCESO (WHATSAPP)
-router.post('/api/solicitar-pin', async (req, res) => {
-  const { telefono } = req.body || {};
-  if (!telefono || !String(telefono).trim()) {
-    return res.status(400).json({ ok: false, error: 'El número de teléfono es requerido.' });
-  }
-
-  const telNorm = normalizarTelArg(telefono);
-  let vecinoEncontrado = null;
-
-  // 1. Buscar en PostgreSQL o datos locales
-  if (datosPg && typeof datosPg.buscarVecinosPorTelefono === 'function') {
-    try {
-      const lista = await datosPg.buscarVecinosPorTelefono(telNorm);
-      if (lista && lista.length > 0) {
-        vecinoEncontrado = lista[0];
-      }
-    } catch (_) {}
-  }
-
-  // 2. Fallback de búsqueda en tabla 'vecinos'
-  if (!vecinoEncontrado) {
-    try {
-      const { pool } = require('./db-pg');
-      if (pool) {
-        const q = `SELECT * FROM vecinos WHERE REPLACE(REPLACE(REPLACE(telefono, ' ', ''), '-', ''), '+', '') LIKE $1 LIMIT 1`;
-        const r = await pool.query(q, ['%' + telNorm.slice(-8) + '%']);
-        if (r && r.rows && r.rows.length > 0) {
-          const row = r.rows[0];
-          vecinoEncontrado = {
-            nombre: row.nombre || 'Vecino',
-            telefono: row.telefono || telNorm,
-            edificio: row.edificio || 'San Patricio 159',
-            departamento: row.departamento || '1° A'
-          };
-        }
-      }
-    } catch (_) {}
-  }
-
-  // 3. Si es el teléfono de Daniel o modo desarrollo
-  if (!vecinoEncontrado && (telNorm.includes('50542005') || telNorm.includes('1150542005') || telNorm.includes('5491150542005'))) {
-    vecinoEncontrado = {
-      nombre: 'Daniel Morales',
-      telefono: '+5491150542005',
-      edificio: 'San Patricio 159',
-      departamento: '1° A'
-    };
-  }
-
-  if (!vecinoEncontrado) {
-    vecinoEncontrado = {
-      nombre: 'Vecino',
-      telefono: '+' + telNorm,
-      edificio: 'San Patricio 159',
-      departamento: '1° A'
-    };
-  }
-
-  // Generar PIN de 4 dígitos
-  const pin = Math.floor(1000 + Math.random() * 9000).toString();
-  _pinesLogin.set(telNorm, {
-    pin,
-    vecino: vecinoEncontrado,
-    expira: Date.now() + 10 * 60 * 1000
-  });
-
-  console.log(`🔑 [LOGIN OTP] PIN para ${vecinoEncontrado.nombre} (${telNorm}): ${pin}`);
-
-  // Enviar mensaje por WhatsApp vía Meta API si está disponible
-  try {
-    const marcosOps = require('./agentes/marcos-ops');
-    if (marcosOps && typeof marcosOps.enviarWhatsApp === 'function') {
-      const phoneId = process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
-      const token = process.env.ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
-      const textoMsg = `🏢 *Portal del Vecino — Código de Acceso*\n\nHola *${vecinoEncontrado.nombre}*, tu código para ingresar es:\n\n🔑 *${pin}*\n\n(Válido por 10 minutos. No lo compartas).`;
-      await marcosOps.enviarWhatsApp('+' + telNorm, textoMsg, phoneId, token).catch(() => {});
-    }
-  } catch (_) {}
-
-  res.json({
-    ok: true,
-    mensaje: 'Código enviado por WhatsApp',
-    telefono: telNorm,
-    pinDemo: pin
+// API SOLICITAR PIN DE ACCESO (WHATSAPP - DESHABILITADO PARA EVITAR COSTOS DE META)
+router.post('/api/solicitar-pin', (req, res) => {
+  res.status(400).json({
+    ok: false,
+    error: 'El ingreso por WhatsApp PIN fue deshabilitado por seguridad y costos de Meta. Por favor ingresá con tu correo electrónico y contraseña.'
   });
 });
 
 // API VERIFICAR PIN DE ACCESO
-router.post('/api/verificar-pin', async (req, res) => {
-  const { telefono, pin } = req.body || {};
-  if (!telefono || !pin) {
-    return res.status(400).json({ ok: false, error: 'Teléfono y PIN son requeridos.' });
-  }
-
-  const telNorm = normalizarTelArg(telefono);
-  const dataPin = _pinesLogin.get(telNorm);
-
-  if (!dataPin) {
-    return res.status(400).json({ ok: false, error: 'No hay ningún código pendiente para este número. Solicitá uno nuevo.' });
-  }
-
-  if (Date.now() > dataPin.expira) {
-    _pinesLogin.delete(telNorm);
-    return res.status(400).json({ ok: false, error: 'El código expiró. Solicitá uno nuevo.' });
-  }
-
-  if (dataPin.pin !== String(pin).trim()) {
-    return res.status(400).json({ ok: false, error: 'Código incorrecto. Revisá el mensaje en WhatsApp.' });
-  }
-
-  // Cargar unidades del usuario desde DB si existen
-  let unidades = [];
-  try {
-    const { pool, obtenerUnidadesDeUsuario } = require('./db-pg');
-    if (pool) {
-      const resU = await pool.query('SELECT id, email, nombre FROM usuarios WHERE REPLACE(REPLACE(REPLACE(telefono, " ", ""), "-", ""), "+", "") LIKE $1 LIMIT 1', ['%' + telNorm.slice(-8) + '%']);
-      if (resU && resU.rows && resU.rows[0]) {
-        unidades = await obtenerUnidadesDeUsuario(resU.rows[0].id);
-      }
-    }
-  } catch (_) {}
-
-  if (!unidades.length) {
-    unidades = [
-      { edificio: dataPin.vecino.edificio || 'San Patricio 159', departamento: dataPin.vecino.departamento || '1° A', rol: 'propietario', puede_ver_expensas: true }
-    ];
-  }
-
-  // Autenticación Exitosa: Guardar en sesión
-  if (req.session) {
-    req.session.vecino = {
-      nombre: dataPin.vecino.nombre,
-      telefono: dataPin.vecino.telefono,
-      email: dataPin.vecino.email || (telNorm + '@vecino.consorcio.ai'),
-      edificio: unidades[0].edificio,
-      departamento: unidades[0].departamento,
-      rol: unidades[0].rol || 'propietario',
-      puede_ver_expensas: unidades[0].puede_ver_expensas !== false,
-      timbre_activo: true,
-      timbre_silencio_desde: '23:00',
-      timbre_silencio_hasta: '07:30',
-      unidades: unidades
-    };
-  }
-
-  _pinesLogin.delete(telNorm);
-  res.json({ ok: true, redirect: '/vecino' });
+router.post('/api/verificar-pin', (req, res) => {
+  res.status(400).json({
+    ok: false,
+    error: 'El ingreso por WhatsApp PIN fue deshabilitado. Ingresá con tu correo electrónico y contraseña.'
+  });
 });
 
 // LOGOUT
@@ -3964,7 +3937,19 @@ router.get('/', async (req, res) => {
     const { puedeVerPopup } = require('./db-pg');
     const puede = v.demo ? true : await puedeVerPopup(v.usuario_id, v.edificio);
     if (puede && !req.session.popupCerrado) {
-      popup = popupHtml(contenidoDelPopup(avisos, t), t);
+      let cont = contenidoDelPopup(avisos, t);
+      if (cont && cont.ruta === '/vecino/expensas' && v.puede_ver_expensas === false) {
+        const cAlt = CONSEJOS_PORTAL.find(c => c.ruta !== '/vecino/expensas') || CONSEJOS_PORTAL[0];
+        cont = {
+          tipo: 'consejo',
+          titulo: t('pop.tipTitulo'),
+          encabezado: '',
+          texto: t(cAlt.clave),
+          icono: cAlt.icono,
+          ruta: cAlt.ruta,
+        };
+      }
+      popup = popupHtml(cont, t);
     }
   } catch (err) {
     // Sin poder saberlo, no se muestra. Un pop-up que aparece después de que alguien lo apagó le
