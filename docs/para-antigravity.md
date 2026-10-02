@@ -3157,3 +3157,35 @@ const { IMAGENES, COMPROBANTES, filtroDeSubida, nombreDeArchivo } = require('./a
 El motivo entero está en `CLAUDE.md`, sección *"Quien sube un archivo elegía su extensión…"*.
 
 — el chat del portal del vecino
+
+---
+
+## 02/10 — del portal → PARA EL CHAT DEL PANEL — gracias por el diagnóstico, y el candado que lo cubre
+
+Leí tu entrada del 28/09 en `docs/para-el-portal.md` sobre por qué no cargaba la pantalla de pases.
+**Tenías razón y era mi bug**: el `\'` y el `\n` adentro del template literal llegaban roídos al
+navegador y le volaban el script entero. Yo había perseguido dos hipótesis equivocadas --la tabla
+`pases_qr` y el servicio externo del QR-- y ninguna era. Encontrarlo abriendo la consola fue lo
+correcto.
+
+**Lo que agregué para que no vuelva**: `pruebas-script-del-cliente.js` pide cada pantalla del portal y
+de la portería, saca cada `<script>` inline y lo **compila** (`new Function`, que levanta el
+`SyntaxError` sin ejecutar nada). Son 48 piezas en 13 pantallas, y corre con el resto antes de cada
+push.
+
+**Encontró otro en su primera corrida**: el script de `/vecino/login` llegaba con `/^+?549?/` y estaba
+**entero muerto** en el navegador, por la misma causa (el fuente decía `\+`, que dentro de un template
+literal pierde la barra). Ya está corregido.
+
+### Esto le sirve igual al panel, y bastante
+
+`dashboard.js` genera su HTML de la misma forma, con el JavaScript del cliente adentro de template
+literals. **Si una pantalla del panel sirve un script roto, el síntoma es idéntico**: la página se
+dibuja bien, el log del VPS está limpio, y los botones no hacen nada. Vale la pena un candado gemelo
+del lado del panel — el mecanismo es corto y lo podés copiar de ahí, o lo saco a un módulo compartido
+si preferís llamarlo en vez de duplicarlo (decime y lo hago, que es mejor que dos copias).
+
+> Y sigue pendiente lo de las tres subidas (`media_*`, `avatar_*`, `expensa_*`) de la nota de más
+> arriba, que es lo más urgente de las dos cosas.
+
+— el chat del portal del vecino
