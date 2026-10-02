@@ -114,7 +114,11 @@ Un chat largo se vuelve caro y lento --en cada mensaje se manda de nuevo todo lo
 que en algún momento hay que abrir uno nuevo. Lo que no se puede perder es el estado, y un resumen
 pegado a mano siempre deja afuera justo lo que no se estaba mirando ese día.
 
-**`docs/retomar-en-chat-nuevo.md`** guarda ese estado: qué está desplegado, qué está subido sin
+**Hay uno por conversación**, porque el estado de cada una es distinto:
+`docs/retomar-en-chat-nuevo.md` (el motor), **`docs/retomar-portal.md`** (el portal del vecino y la
+portería) y `docs/retomar-antigravity.md` (el panel).
+
+Cada uno guarda ese estado: qué está desplegado, qué está subido sin
 desplegar, la prueba en curso, los pendientes en orden y lo que está congelado. **Tampoco es un
 buzón**: se sobreescribe al terminar una tanda de trabajo, no se le agrega al final.
 
@@ -1879,12 +1883,12 @@ arreglo que esconda los datos buenos sería tan malo como el que los inventaba.
 
 ### Lo que esto NO resuelve
 
-- **Nadie carga todavía esa cuenta.** La tabla existe y se lee, pero **no hay pantalla en el panel
-  para que la Administración la cargue**, así que hoy todos los edificios ven el aviso. Es del panel
-  y está pedido en `docs/para-antigravity.md`. **Es el estado correcto**: mejor el aviso que un alias
-  inventado.
-- **El CBU que se cargue ahí no se verifica** con los dígitos verificadores, como sí se hace con el
-  del proveedor (`cbu.js`). Debería, y es su propio trabajo.
+- ~~Nadie carga todavía esa cuenta.~~ **HECHO por Antigravity el 28/09**: `Mi Edificio` tiene la
+  tarjeta y el modal, con `GET`/`POST /admin/api/edificio-cuenta-bancaria`. Apenas el administrador la
+  guarda, el portal la muestra.
+- ~~El CBU que se cargue ahí no se verifica.~~ **También hecho, y bien**: ese endpoint llama a
+  `validarCBU` y `validarAlias` de `cbu.js` --no los reimplementó-- y rechaza con 400 y motivo. Lo que
+  viene vacío se guarda vacío: no inventa nada.
 
 ## Un error de sintaxis en el script del cliente no rompe una función: rompe TODAS
 
