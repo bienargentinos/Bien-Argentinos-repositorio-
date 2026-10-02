@@ -133,10 +133,12 @@ es algo nuevo?"* cuando un reclamo se parece a un caso abierto de otro día.
    qué edificios dependen hoy de esa vía.
 6. **Documentos comerciales que faltan**: CBU con verificación, reservas de amenities, la ventana de
    24hs, el seguimiento automático, y el de `9585cc6` (a qué técnico se le manda el trabajo).
-7. **Un proveedor que se saca de la planilla sigue siendo elegible para Marcos** (pedido del portal,
-   28/09, en `docs/para-el-motor.md`): la sincronización solo agrega y Marcos lee PostgreSQL primero,
-   así eligió a "lalala". **No se borra nada ahora** (todo es ficticio); se cierra en el mismo
-   movimiento que el borrado total, antes de salir a probar con datos reales.
+7. **Un proveedor que se saca de la planilla PODRÍA seguir siendo elegible para Marcos**: la
+   sincronización no tiene `DELETE` y Marcos lee PostgreSQL primero. **Es un riesgo latente, no un
+   problema abierto**: se corrió `node revisar-sobrantes.js` y las dos bases coinciden en toda la
+   configuración (4 proveedores y 4). **"lalala" está en las dos** — la línea anterior decía que
+   Marcos lo eligió "por eso" y eso era un error mío del 28/09, corregido en `CLAUDE.md`. No se borra
+   nada; se revisa con la herramienta antes de salir a probar con datos reales.
 
 ---
 

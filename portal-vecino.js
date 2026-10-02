@@ -156,6 +156,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { sesionDemoVecino } = require('./sesion-demo');
 const { IDIOMAS, textos, normalizarIdioma, idiomaDelNavegador } = require('./idiomas');
+const { IMAGENES, COMPROBANTES, filtroDeSubida, nombreDeArchivo } = require('./archivo-subido');
 
 // Almacenamiento seguro de comprobantes de pago subidos por vecinos
 const storageComprobantes = multer.diskStorage({
@@ -167,14 +168,20 @@ const storageComprobantes = multer.diskStorage({
     cb(null, dir);
   },
   filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname);
-    const name = 'comprobante_' + Date.now() + ext;
-    cb(null, name);
+    // La extensión sale de NUESTRA lista, no del nombre que manda el navegador. El motivo entero
+    // está en archivo-subido.js: con la extensión de afuera se podía guardar un .html y servirlo
+    // como página desde nuestro propio dominio.
+    try {
+      cb(null, nombreDeArchivo('comprobante', file, COMPROBANTES));
+    } catch (e) {
+      cb(e);
+    }
   }
 });
 const uploadComprobante = multer({
   storage: storageComprobantes,
-  limits: { fileSize: 15 * 1024 * 1024 }
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: filtroDeSubida(COMPROBANTES, 'un comprobante')
 });
 
 // Almacenamiento de avatares / fotos de perfil de vecinos
@@ -187,16 +194,41 @@ const storageAvatares = multer.diskStorage({
     cb(null, dir);
   },
   filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    // Ídem: la extensión es nuestra. Esta era la subida por la que se verificó el agujero.
     const usr = (req.session && req.session.vecino && req.session.vecino.usuario_id) || 'usr';
-    const name = 'avatar_' + usr + '_' + Date.now() + ext;
-    cb(null, name);
+    try {
+      cb(null, nombreDeArchivo('avatar', file, IMAGENES, [usr]));
+    } catch (e) {
+      cb(e);
+    }
   }
 });
 const uploadAvatar = multer({
   storage: storageAvatares,
-  limits: { fileSize: 8 * 1024 * 1024 }
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: filtroDeSubida(IMAGENES, 'una foto de perfil')
 });
+
+// > [!CAUTION]
+// > **Una subida rechazada NO puede contestar HTML.** Sin esto, el error del `fileFilter` sube al
+// > manejador por defecto de Express, que devuelve su página de error en HTML, y el `await
+// > r.json()` del navegador informa `JSON.parse: unexpected character` — el mismo síntoma que ya
+// > está anotado en `CLAUDE.md` por otras dos causas y que costó horas de diagnóstico.
+//
+// Devuelve 400 con el motivo, que es lo que la pantalla puede mostrarle a la persona.
+function conSubida(middleware) {
+  return function (req, res, next) {
+    middleware(req, res, function (err) {
+      if (!err) return next();
+      const demasiadoGrande = err.code === 'LIMIT_FILE_SIZE';
+      console.warn('📎⛔ Subida rechazada:', err.code || 's/código', err.message);
+      return res.status(400).json({
+        ok: false,
+        error: demasiadoGrande ? 'El archivo es demasiado grande.' : (err.message || 'No se pudo subir el archivo.')
+      });
+    });
+  };
+}
 
 // Intentar cargar adaptadores de datos
 let datosPg = null;
@@ -3260,15 +3292,22 @@ router.post('/api/perfil', async (req, res) => {
 });
 
 // Actualizar foto de perfil (avatar)
-router.post('/api/perfil/avatar', uploadAvatar.single('avatar'), async (req, res) => {
+router.post('/api/perfil/avatar', conSubida(uploadAvatar.single('avatar')), async (req, res) => {
   try {
     const v = getVecinoSession(req);
     let avatarUrl = '';
 
     if (req.file) {
       avatarUrl = '/archivos/avatares/' + req.file.filename;
-    } else if (req.body && req.body.avatar_url) {
-      avatarUrl = String(req.body.avatar_url || '').trim();
+    } else if (req.body && typeof req.body.avatar_url === 'string') {
+      // Solo sirve para BORRAR la foto (cadena vacía) o para volver a apuntar a una que ya está
+      // subida acá. Antes aceptaba cualquier URL del cuerpo: eso deja que la foto de perfil apunte
+      // a un servidor de otro, que se entera de la IP de cada vecino que abre la pantalla.
+      const pedido = String(req.body.avatar_url || '').trim();
+      if (pedido && !/^\/archivos\/avatares\/[A-Za-z0-9_.-]+$/.test(pedido)) {
+        return res.status(400).json({ ok: false, error: 'La foto de perfil tiene que subirse como archivo.' });
+      }
+      avatarUrl = pedido;
     } else {
       return res.status(400).json({ ok: false, error: 'No se envió ninguna imagen' });
     }
@@ -7093,7 +7132,7 @@ router.get('/expensas', async (req, res) => {
 });
 
 // Endpoint receptor de Comprobantes de Pago
-router.post('/api/comprobante-pago', uploadComprobante.single('comprobante'), async (req, res) => {
+router.post('/api/comprobante-pago', conSubida(uploadComprobante.single('comprobante')), async (req, res) => {
   try {
     const v = getVecinoSession(req);
     const { monto } = req.body || {};
@@ -8596,7 +8635,7 @@ router.post('/api/reservar-amenity', async (req, res) => {
 });
 
 // Endpoint receptor de Comprobantes de Pago de Reservas de Amenities
-router.post('/api/comprobante-reserva', uploadComprobante.single('comprobante'), async (req, res) => {
+router.post('/api/comprobante-reserva', conSubida(uploadComprobante.single('comprobante')), async (req, res) => {
   try {
     const v = getVecinoSession(req);
     const { reserva_id, monto } = req.body || {};

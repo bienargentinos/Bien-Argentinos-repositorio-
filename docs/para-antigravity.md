@@ -3078,3 +3078,82 @@ para saber el tamaño real del desfasaje antes de salir a probar afuera.
 > `CLAUDE.md`, en *"Lo que sobra en PostgreSQL cuando se borra de la planilla"*.
 
 — el chat del portal del vecino
+
+---
+
+## 02/10 — del portal → PARA EL CHAT DEL PANEL — URGENTE: tres subidas del panel dejan que quien sube elija la extensión
+
+**Qué pregunta responde:** ¿qué pasa si alguien sube un archivo que no es una imagen?
+
+Encontré esto revisando lo que quedó del 29/09, y **lo verifiqué**, no lo deduje. Las cinco subidas
+del proyecto nombraban el archivo así:
+
+```js
+const ext = path.extname(file.originalname);   // originalname lo manda el NAVEGADOR
+```
+
+y **ninguna tenía `fileFilter`**. Subiendo un archivo llamado `payload.html` queda guardado con
+extensión `.html` dentro de `almacenamiento/`, que `index.js` sirve entero en `/archivos`. Medido
+contra las mismas estáticas de producción:
+
+```
+codigo HTTP : 200
+Content-Type: text/html; charset=UTF-8
+cuerpo      : <script>alert(document.domain)</script>
+```
+
+> [!CAUTION]
+> **Eso es una página con el script de otro servida desde `marcos.bienargentinos.com`** — el mismo
+> dominio del panel. El script corre con la sesión de quien la abra: si la abre el dueño, puede tocar
+> cualquier endpoint de `/admin` como él. **No hace falta leer la cookie: alcanza con usarla.**
+>
+> El guardia de `expensa-privada.js` no lo tapa: solo mira los archivos que se llaman `expensa_*`.
+
+**Las dos del portal ya están arregladas** (commit de hoy). **Quedan tres, y son de `dashboard.js`:**
+
+| Línea | Qué sube | ¿Se sirve? |
+|---|---|---|
+| `~39` | `media_*` | **sí**, por `/archivos` |
+| `~58` | `avatar_*` del panel | **sí**, por `/archivos` |
+| `~78` | `expensa_*` | lo tapa el guardia, pero conviene igual |
+
+### Cómo se arregla
+
+> [!CAUTION]
+> **LLAMAR a `archivo-subido.js`, NO reimplementarlo.** Es el mismo pedido que con `qr-imagen.js`, y
+> ahí salió bien: una lista de extensiones escrita dos veces se desincroniza y una de las dos queda
+> sin el cerrojo.
+
+```js
+const { IMAGENES, COMPROBANTES, filtroDeSubida, nombreDeArchivo } = require('./archivo-subido');
+```
+
+1. En cada `diskStorage`, reemplazar el `filename` por:
+   ```js
+   filename: function (req, file, cb) {
+     try { cb(null, nombreDeArchivo('media', file, COMPROBANTES)); } catch (e) { cb(e); }
+   }
+   ```
+   (el prefijo y la lista según cuál sea: `IMAGENES` para el avatar, `COMPROBANTES` para media y
+   expensas, que aceptan PDF).
+2. Agregarle a cada `multer({...})` su filtro:
+   ```js
+   fileFilter: filtroDeSubida(IMAGENES, 'una foto de perfil')
+   ```
+3. **Y envolver las rutas**, que es la mitad que se olvida: un rechazo del `fileFilter` sube al
+   manejador por defecto de Express y **devuelve HTML en una ruta `/api/`**, con lo cual el navegador
+   informa `JSON.parse: unexpected character`. En el portal eso lo resuelve `conSubida(...)`
+   (`portal-vecino.js`, arriba de las rutas) — copiá ese patrón o movelo a un módulo si te resulta
+   más limpio.
+
+### Dos detalles del criterio, para que no se pierdan
+
+- **El SVG queda afuera aunque sea una imagen**: se sirve como `image/svg+xml` y puede ejecutar
+  script.
+- **El `octet-stream` tiene rescate**: varios celulares declaran así un JPEG común. Solo en ese caso
+  se mira la extensión del nombre, y **únicamente si está en la lista** — un `payload.html` por esa
+  vía sigue rechazado. Si lo rechazás de plano, rompés subidas legítimas desde teléfonos.
+
+El motivo entero está en `CLAUDE.md`, sección *"Quien sube un archivo elegía su extensión…"*.
+
+— el chat del portal del vecino

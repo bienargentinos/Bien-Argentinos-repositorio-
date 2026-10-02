@@ -114,6 +114,7 @@ reconstruir todo de memoria.
 | [`09-avisos-en-el-portal-y-popup.md`](09-avisos-en-el-portal-y-popup.md) | El aviso del edificio del lado del vecino, y el recordatorio de inicio |
 | [`10-proteccion-antifraude-cbu-proveedores.md`](10-proteccion-antifraude-cbu-proveedores.md) | Datos de cobro del proveedor: validación matemática de CBU y cerrojo antifraude en cambios de cuenta |
 | [`11-cobro-de-reservas-de-amenities.md`](11-cobro-de-reservas-de-amenities.md) | A qué cuenta transfiere el vecino al reservar un espacio, y por qué no se inventa cuando falta |
+| [`12-que-pasa-con-lo-que-sube-el-vecino.md`](12-que-pasa-con-lo-que-sube-el-vecino.md) | Los archivos que sube el vecino: por qué el nombre no decide nada |
 | [`DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md`](DOSSIER_GENERAL_MARCOS_IA_Y_PORTAL.md) | Resumen general de los productos |
 
 ---
