@@ -39,6 +39,11 @@ Está entero en `CLAUDE.md`; esto es el recordatorio corto.
 - **Cada mejora terminada deja su documento comercial** en `docs/comercial/`, sin humo.
 - `POST /porteria/api/puerta/abrir` **no tiene autenticación a propósito** (el laboratorio del timbre
   de Daniel). No cerrarlo sin preguntarle.
+- **`git pull` antes de editar, y empujar apenas termina una cosa.** El 02/10 hubo **dos sesiones del
+  portal** sobre `claude/portal-vecino` el mismo día. No es un pisotón: la sesión con la que Daniel
+  está hablando es la que toca el archivo. Pero el que no pullea pierde trabajo, y **puede haber un PR
+  abierto que no es tuyo** — mirá `git log origin/claude/portal-vecino` y la lista de PR antes de
+  arrancar.
 
 ---
 
@@ -46,18 +51,39 @@ Está entero en `CLAUDE.md`; esto es el recordatorio corto.
 
 **91 pruebas verdes** (`node verificar-antes-de-subir.js`).
 
-### Fusionado hoy y PENDIENTE DE DESPLEGAR
+### Desplegado el 02/10 — confirmado por Daniel
 
-```bash
-cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && pm2 restart marcos-ai
-```
+Express en el 3000, PostgreSQL con pgvector y SMTP respondiendo. Lo que entró:
 
 | PR | Qué |
 |---|---|
 | **#43** | Quien sube un archivo ya no elige su extensión (`archivo-subido.js`). Era **stored XSS en nuestro propio dominio**: un `.html` subido como foto de perfil se servía como página desde `marcos.bienargentinos.com`. |
 | **#44** | El script del **login** llegaba roto al navegador (`/^+?549?/`) y estaba entero muerto. Y el candado `pruebas-script-del-cliente.js`, que compila los 48 scripts de las 13 pantallas. |
+| **#45** | Documentación: este archivo, y dos caveats que Antigravity ya había resuelto. |
 
-| **este PR** | El rótulo del timbre no llegaba al tótem: `actualizarConfigTimbre` filtraba `vecinos` por una columna `unidad` que no existe, y el `catch` mudo se lo tragaba. Probado contra PostgreSQL real (`pruebas-rotulo-timbre.js`). Sigue abierta la decisión de Daniel: el rótulo se guarda por unidad, así que si el inquilino lo cambia, se lo cambia al propietario. |
+### Fusionado DESPUÉS de ese despliegue — falta desplegar
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && node verificar-antes-de-subir.js && pm2 restart marcos-ai
+```
+
+| PR | Qué |
+|---|---|
+| **#46** | El rótulo del timbre no llegaba al tótem: `actualizarConfigTimbre` filtraba `vecinos` por una columna `unidad` que no existe, PostgreSQL rechazaba el `UPDATE` entero y el `catch` mudo se lo tragaba. Probado contra PostgreSQL real (`pruebas-rotulo-timbre.js`). |
+
+> **Lo escribió OTRA sesión del portal**, en paralelo a esta, el 02/10 a las 02:46 (sesión
+> `01VGVenZ…`, sobre la misma rama `claude/portal-vecino`). Lo revisé, corrí las **91 pruebas** y lo
+> fusioné. **No es un pisotón: es la regla funcionando** --Daniel estaba hablando con esa sesión--. Lo
+> anoto porque al ver un commit ajeno en la rama propia la pregunta no es "quién se metió" sino "¿con
+> quién estaba hablando Daniel?".
+>
+> Queda abierta **su** decisión pendiente: el rótulo se guarda **por unidad**, así que si el inquilino
+> lo cambia, se lo cambia también al propietario.
+>
+> Y queda sin correr en el VPS lo que esa sesión pidió en `docs/para-antigravity.md`:
+> `node revisar-columnas-pg.js vecinos`, para confirmar que la base real tampoco tiene `unidad`. El
+> arreglo no depende de eso --funciona igual-- pero sin esa lectura no se sabe si el defecto era el
+> que se creía.
 
 ### Ya desplegado y andando (de antes)
 
@@ -78,6 +104,22 @@ cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && pm2 restart
    avatar que navega a Inicio, traducción de avisos del consorcio). Probada: **88 verdes y se fusiona
    sin conflicto.** Es la rama de Antigravity — **no fusionarla sin que Daniel lo diga**, porque puede
    estar a medias a propósito.
+
+2. **El timeout de 2,5 s que traduce los avisos con Gemini.** Daniel ofreció subirlo a 4,5 s porque la
+   API tarda ~3 s desde el VPS. **Lo revisé y la respuesta es no**, con el análisis entero en
+   `docs/para-antigravity.md` (02/10). En corto, tres cosas que no se ven en esa línea:
+   - Ese código vive **solo en `antigravity/panel-fase-1`**, que no está fusionada: hoy **no corre en
+     producción**, así que subirlo no cambia nada.
+   - El `await` está **adentro del render de Novedades y es secuencial**, así que el techo se
+     multiplica por la cantidad de avisos: con tres y la caché fría son **13,5 s de pantalla en
+     blanco**. Subirlo empeora el caso malo para mejorar el caso bueno.
+   - La caché es un `Map` del proceso, o sea que **cada `pm2 restart` la vacía**: el caso frío es el
+     normal, no la excepción.
+
+   Lo que corresponde es **traducir cuando se GUARDA el aviso** y guardar la traducción: el
+   administrador lo escribe una vez y lo leen todos los vecinos muchas veces. Ahí Gemini puede tardar
+   diez segundos sin molestar a nadie y **no queda ningún timeout que calibrar**. El guardado es del
+   panel, por eso el pedido fue para allá.
 
 ---
 
@@ -101,6 +143,13 @@ cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && pm2 restart
    RAM como caché. Es su propio trabajo.
 7. **Auth real del vecino** (contraseña propia, activación por token). Mientras no exista, la clave de
    `EdificaApp` es un tapón y no una cerradura, y la identidad del que emite un pase es la sesión.
+8. **El respaldo de la traducción de avisos sale del navegador del vecino hacia
+   `translate.googleapis.com`.** Es el mismo patrón que ya se sacó con `api.qrserver.com`: contenido
+   nuestro y la IP de cada vecino yendo a otra empresa. Acá es un aviso del consorcio y no el token de
+   la puerta, **así que es mucho menos grave** — pero desaparece solo si la traducción se guarda en la
+   base. Y es un endpoint **no documentado** (`client=gtx`), que puede cortar cualquier día sin dejar
+   una línea de log nuestra. **Está en `antigravity/panel-fase-1`, sin fusionar: no lo toques sin que
+   Daniel decida sobre esa rama.**
 
 ---
 
