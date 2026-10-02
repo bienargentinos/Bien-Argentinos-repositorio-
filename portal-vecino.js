@@ -1301,8 +1301,8 @@ function shellVecino(title, activeTab, content, vecinoData, popup) {
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BIENAR">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/admin/assets/bienar-logo.png">
-<link rel="icon" type="image/png" href="/admin/assets/bienar-logo.png">
+<link rel="apple-touch-icon" href="/admin/assets/bienar-logo.png?v=2">
+<link rel="icon" type="image/png" href="/admin/assets/bienar-logo.png?v=2">
 <title>BIENAR · ${title}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2269,8 +2269,8 @@ router.get('/login', (req, res) => {
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BIENAR">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/admin/assets/bienar-logo.png">
-<link rel="icon" type="image/png" href="/admin/assets/bienar-logo.png">
+<link rel="apple-touch-icon" href="/admin/assets/bienar-logo.png?v=2">
+<link rel="icon" type="image/png" href="/admin/assets/bienar-logo.png?v=2">
 <title>BIENAR · Portal de Vecinos</title>
 <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css"/>
@@ -6487,13 +6487,13 @@ router.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
     orientation: 'any',
     icons: [
       {
-        src: '/admin/assets/bienar-logo.png',
+        src: '/admin/assets/bienar-logo.png?v=2',
         sizes: '192x192',
         type: 'image/png',
         purpose: 'any maskable'
       },
       {
-        src: '/admin/assets/bienar-logo.png',
+        src: '/admin/assets/bienar-logo.png?v=2',
         sizes: '512x512',
         type: 'image/png',
         purpose: 'any maskable'
@@ -6504,19 +6504,19 @@ router.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
         name: 'Portería & Timbre',
         short_name: 'Portería',
         url: '/vecino',
-        icons: [{ src: '/admin/assets/bienar-logo.png', sizes: '192x192' }]
+        icons: [{ src: '/admin/assets/bienar-logo.png?v=2', sizes: '192x192' }]
       },
       {
         name: 'Reservar Amenities',
         short_name: 'Amenities',
         url: '/vecino/amenities',
-        icons: [{ src: '/admin/assets/bienar-logo.png', sizes: '192x192' }]
+        icons: [{ src: '/admin/assets/bienar-logo.png?v=2', sizes: '192x192' }]
       },
       {
         name: 'Hablar con Marcos IA',
         short_name: 'Marcos IA',
         url: '/vecino/chat',
-        icons: [{ src: '/admin/assets/bienar-logo.png', sizes: '192x192' }]
+        icons: [{ src: '/admin/assets/bienar-logo.png?v=2', sizes: '192x192' }]
       }
     ]
   }));
@@ -6525,7 +6525,7 @@ router.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
 router.get('/sw.js', (req, res) => {
   res.type('application/javascript');
   res.send(`
-    const CACHE_NAME = 'marcos-pwa-v4';
+    const CACHE_NAME = 'marcos-pwa-v5';
     self.addEventListener('install', (e) => {
       self.skipWaiting();
     });
