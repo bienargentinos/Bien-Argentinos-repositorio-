@@ -1886,6 +1886,52 @@ arreglo que esconda los datos buenos sería tan malo como el que los inventaba.
 - **El CBU que se cargue ahí no se verifica** con los dígitos verificadores, como sí se hace con el
   del proveedor (`cbu.js`). Debería, y es su propio trabajo.
 
+## Un error de sintaxis en el script del cliente no rompe una función: rompe TODAS
+
+> [!CAUTION]
+> **El navegador descarta el `<script>` entero**, así que ninguna función se registra y la pantalla
+> queda colgada **sin un solo error del lado del servidor**. En el VPS no aparece nada: el log está
+> limpio y la página se dibuja bien.
+
+Así estuvo la pantalla `/vecino/pases`, en *"⏳ Cargando pases…"* y sin responder a ningún botón.
+**Lo encontró Antigravity el 28/09, en el navegador** --`Uncaught SyntaxError: Unexpected string`--
+después de que yo persiguiera **dos hipótesis equivocadas**: que faltaba la tabla `pases_qr` y que era
+el servicio externo del QR. Ninguna era. El error estaba en el código del portal, y eran dos:
+
+1. `'<button onclick="verPaseModal(\'' + p.token + '\')">'` **adentro de un template literal**. Node
+   convierte `\'` en `'` al evaluarlo, así que al navegador llegaba
+   `onclick="verPaseModal('' + p.token + '')"` y el motor cerraba la cadena en el segundo apóstrofe.
+   Corregido con `data-token` y `this.dataset.token`, que no necesita escapar nada.
+2. Un `\n` dentro del template literal se volvía un salto de línea **literal** adentro de una cadena
+   entre comillas simples — sintaxis inválida. Corregido con `.join(String.fromCharCode(10))`.
+
+**Es la misma familia que el acento grave que rompió `db-pg.js`**: el código se escribe adentro de un
+template literal, y **lo que el servidor evalúa no es lo que uno leyó**. Tres veces ya, y ninguna la
+agarró `node --check`: el archivo del servidor es sintácticamente válido; lo que sale roto es el
+texto que genera.
+
+### El candado: compilar lo que se sirve
+
+`pruebas-script-del-cliente.js` pide **cada pantalla** del portal y de la portería, saca **cada
+`<script>` inline** y lo **compila**. Hoy son **48 piezas de script en 13 pantallas**.
+
+- **Compila y NO ejecuta.** `new Function(cuerpo)` levanta un `SyntaxError` y no corre una sola línea
+  del cuerpo, así que no hace falta un navegador ni un DOM. Es barato y corre antes de cada push.
+- **Una pantalla que redirige o que no trae script no es un fallo**: lo que se mide es que lo que SÍ
+  se sirve parsee.
+- **Y la prueba se prueba a sí misma**: comprueba que detecta las **dos formas exactas** que se vieron
+  en producción. Un candado que no puede fallar no protege nada.
+
+> **Encontró un bug en su primera corrida, y en el login.** El script de `/vecino/login` llegaba con
+> `/^+?549?/` --`Invalid regular expression: Nothing to repeat`-- porque el fuente dice `/^\+?549?/` y
+> **dentro de un template literal `\+` pierde la barra**. O sea que **todo el script del login estaba
+> muerto en el navegador**, por la misma causa que la pantalla de pases y sin que nada lo dijera. Se
+> escribe `\\+` para que se sirva `\+`.
+
+> **La lección es la que más se repite en este archivo, en otra forma**: no alcanza con revisar mejor
+> el código. Hay que **mirar el resultado**. Dos hipótesis mías fallaron por deducir sobre el
+> servidor; la causa se veía en un segundo abriendo la consola del navegador.
+
 ## Quien sube un archivo elegía su extensión, y eso alcanzaba para ejecutar código en nuestro dominio
 
 > [!CAUTION]

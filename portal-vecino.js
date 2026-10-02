@@ -2587,7 +2587,7 @@ ${CSS_FORMULARIOS}
     // depto y rol removidos para registro limpio
     var prefix = document.getElementById('sel-reg-prefix').value;
     if (prefix && !tel.startsWith('+')) {
-      tel = prefix + ' ' + tel.replace(/^\+?549?/, '').trim();
+      tel = prefix + ' ' + tel.replace(/^\\+?549?/, '').trim();
     } else if (!prefix && !tel.startsWith('+')) {
       tel = '+' + tel.trim();
     }
@@ -2641,7 +2641,7 @@ ${CSS_FORMULARIOS}
     
     var prefix = document.getElementById('sel-wa-prefix').value;
     if (prefix && !rawTel.startsWith('+')) {
-      rawTel = prefix + rawTel.replace(/^\+?549?/, '').trim();
+      rawTel = prefix + rawTel.replace(/^\\+?549?/, '').trim();
     } else if (!prefix && !rawTel.startsWith('+')) {
       rawTel = '+' + rawTel.trim();
     }
