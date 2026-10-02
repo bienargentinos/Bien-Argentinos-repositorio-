@@ -2287,11 +2287,11 @@ ${CSS_FORMULARIOS}
 <body>
 <div class="login-card">
   <div style="text-align:center;margin-bottom:18px">
-    <div style="width:54px;height:54px;border-radius:18px;background:linear-gradient(135deg,var(--marca),var(--acento));display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:26px;margin-bottom:10px;box-shadow:0 8px 20px rgba(15,50,106,.25)">
-      🏢
+    <div style="width:64px;height:64px;border-radius:18px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:10px;box-shadow:0 8px 20px rgba(15,50,106,.25);overflow:hidden">
+      <img src="/admin/assets/bienar-logo.png" alt="BIENAR" style="width:100%;height:100%;object-fit:cover">
     </div>
-    <h1 style="font-size:21px;font-weight:900;letter-spacing:-.02em;margin-bottom:2px;color:var(--marca)">Mi Consorcio</h1>
-    <p style="font-size:12.5px;color:var(--texto-suave)">Acceso para Propietarios, Inquilinos y Gestores</p>
+    <h1 style="font-size:21px;font-weight:900;letter-spacing:-.02em;margin-bottom:2px;color:var(--marca)">BIENAR</h1>
+    <p style="font-size:12.5px;color:var(--texto-suave)">Portal de Consorcios y Gestión Inteligente</p>
   </div>
 
   <button type="button" class="btn-pwa" onclick="instalarPwaLogin()">
