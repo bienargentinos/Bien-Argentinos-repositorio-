@@ -26,6 +26,15 @@ así no los tipea a mano (que es donde se equivoca cualquiera con 22 dígitos).
 
 Después adjunta el comprobante y la reserva queda registrada para que la Administración la vea.
 
+### De dónde salen esos datos
+
+El administrador los carga una vez, desde su panel, en la ficha del edificio: banco, titular, CUIT,
+CBU y alias. **El CBU se valida al guardarlo** —los dos dígitos verificadores, con la misma
+comprobación que el sistema ya usa para los datos de cobro de los proveedores— y el alias también.
+Si algo no cierra, no se guarda: se dice qué está mal.
+
+Desde el momento en que el administrador lo guarda, el vecino lo ve al reservar.
+
 ### Cuando los datos no están cargados
 
 La pantalla muestra un aviso: que la Administración todavía no cargó los datos para transferir, y
@@ -79,13 +88,6 @@ suelta de un chat con una reserva de hace tres días.
 
 ## Lo que todavía no hace
 
-- **No hay pantalla en el panel para que la Administración cargue esos datos.** El sistema ya sabe
-  leerlos y mostrarlos, pero la pantalla de carga está pendiente, así que **hoy todos los edificios
-  ven el aviso de "no cargados"**. Es el estado correcto y no un fallo, pero **no se puede demostrar
-  la pantalla con datos reales todavía**: mostrarla en una demo requiere cargar la cuenta a mano en
-  la base.
-- **El CBU que se cargue ahí no se valida matemáticamente**, como sí se hace con el del proveedor.
-  Está identificado y pendiente. **No afirmar que "el sistema valida el CBU del consorcio".**
 - **El sistema no verifica la transferencia.** El vecino adjunta el comprobante y la Administración
   lo mira; no hay conciliación automática con el banco.
 - **No emite factura ni recibo** por la seña o el arancel.
