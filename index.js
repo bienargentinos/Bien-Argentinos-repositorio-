@@ -6249,25 +6249,25 @@ app.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
         orientation: 'any',
         icons: [
             {
-                src: '/admin/assets/bienar-logo.png?v=2',
+                src: '/admin/assets/bienar-logo.png?v=3',
                 sizes: '192x192',
                 type: 'image/png',
                 purpose: 'any'
             },
             {
-                src: '/admin/assets/bienar-logo.png?v=2',
+                src: '/admin/assets/bienar-logo.png?v=3',
                 sizes: '192x192',
                 type: 'image/png',
                 purpose: 'maskable'
             },
             {
-                src: '/admin/assets/bienar-logo.png?v=2',
+                src: '/admin/assets/bienar-logo.png?v=3',
                 sizes: '512x512',
                 type: 'image/png',
                 purpose: 'any'
             },
             {
-                src: '/admin/assets/bienar-logo.png?v=2',
+                src: '/admin/assets/bienar-logo.png?v=3',
                 sizes: '512x512',
                 type: 'image/png',
                 purpose: 'maskable'
@@ -6278,13 +6278,13 @@ app.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
                 name: 'Portería & Timbre',
                 short_name: 'Portería',
                 url: '/vecino',
-                icons: [{ src: '/admin/assets/bienar-logo.png?v=2', sizes: '192x192' }]
+                icons: [{ src: '/admin/assets/bienar-logo.png?v=3', sizes: '192x192' }]
             },
             {
                 name: 'Reservar Amenities',
                 short_name: 'Amenities',
                 url: '/vecino/amenities',
-                icons: [{ src: '/admin/assets/bienar-logo.png?v=2', sizes: '192x192' }]
+                icons: [{ src: '/admin/assets/bienar-logo.png?v=3', sizes: '192x192' }]
             }
         ]
     }));
@@ -6293,7 +6293,7 @@ app.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
 app.get('/sw.js', (req, res) => {
     res.type('application/javascript');
     res.send(`
-        const CACHE_NAME = 'marcos-pwa-v5';
+        const CACHE_NAME = 'marcos-pwa-v6';
         self.addEventListener('install', (e) => {
             self.skipWaiting();
         });
