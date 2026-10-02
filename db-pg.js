@@ -1843,14 +1843,17 @@ async function actualizarConfigTimbre(usuarioId, edificio, departamento, timbreA
              timbre_silencio_desde = $2,
              timbre_silencio_hasta = $3,
              timbre_no_molestar_activo = $4,
-             nombre_timbre = COALESCE($8, nombre_timbre)
+             nombre_timbre = CASE WHEN rol = 'turista' THEN nombre_timbre ELSE COALESCE($8, nombre_timbre) END
          WHERE usuario_id = $5 AND LOWER(edificio) = LOWER($6) AND LOWER(departamento) = LOWER($7) AND estado = 'activo'
          RETURNING *`,
         [Boolean(timbreActivo), silencioDesde || '23:00', silencioHasta || '07:30', Boolean(noMolestarActivo), usuarioId, edificio, departamento, typeof nombreTimbre !== 'undefined' ? String(nombreTimbre || '').trim() : null]
     );
 
     // Reflejar también en tabla vecinos para que la consulta de portería lo lea directamente
-    if (typeof nombreTimbre !== 'undefined') {
+    // El rotulo es de la UNIDAD y lo cambia quien vive en ella (propietario, inquilino). Un huesped
+    // turista esta de paso: no se le pisa el rotulo a la unidad por mas que mande el pedido.
+    const rolDeQuienPide = res.rows[0] && res.rows[0].rol;
+    if (typeof nombreTimbre !== 'undefined' && rolDeQuienPide && rolDeQuienPide !== 'turista') {
         try {
             await pool.query(
                 `UPDATE vecinos

@@ -77,8 +77,11 @@ cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && node verifi
 > anoto porque al ver un commit ajeno en la rama propia la pregunta no es "quién se metió" sino "¿con
 > quién estaba hablando Daniel?".
 >
-> Queda abierta **su** decisión pendiente: el rótulo se guarda **por unidad**, así que si el inquilino
-> lo cambia, se lo cambia también al propietario.
+> **Decisión de Daniel (02/10), cerrada**: el rótulo es **de la unidad** y lo cambia quien vive ahí —si
+> el inquilino lo cambia, queda por lo que dure el contrato, y el propietario lo vuelve a cambiar
+> cuando se va—. **El huésped turista no puede cambiarlo**: botón oculto, y el servidor lo ignora
+> (`actualizarConfigTimbre` no escribe `nombre_timbre` ni copia a `vecinos` si el rol es `turista`).
+> Cubierto en `pruebas-rotulo-timbre.js` contra PostgreSQL real. Pendiente de desplegar con el PR.
 >
 > Y queda sin correr en el VPS lo que esa sesión pidió en `docs/para-antigravity.md`:
 > `node revisar-columnas-pg.js vecinos`, para confirmar que la base real tampoco tiene `unidad`. El

@@ -4044,10 +4044,10 @@ router.get('/', async (req, res) => {
                 ${v.nombre_timbre ? '🏷️ ' + esc(v.nombre_timbre) : 'Sin rótulo (solo depto)'}
               </div>
             </div>
-            <button type="button" onclick="abrirModalRotuloTimbre()" style="padding:6px 14px;border:none;border-radius:9px;background:var(--marca);color:#fff;font-size:12px;font-weight:800;cursor:pointer;flex-shrink:0;display:inline-flex;align-items:center;gap:5px;box-shadow:0 2px 6px rgba(15,50,106,.15)">
+            ${v.rol === 'turista' ? '' : `<button type="button" onclick="abrirModalRotuloTimbre()" style="padding:6px 14px;border:none;border-radius:9px;background:var(--marca);color:#fff;font-size:12px;font-weight:800;cursor:pointer;flex-shrink:0;display:inline-flex;align-items:center;gap:5px;box-shadow:0 2px 6px rgba(15,50,106,.15)">
               <i class="ph ph-pencil-simple" style="font-size:13px"></i>
               <span id="btn-rotulo-timbre-texto">${v.nombre_timbre ? 'Editar' : 'Configurar'}</span>
-            </button>
+            </button>`}
           </div>
 
           <div style="font-size:11px;color:var(--texto-suave);margin-top:5px;line-height:1.35">
@@ -6103,7 +6103,7 @@ router.post('/api/timbre-config', async (req, res) => {
       if (typeof timbre_no_molestar_activo !== 'undefined') req.session.vecino.timbre_no_molestar_activo = Boolean(timbre_no_molestar_activo);
       if (timbre_silencio_desde) req.session.vecino.timbre_silencio_desde = timbre_silencio_desde;
       if (timbre_silencio_hasta) req.session.vecino.timbre_silencio_hasta = timbre_silencio_hasta;
-      if (typeof nombre_timbre !== 'undefined') req.session.vecino.nombre_timbre = String(nombre_timbre || '').trim();
+      if (typeof nombre_timbre !== 'undefined' && req.session.vecino.rol !== 'turista') req.session.vecino.nombre_timbre = String(nombre_timbre || '').trim();
     }
 
     // Persistir en PostgreSQL si el usuario tiene ID
@@ -6114,7 +6114,7 @@ router.post('/api/timbre-config', async (req, res) => {
         timbre_silencio_desde,
         timbre_silencio_hasta,
         timbre_no_molestar_activo: Boolean(timbre_no_molestar_activo),
-        nombre_timbre: typeof nombre_timbre !== 'undefined' ? String(nombre_timbre || '').trim() : undefined
+        nombre_timbre: (typeof nombre_timbre !== 'undefined' && v.rol !== 'turista') ? String(nombre_timbre || '').trim() : undefined
       });
     }
 

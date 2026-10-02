@@ -71,6 +71,29 @@ process.env.DATABASE_URL = url;
         afirmar('el rótulo llega a la fila del vecino en vecinos', (await rot(edificio, '1A')) === 'Oficina Portas');
         afirmar('no le cambia el rótulo a otra unidad del mismo edificio', (await rot(edificio, '1B')) === null);
         afirmar('ni a la misma unidad de otro edificio', (await rot(otro, '1A')) === null);
+
+        // El huesped turista esta de paso: su pedido NO le pisa el rotulo a la unidad.
+        const t = (await pool.query(
+            `INSERT INTO usuarios (email, nombre, apellido) VALUES ($1,'Turista','Prueba') RETURNING id`,
+            [`rotulo-t${sufijo}@prueba.test`])).rows[0];
+        await pool.query(
+            `INSERT INTO usuario_unidades (usuario_id, edificio, departamento, rol, estado) VALUES ($1,$2,'1A','turista','activo')`,
+            [t.id, edificio]);
+        await db.actualizarConfigTimbre(t.id, edificio, '1A', { timbre_activo: true, nombre_timbre: 'Pisado por turista' });
+        afirmar('un huesped turista NO cambia el rotulo de la unidad', (await rot(edificio, '1A')) === 'Oficina Portas');
+        const propio = (await pool.query(
+            `SELECT nombre_timbre FROM usuario_unidades WHERE usuario_id=$1`, [t.id])).rows[0].nombre_timbre;
+        afirmar('ni se lo guarda en su propia asignacion', propio === null);
+
+        // Y el inquilino, que vive ahi, si puede cambiarlo.
+        const inq = (await pool.query(
+            `INSERT INTO usuarios (email, nombre, apellido) VALUES ($1,'Inquilino','Prueba') RETURNING id`,
+            [`rotulo-i${sufijo}@prueba.test`])).rows[0];
+        await pool.query(
+            `INSERT INTO usuario_unidades (usuario_id, edificio, departamento, rol, estado) VALUES ($1,$2,'1A','inquilino','activo')`,
+            [inq.id, edificio]);
+        await db.actualizarConfigTimbre(inq.id, edificio, '1A', { timbre_activo: true, nombre_timbre: 'Estudio Gomez' });
+        afirmar('un inquilino SI puede cambiar el rotulo', (await rot(edificio, '1A')) === 'Estudio Gomez');
     } catch (e) {
         afirmar('la prueba corrió sin error: ' + e.message, false);
     } finally {
