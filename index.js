@@ -24,6 +24,8 @@ const {
 // guardado es más viejo que todo lo nuevo y tiene que entrar primero. Las herramientas sueltas
 // cargan datos.js y no deben tocar esa cola.
 require('./datos').colaPg.iniciar();
+// Lo mismo para los eventos de acceso (portería) que no pudieron escribirse con la base caída.
+require('./cola-registro-acceso').cola.iniciar();
 
 // La memoria de cada línea de técnico, con el número normalizado: el mismo celular llega escrito
 // con y sin el 9 según de dónde venga. Ver `lineas-telefono.js`.

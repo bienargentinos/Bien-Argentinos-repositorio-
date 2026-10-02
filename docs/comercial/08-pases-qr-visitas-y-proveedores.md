@@ -136,7 +136,10 @@ la diferencia entre "entró alguien" y "lo autorizó tal unidad, tal día, a tal
   emite desde la sesión del portal. La autenticación fuerte de cada vecino —con contraseña propia
   y activación por correo— es la tarea que está en curso. Hasta que esté, esto se ofrece como
   comodidad y trazabilidad, **no como control de seguridad de un edificio con riesgo**.
-- **Con la base de datos caída, un ingreso se valida por el código firmado pero no queda registrado.**
-  Es el caso de un corte, y está identificado. Mientras no se resuelva, **no decir que queda registro
-  de absolutamente todos los ingresos**.
+- **Con la base de datos caída, el pase no abre — a propósito — pero el intento queda anotado.** Si el
+  sistema no puede consultar la base, la puerta se mantiene cerrada y el intento (con fecha, hora y
+  motivo) se guarda y se escribe en el registro apenas la base vuelve. **No existe todavía el pase que
+  funciona sin internet**: hoy un corte de conexión significa que el visitante no entra con el código.
+  No prometer "funciona sin internet". Y si lo que se cae es el servidor entero, no hay registro de ese
+  intervalo: **no decir que queda registro de absolutamente todos los ingresos**.
 - **El prototipo del timbre es un laboratorio abierto.** No es parte de lo que se vende todavía.

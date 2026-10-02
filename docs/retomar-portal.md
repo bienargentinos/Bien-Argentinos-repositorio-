@@ -6,7 +6,7 @@
 >
 > **Se sobreescribe al terminar una tanda de trabajo. No se le agrega al final.**
 
-Última actualización: **02/10/2026**.
+Última actualización: **02/10/2026** (el chat del portal cambió de manos ese día: el anterior quedó en hibernación).
 
 ---
 
@@ -49,7 +49,7 @@ Está entero en `CLAUDE.md`; esto es el recordatorio corto.
 
 ## 3. En qué punto está (02/10)
 
-**91 pruebas verdes** (`node verificar-antes-de-subir.js`).
+**92 pruebas verdes** (`node verificar-antes-de-subir.js`).
 
 ### Desplegado el 02/10 — confirmado por Daniel
 
@@ -88,6 +88,12 @@ cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && node verifi
 > arreglo no depende de eso --funciona igual-- pero sin esa lectura no se sabe si el defecto era el
 > que se creía.
 
+### Abierto por el chat actual (02/10) — todavía NO fusionado
+
+| Qué | Detalle |
+|---|---|
+| **PR #48** (un solo PR, dos cosas) | **(a)** El huésped turista no puede cambiar el rótulo del timbre (botón oculto + el servidor lo ignora). Decisión de Daniel: el rótulo es de la unidad y lo cambia quien vive ahí. **(b)** Con la base inalcanzable, `/porteria/api/validar-qr` contestaba **500** y no dejaba registro. Ahora cae a la firma si el fallo es de conexión, y **el evento va a una cola propia** (`cola-registro-acceso.js`). Además `conSubida` pasó a `archivo-subido.js` para que el panel la llame. |
+
 ### Ya desplegado y andando (de antes)
 
 - QR dibujado por nosotros (`qr-imagen.js`), sin pedirle nada a terceros. También en el panel.
@@ -108,7 +114,13 @@ cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && node verifi
    sin conflicto.** Es la rama de Antigravity — **no fusionarla sin que Daniel lo diga**, porque puede
    estar a medias a propósito.
 
-2. **El timeout de 2,5 s que traduce los avisos con Gemini.** Daniel ofreció subirlo a 4,5 s porque la
+2. **¿Queremos el pase QR que abre sin internet?** Hoy **no existe**: `qr-firmado.js` sabe VERIFICAR
+   un pase firmado pero **ningún lado lo EMITE** (`emitirPaseFirmado` no la llama nadie). Con la base
+   caída, un pase real falla cerrado (403 y queda registrado). Para tenerlo hay que decidir: que el
+   portal emita pases firmados, con **vencimiento corto** (sin base no se puede saber si lo revocaron),
+   y poner `QR_PASES_CLAVE` en el `.env`. Es de producto, no un arreglo: no se hizo.
+
+3. **El timeout de 2,5 s que traduce los avisos con Gemini.** Daniel ofreció subirlo a 4,5 s porque la
    API tarda ~3 s desde el VPS. **Lo revisé y la respuesta es no**, con el análisis entero en
    `docs/para-antigravity.md` (02/10). En corto, tres cosas que no se ven en esa línea:
    - Ese código vive **solo en `antigravity/panel-fase-1`**, que no está fusionada: hoy **no corre en
@@ -128,16 +140,19 @@ cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && node verifi
 
 ## 5. Pendientes, en orden
 
-1. **Las TRES subidas de `dashboard.js`** (`~39` media, `~58` avatar del panel, `~78` expensas) siguen
-   tomando la extensión del nombre que manda el navegador. Dos de las tres se sirven, **así que el
-   agujero de #43 sigue abierto por ahí.** Es lo más urgente. Pedido en `docs/para-antigravity.md`
-   con el código exacto: **llamar a `archivo-subido.js`, no reimplementarlo.**
+1. **Las TRES subidas de `dashboard.js`** (líneas 39, 58 y 78: facturas/media, avatar del panel,
+   expensas) siguen tomando la extensión del nombre que manda el navegador. **Verificado el 02/10 con
+   `grep` en la rama de desarrollo Y en `antigravity/panel-fase-1`: abiertas en las dos.** Dos de las
+   tres se sirven, **así que el agujero de #43 sigue abierto por ahí.** Es lo más urgente. Es de AY:
+   pedido en `docs/para-antigravity.md` con el parche exacto (y `conSubida` ya está exportada para
+   que la llame). **`pruebas-archivo-subido.js` avisa con ⚠️ mientras no lo haga, y apenas AY importe
+   `archivo-subido.js` pasa a exigirle que lo termine entero** (trinquete). Mi tarea es verificar,
+   no hacerlo.
 2. **Candado gemelo del script del cliente para el panel.** `dashboard.js` genera su HTML igual, así
    que el síntoma sería idéntico e invisible. Ofrecido a Antigravity; si prefiere llamarlo, sacar el
    mecanismo a un módulo compartido en vez de duplicarlo.
-3. **Con PostgreSQL caído, un pase QR se valida por firma y no queda registro de nada.** El arreglo es
-   encolar el `INSERT` como hace `cola-pg.js` (un registro de auditoría es append-only, no tiene el
-   riesgo de orden de ese módulo).
+3. ~~Con PostgreSQL caído, un pase QR no deja registro.~~ **Hecho el 02/10** (ver arriba). La premisa del
+   pendiente era falsa: tampoco se validaba por firma.
 4. **Lo visual que Daniel aprobó y no se hizo**: botones con contorno y reacción al apretar, y el
    resplandor del fondo, en su azul.
 5. **Traducir la conversación del chat.** La app está en cuatro idiomas; el chat no.
@@ -171,10 +186,23 @@ cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && node verifi
 3. **Leí a Antigravity editando `portal-vecino.js` como un pisotón.** Era decisión de Daniel porque yo
    no estaba disponible. La regla ya decía que el archivo es de quien está hablando con él.
 
+4. **"Con la base caída se valida por firma."** Estaba escrito en `CLAUDE.md`, en un comentario del
+   propio endpoint y en un documento comercial. **Era código muerto**: `pool` nunca es nulo, la rama no
+   corría, y el endpoint contestaba 500. Lo mostró un script de diez líneas contra un puerto muerto, no
+   leer el código. **Antes de arreglar algo que "ya está resuelto", ejecutarlo contra la falla.**
+
 Y uno de método que sí funcionó y conviene repetir: **las pruebas que corren contra un PostgreSQL de
-verdad encontraron tres bugs que los candados de texto decían que no existían.** Hay uno local en
-`/tmp/claude-0/pgtest` (puerto 5599); se usa con
-`DATABASE_URL_PRUEBAS=postgres://postgres@127.0.0.1:5599/postgres`.
+verdad encontraron tres bugs que los candados de texto decían que no existían.** El contenedor
+trae PostgreSQL 16 sin servidor prendido; se levanta en un directorio que lea el usuario `postgres`
+(el del scratchpad no sirve) y **sin pgvector**, así que el esquema avisa `ESQUEMA A MEDIAS` por la
+extensión `vector` y sigue: es esperable.
+
+```bash
+D=/tmp/pgtest-portal; mkdir -p $D && chown postgres $D
+su postgres -c "/usr/lib/postgresql/16/bin/initdb -D $D/data -A trust >/dev/null && \
+  /usr/lib/postgresql/16/bin/pg_ctl -D $D/data -o '-p 5599 -k /tmp' -l $D/log -w start"
+DATABASE_URL_PRUEBAS=postgres://postgres@127.0.0.1:5599/postgres node pruebas-rotulo-timbre.js
+```
 
 ---
 
@@ -184,5 +212,5 @@ verdad encontraron tres bugs que los candados de texto decían que no existían.
 node verificar-antes-de-subir.js
 ```
 
-Tiene que decir **91 pruebas** (o más) y ninguna roja. Y mirar `git status` antes de empujar: nunca
+Tiene que decir **92 pruebas** (o más) y ninguna roja. Y mirar `git status` antes de empujar: nunca
 `git add -A`, nunca `.env*`, `almacenamiento/`, `*.sqlite` ni `cola-pg-pendiente.json`.

@@ -51,3 +51,7 @@ ejemplos-expensas/
 # Copias a PostgreSQL que fallaron y esperan reintento (`cola-pg.js`). Trae teléfonos, nombres y
 # conversaciones de vecinos reales: lo mismo que `almacenamiento/`, no puede ir al repo.
 cola-pg-pendiente.json
+
+# Eventos de acceso (porteria) que no se pudieron escribir con la base caida (`cola-registro-acceso.js`).
+# Traen IP, user-agent y fotos de seguridad de visitantes: no pueden ir al repo.
+cola-accesos-pendiente.json

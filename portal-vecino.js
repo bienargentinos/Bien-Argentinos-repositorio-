@@ -156,7 +156,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { sesionDemoVecino } = require('./sesion-demo');
 const { IDIOMAS, textos, normalizarIdioma, idiomaDelNavegador } = require('./idiomas');
-const { IMAGENES, COMPROBANTES, filtroDeSubida, nombreDeArchivo } = require('./archivo-subido');
+const { IMAGENES, COMPROBANTES, filtroDeSubida, nombreDeArchivo, conSubida } = require('./archivo-subido');
 
 // Almacenamiento seguro de comprobantes de pago subidos por vecinos
 const storageComprobantes = multer.diskStorage({
@@ -208,27 +208,6 @@ const uploadAvatar = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: filtroDeSubida(IMAGENES, 'una foto de perfil')
 });
-
-// > [!CAUTION]
-// > **Una subida rechazada NO puede contestar HTML.** Sin esto, el error del `fileFilter` sube al
-// > manejador por defecto de Express, que devuelve su página de error en HTML, y el `await
-// > r.json()` del navegador informa `JSON.parse: unexpected character` — el mismo síntoma que ya
-// > está anotado en `CLAUDE.md` por otras dos causas y que costó horas de diagnóstico.
-//
-// Devuelve 400 con el motivo, que es lo que la pantalla puede mostrarle a la persona.
-function conSubida(middleware) {
-  return function (req, res, next) {
-    middleware(req, res, function (err) {
-      if (!err) return next();
-      const demasiadoGrande = err.code === 'LIMIT_FILE_SIZE';
-      console.warn('📎⛔ Subida rechazada:', err.code || 's/código', err.message);
-      return res.status(400).json({
-        ok: false,
-        error: demasiadoGrande ? 'El archivo es demasiado grande.' : (err.message || 'No se pudo subir el archivo.')
-      });
-    });
-  };
-}
 
 // Intentar cargar adaptadores de datos
 let datosPg = null;

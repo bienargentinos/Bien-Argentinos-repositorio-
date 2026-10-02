@@ -2171,7 +2171,22 @@ async function validarConsumirPaseQR(rawToken, edificio) {
     return { valido: true, resultado: 'exitoso', mensaje: `Pase válido: ${pase.nombre_invitado} (${pase.motivo})`, pase };
 }
 
-async function registrarEventoAcceso(datos) {
+// Un registro de acceso que no se pudo escribir porque la BASE no contesta no se pierde: va a la
+// cola de `cola-registro-acceso.js` (se reintenta sola y sobrevive a un `pm2 restart`). Es un registro APPEND-ONLY,
+// asi que no tiene el riesgo de orden que ese modulo describe para los UPDATE: repetir una fila
+// seria el unico costo, y se prefiere a no tener la fila.
+function diferirRegistroAcceso(sql, params, resumen) {
+    try {
+        require('./cola-registro-acceso').cola.encolar({ descripcion: 'evento de acceso (' + resumen + ')', sql, params });
+        console.warn('[PG] ⏳ La base no contesta: el evento de acceso (' + resumen + ') queda en la cola y se escribe cuando vuelva.');
+        return { encolado: true };
+    } catch (e) {
+        console.error('[PG] 🚨 NO se pudo guardar el evento de acceso (' + resumen + ') ni en la cola: ' + e.message);
+        throw e;
+    }
+}
+
+async function registrarEventoAcceso(datos, opciones = {}) {
     // ESPERA A QUE EL ESQUEMA ESTE APLICADO, y hace falta de verdad.
     //
     // `initPgSchema()` corre al cargarse este archivo, sin bloquear a nadie. Asi que en el primer
@@ -2206,8 +2221,7 @@ async function registrarEventoAcceso(datos) {
         pase_emitido_en = null
     } = datos;
 
-    const res = await pool.query(
-        `INSERT INTO eventos_acceso (
+    const sql = `INSERT INTO eventos_acceso (
             edificio, departamento, tipo_acceso, resultado, detalle,
             foto_seguridad, qr_id, ip, user_agent, metadata,
             autorizado_por_nombre, autorizado_por_usuario_id, autorizado_por_unidad,
@@ -2215,8 +2229,8 @@ async function registrarEventoAcceso(datos) {
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb,
             $11, $12, $13, $14, $15
-        ) RETURNING *`,
-        [
+        ) RETURNING *`;
+    const params = [
             edificio || 'Consorcio',
             departamento || '',
             tipo_acceso,
@@ -2232,9 +2246,19 @@ async function registrarEventoAcceso(datos) {
             autorizado_por_unidad,
             Number.isFinite(Number(pase_id)) ? Number(pase_id) : null,
             pase_emitido_en
-        ]
-    );
-    return res.rows[0];
+    ];
+
+    const resumen = tipo_acceso + ' ' + resultado + ' ' + (edificio || 'Consorcio');
+    // `diferido`: quien llama ya sabe que la base esta caida y no tiene por que esperar otro
+    // timeout de conexion antes de abrir la puerta.
+    if (opciones.diferido) return diferirRegistroAcceso(sql, params, resumen);
+    try {
+        const res = await pool.query(sql, params);
+        return res.rows[0];
+    } catch (err) {
+        if (require('./cola-pg').esFallaDeConexion(err)) return diferirRegistroAcceso(sql, params, resumen);
+        throw err;
+    }
 }
 
 async function obtenerEventosAcceso(filtros = {}) {

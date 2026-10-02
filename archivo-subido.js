@@ -90,6 +90,31 @@ function nombreDeArchivo(prefijo, file, permitidos, partes = []) {
     return [prefijo, ...limpias, Date.now()].join('_') + ext;
 }
 
+// Una subida rechazada NO puede contestar HTML.
+//
+// > [!CAUTION]
+// > Sin esto, el error del `fileFilter` sube al manejador por defecto de Express, que devuelve su
+// > pagina de error en HTML, y el `await r.json()` del navegador informa `JSON.parse: unexpected
+// > character` -- el mismo sintoma que ya esta anotado en `CLAUDE.md` por otras dos causas y que
+// > costo horas de diagnostico.
+//
+// Envuelve el middleware de multer de una ruta: `router.post(ruta, conSubida(upload.single('x')), ...)`.
+// Devuelve 400 con el motivo, que es lo que la pantalla puede mostrarle a la persona. Vive aca y no
+// en cada router para que el panel la LLAME en vez de copiarla.
+function conSubida(middleware) {
+    return function (req, res, next) {
+        middleware(req, res, function (err) {
+            if (!err) return next();
+            const demasiadoGrande = err.code === 'LIMIT_FILE_SIZE';
+            console.warn('📎⛔ Subida rechazada:', err.code || 's/codigo', err.message);
+            return res.status(400).json({
+                ok: false,
+                error: demasiadoGrande ? 'El archivo es demasiado grande.' : (err.message || 'No se pudo subir el archivo.')
+            });
+        });
+    };
+}
+
 module.exports = {
     IMAGENES,
     DOCUMENTOS,
@@ -97,5 +122,6 @@ module.exports = {
     SIN_TIPO,
     extensionSegura,
     filtroDeSubida,
-    nombreDeArchivo
+    nombreDeArchivo,
+    conSubida
 };

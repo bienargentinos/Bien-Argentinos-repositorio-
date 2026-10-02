@@ -1415,9 +1415,23 @@ router.post('/api/validar-qr', async (req, res) => {
     //
     // o sea que con PostgreSQL caído --que en Argentina pasa seguido, junto con la luz-- escribir
     // a mano `PASS-loquesea` abría la puerta de calle.
+    //
+    // > [!CAUTION]
+    // > **Esa rama "sin base" nunca corria.** `pool` en `db-pg.js` NUNCA es nulo --sin URL se arma un
+    // > pool de mentira--, asi que con la base inalcanzable `validarConsumirPaseQR` tiraba
+    // > ECONNREFUSED, el endpoint contestaba 500 y ni un pase bien firmado abria. Verificado
+    // > apuntando a un puerto muerto. Ahora "sin base" es: la consulta fallo POR LA CONEXION.
+    // > Cualquier otro error (SQL, bug) sigue siendo error y no abre nada.
+    let baseCaida = false;
     if (pool && typeof validarConsumirPaseQR === 'function') {
-      validacion = await validarConsumirPaseQR(rawQr, edificio);
-    } else {
+      try {
+        validacion = await validarConsumirPaseQR(rawQr, edificio);
+      } catch (errBase) {
+        if (!require('./cola-pg').esFallaDeConexion(errBase)) throw errBase;
+        baseCaida = true;
+      }
+    }
+    if (!validacion) {
       const { verificarPaseFirmado } = require('./qr-firmado');
       const off = verificarPaseFirmado(rawQr, edificio);
       validacion = {
@@ -1462,8 +1476,8 @@ router.post('/api/validar-qr', async (req, res) => {
           qr_id: rawQr,
           ip,
           user_agent: userAgent,
-          metadata: { pase: validacion.pase || null }
-        }, datosDeAutoria(validacion.pase)));
+          metadata: { pase: validacion.pase || null, validado_sin_base: baseCaida }
+        }, datosDeAutoria(validacion.pase)), { diferido: baseCaida });
       } catch (errEv) {
         console.warn('⚠️ No se pudo registrar evento de acceso QR:', errEv.message);
       }

@@ -1799,10 +1799,30 @@ cuando esto corre.**
 - **El panel no tiene pantalla para mirar esto.** El dato queda con nombre propio y se puede
   consultar, pero para el administrador todavía no hay una vista. Es del panel, y está anotado en
   `docs/para-antigravity.md`. **No prometer "el informe de accesos" hasta que exista.**
-- **Con PostgreSQL caído, un pase se valida por firma y no queda registro de nada**
-  (`if (pool && typeof registrarEventoAcceso === 'function')`). Es el agujero que queda, y el arreglo
-  es encolar el `INSERT` como hace `cola-pg.js` — un registro de auditoría es append-only, así que no
-  tiene el riesgo de orden que ese módulo describe. Es su propio trabajo.
+- ~~Con PostgreSQL caído, un pase se valida por firma y no queda registro de nada.~~ **CORREGIDO el
+  02/10, y la frase original era falsa en las dos mitades.** Se probó apuntando a un puerto muerto:
+  - **No se validaba por firma.** `pool` en `db-pg.js` no es nunca nulo (sin URL arma un pool de
+    mentira), así que la rama "sin base" de `/porteria/api/validar-qr` **no corría jamás**. La
+    consulta tiraba `ECONNREFUSED`, el endpoint contestaba **500** y ni un pase bien firmado abría.
+    (Era el lado seguro: la puerta quedaba cerrada. Pero no era lo que decía este archivo.)
+  - **Y no quedaba registro de nada**, tampoco de los rechazados.
+
+  Ahora, si la consulta falla **por la conexión** (`esFallaDeConexion`), se cae a la firma; cualquier
+  otro error sigue siendo error. Y el evento de acceso **va a una cola** (`cola-registro-acceso.js`,
+  archivo `cola-accesos-pendiente.json`) que se escribe sola cuando la base vuelve. Es una cola
+  **aparte** de la de `cola-pg.js`: el registro es append-only, así que el orden no importa, y no
+  arrastra a `datos.js` (que carga Google Sheets). Prueba: `node pruebas-registro-acceso-sin-base.js`.
+
+  > [!CAUTION]
+  > **Nadie emite pases firmados todavía.** `qr-firmado.js` tiene `emitirPaseFirmado` y **ningún lado
+  > lo llama**: los pases que genera el portal son tokens comunes. O sea que con la base caída un pase
+  > real **sigue sin abrir** (falla cerrado, con 403 y registro) y "el QR que abre sin internet" **no
+  > existe como función del producto**: existe el verificador y falta emitir. Es una decisión de
+  > Daniel (pases offline de vencimiento corto, y `QR_PASES_CLAVE` en el `.env`), no un arreglo.
+  >
+  > **Lo que el registro NO cubre**: el servidor apagado (sin proceso no hay quien escriba), ni un
+  > `INSERT` que la base llegó a escribir pero cuya respuesta se cortó (queda dos veces: es el costo de
+  > preferir la fila repetida a la fila perdida).
 - **La identidad del vecino sigue siendo la sesión del portal**, no una autenticación fuerte. Mientras
   eso no exista, esto dice con qué sesión se emitió el pase, que es lo más firme que hay hoy. El
   pendiente de "Auth real" es lo que lo cierra.
