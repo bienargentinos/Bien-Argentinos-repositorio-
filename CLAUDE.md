@@ -1886,6 +1886,57 @@ arreglo que esconda los datos buenos sería tan malo como el que los inventaba.
 - **El CBU que se cargue ahí no se verifica** con los dígitos verificadores, como sí se hace con el
   del proveedor (`cbu.js`). Debería, y es su propio trabajo.
 
+## Quien sube un archivo elegía su extensión, y eso alcanzaba para ejecutar código en nuestro dominio
+
+> [!CAUTION]
+> **Las CINCO subidas del proyecto nombraban el archivo con `path.extname(file.originalname)`, y ese
+> nombre lo manda el navegador. Ninguna tenía `fileFilter`.**
+
+Verificado contra las mismas estáticas de producción (`index.js` sirve `almacenamiento/` entero en
+`/archivos`): se sube un archivo llamado `payload.html` como foto de perfil, queda guardado como
+`avatar_2_1759….html`, y pedirlo devuelve
+
+```
+codigo HTTP : 200
+Content-Type: text/html; charset=UTF-8
+cuerpo      : <script>alert(document.domain)</script>
+```
+
+Una página con el script de otro, servida desde **`marcos.bienargentinos.com`** — el mismo dominio
+del portal y del panel. Desde ahí el script corre con la sesión de quien la abra: puede pedirle al
+portal un **pase QR** o tocar cualquier endpoint del panel como esa persona. **No hace falta leer la
+cookie: alcanza con usarla.** Y para subir basta una sesión del portal, que el botón de demo entrega.
+
+El guardia de `expensa-privada.js` **no lo tapa**: solo mira los archivos que se llaman `expensa_*`.
+
+`archivo-subido.js` pone la regla en un solo lugar: **la extensión sale de una lista nuestra**,
+nunca del nombre de quien sube, y lo que no está en la lista se rechaza **antes de escribir en el
+disco**.
+
+- **El SVG queda afuera aunque sea una imagen**: se sirve como `image/svg+xml` y puede ejecutar
+  script.
+- **El `octet-stream` tiene rescate, con cerrojo.** Varios celulares declaran así un JPEG común, y
+  rechazarlo de plano rompería subidas legítimas: solo en ese caso se mira la extensión del nombre,
+  y **únicamente si está en la lista**. Un `payload.html` por esa vía sigue rechazado.
+- **Un rechazo contesta JSON, no HTML** (`conSubida`). Sin eso el error del `fileFilter` sube al
+  manejador por defecto de Express y el navegador informa `JSON.parse: unexpected character` — el
+  mismo síntoma que ya está anotado dos veces más arriba por otras causas.
+- **`avatar_url` del cuerpo ya no acepta cualquier URL.** Solo vacío (borrar la foto) o una ruta de
+  `/archivos/avatares/`. Antes la foto de perfil podía apuntar al servidor de otro, que se entera de
+  la IP de cada vecino que abre la pantalla.
+
+> [!CAUTION]
+> **Quedan TRES subidas sin arreglar, y son de `dashboard.js`** (`~39` media, `~58` avatar del panel,
+> `~78` expensas), que es de otra conversación. Las de `media_*` y `avatar_*` se sirven igual que la
+> del portal, así que el agujero sigue abierto por ahí. Pedido en `docs/para-antigravity.md`:
+> **llamar a `archivo-subido.js`**, no reimplementarlo. La de `expensa_*` la tapa el guardia, pero
+> conviene igual.
+
+Prueba: `node pruebas-archivo-subido.js`. El candado prohíbe que `path.extname(file.originalname)`
+vuelva a nombrar un archivo en el portal, y exige las dos `fileFilter` y las tres rutas envueltas. Y
+la parte de comportamiento **sube de verdad**: el HTML se rechaza con 400 en JSON, **no queda nada en
+el disco**, y un PNG real entra con la extensión que ponemos nosotros.
+
 ## El timbre de un edificio sonaba en otro
 
 > [!CAUTION]
@@ -2667,8 +2718,9 @@ aprobación de una solicitud de nombre ahora renombra en **los dos lados**.
 > `copiarAPg` es "dispará y seguí": una fila borrada de la planilla **se queda para siempre del
 > lado de PostgreSQL**, que es justo el lado que lee Marcos.
 
-Dos casos vistos: un cerrajero de prueba llamado **"lalala"** que se borró de la planilla y Marcos
-sigue viendo, y **Dario asignado a un cliente al que ya no pertenece**. Marcos lee
+Dos casos vistos **en septiembre** (los dos corregidos desde entonces; ver la corrección de abajo):
+un cerrajero de prueba llamado **"lalala"** y **Dario asignado a un cliente al que ya no
+pertenece**. Marcos lee
 `proveedor_asignaciones` para elegir a quién llamar por `edificio + rubro`, así que una asignación
 fantasma manda al técnico equivocado o le muestra el reclamo de un consorcio ajeno.
 
@@ -2700,17 +2752,25 @@ tampoco la toca. Qué fila sobra se decide mirándola.
 > cada tanda de trabajo** — o sea que la decisión se habría perdido en la próxima. Va acá, que es lo
 > que lee todo chat nuevo y no se reescribe.
 
-> **Y el 28/09 dejó de ser un dato feo: Marcos ELIGIÓ a "lalala" para un caso real.** En la prueba de
-> la cerradura del SUM, el log dice `🔧 Técnico encontrado en 'proveedores': lalala (+541169241157)`.
-> Antes esta sección decía que "Marcos sigue viendo" esa fila; ahora está medido que además la
-> **elige**. Con datos ficticios es un nombre gracioso en un log. Con datos reales es un trabajo
-> mandado a un técnico con el que el administrador ya no trabaja, o a un teléfono que ya no atiende
-> — y nadie se entera hasta que alguien pregunta por qué no fue nadie.
+> [!CAUTION]
+> **CORRECCIÓN, 02/10. Lo de "lalala" lo afirmé mal y conviene que quede dicho, porque se propagó.**
+> El 28/09 escribí acá que Marcos había elegido a "lalala" **por ser una fila que quedó en PostgreSQL
+> y no está en la planilla**, y de acá pasó a `docs/retomar-en-chat-nuevo.md`.
 >
-> **La asimetría entre las dos bases tiene que cerrarse en el mismo movimiento que el borrado total**,
-> o va a ser la sorpresa del primer día con un consorcio de verdad. Queda pedido en
-> `docs/para-el-motor.md` (la elección sale de `datos.js`) y en `docs/para-antigravity.md` (el
-> diagnóstico, que solo lee, se corre en el VPS).
+> **Es falso.** Se corrió `node revisar-sobrantes.js` en el VPS y las dos bases **coinciden en toda
+> la configuración**: `clientes` 1 y 1, `edificios` 2 y 2, `proveedores` 4 y 4,
+> `proveedor_asignaciones` 6 y 6. O sea que **"lalala" está en las dos**, y Marcos eligiéndolo fue el
+> comportamiento correcto con los datos que hay cargados. **No había nada roto ahí.**
+>
+> **Cómo me equivoqué**: esta sección decía, de antes, que "lalala" se había borrado de la planilla.
+> Lo tomé como un hecho del presente sin verificarlo y construí un diagnóstico encima. Es exactamente
+> el error que este archivo le señala a otros: **tratar la documentación como el estado actual.** Un
+> dato de hace días en un repo que se mueve así es una hipótesis, no una medición.
+>
+> **Lo que sí sigue siendo cierto es el mecanismo, y por eso la sección se queda**: la sincronización
+> no tiene ningún `DELETE` y `copiarAPg` dispara y sigue, así que una fila borrada de la planilla
+> *puede* quedarse del lado que Marcos lee. Hoy no hay ninguna — está medido. Es un riesgo latente,
+> no un problema abierto, y la forma de saberlo es correr la herramienta, no leer esto.
 
 > [!CAUTION]
 > **No arreglar esto reimportando.** `importar-sheets-a-pg.js` sincroniza `edificios` usando la
