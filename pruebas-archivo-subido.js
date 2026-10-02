@@ -71,9 +71,32 @@ async function main() {
         (portal.match(/fileFilter:\s*filtroDeSubida\(/g) || []).length === 2);
     // Un rechazo que contesta HTML en una ruta /api/ es el defecto que este repo ya pagó tres veces.
     afirmar('una subida rechazada contesta JSON, no HTML',
-        /function conSubida\(/.test(portal) && (portal.match(/conSubida\(upload/g) || []).length === 3);
+        /function conSubida\(/.test(soloCodigo('archivo-subido.js')) && !/function conSubida\(/.test(portal)
+        && /conSubida\s*\}\s*=\s*require\('\.\/archivo-subido'\)/.test(portal)
+        && (portal.match(/conSubida\(upload/g) || []).length === 3);
     afirmar('el avatar_url del cuerpo solo acepta una ruta de acá',
         /\/archivos\\\/avatares\\\/\[A-Za-z0-9_\.-\]\+\$/.test(portal) || /archivos\\\/avatares/.test(portal));
+
+    // ── El panel: un trinquete, no un freno ──────────────────────────────────────
+    //
+    // `dashboard.js` es de otra conversacion y sus tres subidas siguen eligiendo la extension del
+    // navegador. Si esta prueba se pusiera en rojo hoy trabaria todos los despliegues por algo que
+    // no se puede arreglar desde aca. Asi que MIENTRAS NO EMPIEZA, avisa y no falla; en cuanto el
+    // panel importa `archivo-subido.js` --o sea, cuando alguien decidio arreglarlo-- exige que lo
+    // termine entero, y no puede volver atras.
+    const panel = soloCodigo('dashboard.js');
+    const empezoElPanel = /require\('\.\/archivo-subido'\)/.test(panel);
+    const sinArreglar = (panel.match(/path\.extname\(\s*file\.originalname/g) || []).length;
+    if (!empezoElPanel) {
+        console.log(`  ⚠️  dashboard.js todavía NO usa archivo-subido.js: ${sinArreglar} subida(s) eligen la extensión del navegador.`);
+        console.log('      Es el mismo agujero que se cerró en el portal. Pedido exacto en docs/para-antigravity.md.');
+    } else {
+        afirmar('dashboard.js ya no nombra archivos con path.extname(file.originalname)', sinArreglar === 0);
+        afirmar('las tres subidas del panel tienen filtro de tipo',
+            (panel.match(/fileFilter:\s*filtroDeSubida\(/g) || []).length >= 3);
+        afirmar('y las rutas que reciben archivos contestan JSON si se rechaza',
+            /conSubida\s*\}\s*=\s*require\('\.\/archivo-subido'\)/.test(panel) && (panel.match(/conSubida\(upload/g) || []).length >= 5);
+    }
 
     // ── La subida de verdad, contra el servidor ───────────────────────────────────
     //

@@ -156,7 +156,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { sesionDemoVecino } = require('./sesion-demo');
 const { IDIOMAS, textos, normalizarIdioma, idiomaDelNavegador } = require('./idiomas');
-const { IMAGENES, COMPROBANTES, filtroDeSubida, nombreDeArchivo } = require('./archivo-subido');
+const { IMAGENES, COMPROBANTES, filtroDeSubida, nombreDeArchivo, conSubida } = require('./archivo-subido');
 
 // Almacenamiento seguro de comprobantes de pago subidos por vecinos
 const storageComprobantes = multer.diskStorage({
@@ -208,27 +208,6 @@ const uploadAvatar = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: filtroDeSubida(IMAGENES, 'una foto de perfil')
 });
-
-// > [!CAUTION]
-// > **Una subida rechazada NO puede contestar HTML.** Sin esto, el error del `fileFilter` sube al
-// > manejador por defecto de Express, que devuelve su página de error en HTML, y el `await
-// > r.json()` del navegador informa `JSON.parse: unexpected character` — el mismo síntoma que ya
-// > está anotado en `CLAUDE.md` por otras dos causas y que costó horas de diagnóstico.
-//
-// Devuelve 400 con el motivo, que es lo que la pantalla puede mostrarle a la persona.
-function conSubida(middleware) {
-  return function (req, res, next) {
-    middleware(req, res, function (err) {
-      if (!err) return next();
-      const demasiadoGrande = err.code === 'LIMIT_FILE_SIZE';
-      console.warn('📎⛔ Subida rechazada:', err.code || 's/código', err.message);
-      return res.status(400).json({
-        ok: false,
-        error: demasiadoGrande ? 'El archivo es demasiado grande.' : (err.message || 'No se pudo subir el archivo.')
-      });
-    });
-  };
-}
 
 // Intentar cargar adaptadores de datos
 let datosPg = null;
@@ -4044,10 +4023,10 @@ router.get('/', async (req, res) => {
                 ${v.nombre_timbre ? '🏷️ ' + esc(v.nombre_timbre) : 'Sin rótulo (solo depto)'}
               </div>
             </div>
-            <button type="button" onclick="abrirModalRotuloTimbre()" style="padding:6px 14px;border:none;border-radius:9px;background:var(--marca);color:#fff;font-size:12px;font-weight:800;cursor:pointer;flex-shrink:0;display:inline-flex;align-items:center;gap:5px;box-shadow:0 2px 6px rgba(15,50,106,.15)">
+            ${v.rol === 'turista' ? '' : `<button type="button" onclick="abrirModalRotuloTimbre()" style="padding:6px 14px;border:none;border-radius:9px;background:var(--marca);color:#fff;font-size:12px;font-weight:800;cursor:pointer;flex-shrink:0;display:inline-flex;align-items:center;gap:5px;box-shadow:0 2px 6px rgba(15,50,106,.15)">
               <i class="ph ph-pencil-simple" style="font-size:13px"></i>
               <span id="btn-rotulo-timbre-texto">${v.nombre_timbre ? 'Editar' : 'Configurar'}</span>
-            </button>
+            </button>`}
           </div>
 
           <div style="font-size:11px;color:var(--texto-suave);margin-top:5px;line-height:1.35">
@@ -6103,7 +6082,7 @@ router.post('/api/timbre-config', async (req, res) => {
       if (typeof timbre_no_molestar_activo !== 'undefined') req.session.vecino.timbre_no_molestar_activo = Boolean(timbre_no_molestar_activo);
       if (timbre_silencio_desde) req.session.vecino.timbre_silencio_desde = timbre_silencio_desde;
       if (timbre_silencio_hasta) req.session.vecino.timbre_silencio_hasta = timbre_silencio_hasta;
-      if (typeof nombre_timbre !== 'undefined') req.session.vecino.nombre_timbre = String(nombre_timbre || '').trim();
+      if (typeof nombre_timbre !== 'undefined' && req.session.vecino.rol !== 'turista') req.session.vecino.nombre_timbre = String(nombre_timbre || '').trim();
     }
 
     // Persistir en PostgreSQL si el usuario tiene ID
@@ -6114,7 +6093,7 @@ router.post('/api/timbre-config', async (req, res) => {
         timbre_silencio_desde,
         timbre_silencio_hasta,
         timbre_no_molestar_activo: Boolean(timbre_no_molestar_activo),
-        nombre_timbre: typeof nombre_timbre !== 'undefined' ? String(nombre_timbre || '').trim() : undefined
+        nombre_timbre: (typeof nombre_timbre !== 'undefined' && v.rol !== 'turista') ? String(nombre_timbre || '').trim() : undefined
       });
     }
 

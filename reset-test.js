@@ -108,12 +108,15 @@ function limpiarArchivos() {
 function limpiarColaPg() {
     const fs = require('fs');
     const { ARCHIVO_DEFAULT } = require('./cola-pg');
-    if (!fs.existsSync(ARCHIVO_DEFAULT)) return;
-    try {
-        fs.unlinkSync(ARCHIVO_DEFAULT);
-        console.log('✅ Cola de copias atrasadas a PostgreSQL vaciada.');
-    } catch (e) {
-        console.log(`⚠️ No se pudo borrar ${ARCHIVO_DEFAULT}: ${e.message}`);
+    const { ARCHIVO: ARCHIVO_ACCESOS } = require('./cola-registro-acceso');
+    for (const archivo of [ARCHIVO_DEFAULT, ARCHIVO_ACCESOS]) {
+        if (!fs.existsSync(archivo)) continue;
+        try {
+            fs.unlinkSync(archivo);
+            console.log(`✅ Cola de copias atrasadas a PostgreSQL vaciada (${require('path').basename(archivo)}).`);
+        } catch (e) {
+            console.log(`⚠️ No se pudo borrar ${archivo}: ${e.message}`);
+        }
     }
 }
 
