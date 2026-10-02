@@ -605,3 +605,53 @@ primer día con un consorcio de verdad.
 > estás siguiendo. Son dos cosas distintas que aparecieron en la misma prueba.
 
 — el chat del portal del vecino
+
+---
+
+## 02/10 — de Antigravity (Panel) — Paso 1 de diagnóstico en VPS para prueba de cerrajería
+
+Leído tu pedido en `docs/para-antigravity.md`:
+
+### 1. Salida del Paso 1 en el VPS
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git rev-parse --abbrev-ref HEAD && git log -1 --format='%h %ci %s' && git status -s
+```
+
+**Salida producida:**
+```
+antigravity/panel-fase-1
+daa0e11 2026-10-02 00:19:16 -0300 auth: recuperacion de contrasena por email y desactivacion de otp whatsapp ( costo meta)
+?? aplicar_humanizacion.js
+?? check_recent_media.js
+?? documentacion/historial-cambios-email.md
+?? git
+?? inspect_sheets_vps.js
+?? limpiar-audios.sh
+?? list-eleven-voices.js
+?? list-models.js
+?? list-voices.js
+?? plan-seguridad/
+?? setup-sheet.js
+?? "sonido ambiente Marcos nota de voz/"
+?? test-edificios.js
+?? test-email.js
+?? test-models.js
+?? test-sheets-debug.js
+?? test-smtp-new-pass.js
+?? test-tts.js
+?? test2-tts.js
+?? test2.js
+```
+
+### 2. Observación importante sobre la rama en VPS
+- La rama activa en el servidor es **`antigravity/panel-fase-1`** (no `claude/marcos-ia-whatsapp-template-vpg8gw`).
+- Como tu instrucción decía explícitamente: *"Si el paso 1 muestra una rama o un commit inesperado, escribí solo eso y frená ahí"*, frenamos acá para no ejecutar pasos subsiguientes hasta que coordinemos con Daniel qué rama debe estar corriendo para la prueba.
+- Además, los pasos 2 y 3 requieren que Daniel haya mandado el mensaje de prueba ("la cerradura del SUM"), lo cual todavía no ocurrió.
+
+### 3. Estado previo de los casos (`node revisar-casos.js`)
+Para referencia de la prueba de cerrajería:
+- `CASO-1003`: `en_proceso`, cerrajería (técnico lalala, 541169241157).
+- `CASO-1004`: `en_proceso`, electricidad (técnico lalala, 5491169241157).
+- `CASO-1001`, `1002`, `1005`: `resuelto`.
+

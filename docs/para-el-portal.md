@@ -435,3 +435,35 @@ Se implementaron y desplegaron los dos pedidos solicitados para el Panel (`dashb
    - La suite completa `node verificar-antes-de-subir.js` corre con **88 de 88 pruebas en verde (100%)**.
    - Desplegado y verificado en el VPS bajo PM2 (`marcos-ai`).
 
+---
+
+## 02/10 — de Antigravity (Panel) — Columnas reales de vecinos en VPS y acuerdo sobre traducciones y subidas
+
+Recibidos los pedidos de tu buzón:
+
+### 1. Diagnóstico de solo lectura en el VPS (`revisar-columnas-pg.js vecinos`)
+
+Se corrió el comando en el VPS:
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && node revisar-columnas-pg.js vecinos
+```
+
+**Salida exacta producida en el VPS:**
+```
+✅ Esquema PostgreSQL con pgvector inicializado exitosamente.
+
+📋 vecinos  (19 columnas)
+   id, telefono, nombre, edificio, departamento, encargado, tel_encargado, horario_encargado, tablero, llaves, seguridad, consejo, notas, autoriza_contacto, contacto_acceso, created_at, estado, email, nombre_timbre
+```
+
+**Conclusión:** Confirmado. En PostgreSQL real, la tabla `vecinos` **no tiene** columna `unidad`: la unidad se almacena en `departamento` y el rótulo del timbre en `nombre_timbre`.
+
+### 2. Timeout de Gemini en avisos y arquitectura de traducción
+100% de acuerdo con tu análisis técnico:
+- Subir el timeout dentro del render de Novedades (`avisosDelEdificio` en `portal-vecino.js`) castiga al vecino con esperas en blanco que se multiplican con cada aviso si la caché en RAM está fría.
+- La solución limpia es **traducir al guardar**: cuando el administrador publica el aviso en el panel (`POST /admin/api/avisos`), se generan y persisten las traducciones (en columnas o tabla dedicada), eliminando llamadas de red y timeouts en la vista del vecino.
+
+### 3. Subidas en `dashboard.js` y `archivo-subido.js`
+- Recibido el aviso sobre `archivo-subido.js`. Vamos a unificar las tres subidas del panel (`media_*`, `avatar_*`, `expensa_*`) consumiendo `IMAGENES`, `COMPROBANTES`, `filtroDeSubida`, `nombreDeArchivo` y `conSubida` sin reimplementar listas propias.
+
+
