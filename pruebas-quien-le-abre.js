@@ -197,6 +197,47 @@ console.log('\n6) Al técnico se le habla por dirección, también en la factura
         respuestas.map(l => '   ' + l.trim().slice(0, 110)).join('\n'));
 }
 
+// ── "OK VOY... ¿QUIÉN ME ABRE?" (CASO-1006, 02/10) ───────────────────────────────
+//
+// Dario escribió "Ok voy... Quien me abre?" y Marcos le contestó "decime si necesitás que te esperen"
+// sin darle el contacto: la rama de "confirmó que va" contestaba y cortaba. Y las dos preguntas
+// siguientes reventaron con "Aguarde un segundo": la rama de "¿quién me abre?" llamaba a
+// `buscarCasoPorCodigo` sin importarla (ReferenceError que el `.catch` no atrapa).
+{
+    console.log('\n  "¿Quién me abre?" se reconoce, y se contesta, aunque venga con otra cosa');
+    const { preguntaQuienLeAbre } = require('./contacto-ingreso');
+
+    for (const t of [
+        'Ok voy... Quien me abre?',
+        'Pero quién me abre la puerta? Si no sabe quién puede abrirme no pienso ir a',
+        'Ahora que paso .. cancelo la visita? No tenés número de ningún vecino q me abre?',
+        '¿quienes nos reciben?',
+        'a quién le llamo para entrar?',
+    ]) vale(`pregunta quién abre: "${t.slice(0, 50)}"`, preguntaQuienLeAbre(t) === true);
+
+    for (const t of [
+        'Ok voy', 'Tengo llave, voy en 2hs', 'Ya termine', 'la foto también es del caso',
+        'Quién es el vecino?', 'te mando la factura', 'Llegaré en 2 hs',
+    ]) vale(`NO es esa pregunta: "${t}"`, preguntaQuienLeAbre(t) === false);
+
+    const cod = require('fs').readFileSync(require('path').join(__dirname, 'index.js'), 'utf8');
+
+    // El candado del ReferenceError: el bloque que lee el caso de la conversación tiene que traer
+    // su propio `require`. Se mide la propiedad (que el nombre exista en ese alcance), no la frase.
+    const iAbre = cod.indexOf('const idIngresoEnMemoria = colaIngreso');
+    const bloqueAbre = cod.slice(iAbre, iAbre + 1200);
+    vale('la rama de "¿quién me abre?" importa `buscarCasoPorCodigo` antes de usarla',
+        /const \{ buscarCasoPorCodigo \} = require\('\.\/datos'\);[\s\S]*?await buscarCasoPorCodigo\(idIngresoEnMemoria\)/.test(bloqueAbre));
+
+    // La rama de "confirmó que va" no puede volver a contestar y cortar sin leer la pregunta.
+    const iConf = cod.indexOf('const respConf = `Listo');
+    const bloqueConf = cod.slice(iConf, iConf + 3500);
+    vale('"confirmó que va" contesta quién abre cuando se lo preguntan',
+        /preguntaQuienAbre/.test(bloqueConf) && /entregarContactoDeIngreso\(/.test(bloqueConf) && /forzar: true/.test(bloqueConf));
+    vale('y no lo hace si dijo que entra solo',
+        /const preguntaQuienAbre = !entraSolo/.test(cod));
+}
+
 console.log(`\n${'─'.repeat(70)}`);
 console.log(`   ${ok} bien, ${fallos} mal`);
 if (fallos) {

@@ -108,9 +108,16 @@ console.log('\n3) El envío existe, es UNO solo, y lo usan los dos caminos');
         /entregarContactoDeIngreso\s*\(\{[^)]*forzar\s*=\s*false/s.test(fuente),
         'Sin esto, la marca de "ya se lo mandamos" calla la respuesta a una pregunta de ahora.');
 
+    // Lo que importa no es CUÁNTOS lo llaman sino que el envío esté escrito UNA sola vez. Hay tres
+    // llamadores legítimos: el automático, el pedido ("¿quién me abre?") y la confirmación que
+    // viene con esa misma pregunta ("Ok voy... ¿quién me abre?", CASO-1006).
     const llamadas = (fuente.match(/await entregarContactoDeIngreso\(/g) || []).length;
-    vale('la llaman los DOS caminos (el automático y el pedido)', llamadas === 2,
-        `Se encontraron ${llamadas}. El envío tiene que estar escrito una sola vez: copiarlo es ` +
+    vale('la llaman los caminos (el automático, el pedido y la confirmación con pregunta)', llamadas >= 2,
+        `Se encontraron ${llamadas}.`);
+
+    const armados = (fuente.match(/\bmensajeDeIngreso\(/g) || []).length;
+    vale('el mensaje de ingreso se arma en UN solo lugar', armados === 1,
+        `Se encontraron ${armados}. El envío tiene que estar escrito una sola vez: copiarlo es ` +
         'lo que pasó con `buscarPerfilEdificio`, donde arreglar una copia no cambió producción.');
 
     vale('el camino del pedido pasa `forzar: true`',
