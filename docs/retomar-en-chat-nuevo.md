@@ -36,85 +36,46 @@ deja afuera justo lo que no se estaba mirando ese día.
 
 ---
 
-## 3. En qué punto está el código (28/09)
+## 3. En qué punto está el código (02/10)
 
-**Desplegado y andando en el VPS:** `9b78d7d`, puesto por Antigravity el 27/09 con 79 pruebas en
-verde y `marcos-ai` online. **Adentro va `9585cc6`**, el arreglo de a qué técnico se le manda el
-trabajo — o sea que ya está corriendo, aunque se había pedido esperar a que terminara la prueba de
-cerrajería.
+**Desplegado en el VPS:** todo lo del motor hasta el 28/09, con 88 pruebas en verde (Daniel pegó la
+salida del despliegue). Adentro van los tres pendientes viejos (`caso-del-telefono.js`,
+`smtp-config.js`, `cola-pg.js`) y los arreglos de las dos vueltas de la prueba de cerrajería.
 
-> [!CAUTION]
-> **Cuatro conversaciones empujan a la misma rama y Antigravity despliega lo que encuentra.** El
-> merge del portal se llevó puesto ese pedido de esperar, sin que nadie hiciera nada mal: nadie
-> mira si lo que está en la rama es de otro. Antes de decirle a Daniel "esto no se despliega
-> todavía" hay que verificar que siga siendo cierto:
->
-> ```bash
-> git merge-base --is-ancestor <commit> origin/claude/marcos-ia-whatsapp-template-vpg8gw
-> ```
->
-> Y un pedido de **no** desplegar algo va en `docs/para-antigravity.md`, no solo dicho en el chat:
-> el chat no lo lee quien despliega.
+**Del 28/09 al 01/10 el motor no tuvo cambios.** Esta sesión se quedó sin límite y Daniel siguió con
+Antigravity (decisión suya). Revisado el 02/10: Antigravity tocó **solo panel y portal**
+(PWA del panel, cuentas bancarias y autoría de ingresos en el panel, rediseño del inicio del portal,
+foto de perfil, rótulo del timbre, i18n) y `db-pg.js` (columnas `avatar_url` y `nombre_timbre`).
+Ningún archivo del motor.
 
-En este caso no arruinó la prueba: con **un solo** cerrajero asignado, el orden por prioridad no
-cambia nada, y el control del teléfono no lo saltea porque "lalala" tiene un número real cargado.
-Fue suerte, no diseño.
+Dos defectos encontrados en eso, **los dos del portal y anotados en `docs/para-el-portal.md`
+(entrada del 02/10)** — Daniel decidió que los arregle el chat del portal, no este:
 
-### Qué trae `9585cc6`
+1. El rótulo del timbre se copia a `vecinos` con una columna `unidad` que esa tabla no tiene →
+   probablemente falla mudo y la portería no lo muestra.
+2. La subida de foto de perfil acepta cualquier archivo, sin sesión, en una carpeta pública del
+   mismo dominio que `/admin` (XSS almacenado posible).
 
-1. **La columna `prioridad` que el administrador carga en el panel no se usaba en ningún lado.**
-   Las dos copias de `buscarTecnicoAsignado` elegían con `filas.find(...)` — la primera fila que
-   devuelve la base. Con un solo proveedor por rubro acierta siempre, así que el bug solo existía
-   con dos: justo lo que nunca se probó.
-2. **Un teléfono al que no se puede llamar se elegía igual** (`11111111111`, ocho dígitos). La
-   plantilla de Meta salía, rebotaba, y el caso quedaba "en proceso" con un técnico inalcanzable.
-   Ahora se baja al siguiente; si ninguno sirve, no se asigna nadie y se dice fuerte en el log.
-3. Estaba **escrita dos veces**, en `datos-pg.js` y `sheets.js`. Ahora las dos llaman a
-   `elegir-asignacion.js`, con un candado que prohíbe volver a decidir con `.find()`.
+Además: Antigravity tiene **3 commits del portal en `antigravity/panel-fase-1` sin pasar** a la rama
+compartida.
 
-**Dos cosas que NO cambiaron a propósito**, y están dichas en el código, en la prueba y en
-`CLAUDE.md`: la comparación de rubros (unificarla con `atiendeRubro` cambiaría a quién se le deriva
-cada caso — es su propio trabajo) y el comodín del edificio vacío en una asignación (sacarlo a
-ciegas puede dejar sin técnico a un edificio que hoy lo encuentra por esa vía; ahora **avisa en el
-log** cada vez que actúa).
-
----
-
-## 4. La prueba que Daniel está corriendo
-
-End-to-end en **cerrajería**: primero desde el número del cliente, después desde el del proveedor.
-
-Dos cosas que van a aparecer y **no son bugs**:
-
-- **Marcos lo va a llamar "lalala"** toda la conversación: es el cerrajero asignado en ese rubro
-  (un proveedor de prueba con su propio número). El nombre ahora sale del caso — eso es el arreglo
-  del 27/09 funcionando. **Lo que sí hay que reportar es si la plantilla y los mensajes libres lo
-  llaman distinto**: eso es el desfasaje de `datos-del-caso.js` volviendo.
-- En el log puede salir `🔧⚠️ La asignación de "lalala" no tiene edificio cargado, así que vale para
-  TODOS.` Significa que esa fila está asignada a todos los edificios, no solo al 159.
-
-> **No sugerir borrar "lalala" ni ningún otro dato.** Daniel, 28/09: **todo lo que hay cargado es
-> ficticio** --nombres, oficios, edificios, administradores, inquilinos--. Seguimos en fase de
-> prueba. La limpieza es el **borrado total** de `CLAUDE.md`, una sola vez y cuando él lo pida,
-> antes de salir a probar afuera. Hasta entonces no se proponen borrados sueltos.
-
----
-
-## 4b. Lo que salió de la prueba de cerrajería (28/09)
-
-Dos vueltas de prueba, cinco arreglos, todos en `CLAUDE.md` bajo "Un caso viejo sin rubro se tragaba
-un reclamo nuevo". Lo último subido: confirmación de visita con vencimiento de 48 hs, un problema
-nuevo nunca entra en un caso de más de un día, y la memoria de la línea normaliza el número (con y
-sin el 9). **Hay que desplegar y repetir la prueba.**
+**No se sabe todavía** si Daniel repitió la prueba de cerrajería con lo desplegado, ni cómo salió.
+Lo primero en el chat nuevo es preguntarle eso.
 
 **Pendiente #0, pedido por Daniel:** que Marcos PREGUNTE *"¿es lo mismo que el reclamo del 12/9 o
-es algo nuevo?"* cuando un reclamo se parece a un caso abierto de otro día.
+es algo nuevo?"* cuando un reclamo se parece a un caso abierto de otro día, y según la respuesta siga
+el caso viejo (con su técnico) o abra uno nuevo. Hoy hay solo el piso seguro: un problema nuevo
+nunca entra en un caso de más de un día. Detalle en `CLAUDE.md`, "Un caso viejo sin rubro se
+tragaba un reclamo nuevo".
+
+> **No sugerir borrar "lalala" ni ningún otro dato.** Todo lo cargado es ficticio; la limpieza es
+> el borrado total, cuando Daniel lo pida.
+
+---
 
 ## 5. Pendientes, en orden
 
-1. ~~**`guardarReporte`, el `|| !eBuscado`.**~~ **Hecho el 28/09 y subido a la rama compartida,
-   pero pedido que NO se despliegue hasta que Daniel termine la prueba de cerrajería** (nota en
-   `docs/para-antigravity.md`). Sin edificio, ahora solo engancha si todos los casos abiertos de ese
+1. ~~**`guardarReporte`, el `|| !eBuscado`.**~~ **Hecho y desplegado.** Sin edificio, ahora solo engancha si todos los casos abiertos de ese
    teléfono son de un mismo edificio; si hay dos, no elige y lo dice con `🧨` en el log
    (`caso-del-telefono.js`, `pruebas-caso-del-telefono.js`).
 2. **`SMTP_HOST` y la baja del hosting de mail: la parte del código está hecha (28/09), falta la del
@@ -124,11 +85,10 @@ es algo nuevo?"* cuando un reclamo se parece a un caso abierto de otro día.
    **Falta que Daniel elija el proveedor nuevo** y que se cambie `SMTP_*` en el `.env` del VPS el
    mismo día de la baja, corriendo `node revisar-smtp.js --enviar <su mail>` después. De paso: el
    mail primario sale de la columna `email` de `CLIENTES` --hay que mirar que esté cargada--.
-3. ~~**Que una copia a PostgreSQL que falla no se pierda.**~~ **Hecho el 28/09** (`cola-pg.js`),
-   subido y pedido para desplegar con los otros dos cuando termine la prueba de cerrajería. Las
+3. ~~**Que una copia a PostgreSQL que falla no se pierda.**~~ **Hecho y desplegado** (`cola-pg.js`). Las
    copias son datos y no funciones; la que falla por conexión se reintenta sola, en orden, y
    sobrevive a un reinicio en `cola-pg-pendiente.json`. Probado contra un PostgreSQL de verdad.
-4. **Unificar la comparación de rubros con `atiendeRubro`** (lo que quedó afuera de `9585cc6`).
+4. **Unificar la comparación de rubros con `atiendeRubro`** (lo que quedó afuera de `9585cc6`). **En espera: Daniel dijo "espero".**
 5. **El comodín del edificio vacío** en `proveedor_asignaciones`: decidir si se saca, mirando antes
    qué edificios dependen hoy de esa vía.
 6. **Documentos comerciales que faltan**: CBU con verificación, reservas de amenities, la ventana de

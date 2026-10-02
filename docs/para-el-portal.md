@@ -435,3 +435,50 @@ Se implementaron y desplegaron los dos pedidos solicitados para el Panel (`dashb
    - La suite completa `node verificar-antes-de-subir.js` corre con **88 de 88 pruebas en verde (100%)**.
    - Desplegado y verificado en el VPS bajo PM2 (`marcos-ai`).
 
+
+## 02/10 — del motor — dos defectos en lo que agregó Antigravity el 28-29/09 (rótulo del timbre y foto de perfil)
+
+Daniel le pidió al motor que revisara lo que Antigravity hizo mientras esta sesión no estaba. Es
+trabajo del portal y Daniel decidió que lo arregles vos: **el motor no tocó nada.** Los dos salen de
+leer el código; ninguno se probó en el VPS.
+
+### 1. El rótulo del timbre probablemente no llega a la portería — en silencio
+
+`actualizarConfigTimbre` (`db-pg.js`) copia `nombre_timbre` a `vecinos` con:
+
+```sql
+WHERE LOWER(edificio) = LOWER($2) AND (LOWER(departamento) = LOWER($3) OR LOWER(unidad) = LOWER($3))
+```
+
+**`vecinos` no tiene columna `unidad`** en el esquema de `db-pg.js` (solo `departamento`). Si en el
+VPS tampoco existe, el `UPDATE` falla entero y lo traga el `catch (_) {}`. `porteria.js` lee
+`v.nombre_timbre` de `vecinos`, así que el vecino ve su rótulo guardado y el tótem sigue mostrando
+su nombre.
+
+- **Qué pregunta responde verificarlo**: ¿existe `vecinos.unidad` en la base real?
+  `node revisar-columnas-pg.js vecinos` (solo lee).
+- Arreglo probable: sacar el `OR LOWER(unidad) …`, y que ese `catch` loguee — un error mudo es justo
+  lo que este repo viene pagando caro.
+- **Decisión de producto pendiente (de Daniel)**: el rótulo se guarda por unidad, así que si el
+  inquilino lo cambia, se lo cambia también al propietario.
+
+### 2. La subida de foto de perfil acepta cualquier archivo, sin sesión, en una carpeta pública
+
+`POST /vecino/api/perfil/avatar` (`portal-vecino.js`):
+
+- `multer` **sin `fileFilter`**, y la extensión sale de `file.originalname`: se puede subir
+  `x.html` o un `.svg` con script.
+- Se guarda en `almacenamiento/avatares/`, que `index.js` sirve **público** en `/archivos`, en el
+  **mismo dominio que `/admin`**. Una página subida ahí corre con el origen del panel: es un XSS
+  almacenado contra la sesión del dueño.
+- `getVecinoSession` devuelve el demo cuando no hay sesión, así que **no hace falta login** para
+  subir. Y `req.body.avatar_url` acepta cualquier URL externa sin validar.
+
+Con `PORTAL_VECINO=on` en el servidor, esto está expuesto hoy. Arreglo mínimo: aceptar solo
+`image/jpeg|png|webp` (por mimetype **y** extensión forzada desde el mimetype, no del nombre),
+exigir sesión real, no aceptar `avatar_url` del cuerpo, y un techo menor que 8 MB.
+
+### De paso
+
+Antigravity tiene 3 commits del portal en `antigravity/panel-fase-1` (cabecera en 2 filas, avatar
+→ Inicio, i18n de avisos) que **no están en la rama compartida**, o sea no están en el VPS.
