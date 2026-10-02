@@ -44,7 +44,7 @@ Está entero en `CLAUDE.md`; esto es el recordatorio corto.
 
 ## 3. En qué punto está (02/10)
 
-**90 pruebas verdes** (`node verificar-antes-de-subir.js`).
+**91 pruebas verdes** (`node verificar-antes-de-subir.js`).
 
 ### Fusionado hoy y PENDIENTE DE DESPLEGAR
 
@@ -56,6 +56,8 @@ cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && pm2 restart
 |---|---|
 | **#43** | Quien sube un archivo ya no elige su extensión (`archivo-subido.js`). Era **stored XSS en nuestro propio dominio**: un `.html` subido como foto de perfil se servía como página desde `marcos.bienargentinos.com`. |
 | **#44** | El script del **login** llegaba roto al navegador (`/^+?549?/`) y estaba entero muerto. Y el candado `pruebas-script-del-cliente.js`, que compila los 48 scripts de las 13 pantallas. |
+
+| **este PR** | El rótulo del timbre no llegaba al tótem: `actualizarConfigTimbre` filtraba `vecinos` por una columna `unidad` que no existe, y el `catch` mudo se lo tragaba. Probado contra PostgreSQL real (`pruebas-rotulo-timbre.js`). Sigue abierta la decisión de Daniel: el rótulo se guarda por unidad, así que si el inquilino lo cambia, se lo cambia al propietario. |
 
 ### Ya desplegado y andando (de antes)
 
@@ -130,5 +132,5 @@ verdad encontraron tres bugs que los candados de texto decían que no existían.
 node verificar-antes-de-subir.js
 ```
 
-Tiene que decir **90 pruebas** (o más) y ninguna roja. Y mirar `git status` antes de empujar: nunca
+Tiene que decir **91 pruebas** (o más) y ninguna roja. Y mirar `git status` antes de empujar: nunca
 `git add -A`, nunca `.env*`, `almacenamiento/`, `*.sqlite` ni `cola-pg-pendiente.json`.

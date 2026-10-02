@@ -1855,10 +1855,13 @@ async function actualizarConfigTimbre(usuarioId, edificio, departamento, timbreA
             await pool.query(
                 `UPDATE vecinos
                  SET nombre_timbre = $1
-                 WHERE LOWER(edificio) = LOWER($2) AND (LOWER(departamento) = LOWER($3) OR LOWER(unidad) = LOWER($3))`,
+                 WHERE LOWER(edificio) = LOWER($2) AND LOWER(departamento) = LOWER($3)`,
                 [String(nombreTimbre || '').trim(), edificio, departamento]
             );
-        } catch (_) {}
+        } catch (eRotulo) {
+            // Un error mudo aca deja al vecino viendo su rotulo guardado y al totem mostrando otro nombre.
+            console.warn('[PG] No se pudo copiar el rotulo del timbre a vecinos (' + edificio + ' ' + departamento + '):', eRotulo.message);
+        }
     }
 
     return res.rows[0] || null;
