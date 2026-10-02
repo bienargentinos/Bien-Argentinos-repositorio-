@@ -6237,8 +6237,8 @@ app.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
     res.type('application/manifest+json');
     res.send(JSON.stringify({
         id: '/vecino',
-        name: 'Marcos IA · Mi Consorcio',
-        short_name: 'Mi Consorcio',
+        name: 'BIENAR · Portal Vecinos',
+        short_name: 'BIENAR',
         description: 'Portal de Vecinos, Portería Virtual, Amenities y Reclamos de tu Consorcio',
         start_url: '/vecino',
         scope: '/',
@@ -6249,25 +6249,25 @@ app.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
         orientation: 'any',
         icons: [
             {
-                src: '/admin/assets/logo.png',
+                src: '/admin/assets/bienar-logo.png',
                 sizes: '192x192',
                 type: 'image/png',
                 purpose: 'any'
             },
             {
-                src: '/admin/assets/logo.png',
+                src: '/admin/assets/bienar-logo.png',
                 sizes: '192x192',
                 type: 'image/png',
                 purpose: 'maskable'
             },
             {
-                src: '/admin/assets/logo.png',
+                src: '/admin/assets/bienar-logo.png',
                 sizes: '512x512',
                 type: 'image/png',
                 purpose: 'any'
             },
             {
-                src: '/admin/assets/logo.png',
+                src: '/admin/assets/bienar-logo.png',
                 sizes: '512x512',
                 type: 'image/png',
                 purpose: 'maskable'
@@ -6278,13 +6278,13 @@ app.get(['/manifest.webmanifest', '/manifest.json'], (req, res) => {
                 name: 'Portería & Timbre',
                 short_name: 'Portería',
                 url: '/vecino',
-                icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+                icons: [{ src: '/admin/assets/bienar-logo.png', sizes: '192x192' }]
             },
             {
                 name: 'Reservar Amenities',
                 short_name: 'Amenities',
                 url: '/vecino/amenities',
-                icons: [{ src: '/admin/assets/logo.png', sizes: '192x192' }]
+                icons: [{ src: '/admin/assets/bienar-logo.png', sizes: '192x192' }]
             }
         ]
     }));
