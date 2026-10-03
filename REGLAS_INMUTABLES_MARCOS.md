@@ -7,10 +7,31 @@
 ## 1. 🏢 IDENTIFICACIÓN DE EDIFICIOS (AISLAMIENTO STRICTO 100%)
 - **Regla de Oro:** Cada edificio registrado en Google Sheets es un **universo totalmente aislado**.
 - **Ajuste de Coincidencia:** Un mensaje se asocia a un edificio **ÚNICAMENTE** si contiene el **Nombre**, la **Dirección exacta** o un **Alias propio** perteneciente al registro de ese edificio en Google Sheets.
-- **Prohibición de Solapamiento por Calle:** Si dos o más edificios comparten el mismo nombre de calle (ej. *San Patricio 159* y *San Patricio 270*):
-  - La altura `159` pertenece **EXCLUSIVAMENTE** a `san patricio casa` (Dirección: *SAN PATRICIO 159*).
-  - La altura `270` pertenece **EXCLUSIVAMENTE** a `san patricio 27'0 casa` (Dirección: *san patricio 270*).
-  - **NUNCA** cruzar los datos de un edificio a otro por compartir parte de la calle. Si la persona dice "159", jamas se debe asociar a "270" ni viceversa.
+- **Prohibición de Solapamiento por Calle:** Si dos o más edificios comparten el mismo nombre de calle, cada altura pertenece **EXCLUSIVAMENTE** a su edificio.
+  - **NUNCA** cruzar los datos de un edificio a otro por compartir parte de la calle. Si la persona dice "159", jamás se debe asociar a "270" ni viceversa.
+  - Ejemplo con los edificios de prueba actuales: *San Patricio 159* y *San Patricio 270* son dos consorcios distintos y sin relación entre sí.
+  - **Los valores concretos de la planilla son datos, no reglas.** Los nombres, alias y direcciones que hoy figuran en la pestaña `EDIFICIOS` son de prueba y van a cambiar cuando entren clientes reales. Ningún agente debe tratarlos como fijos, ni "corregirlos" porque parezcan mal escritos: los carga el administrador de consorcio y el sistema los usa tal cual para decidir a qué edificio pertenece un mensaje.
+
+### Dónde vive esta regla en el código (NO AFLOJAR)
+
+Esta regla no es solo para los mensajes: vale igual para **qué facturas ve cada cliente en el
+panel**, donde un cruce expone importes de otro consorcio.
+
+- `dashboard.js` → `expandirEdificiosPermitidos()` y el filtro de `GET /api/facturas`.
+- La prueba que lo verifica: `node pruebas-permisos-facturas.js` (15 casos, con dos
+  administradores de nombres parecidos a propósito).
+
+**Prohibido reemplazar esa comparación por una coincidencia parcial** (`LIKE '%...%'`,
+`includes()`, "que contenga") para resolver que un nombre esté escrito distinto. Eso ya se hizo y
+se tuvo que revertir: con esa comparación, un cliente con "San Patricio" cargado pasaba a ver las
+facturas de "San Patricio 270", que es de otro administrador — exactamente el cruce que esta
+regla prohíbe.
+
+La forma correcta de tolerar que un nombre esté escrito distinto es **cargar el alias** en la
+pestaña `EDIFICIOS`, no ablandar la comparación. Ante la duda se estrecha, nunca se ensancha: si
+un nombre podría corresponder a más de un edificio, no se expande. Se ve de menos, nunca de más.
+
+Antes de tocar cualquiera de esas dos funciones hay que correr la prueba y dejarla en verde.
 
 ---
 
@@ -20,8 +41,8 @@
 
 ---
 
-## 3. ⏳ TIEMPO DE ESPERA Y ACUMULACIÓN (15 SEGUNDOS)
-- **Acumulación:** Marcos debe esperar **15 segundos** (`15000 ms`) acumulando mensajes o audios correlativos del mismo usuario.
+## 3. ⏳ TIEMPO DE ESPERA Y ACUMULACIÓN (25 SEGUNDOS)
+- **Acumulación:** Marcos debe esperar **25 segundos** (`25000 ms`) acumulando mensajes o audios correlativos del mismo usuario para permitir grabar/enviar audios o fotos sin cortar la ráfaga de contexto.
 - **Respuesta Única:** Prohibido responder a cada mensaje individualmente de forma inmediata. Se debe consolidar todo el contexto en un único mensaje claro y empático.
 
 ---
@@ -37,6 +58,12 @@
 ## 5. 🤝 TONO Y EMPATÍA
 - **Trato:** Formal, educado, respetuoso y de "usted".
 - **Límites:** Empático pero **nunca confianzudo**.
+
+---
+
+## 6. 🚀 DESPLIEGUE Y DEPENDENCIAS NPM (CONTRATO OBLIGATORIO)
+- **GitHub como Única Fuente de Verdad:** Todo cambio de código debe enviarse a GitHub vía Git. El VPS se actualiza únicamente con `git pull` y `pm2 restart marcos-ai`. Prohibido copiar o editar archivos de código manualmente en el servidor.
+- **Dependencias en package.json:** Si se añade una nueva librería (`npm install`), los archivos `package.json` y `package-lock.json` **DEBEN incluirse en el mismo commit de Git** que el código que la utiliza para evitar fallos de despliegue.
 
 ---
 *Documento guardado y ratificado en el repositorio oficial de Marcos IA.*

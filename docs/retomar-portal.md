@@ -1,0 +1,233 @@
+# Cómo retomar el PORTAL DEL VECINO en un chat nuevo
+
+> Este archivo es del **chat del portal** (`portal-vecino.js`, `porteria.js`, `qr-firmado.js`,
+> `clave-app.js`, `sesion-demo.js`, `archivo-subido.js`, `autor-del-pase.js`, `qr-imagen.js`).
+> El del motor es `retomar-en-chat-nuevo.md` y el de Antigravity `retomar-antigravity.md`.
+>
+> **Se sobreescribe al terminar una tanda de trabajo. No se le agrega al final.**
+
+Última actualización: **03/10/2026** (el chat del portal cambió de manos el 02/10: el anterior quedó en hibernación).
+
+---
+
+## 1. La frase para pegar en el chat nuevo
+
+> Sos el chat del portal del vecino y la portería del proyecto Bien Argentinos. Leé `CLAUDE.md`
+> entero, después `docs/retomar-portal.md`, y después **tu buzón, `docs/para-el-portal.md`**, que es
+> donde los otros dos agentes te dejan diagnósticos. Trabajá en la rama `claude/portal-vecino` y
+> fusioná a `claude/marcos-ia-whatsapp-template-vpg8gw` por PR.
+
+> [!CAUTION]
+> **Leé tu buzón ANTES de ponerte a diagnosticar.** El 02/10 revisé todo el repo y me salté
+> `docs/para-el-portal.md` — el único archivo dirigido a mí. Adentro estaba la causa de un problema
+> que yo había perseguido con dos hipótesis equivocadas, y la respuesta a una pregunta que le hice a
+> Daniel al aire ("¿el VPS tiene esto?" — decía "desplegado y verificado").
+
+---
+
+## 2. Lo que no se negocia
+
+Está entero en `CLAUDE.md`; esto es el recordatorio corto.
+
+- **GitHub es la única fuente de verdad.** El VPS se actualiza con `git pull` y `pm2 restart marcos-ai`.
+  Nunca editar código en el servidor.
+- **Una dependencia npm nueva va en `package.json` y `package-lock.json` en el MISMO commit.**
+- **Ninguna credencial en un archivo, un comando o un mensaje.**
+- **Los vecinos no saben que Marcos es IA.**
+- **No se proponen borrados sueltos de datos**: todo lo cargado es ficticio y la limpieza es el
+  borrado total, cuando Daniel lo pida.
+- **Cada mejora terminada deja su documento comercial** en `docs/comercial/`, sin humo.
+- `POST /porteria/api/puerta/abrir` **no tiene autenticación a propósito** (el laboratorio del timbre
+  de Daniel). No cerrarlo sin preguntarle.
+- **`git pull` antes de editar, y empujar apenas termina una cosa.** El 02/10 hubo **dos sesiones del
+  portal** sobre `claude/portal-vecino` el mismo día. No es un pisotón: la sesión con la que Daniel
+  está hablando es la que toca el archivo. Pero el que no pullea pierde trabajo, y **puede haber un PR
+  abierto que no es tuyo** — mirá `git log origin/claude/portal-vecino` y la lista de PR antes de
+  arrancar.
+
+---
+
+## 3. En qué punto está (02/10)
+
+**92 pruebas verdes** (`node verificar-antes-de-subir.js`).
+
+### Desplegado el 02/10 — confirmado por Daniel
+
+Express en el 3000, PostgreSQL con pgvector y SMTP respondiendo. Lo que entró:
+
+| PR | Qué |
+|---|---|
+| **#43** | Quien sube un archivo ya no elige su extensión (`archivo-subido.js`). Era **stored XSS en nuestro propio dominio**: un `.html` subido como foto de perfil se servía como página desde `marcos.bienargentinos.com`. |
+| **#44** | El script del **login** llegaba roto al navegador (`/^+?549?/`) y estaba entero muerto. Y el candado `pruebas-script-del-cliente.js`, que compila los 48 scripts de las 13 pantallas. |
+| **#45** | Documentación: este archivo, y dos caveats que Antigravity ya había resuelto. |
+
+### Desplegado después, confirmado por AY en el VPS (02/10)
+
+AY hizo `git pull` de la rama de desarrollo, `npm install`, `node verificar-antes-de-subir.js` (**92 de 92**) y
+`pm2 restart marcos-ai`. El log quedó limpio (`ESQUEMA A MEDIAS` / `❌ [esquema` / `rotulo del timbre`: cero
+coincidencias) y `/vecino/login` y `/admin/login` dan 200.
+
+| PR | Qué |
+|---|---|
+| **#46** | El rótulo del timbre no llegaba al tótem: `actualizarConfigTimbre` filtraba `vecinos` por una columna `unidad` que no existe. **Confirmado en la base real**: `revisar-columnas-pg.js vecinos` muestra `departamento` y `nombre_timbre`, y ninguna `unidad`. |
+| **#48** | **(a)** El huésped turista no puede cambiar el rótulo (botón oculto + el servidor lo ignora). Decisión de Daniel: el rótulo es de la unidad y lo cambia quien vive ahí. **(b)** Con la base inalcanzable, `/porteria/api/validar-qr` contestaba 500 y no dejaba registro: ahora cae a la firma si el fallo es de conexión y **el evento va a una cola propia** (`cola-registro-acceso.js`, archivo `cola-accesos-pendiente.json`). Además `conSubida` pasó a `archivo-subido.js`. |
+
+> **Lo que ese despliegue NO probó**: que un evento encolado entre de verdad cuando la base vuelve **en el
+> VPS**. Está probado contra un PostgreSQL local, no contra el de producción con una caída real. Y la
+> prueba con ojos del rótulo (cambiarlo en el portal y ver el tótem) no se hizo.
+
+### Lo que corre en producción NO es la rama de desarrollo (medido el 03/10)
+
+> [!CAUTION]
+> **El sitio real sirve código de `antigravity/panel-fase-1`, no de `claude/marcos-ia-whatsapp-template-vpg8gw`.**
+> Se midió pidiendo `https://marcos.bienargentinos.com/manifest.webmanifest`: dice **"BIENAR · Portal Vecinos"**
+> con un ícono `bienar-logo.png?v=3`, y esa cadena existe en la rama de AY (7 líneas) y **en cero líneas de
+> desarrollo**. Esa rama tiene **10 commits que desarrollo no tiene**, entre ellos el rediseño de la cabecera,
+> la traducción de avisos, el branding BIENAR de la PWA (versiones v2 a v6 del caché) y
+> `daa0e11 auth: recuperación de contraseña por email y desactivación de OTP por WhatsApp`.
+>
+> Dicho de otro modo, **esa rama ya está desplegada de hecho**, aunque este archivo la tenía como "no
+> fusionada, no tocar". Dos consecuencias: (1) si algún día se despliega desarrollo **sobre un checkout limpio**,
+> el branding y el cambio de autenticación **desaparecen**; (2) cualquier cosa que yo pruebe sobre desarrollo
+> **no es lo que ven los vecinos**. Falta que AY confirme con `git branch --show-current` en el VPS (pedido en
+> su buzón) y que Daniel decida fusionarla. **No la fusioné: es decisión suya.**
+
+### Ya desplegado y andando (de antes)
+
+- QR dibujado por nosotros (`qr-imagen.js`), sin pedirle nada a terceros. También en el panel.
+- Autoría de cada ingreso (`autor-del-pase.js`) + columnas en `eventos_acceso`. **Y Antigravity hizo
+  la pantalla del panel**: la columna "Autorizado por" en la auditoría, con la etiqueta `[PRUEBA]`.
+- Pases QR con vencimiento elegido por el vecino, techo de 365 días.
+- Cuenta bancaria del consorcio: la lee el portal y **Antigravity hizo la pantalla de carga** en
+  Mi Edificio, validando CBU y alias con `cbu.js`.
+- Sesiones en PostgreSQL (`sesiones_panel` / `sesiones_portal`), sin la colisión de `session_pkey`.
+- Portal en cuatro idiomas.
+
+---
+
+## 4. Lo que espera una decisión de Daniel
+
+1. **`antigravity/panel-fase-1` no está fusionada a desarrollo, y corre en producción** (ver arriba). Hoy son
+   **10 commits** (no los tres del 29/09 de antes): cabecera en dos filas, avatar que navega a Inicio,
+   traducción de avisos, branding BIENAR de la PWA, y recuperación de contraseña por email con el OTP de
+   WhatsApp apagado. **Recomendación: fusionarla**, porque ya es lo que ven los vecinos y de lo contrario el
+   próximo despliegue limpio de desarrollo lo borra. **Falta correr `node verificar-antes-de-subir.js`
+   sobre el resultado de fusionarla** (se midió 88 verdes y sin conflicto cuando eran 3 commits; con 10 no se
+   midió). Es la rama de AY y de Daniel: **no se fusiona sin que él lo diga.**
+
+2. **¿Queremos el pase QR que abre sin internet?** Hoy **no existe**: `qr-firmado.js` sabe VERIFICAR
+   un pase firmado pero **ningún lado lo EMITE** (`emitirPaseFirmado` no la llama nadie). Con la base
+   caída, un pase real falla cerrado (403 y queda registrado). Para tenerlo hay que decidir: que el
+   portal emita pases firmados, con **vencimiento corto** (sin base no se puede saber si lo revocaron),
+   y poner `QR_PASES_CLAVE` en el `.env`. Es de producto, no un arreglo: no se hizo.
+
+3. **El timeout de 2,5 s que traduce los avisos con Gemini.** Daniel ofreció subirlo a 4,5 s porque la
+   API tarda ~3 s desde el VPS. **Lo revisé y la respuesta es no**, con el análisis entero en
+   `docs/para-antigravity.md` (02/10). En corto, tres cosas que no se ven en esa línea:
+   - Ese código vive **solo en `antigravity/panel-fase-1`**, que no está fusionada: hoy **no corre en
+     producción**, así que subirlo no cambia nada.
+   - El `await` está **adentro del render de Novedades y es secuencial**, así que el techo se
+     multiplica por la cantidad de avisos: con tres y la caché fría son **13,5 s de pantalla en
+     blanco**. Subirlo empeora el caso malo para mejorar el caso bueno.
+   - La caché es un `Map` del proceso, o sea que **cada `pm2 restart` la vacía**: el caso frío es el
+     normal, no la excepción.
+
+   Lo que corresponde es **traducir cuando se GUARDA el aviso** y guardar la traducción: el
+   administrador lo escribe una vez y lo leen todos los vecinos muchas veces. Ahí Gemini puede tardar
+   diez segundos sin molestar a nadie y **no queda ningún timeout que calibrar**. El guardado es del
+   panel, por eso el pedido fue para allá.
+
+---
+
+## 5. Pendientes, en orden
+
+1. **Las TRES subidas de `dashboard.js`** (líneas 39, 58 y 78: facturas/media, avatar del panel,
+   expensas) siguen tomando la extensión del nombre que manda el navegador. **AY contestó el 02/10 que las
+   va a unificar con `archivo-subido.js`** (y ya vio que `conSubida` está exportada): **todavía no está
+   hecho.** Dos de las tres se sirven, así que el agujero de #43 sigue abierto por ahí. Es lo más urgente.
+   Mi tarea es verificar, no hacerlo: `node pruebas-archivo-subido.js` avisa con ⚠️ mientras no lo haga y, apenas
+   `dashboard.js` importe `archivo-subido.js`, le exige terminar entero (trinquete). **Si está en verde y sin el
+   ⚠️, está hecho.**
+2. **Daniel no puede instalar la app en el celular (Android, Chrome): no aparece ni "Instalar app" en el menú.**
+   Medido el 03/10 con un Chromium real y `Page.getInstallabilityErrors`, **con el código de desarrollo y con el de
+   la rama de AY (el de producción): ningún problema** (manifiesto sin errores, service worker activo, ícono PNG
+   cuadrado 1024×1024; el único aviso, `in-incognito`, es del navegador de prueba). Contra el sitio real no se
+   pudo medir desde acá (Chromium no confía en el certificado del proxy del entorno). **Lo que falta es una
+   lectura en el navegador de Daniel**: en Chrome de una PC, `F12` → *Application* → *Manifest* → sección
+   *Installability*, que dice la razón exacta. Hipótesis no descartadas: ya hay una versión vieja instalada
+   (entonces Chrome ofrece "Abrir" y no "Instalar"), o se cargó la página justo durante un reinicio de PM2
+   (se vio un 502 de ~10 s). Detalles abajo, en el buzón de Daniel.
+3. **Candado gemelo del script del cliente para el panel.** `dashboard.js` genera su HTML igual, así
+   que el síntoma sería idéntico e invisible. Ofrecido a Antigravity; si prefiere llamarlo, sacar el
+   mecanismo a un módulo compartido en vez de duplicarlo.
+3. ~~Con PostgreSQL caído, un pase QR no deja registro.~~ **Hecho el 02/10** (ver arriba). La premisa del
+   pendiente era falsa: tampoco se validaba por firma.
+4. **Lo visual que Daniel aprobó** ("botones con contorno y reacción al apretar, y el resplandor del fondo,
+   en su azul"). **La descripción no alcanza para construirlo y parte de ella ya existe**: el resplandor azul
+   **ya está en modo oscuro** (`--luz`, `rgba(59,130,246,.18)`), y en modo claro **se excluyó a propósito**
+   ("sobre papel blanco un resplandor ensucia", comentario del propio CSS); `.btn-secondary` ya tiene borde de
+   1,5 px. **No se tocó nada sin saber a qué pantallas, a qué botones y en qué modo se refería Daniel.** Hay
+   que preguntarle eso antes de escribir una línea.
+   **Se le preguntó el 03/10 y no recuerda el mensaje original (fue hace días). Decidió esperar y
+   describirlo de nuevo, idealmente con una captura o la pantalla.** No volver a preguntarle: esperar a que
+   lo traiga él. Lo único parecido en el historial es el commit `079d70b` (04/09): botones de amenities con
+   resplandor dorado al seleccionar, que es otra cosa.
+5. **Traducir la conversación del chat.** La app está en cuatro idiomas; el chat no.
+6. **El timbre vive en RAM** (`_timbresActivos`). **El arreglo NO es mover el Map a PostgreSQL** —
+   `/api/timbre-check` lo sondea cada celular cada pocos segundos. Es dejar de sondear (SSE) o usar la
+   RAM como caché. Es su propio trabajo.
+7. **Auth real del vecino** (contraseña propia, activación por token). Mientras no exista, la clave de
+   `EdificaApp` es un tapón y no una cerradura, y la identidad del que emite un pase es la sesión.
+8. **El respaldo de la traducción de avisos sale del navegador del vecino hacia
+   `translate.googleapis.com`.** Es el mismo patrón que ya se sacó con `api.qrserver.com`: contenido
+   nuestro y la IP de cada vecino yendo a otra empresa. Acá es un aviso del consorcio y no el token de
+   la puerta, **así que es mucho menos grave** — pero desaparece solo si la traducción se guarda en la
+   base. Y es un endpoint **no documentado** (`client=gtx`), que puede cortar cualquier día sin dejar
+   una línea de log nuestra. **Está en `antigravity/panel-fase-1`, sin fusionar: no lo toques sin que
+   Daniel decida sobre esa rama.**
+
+---
+
+## 6. Errores míos que el chat nuevo no tiene que repetir
+
+> [!CAUTION]
+> **Los tres son la misma cosa: deducir en vez de mirar el resultado.**
+
+1. **La pantalla de pases colgada.** Dije que faltaba la tabla `pases_qr`, después que era el servicio
+   externo del QR. **Las dos mal.** Era mi JavaScript llegando roto al navegador, y se veía abriendo
+   la consola. Lo encontró Antigravity. Hoy lo cubre `pruebas-script-del-cliente.js`.
+2. **"lalala".** Afirmé que Marcos lo eligió por ser una fila que quedó en PostgreSQL y no en la
+   planilla. **Falso**: `revisar-sobrantes.js` dice que las dos bases coinciden. Tomé una línea vieja
+   de `CLAUDE.md` como hecho del presente. **En un repo que se mueve así, un dato de hace días es una
+   hipótesis, no una medición.**
+3. **Leí a Antigravity editando `portal-vecino.js` como un pisotón.** Era decisión de Daniel porque yo
+   no estaba disponible. La regla ya decía que el archivo es de quien está hablando con él.
+
+4. **"Con la base caída se valida por firma."** Estaba escrito en `CLAUDE.md`, en un comentario del
+   propio endpoint y en un documento comercial. **Era código muerto**: `pool` nunca es nulo, la rama no
+   corría, y el endpoint contestaba 500. Lo mostró un script de diez líneas contra un puerto muerto, no
+   leer el código. **Antes de arreglar algo que "ya está resuelto", ejecutarlo contra la falla.**
+
+Y uno de método que sí funcionó y conviene repetir: **las pruebas que corren contra un PostgreSQL de
+verdad encontraron tres bugs que los candados de texto decían que no existían.** El contenedor
+trae PostgreSQL 16 sin servidor prendido; se levanta en un directorio que lea el usuario `postgres`
+(el del scratchpad no sirve) y **sin pgvector**, así que el esquema avisa `ESQUEMA A MEDIAS` por la
+extensión `vector` y sigue: es esperable.
+
+```bash
+D=/tmp/pgtest-portal; mkdir -p $D && chown postgres $D
+su postgres -c "/usr/lib/postgresql/16/bin/initdb -D $D/data -A trust >/dev/null && \
+  /usr/lib/postgresql/16/bin/pg_ctl -D $D/data -o '-p 5599 -k /tmp' -l $D/log -w start"
+DATABASE_URL_PRUEBAS=postgres://postgres@127.0.0.1:5599/postgres node pruebas-rotulo-timbre.js
+```
+
+---
+
+## 7. Antes de cada push
+
+```bash
+node verificar-antes-de-subir.js
+```
+
+Tiene que decir **92 pruebas** (o más) y ninguna roja. Y mirar `git status` antes de empujar: nunca
+`git add -A`, nunca `.env*`, `almacenamiento/`, `*.sqlite` ni `cola-pg-pendiente.json`.
