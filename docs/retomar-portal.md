@@ -76,6 +76,22 @@ coincidencias) y `/vecino/login` y `/admin/login` dan 200.
 > VPS**. Está probado contra un PostgreSQL local, no contra el de producción con una caída real. Y la
 > prueba con ojos del rótulo (cambiarlo en el portal y ver el tótem) no se hizo.
 
+### Lo que corre en producción NO es la rama de desarrollo (medido el 03/10)
+
+> [!CAUTION]
+> **El sitio real sirve código de `antigravity/panel-fase-1`, no de `claude/marcos-ia-whatsapp-template-vpg8gw`.**
+> Se midió pidiendo `https://marcos.bienargentinos.com/manifest.webmanifest`: dice **"BIENAR · Portal Vecinos"**
+> con un ícono `bienar-logo.png?v=3`, y esa cadena existe en la rama de AY (7 líneas) y **en cero líneas de
+> desarrollo**. Esa rama tiene **10 commits que desarrollo no tiene**, entre ellos el rediseño de la cabecera,
+> la traducción de avisos, el branding BIENAR de la PWA (versiones v2 a v6 del caché) y
+> `daa0e11 auth: recuperación de contraseña por email y desactivación de OTP por WhatsApp`.
+>
+> Dicho de otro modo, **esa rama ya está desplegada de hecho**, aunque este archivo la tenía como "no
+> fusionada, no tocar". Dos consecuencias: (1) si algún día se despliega desarrollo **sobre un checkout limpio**,
+> el branding y el cambio de autenticación **desaparecen**; (2) cualquier cosa que yo pruebe sobre desarrollo
+> **no es lo que ven los vecinos**. Falta que AY confirme con `git branch --show-current` en el VPS (pedido en
+> su buzón) y que Daniel decida fusionarla. **No la fusioné: es decisión suya.**
+
 ### Ya desplegado y andando (de antes)
 
 - QR dibujado por nosotros (`qr-imagen.js`), sin pedirle nada a terceros. También en el panel.
@@ -91,10 +107,13 @@ coincidencias) y `/vecino/login` y `/admin/login` dan 200.
 
 ## 4. Lo que espera una decisión de Daniel
 
-1. **`antigravity/panel-fase-1` NO está fusionada.** Tres commits del 29/09 (cabecera en dos filas,
-   avatar que navega a Inicio, traducción de avisos del consorcio). Probada: **88 verdes y se fusiona
-   sin conflicto.** Es la rama de Antigravity — **no fusionarla sin que Daniel lo diga**, porque puede
-   estar a medias a propósito.
+1. **`antigravity/panel-fase-1` no está fusionada a desarrollo, y corre en producción** (ver arriba). Hoy son
+   **10 commits** (no los tres del 29/09 de antes): cabecera en dos filas, avatar que navega a Inicio,
+   traducción de avisos, branding BIENAR de la PWA, y recuperación de contraseña por email con el OTP de
+   WhatsApp apagado. **Recomendación: fusionarla**, porque ya es lo que ven los vecinos y de lo contrario el
+   próximo despliegue limpio de desarrollo lo borra. **Falta correr `node verificar-antes-de-subir.js`
+   sobre el resultado de fusionarla** (se midió 88 verdes y sin conflicto cuando eran 3 commits; con 10 no se
+   midió). Es la rama de AY y de Daniel: **no se fusiona sin que él lo diga.**
 
 2. **¿Queremos el pase QR que abre sin internet?** Hoy **no existe**: `qr-firmado.js` sabe VERIFICAR
    un pase firmado pero **ningún lado lo EMITE** (`emitirPaseFirmado` no la llama nadie). Con la base
@@ -129,7 +148,16 @@ coincidencias) y `/vecino/login` y `/admin/login` dan 200.
    Mi tarea es verificar, no hacerlo: `node pruebas-archivo-subido.js` avisa con ⚠️ mientras no lo haga y, apenas
    `dashboard.js` importe `archivo-subido.js`, le exige terminar entero (trinquete). **Si está en verde y sin el
    ⚠️, está hecho.**
-2. **Candado gemelo del script del cliente para el panel.** `dashboard.js` genera su HTML igual, así
+2. **Daniel no puede instalar la app en el celular (Android, Chrome): no aparece ni "Instalar app" en el menú.**
+   Medido el 03/10 con un Chromium real y `Page.getInstallabilityErrors`, **con el código de desarrollo y con el de
+   la rama de AY (el de producción): ningún problema** (manifiesto sin errores, service worker activo, ícono PNG
+   cuadrado 1024×1024; el único aviso, `in-incognito`, es del navegador de prueba). Contra el sitio real no se
+   pudo medir desde acá (Chromium no confía en el certificado del proxy del entorno). **Lo que falta es una
+   lectura en el navegador de Daniel**: en Chrome de una PC, `F12` → *Application* → *Manifest* → sección
+   *Installability*, que dice la razón exacta. Hipótesis no descartadas: ya hay una versión vieja instalada
+   (entonces Chrome ofrece "Abrir" y no "Instalar"), o se cargó la página justo durante un reinicio de PM2
+   (se vio un 502 de ~10 s). Detalles abajo, en el buzón de Daniel.
+3. **Candado gemelo del script del cliente para el panel.** `dashboard.js` genera su HTML igual, así
    que el síntoma sería idéntico e invisible. Ofrecido a Antigravity; si prefiere llamarlo, sacar el
    mecanismo a un módulo compartido en vez de duplicarlo.
 3. ~~Con PostgreSQL caído, un pase QR no deja registro.~~ **Hecho el 02/10** (ver arriba). La premisa del

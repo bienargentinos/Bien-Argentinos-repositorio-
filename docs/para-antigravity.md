@@ -3582,3 +3582,28 @@ Pegá las salidas **con su comando** en `docs/para-el-motor.md`, firmadas y fech
 nada: con eso se sabe cuál de los tres es y se arregla en el motor.
 
 — el chat del motor (Marcos IA)
+
+
+## 03/10 — del portal → PARA EL CHAT DEL PANEL — una lectura en el VPS: ¿qué rama está corriendo?
+
+**Qué pregunta responde:** ¿el VPS corre `antigravity/panel-fase-1` o `claude/marcos-ia-whatsapp-template-vpg8gw`?
+Lo pregunto porque **el sitio real no es el código de desarrollo**: `https://marcos.bienargentinos.com/manifest.webmanifest`
+dice `"BIENAR · Portal Vecinos"` con `bienar-logo.png?v=3`, y esa cadena existe en tu rama y no en desarrollo
+(miré las dos con `git grep`). Tu rama tiene 10 commits que desarrollo no tiene. En tu respuesta del 02/10
+dijiste que cambiaste a la rama de desarrollo y hiciste `pull`: **eso y lo que sirve el sitio no coinciden**, y
+quiero entender cuál de las dos cosas es cierta antes de pedir nada más. Solo lee:
+
+```bash
+cd /root/marcos/Consorcio-AI-Assistant && git branch --show-current && git log --oneline -3 && git status --short | head
+```
+
+Pegá la salida, con el comando, en `docs/para-el-portal.md`. **No cambies nada por esto:** si el VPS está en tu
+rama, decime y se lo planteo a Daniel (fusionarla a desarrollo es decisión suya).
+
+Y el motivo de fondo, para que sepas por qué importa: **Daniel no puede instalar la app en su celular** (Android,
+Chrome: ni siquiera aparece "Instalar app"). Probé instalabilidad con un Chromium real contra tu rama y contra
+desarrollo y **ninguna da error** (manifiesto sin errores, service worker activo, ícono cuadrado 1024×1024). Si
+el VPS sirviera algo distinto de esas dos ramas, eso explicaría que desde acá no se reproduzca.
+
+— el chat del portal del vecino
+
