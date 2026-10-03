@@ -4550,14 +4550,55 @@ function validarYSanitizarNombre(nombre) {
                         console.error('No se pudo guardar la confirmación del técnico en el caso:', e.message);
                     }
 
+                    // ── "OK VOY... ¿QUIÉN ME ABRE?" SON DOS COSAS EN UN RENGLÓN ──────────────
+                    //
+                    // > [!CAUTION]
+                    // > **El ruteo devuelve UNA intención y esta rama contestaba y cortaba.**
+                    //
+                    // Prueba del 02/10 (CASO-1006): Dario escribió "Ok voy... Quien me abre?". El
+                    // modelo eligió `confirma_que_va`, que es verdad, y llegó acá: Marcos contestó
+                    // "Listo, lo anoté... decime si necesitás que te esperen" y CORTÓ. La pregunta
+                    // quedó sin contestar. Es el espejo de lo que ya se arregló con la hora en la
+                    // rama de "¿quién me abre?": cada dato con consecuencia que dependa de haber
+                    // ganado el ruteo es un candidato.
+                    //
+                    // Si el mensaje pregunta quién abre (y no dijo que entra solo), se lo contesta
+                    // con el contacto, que es lo que él necesita para decidir si va.
+                    const { preguntaQuienLeAbre: preguntaAbre } = require('./contacto-ingreso');
+                    const preguntaQuienAbre = !entraSolo && (preguntaAbre(msgBodyParaRegistro) || preguntaAbre(textoFinal));
+
                     const respConf = `Listo ${datosEmisor.nombre}, lo anoté en el *${casoPendiente.id_evento}* de ${dirPend} y le aviso a la Administración.` +
                         (entraSolo
                             ? ` Perfecto que tengas acceso, entonces no te gestiono nada para entrar.`
-                            : ` Si necesitás que te esperen o que te consiga alguna llave, decime y lo gestiono.`) +
+                            : (preguntaQuienAbre
+                                ? ` Ya te paso quién te abre.`
+                                : ` Si necesitás que te esperen o que te consiga alguna llave, decime y lo gestiono.`)) +
                         ` Cuando termines, contame qué hiciste y mandame la factura por acá.`;
                     await despacharRespuesta(recipient, respConf, msgTypeRespuesta);
                     historial.push(`Marcos: ${respConf}`);
                     console.log(`🔧 ${datosEmisor.nombre} confirmó la visita del [${casoPendiente.id_evento}] en ${casoPendiente.edificio}.`);
+
+                    if (preguntaQuienAbre) {
+                        try {
+                            const vecinoDelCasoConf = await obtenerVecinoActivoDeProveedor({
+                                telTech: from,
+                                edificioNombre: casoPendiente.edificio || session.nombreEdificio,
+                                datosEmisor,
+                                session
+                            }).catch(() => null);
+                            console.log(`🔑 ${datosEmisor.nombre} confirmó que va Y preguntó quién le abre en el [${casoPendiente.id_evento}]: se le contesta.`);
+                            await entregarContactoDeIngreso({
+                                telTecnico: from,
+                                nombreTecnico: datosEmisor?.nombre || '',
+                                idEvento: casoPendiente.id_evento,
+                                edificio: vecinoDelCasoConf?.edificio || casoPendiente.edificio || session.nombreEdificio || '',
+                                telVecino: vecinoDelCasoConf?.telefono || '',
+                                forzar: true,
+                            });
+                        } catch (e) {
+                            console.error('No se pudo contestar quién le abre al técnico que confirmó:', e.message);
+                        }
+                    }
                     return;
                 }
 
@@ -4635,7 +4676,10 @@ function validarYSanitizarNombre(nombre) {
             return;
         }
 
-        const pideQuienLeAbre = seActiva('pide_contacto_de_ingreso', false, ruteoIA, textoFinal)
+        // El texto es el RESPALDO: sin él, con el ruteo apagado o caído esta pregunta no la
+        // atendía nadie y caía en la respuesta libre del modelo ("aguarde un segundo...").
+        const { preguntaQuienLeAbre } = require('./contacto-ingreso');
+        const pideQuienLeAbre = seActiva('pide_contacto_de_ingreso', preguntaQuienLeAbre(textoFinal), ruteoIA, textoFinal)
             || seActiva('llego_y_no_le_abren', false, ruteoIA, textoFinal);
 
         if (pideQuienLeAbre) {
@@ -4647,6 +4691,11 @@ function validarYSanitizarNombre(nombre) {
             let casoIngreso = null;
             const idIngresoEnMemoria = colaIngreso?.eventoActivoId || '';
             if (idIngresoEnMemoria) {
+                // Import LOCAL, como en el resto del archivo: `buscarCasoPorCodigo` no existe a nivel
+                // de módulo, y sin esta línea la rama entera lanzaba ReferenceError --que el
+                // `.catch` de abajo no atrapa, porque se produce antes de que haya promesa--. El
+                // técnico recibía "Aguarde un segundo por favor" en vez de quién le abre.
+                const { buscarCasoPorCodigo } = require('./datos');
                 const c = await buscarCasoPorCodigo(idIngresoEnMemoria).catch(() => null);
                 if (c && !c.cerrado) casoIngreso = idIngresoEnMemoria;
             }

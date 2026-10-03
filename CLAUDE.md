@@ -2554,6 +2554,53 @@ sabe cuándo viene, veinticinco minutos después de que el técnico lo dijo.
 
 Prueba: `node pruebas-quien-le-abre.js`.
 
+#### "Ok voy... ¿quién me abre?": una pregunta que no se contestaba, y otra que reventaba (02/10, CASO-1006)
+
+Prueba de Daniel, desde el WhatsApp del técnico:
+
+```
+01:27  Dario:  "Ok voy... Quien me abre?"
+01:28  Marcos: "Listo lalala, lo anoté en el CASO-1006 ... Si necesitás que te esperen o que te
+                consiga alguna llave, decime y lo gestiono."
+01:28  Dario:  "Pero quién me abre la puerta? Si no sabe quién puede abrirme no pienso ir a"
+01:29  Marcos: "Aguarde un segundo por favor, ya retomo su consulta."
+01:33  Dario:  "Ahora que paso .. cancelo la visita? No tenés número de ningún vecino q me abre?"
+01:34  Marcos: "Aguarde un segundo por favor, ya retomo su consulta."
+```
+
+Eran **dos** defectos, y ninguno era de la prueba:
+
+1. **`ReferenceError` en la rama de "¿quién me abre?"** (`index.js`, desde `9a98612`, 17/09). Llamaba a
+   `buscarCasoPorCodigo` sin importarla: no existe a nivel de módulo, solo se importa adentro de cada
+   función. Y el `.catch(() => null)` de la misma línea **no la atrapaba**: el error se produce al
+   evaluar el nombre, antes de que haya promesa. Subía hasta el `.catch` del webhook, que contesta
+   con una frase fija (*"Aguarde un segundo por favor, ya retomo su consulta"*). **No es una
+   respuesta del modelo: es el texto de "algo reventó".** Solo ocurría con el caso en memoria
+   (`eventoActivoId`), o sea justo después de que Marcos le mandara el caso al técnico, y no tras un
+   `pm2 restart` --por eso "antes andaba" a ratos--.
+2. **La rama de "confirmó que va" contestaba y cortaba.** El modelo eligió `confirma_que_va` para
+   *"Ok voy... Quien me abre?"* --que es verdad-- y esa rama respondía *"decime si necesitás que te
+   esperen"* sin leer que en el mismo renglón preguntaba quién abre. Es el espejo de lo de la hora
+   (más arriba): el ruteo devuelve UNA intención y un técnico dice dos cosas.
+
+`preguntaQuienLeAbre()` (en `contacto-ingreso.js`) reconoce la pregunta y se usa en las dos ramas: la
+de "confirmó que va" ahora contesta con el contacto (`entregarContactoDeIngreso`, `forzar: true`) salvo
+que haya dicho que entra solo, y la de "¿quién me abre?" la tiene como respaldo por texto (antes el
+respaldo era `false`: con el ruteo caído esta pregunta no la atendía nadie).
+
+> **Cómo se encontró**: el log no estaba a mano. Se encontró buscando de dónde sale la frase fija
+> (`grep` del texto) y pasando un `no-undef` de ESLint sobre `index.js`. Ese chequeo encontró además
+> **cuatro variables sin definir en la rama del administrador** (`ejecutarEnvioNotificacionTecnico`,
+> `marcarCasoResueltoPorAdmin`, `obtenerEventosPendientesAdmin`, `enviarDocumentoWhatsApp`) que
+> **siguen sin arreglar**: revientan igual que esta cuando el administrador las usa.
+
+**Lo que NO cambió, a propósito**: de dónde sale el contacto. Sigue saliendo de la ficha del vecino
+(`contactoAcceso`) y se trata como *"por esa vez"* (ver *"Que alguien haya abierto una vez..."*). Que el
+contacto que el vecino manda **en este mismo caso** sea firme es una decisión de producto, no un
+arreglo.
+
+Prueba: `node pruebas-quien-le-abre.js` y `node pruebas-contacto-ingreso-pedido.js`.
+
 ### "Ya lo resolví" no cerraba nada, porque el cierre es del vecino
 
 > [!CAUTION]

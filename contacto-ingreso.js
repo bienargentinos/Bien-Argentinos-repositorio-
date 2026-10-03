@@ -284,6 +284,27 @@ function mensajeDeIngreso({ contacto, idEvento, direccion, nombreTecnico = '' })
  * diga que no necesita una llave. Es el mismo criterio que la negación --ante la duda se manda el
  * contacto-- porque el error caro es siempre el mismo: dejarlo parado en la puerta.
  */
+/**
+ * Si el técnico pregunta QUIÉN le abre ("¿quién me abre?", "¿quién puede abrirme?").
+ *
+ * > **Es una pregunta, y se contesta con el contacto.** `pideQueLeAbran` (abajo) reconoce otra cosa:
+ * > "necesito que alguien esté ahí". Ninguna de las dos reconocía la forma más común de todas,
+ * > así que "Ok voy... ¿quién me abre?" caía en la rama de "confirmó que va", que contestaba
+ * > "decime si necesitás que te esperen" y cortaba.
+ *
+ * Se usa como respaldo del ruteo por IA y para no perder esta pregunta cuando el modelo eligió
+ * otra intención para el mismo mensaje (el ruteo devuelve UNA sola).
+ */
+function preguntaQuienLeAbre(texto) {
+    const t = String(texto || '').toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (!t.trim()) return false;
+    return /\bquien(es)?\s+(me|nos|le|les|te)?\s*(abre|abren|abrira|abriran|recibe|reciben|atiende|atienden|espera|esperan)\b/.test(t)
+        || /\bquien\s+(puede|podria|va a|vendra a)\s+(abrirme|abrirnos|recibirme|recibirnos|esperarme|atenderme)\b/.test(t)
+        || /\ba\s+quien\s+(le\s+)?(llamo|aviso|toco|pregunto|busco)\b/.test(t)
+        || /\bno\s+(tenes|tienes|tiene)\s+(el\s+)?(numero|telefono|contacto)\s+de\s+(alguien|ningun)/.test(t);
+}
+
 function pideQueLeAbran(texto) {
     const t = String(texto || '').toLowerCase();
     if (!t.trim()) return false;
@@ -334,7 +355,7 @@ function tieneAccesoPropio(texto) {
     return false;
 }
 
-module.exports = {
+module.exports = { preguntaQuienLeAbre,
     contactoParaElIngreso, mensajeDeIngreso, tieneAccesoPropio, pideQueLeAbran,
     datosDelEncargado, telefonoUsable,
 };
