@@ -2601,6 +2601,35 @@ arreglo.
 
 Prueba: `node pruebas-quien-le-abre.js` y `node pruebas-contacto-ingreso-pedido.js`.
 
+#### El clasificador ahora lee la conversación, no solo el mensaje (03/10)
+
+Daniel, después del CASO-1006: *"si yo escribo ¿quién me abre? a una persona que no le hablé nunca, no
+me va a saber responder. Lo primero que hace cualquier persona es leer el chat, a ver de qué está
+hablando ese mensaje. Y si no hay ningún hilo con eso, dice 'no sé de qué me habla'."*
+
+Tiene razón, y el ruteo ya iba para ese lado pero **se quedaba a mitad de camino**: `ruteo-proveedor.js`
+recibía solo *lo último que Marcos le preguntó*, si hay un caso abierto y si mandó un adjunto. No veía
+la conversación. Ahora `armarPrompt()` (función pura, exportada para poder probarla) agrega
+**`CONVERSACIÓN RECIENTE`**: los últimos 8 renglones de **los dos lados**, de la más vieja a la más
+nueva, sin el mensaje de ahora (que va aparte) y sin las rutas de archivo de las etiquetas de
+multimedia (`etiquetas-media.js`). Sin hilo, se le dice *"no hay nada anterior en este chat"* y las
+instrucciones le piden usar `otro` con confianza baja en vez de forzar una intención.
+
+- **El mensaje de ahora se saca solo si de verdad es el último renglón** del historial (`index.js`): no
+  se asume, o se perdería un renglón anterior.
+- **Sigue siendo el MISMO ruteo**: mismas intenciones, mismo respaldo por texto, mismo `RUTEO_IA=off`.
+  Cambia lo que el modelo ve, no qué ramal hace qué.
+- **Lo que NO resuelve** (pasos 2 y 3 de lo hablado con Daniel, sin hacer): el ruteo devuelve **una**
+  intención por mensaje --"Ok voy... ¿quién me abre?" son dos cosas, y los dos arreglos puntuales de
+  `confirma_que_va` y `pide_contacto_de_ingreso` son parches de eso--, y la respuesta libre del modelo
+  (`generarRespuestaTecnicoLibre`) **todavía ve solo el mensaje suelto**, no el hilo.
+
+> **No se verifica con una prueba automática cuánto mejora**: la respuesta de un modelo no se puede
+> medir sin llamarlo. Se mide con los `🧭` del log. Las pruebas verifican **qué se le muestra** al
+> modelo.
+
+Prueba: `node pruebas-ruteo-proveedor.js`.
+
 ### "Ya lo resolví" no cerraba nada, porque el cierre es del vecino
 
 > [!CAUTION]

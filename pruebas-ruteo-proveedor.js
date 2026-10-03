@@ -164,5 +164,42 @@ console.log('\n── SE PUEDE APAGAR SIN TOCAR CÓDIGO ──');
     verificar('RUTEO_IA está en .env.ejemplo', /RUTEO_IA/.test(ejemplo), true);
 }
 
+console.log('\n── EL MODELO LEE LA CONVERSACIÓN, NO SOLO EL MENSAJE ──');
+{
+    // Es lo que hace una persona: antes de contestar "¿quién me abre?" mira de qué venían hablando.
+    // Se prueba QUÉ se le muestra al modelo (la respuesta de un modelo no se puede verificar acá).
+    const { armarPrompt } = require('./ruteo-proveedor');
+    const hilo = [
+        'Marcos: Hola lalala, te asigné el CASO-1006 en SAN PATRICIO 159: cerradura del SUM trabada.',
+        'Proveedor (lalala): Ok voy',
+    ];
+    const conHilo = armarPrompt({ texto: 'Quien me abre?', contexto: { casoAbierto: 'CASO-1006', conversacionReciente: hilo } });
+    const sinHilo = armarPrompt({ texto: 'Quien me abre?', contexto: {} });
+
+    verificar('con hilo: el modelo ve los mensajes anteriores',
+        conHilo.includes('te asigné el CASO-1006') && conHilo.includes('Proveedor (lalala): Ok voy'), true);
+    verificar('el hilo va ANTES del mensaje a clasificar y ese va aparte',
+        conHilo.indexOf('CONVERSACIÓN RECIENTE') < conHilo.indexOf('MENSAJE DEL TÉCNICO') &&
+        conHilo.split('Quien me abre?').length === 2, true);
+    verificar('sin hilo: se le dice que no hay nada anterior (no se calla)',
+        /no hay nada anterior/.test(sinHilo), true);
+    verificar('tiene techo: solo los últimos 8 renglones',
+        (armarPrompt({ texto: 'hola', contexto: { conversacionReciente: Array.from({ length: 30 }, (_, i) => `linea${i}`) } })
+            .match(/linea\d+/g) || []).length === 8, true);
+    verificar('los renglones vacíos no ocupan lugar',
+        (armarPrompt({ texto: 'hola', contexto: { conversacionReciente: ['', '  ', 'solo este'] } })
+            .match(/solo este/g) || []).length === 1, true);
+
+    const fs = require('fs');
+    const path = require('path');
+    const SYSTEM_SRC = fs.readFileSync(path.join(__dirname, 'ruteo-proveedor.js'), 'utf8');
+    verificar('las instrucciones mandan leer la conversación y usar "otro" si no hay hilo',
+        /LEÉ LA CONVERSACIÓN RECIENTE/.test(SYSTEM_SRC) && /usá "otro" y bajá la\s+confianza/.test(SYSTEM_SRC), true);
+
+    // El candado de que index.js se lo pasa de verdad: sin esto, la función existiría y nadie la usaría.
+    const INDEX = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+    verificar('index.js le pasa `conversacionReciente` al clasificador', /conversacionReciente:/.test(INDEX), true);
+}
+
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);
 process.exit(fallos === 0 ? 0 : 1);

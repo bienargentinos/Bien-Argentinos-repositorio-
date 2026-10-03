@@ -141,6 +141,12 @@ solo. La intención es la acción principal --cuándo va--, y que entra solo se 
 "entraSolo". Ponelo en true cada vez que diga que tiene con qué entrar o que no necesita que le
 abran, sea cual sea la intención. Si dice que NO tiene llave, va en false.
 
+ANTES DE DECIDIR, LEÉ LA CONVERSACIÓN RECIENTE. El mismo mensaje significa cosas distintas según de
+qué venían hablando: "ok" después de la plantilla de un caso es "recibido, voy"; "¿quién me abre?"
+después de que le asignaron un trabajo es una pregunta sobre ese trabajo. Si el mensaje habla de
+algo de lo que NO hay ningún hilo en la conversación ni caso abierto, no lo fuerces a una intención:
+usá "otro" y bajá la confianza, que es lo que haría una persona ("no sé de qué me hablás").
+
 Contestá SOLO un JSON, sin backticks ni explicación:
 {"intencion":"<una de la lista>","confianza":<0 a 1>,"entraSolo":<true o false>,"motivo":"<en 10 palabras, por qué>"}
 
@@ -149,18 +155,11 @@ confianza. Si no encaja en ninguna con claridad, usá "otro" — es una respuest
 "otro" manda el mensaje a que Marcos lo lea y conteste libremente, que casi siempre es lo correcto.`;
 
 /**
- * Clasifica un mensaje entrante del proveedor.
- *
- * @returns {{intencion:string, confianza:number, motivo:string}|null}
- *          `null` cuando el ruteo está apagado, falla o tarda demasiado. El llamador tiene que
- *          tratar el `null` como "seguí con las condiciones de texto de siempre".
+ * Arma lo que se le manda al modelo. Pura (no llama a nada) para poder probar QUÉ se le muestra:
+ * el contexto es la mitad del trabajo y no se puede verificar leyendo la respuesta de un modelo.
  */
-async function clasificarMensajeProveedor({ texto, contexto = {} } = {}) {
-    if (!ACTIVO) return null;
-
+function armarPrompt({ texto, contexto = {} } = {}) {
     const t = String(texto || '').trim();
-    if (!t) return null;
-
     const lista = NOMBRES.map(n => `- ${n}: ${INTENCIONES[n]}`).join('\n');
 
     // El contexto es la mitad del trabajo. "1001" a secas no significa nada; "1001" justo después
@@ -180,11 +179,25 @@ async function clasificarMensajeProveedor({ texto, contexto = {} } = {}) {
             : '',
     ].filter(Boolean).join('\n');
 
+    // LA CONVERSACIÓN, NO SOLO LA ÚLTIMA PREGUNTA. Una persona que recibe "¿quién me abre?" lo
+    // primero que hace es mirar de qué venían hablando. Sin eso, el mensaje es una frase suelta y
+    // cualquiera --persona o modelo-- tiene que adivinar. Con el hilo adelante, "¿quién me abre?"
+    // justo después de "te asigné el CASO-1006 en San Patricio" es una pregunta con respuesta, y
+    // la misma frase sin ningún hilo es una pregunta que hay que devolver.
+    const hilo = Array.isArray(contexto.conversacionReciente)
+        ? contexto.conversacionReciente.map(l => String(l || '').trim()).filter(Boolean).slice(-8)
+        : [];
+    const bloqueHilo = hilo.length
+        ? `CONVERSACIÓN RECIENTE (de la más vieja a la más nueva, sin incluir el mensaje de abajo):\n${hilo.join('\n')}`
+        : 'CONVERSACIÓN RECIENTE: no hay nada anterior en este chat.';
+
     const prompt = `INTENCIONES POSIBLES:
 ${lista}
 
 SITUACIÓN:
 ${situacion}
+
+${bloqueHilo}
 
 MENSAJE DEL TÉCNICO:
 """
@@ -192,6 +205,24 @@ ${t}
 """
 
 Devolvé el JSON.`;
+
+    return prompt;
+}
+
+/**
+ * Clasifica un mensaje entrante del proveedor.
+ *
+ * @returns {{intencion:string, confianza:number, motivo:string}|null}
+ *          `null` cuando el ruteo está apagado, falla o tarda demasiado. El llamador tiene que
+ *          tratar el `null` como "seguí con las condiciones de texto de siempre".
+ */
+async function clasificarMensajeProveedor({ texto, contexto = {} } = {}) {
+    if (!ACTIVO) return null;
+
+    const t = String(texto || '').trim();
+    if (!t) return null;
+
+    const prompt = armarPrompt({ texto: t, contexto });
 
     try {
         const respuesta = await conTimeout(ai.models.generateContent({
@@ -265,4 +296,4 @@ function seActiva(intencion, porTexto, ruteo, texto = '') {
 
 // `conTimeout` se exporta para que `hilo-del-vecino.js` use LA MISMA política de espera y no haya
 // dos criterios distintos de cuánto se le aguanta al modelo antes de seguir sin él.
-module.exports = { clasificarMensajeProveedor, seActiva, conTimeout, INTENCIONES, ACTIVO };
+module.exports = { armarPrompt, clasificarMensajeProveedor, seActiva, conTimeout, INTENCIONES, ACTIVO };

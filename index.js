@@ -2250,6 +2250,19 @@ function validarYSanitizarNombre(nombre) {
                     rubroDelCaso: stRuteo.rubroActivo || '',
                     facturaEsperandoObra: !!session.esperandoEdificioDeFactura,
                     mandoAdjunto: !!media,
+                    // Los últimos mensajes de AMBOS lados, sin el de ahora (que es el último y va
+                    // aparte como "MENSAJE DEL TÉCNICO"). Sin las rutas de archivo de las etiquetas
+                    // de multimedia: son para el panel, y al modelo solo le ensucian.
+                    conversacionReciente: (() => {
+                        const ultimas = historial.slice(-9);
+                        // El mensaje de ahora ya se anotó al final: se saca, porque va aparte. Solo si
+                        // de verdad es ese --no se asume--, o se perdería un renglón anterior.
+                        const ahora = String(textoFinal || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+                        if (ahora && ultimas.length && String(ultimas[ultimas.length - 1]).replace(/\s+/g, ' ').includes(ahora)) ultimas.pop();
+                        return ultimas.slice(-8);
+                    })().map(l =>
+                        String(require('./etiquetas-media').soloTexto(l) || '').replace(/\s+/g, ' ').trim().slice(0, 220)
+                    ),
                 },
             });
             if (_ruteoDelMensaje) {
