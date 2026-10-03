@@ -6,7 +6,7 @@
 >
 > **Se sobreescribe al terminar una tanda de trabajo. No se le agrega al final.**
 
-Última actualización: **02/10/2026** (el chat del portal cambió de manos ese día: el anterior quedó en hibernación).
+Última actualización: **03/10/2026** (el chat del portal cambió de manos el 02/10: el anterior quedó en hibernación).
 
 ---
 
@@ -61,38 +61,20 @@ Express en el 3000, PostgreSQL con pgvector y SMTP respondiendo. Lo que entró:
 | **#44** | El script del **login** llegaba roto al navegador (`/^+?549?/`) y estaba entero muerto. Y el candado `pruebas-script-del-cliente.js`, que compila los 48 scripts de las 13 pantallas. |
 | **#45** | Documentación: este archivo, y dos caveats que Antigravity ya había resuelto. |
 
-### Fusionado DESPUÉS de ese despliegue — falta desplegar
+### Desplegado después, confirmado por AY en el VPS (02/10)
 
-```bash
-cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && node verificar-antes-de-subir.js && pm2 restart marcos-ai
-```
+AY hizo `git pull` de la rama de desarrollo, `npm install`, `node verificar-antes-de-subir.js` (**92 de 92**) y
+`pm2 restart marcos-ai`. El log quedó limpio (`ESQUEMA A MEDIAS` / `❌ [esquema` / `rotulo del timbre`: cero
+coincidencias) y `/vecino/login` y `/admin/login` dan 200.
 
 | PR | Qué |
 |---|---|
-| **#46** | El rótulo del timbre no llegaba al tótem: `actualizarConfigTimbre` filtraba `vecinos` por una columna `unidad` que no existe, PostgreSQL rechazaba el `UPDATE` entero y el `catch` mudo se lo tragaba. Probado contra PostgreSQL real (`pruebas-rotulo-timbre.js`). |
+| **#46** | El rótulo del timbre no llegaba al tótem: `actualizarConfigTimbre` filtraba `vecinos` por una columna `unidad` que no existe. **Confirmado en la base real**: `revisar-columnas-pg.js vecinos` muestra `departamento` y `nombre_timbre`, y ninguna `unidad`. |
+| **#48** | **(a)** El huésped turista no puede cambiar el rótulo (botón oculto + el servidor lo ignora). Decisión de Daniel: el rótulo es de la unidad y lo cambia quien vive ahí. **(b)** Con la base inalcanzable, `/porteria/api/validar-qr` contestaba 500 y no dejaba registro: ahora cae a la firma si el fallo es de conexión y **el evento va a una cola propia** (`cola-registro-acceso.js`, archivo `cola-accesos-pendiente.json`). Además `conSubida` pasó a `archivo-subido.js`. |
 
-> **Lo escribió OTRA sesión del portal**, en paralelo a esta, el 02/10 a las 02:46 (sesión
-> `01VGVenZ…`, sobre la misma rama `claude/portal-vecino`). Lo revisé, corrí las **91 pruebas** y lo
-> fusioné. **No es un pisotón: es la regla funcionando** --Daniel estaba hablando con esa sesión--. Lo
-> anoto porque al ver un commit ajeno en la rama propia la pregunta no es "quién se metió" sino "¿con
-> quién estaba hablando Daniel?".
->
-> **Decisión de Daniel (02/10), cerrada**: el rótulo es **de la unidad** y lo cambia quien vive ahí —si
-> el inquilino lo cambia, queda por lo que dure el contrato, y el propietario lo vuelve a cambiar
-> cuando se va—. **El huésped turista no puede cambiarlo**: botón oculto, y el servidor lo ignora
-> (`actualizarConfigTimbre` no escribe `nombre_timbre` ni copia a `vecinos` si el rol es `turista`).
-> Cubierto en `pruebas-rotulo-timbre.js` contra PostgreSQL real. Pendiente de desplegar con el PR.
->
-> Y queda sin correr en el VPS lo que esa sesión pidió en `docs/para-antigravity.md`:
-> `node revisar-columnas-pg.js vecinos`, para confirmar que la base real tampoco tiene `unidad`. El
-> arreglo no depende de eso --funciona igual-- pero sin esa lectura no se sabe si el defecto era el
-> que se creía.
-
-### Abierto por el chat actual (02/10) — todavía NO fusionado
-
-| Qué | Detalle |
-|---|---|
-| **PR #48** (un solo PR, dos cosas) | **(a)** El huésped turista no puede cambiar el rótulo del timbre (botón oculto + el servidor lo ignora). Decisión de Daniel: el rótulo es de la unidad y lo cambia quien vive ahí. **(b)** Con la base inalcanzable, `/porteria/api/validar-qr` contestaba **500** y no dejaba registro. Ahora cae a la firma si el fallo es de conexión, y **el evento va a una cola propia** (`cola-registro-acceso.js`). Además `conSubida` pasó a `archivo-subido.js` para que el panel la llame. |
+> **Lo que ese despliegue NO probó**: que un evento encolado entre de verdad cuando la base vuelve **en el
+> VPS**. Está probado contra un PostgreSQL local, no contra el de producción con una caída real. Y la
+> prueba con ojos del rótulo (cambiarlo en el portal y ver el tótem) no se hizo.
 
 ### Ya desplegado y andando (de antes)
 
@@ -141,20 +123,23 @@ cd /root/marcos/Consorcio-AI-Assistant && git pull && npm install && node verifi
 ## 5. Pendientes, en orden
 
 1. **Las TRES subidas de `dashboard.js`** (líneas 39, 58 y 78: facturas/media, avatar del panel,
-   expensas) siguen tomando la extensión del nombre que manda el navegador. **Verificado el 02/10 con
-   `grep` en la rama de desarrollo Y en `antigravity/panel-fase-1`: abiertas en las dos.** Dos de las
-   tres se sirven, **así que el agujero de #43 sigue abierto por ahí.** Es lo más urgente. Es de AY:
-   pedido en `docs/para-antigravity.md` con el parche exacto (y `conSubida` ya está exportada para
-   que la llame). **`pruebas-archivo-subido.js` avisa con ⚠️ mientras no lo haga, y apenas AY importe
-   `archivo-subido.js` pasa a exigirle que lo termine entero** (trinquete). Mi tarea es verificar,
-   no hacerlo.
+   expensas) siguen tomando la extensión del nombre que manda el navegador. **AY contestó el 02/10 que las
+   va a unificar con `archivo-subido.js`** (y ya vio que `conSubida` está exportada): **todavía no está
+   hecho.** Dos de las tres se sirven, así que el agujero de #43 sigue abierto por ahí. Es lo más urgente.
+   Mi tarea es verificar, no hacerlo: `node pruebas-archivo-subido.js` avisa con ⚠️ mientras no lo haga y, apenas
+   `dashboard.js` importe `archivo-subido.js`, le exige terminar entero (trinquete). **Si está en verde y sin el
+   ⚠️, está hecho.**
 2. **Candado gemelo del script del cliente para el panel.** `dashboard.js` genera su HTML igual, así
    que el síntoma sería idéntico e invisible. Ofrecido a Antigravity; si prefiere llamarlo, sacar el
    mecanismo a un módulo compartido en vez de duplicarlo.
 3. ~~Con PostgreSQL caído, un pase QR no deja registro.~~ **Hecho el 02/10** (ver arriba). La premisa del
    pendiente era falsa: tampoco se validaba por firma.
-4. **Lo visual que Daniel aprobó y no se hizo**: botones con contorno y reacción al apretar, y el
-   resplandor del fondo, en su azul.
+4. **Lo visual que Daniel aprobó** ("botones con contorno y reacción al apretar, y el resplandor del fondo,
+   en su azul"). **La descripción no alcanza para construirlo y parte de ella ya existe**: el resplandor azul
+   **ya está en modo oscuro** (`--luz`, `rgba(59,130,246,.18)`), y en modo claro **se excluyó a propósito**
+   ("sobre papel blanco un resplandor ensucia", comentario del propio CSS); `.btn-secondary` ya tiene borde de
+   1,5 px. **No se tocó nada sin saber a qué pantallas, a qué botones y en qué modo se refería Daniel.** Hay
+   que preguntarle eso antes de escribir una línea.
 5. **Traducir la conversación del chat.** La app está en cuatro idiomas; el chat no.
 6. **El timbre vive en RAM** (`_timbresActivos`). **El arreglo NO es mover el Map a PostgreSQL** —
    `/api/timbre-check` lo sondea cada celular cada pocos segundos. Es dejar de sondear (SSE) o usar la
