@@ -1409,7 +1409,7 @@ ${jsPopup}
         </a>
         <div style="min-width:0">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <a href="/vecino/perfil" style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em;color:#fff;text-decoration:none;white-space:nowrap">${esc(t('topbar.hola', { nombre: primerNombre(v) }))}</a>
+            <a href="/vecino" title="${esc(t('nav.inicio') || 'Inicio')}" style="font-size:16px;font-weight:900;line-height:1.2;letter-spacing:-.01em;color:#fff;text-decoration:none;white-space:nowrap">${esc(t('topbar.hola', { nombre: primerNombre(v) }))}</a>
             ${etiquetaRolHtml(v.rol, t, { sobreOscuro: true })}
           </div>
           <div style="font-size:11px;color:rgba(255,255,255,.8);display:flex;align-items:center;gap:4px;margin-top:2px">
