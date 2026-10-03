@@ -140,6 +140,10 @@ coincidencias) y `/vecino/login` y `/admin/login` dan 200.
    ("sobre papel blanco un resplandor ensucia", comentario del propio CSS); `.btn-secondary` ya tiene borde de
    1,5 px. **No se tocó nada sin saber a qué pantallas, a qué botones y en qué modo se refería Daniel.** Hay
    que preguntarle eso antes de escribir una línea.
+   **Se le preguntó el 03/10 y no recuerda el mensaje original (fue hace días). Decidió esperar y
+   describirlo de nuevo, idealmente con una captura o la pantalla.** No volver a preguntarle: esperar a que
+   lo traiga él. Lo único parecido en el historial es el commit `079d70b` (04/09): botones de amenities con
+   resplandor dorado al seleccionar, que es otra cosa.
 5. **Traducir la conversación del chat.** La app está en cuatro idiomas; el chat no.
 6. **El timbre vive en RAM** (`_timbresActivos`). **El arreglo NO es mover el Map a PostgreSQL** —
    `/api/timbre-check` lo sondea cada celular cada pocos segundos. Es dejar de sondear (SSE) o usar la
