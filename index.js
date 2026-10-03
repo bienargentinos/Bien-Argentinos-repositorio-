@@ -2253,20 +2253,11 @@ function validarYSanitizarNombre(nombre) {
                     // Los últimos mensajes de AMBOS lados, sin el de ahora (que es el último y va
                     // aparte como "MENSAJE DEL TÉCNICO"). Sin las rutas de archivo de las etiquetas
                     // de multimedia: son para el panel, y al modelo solo le ensucian.
-                    conversacionReciente: (() => {
-                        const ultimas = historial.slice(-9);
-                        // El mensaje de ahora ya se anotó al final: se saca, porque va aparte. Solo si
-                        // de verdad es ese --no se asume--, o se perdería un renglón anterior.
-                        const ahora = String(textoFinal || '').replace(/\s+/g, ' ').trim().slice(0, 40);
-                        if (ahora && ultimas.length && String(ultimas[ultimas.length - 1]).replace(/\s+/g, ' ').includes(ahora)) ultimas.pop();
-                        return ultimas.slice(-8);
-                    })().map(l =>
-                        String(require('./etiquetas-media').soloTexto(l) || '').replace(/\s+/g, ' ').trim().slice(0, 220)
-                    ),
+                    conversacionReciente: conversacionRecienteDe(historial, textoFinal),
                 },
             });
             if (_ruteoDelMensaje) {
-                console.log(`🧭 ${datosEmisor.nombre || from}: "${String(textoFinal).replace(/\s+/g, ' ').slice(0, 60)}" → ${_ruteoDelMensaje.intencion} (${_ruteoDelMensaje.confianza}) — ${_ruteoDelMensaje.motivo}`);
+                console.log(`🧭 ${datosEmisor.nombre || from}: "${String(textoFinal).replace(/\s+/g, ' ').slice(0, 60)}" → ${_ruteoDelMensaje.intencion}${(_ruteoDelMensaje.tambien || []).length ? ' + ' + _ruteoDelMensaje.tambien.join(' + ') : ''} (${_ruteoDelMensaje.confianza}) — ${_ruteoDelMensaje.motivo}`);
             }
         } catch (e) {
             console.error(`🧭 No se pudo clasificar el mensaje, se sigue por texto: ${e.message}`);
@@ -4578,7 +4569,12 @@ function validarYSanitizarNombre(nombre) {
                     // Si el mensaje pregunta quién abre (y no dijo que entra solo), se lo contesta
                     // con el contacto, que es lo que él necesita para decidir si va.
                     const { preguntaQuienLeAbre: preguntaAbre } = require('./contacto-ingreso');
-                    const preguntaQuienAbre = !entraSolo && (preguntaAbre(msgBodyParaRegistro) || preguntaAbre(textoFinal));
+                    // Dos fuentes: lo que el modelo marcó como "también" y el texto como respaldo.
+                    const { tambienDice } = require('./ruteo-proveedor');
+                    const preguntaQuienAbre = !entraSolo && (
+                        tambienDice(ruteoIA, 'pide_contacto_de_ingreso')
+                        || preguntaAbre(msgBodyParaRegistro) || preguntaAbre(textoFinal)
+                    );
 
                     const respConf = `Listo ${datosEmisor.nombre}, lo anoté en el *${casoPendiente.id_evento}* de ${dirPend} y le aviso a la Administración.` +
                         (entraSolo
@@ -4985,7 +4981,8 @@ function validarYSanitizarNombre(nombre) {
             accesosEdificio: accesosDelEdificio,
             idEvento: idCasoCatchAll,
             rubroDelCaso: colaCatchAll?.rubroActivo || '',
-            hayMaterialDelVecino
+            hayMaterialDelVecino,
+            conversacionReciente: conversacionRecienteDe(historial, msgBody)
         });
         await despacharRespuesta(recipient, respGenericaProveedor, msgTypeRespuesta);
         historial.push(`Marcos: ${respGenericaProveedor}`);
@@ -5699,7 +5696,21 @@ function validarYSanitizarNombre(nombre) {
 // Se usa para cualquier mensaje del técnico que no sea "pide foto/datos" ni "manda factura"
 // (confirmaciones, preguntas puntuales como "¿quién me recibe?", quejas, etc.), para que Marcos
 // conteste lo que realmente le preguntaron en vez de una frase enlatada fija.
-async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vecino, edificio, perfilEdificio, contactoAccesoExtra = '', accesosEdificio = [], idEvento = '', rubroDelCaso = '', hayMaterialDelVecino = false }) {
+// Los últimos renglones de la conversación, para que el modelo lea el hilo antes de contestar o de
+// clasificar. Sin el mensaje de ahora --que ya se anotó al final del historial y va aparte-- y sin
+// las rutas de archivo de las etiquetas de multimedia, que son para el panel.
+// El de ahora se saca solo si de verdad es el último renglón: no se asume, o se perdería uno anterior.
+function conversacionRecienteDe(historial, textoActual = '') {
+    const ultimas = Array.isArray(historial) ? historial.slice(-9) : [];
+    const ahora = String(textoActual || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (ahora && ultimas.length && String(ultimas[ultimas.length - 1]).replace(/\s+/g, ' ').includes(ahora)) ultimas.pop();
+    const { soloTexto } = require('./etiquetas-media');
+    return ultimas.slice(-8)
+        .map(l => String(soloTexto(l) || '').replace(/\s+/g, ' ').trim().slice(0, 220))
+        .filter(Boolean);
+}
+
+async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vecino, edificio, perfilEdificio, contactoAccesoExtra = '', accesosEdificio = [], idEvento = '', rubroDelCaso = '', hayMaterialDelVecino = false, conversacionReciente = [] }) {
     try {
         const nomVecino = (vecino?.nombre && vecino.nombre !== 'Vecino' && vecino.nombre !== 'Desconocido') ? vecino.nombre : '';
         const identVecino = nomVecino
@@ -5751,7 +5762,17 @@ async function generarRespuestaTecnicoLibre({ mensajeTecnico, nombreTecnico, vec
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         const prompt = `Sos Marcos, representante de la Administración de consorcios, escribiendo por WhatsApp a un TÉCNICO/PROVEEDOR (no a un vecino) que está atendiendo un reclamo.
 
-El técnico ${nombreTecnico} te escribió: "${mensajeTecnico}"
+${conversacionReciente.length
+    ? `Lo último que hablaron (de la más vieja a la más nueva):\n${conversacionReciente.join('\n')}\n`
+    : 'No hay nada hablado antes con este técnico en este chat.\n'}
+El técnico ${nombreTecnico} te escribió ahora: "${mensajeTecnico}"
+
+🚨 PRIMERO LEÉ LO QUE HABLARON, como haría cualquier persona antes de contestar. Si el mensaje tiene
+que ver con algo de ese hilo o de los datos del caso, contestalo con eso. Si NO hay ningún hilo ni
+ningún caso con el que se relacione, no inventes ni te hagas el que sabe: decile con naturalidad que
+no tenés nada hablado sobre eso y preguntale de qué edificio o de qué trabajo te habla ("no tengo
+ningún pedido tuyo anotado, ¿de qué edificio me hablás?"). Es lo que diría una persona si le escriben
+por equivocación.
 
 Datos reales del caso que tenés disponibles:
 ${idEvento ? `- Caso: ${idEvento}\n` : ''}${rubroDelCaso ? `- Rubro del trabajo: ${rubroDelCaso}\n` : ''}- Vecino/solicitante: ${identVecino}
@@ -5769,7 +5790,7 @@ inventes: mandarlo al lugar equivocado le hace perder el viaje.
 
 Instrucciones:
 - Respondé de forma breve (1-2 oraciones), profesional, en "usted".
-- Si te pregunta algo puntual (quién lo recibe, dirección, acceso, horario, etc.), contestale con el dato real de arriba. No inventes datos que no tenés: si no sabés algo puntual que pide, decile que lo estás confirmando y le respondés en breve.
+- Si te pregunta algo puntual (quién lo recibe, dirección, acceso, horario, etc.), contestale con el dato real de arriba. No inventes datos que no tenés: si no sabés algo puntual que pide, decile con franqueza que no lo tenés cargado y qué vas a hacer con eso (por ejemplo consultarlo con la Administración). NUNCA le digas "aguarde un momento", "en un momento estoy con usted" ni nada que prometa contestar después si no hay una acción real pendiente: sin acción, esa frase deja al técnico esperando algo que no va a llegar.
 - 🚨 SI EL TÉCNICO YA ESTÁ EN LA PUERTA, DICE QUE LLEGÓ, QUE NO HAY NADIE, QUE NO LE ABREN, O TE PIDE EL TELÉFONO DEL VECINO: DALE EL NÚMERO DE CONTACTO DE ARRIBA INMEDIATAMENTE, en ese mismo mensaje. Es una urgencia operativa: tiene que poder entrar. TENÉS TERMINANTEMENTE PROHIBIDO responderle "no es necesario que lo llame", "ya está coordinado" o cualquier variante que le niegue el teléfono -- eso lo deja parado en la calle sin poder trabajar. Si no tenés ningún teléfono cargado, decíselo con honestidad y avisale que estás contactando al vecino ahora mismo.
 - NUNCA repitas la misma respuesta que ya diste antes. Si el técnico insiste con un pedido, es porque tu respuesta anterior no le sirvió: cambiá de enfoque y resolvé el problema concreto que tiene.
 - Si te pregunta CÓMO o A QUIÉN entregar una factura/comprobante de pago (sin adjuntarla todavía, solo preguntando el procedimiento): decile que te la puede mandar directo por acá (foto o PDF) y vos la registrás para que la Administración la procese. NO le digas "ya recibí la factura" -- todavía no mandó nada, solo está preguntando.

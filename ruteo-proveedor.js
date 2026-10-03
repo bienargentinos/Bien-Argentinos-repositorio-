@@ -136,7 +136,11 @@ LO MÁS IMPORTANTE: leé lo que la persona QUIERE, no las palabras que usó. Que
 "foto" no quiere decir que esté pidiendo una foto — puede estar mandándola, o diciendo que ya la
 mandó, o quejándose de que se la pediste al pedo.
 
-UN MENSAJE PUEDE DECIR DOS COSAS. "Tengo llave y voy en 2 horas" avisa cuándo va Y que entra
+UN MENSAJE PUEDE DECIR DOS COSAS. Poné la principal en "intencion" y las demás en "tambien": "Ok voy...
+¿quién me abre?" es intencion "confirma_que_va" y tambien ["pide_contacto_de_ingreso"]. No inventes:
+solo lo que el mensaje dice de verdad, y no repitas la principal.
+
+Un caso particular: "Tengo llave y voy en 2 horas" avisa cuándo va Y que entra
 solo. La intención es la acción principal --cuándo va--, y que entra solo se marca aparte en
 "entraSolo". Ponelo en true cada vez que diga que tiene con qué entrar o que no necesita que le
 abran, sea cual sea la intención. Si dice que NO tiene llave, va en false.
@@ -148,7 +152,7 @@ algo de lo que NO hay ningún hilo en la conversación ni caso abierto, no lo fu
 usá "otro" y bajá la confianza, que es lo que haría una persona ("no sé de qué me hablás").
 
 Contestá SOLO un JSON, sin backticks ni explicación:
-{"intencion":"<una de la lista>","confianza":<0 a 1>,"entraSolo":<true o false>,"motivo":"<en 10 palabras, por qué>"}
+{"intencion":"<una de la lista>","tambien":[<otras intenciones de la lista que el mensaje TAMBIÉN dice, o vacío>],"confianza":<0 a 1>,"entraSolo":<true o false>,"motivo":"<en 10 palabras, por qué>"}
 
 Si dudás entre dos, elegí la que mejor describa lo que la persona quiere que pase, y bajá la
 confianza. Si no encaja en ninguna con claridad, usá "otro" — es una respuesta válida y buena:
@@ -210,6 +214,48 @@ Devolvé el JSON.`;
 }
 
 /**
+ * Valida y ordena lo que devolvió el modelo. Pura (no llama a nada) para poder probarla.
+ *
+ * - Una intención que no está en la lista es lo mismo que no haber contestado: si se dejara pasar,
+ *   ningún ramal la reconocería y el mensaje se perdería en silencio. Devuelve `null`.
+ * - `tambien` son las OTRAS cosas que el mensaje dice. Un técnico escribe "Ok voy... ¿quién me
+ *   abre?" y eso son dos: la principal es que va, y además pregunta quién le abre. Antes se
+ *   perdía la segunda, y cada pérdida se arreglaba con un parche puntual. Se filtra a intenciones
+ *   que existen, sin repetir y sin la principal, y con techo: un mensaje que "dice todo" es un
+ *   modelo dudando, no un técnico pidiendo siete cosas.
+ */
+function normalizarRespuesta(datos) {
+    if (!NOMBRES.includes(datos?.intencion)) return null;
+
+    const tambien = [];
+    if (Array.isArray(datos.tambien)) {
+        for (const x of datos.tambien) {
+            if (NOMBRES.includes(x) && x !== datos.intencion && x !== 'otro' && !tambien.includes(x)) tambien.push(x);
+            if (tambien.length >= 3) break;
+        }
+    }
+
+    return {
+        intencion: datos.intencion,
+        confianza: Number(datos.confianza) || 0,
+        // Va aparte de la intención porque NO es excluyente: "tengo llave y voy en 2hs" dice
+        // las dos cosas, y obligar a elegir una perdía la que tiene consecuencia (mandarle o
+        // no el contacto de ingreso a alguien que acaba de decir que no lo necesita).
+        entraSolo: datos.entraSolo === true || datos.intencion === 'entra_solo',
+        tambien,
+        motivo: String(datos.motivo || '').slice(0, 120),
+    };
+}
+
+/**
+ * ¿El mensaje dice ESTA cosa, aunque no sea la principal? Es lo que usan los ramales que, después
+ * de atender lo principal, tienen que contestar lo otro que el técnico preguntó en el mismo renglón.
+ */
+function tambienDice(ruteo, intencion) {
+    return !!ruteo && (ruteo.intencion === intencion || (Array.isArray(ruteo.tambien) && ruteo.tambien.includes(intencion)));
+}
+
+/**
  * Clasifica un mensaje entrante del proveedor.
  *
  * @returns {{intencion:string, confianza:number, motivo:string}|null}
@@ -234,22 +280,12 @@ async function clasificarMensajeProveedor({ texto, contexto = {} } = {}) {
         const crudo = String(respuesta?.text || '').replace(/```json|```/g, '').trim();
         const datos = JSON.parse(crudo);
 
-        // Una intención que no está en la lista es lo mismo que no haber contestado: si se dejara
-        // pasar, ningún ramal la reconocería y el mensaje se perdería en silencio.
-        if (!NOMBRES.includes(datos?.intencion)) {
+        const interpretada = normalizarRespuesta(datos);
+        if (!interpretada) {
             console.error(`🧭 El ruteo devolvió una intención desconocida ("${datos?.intencion}"). Se sigue por texto.`);
             return null;
         }
-
-        return {
-            intencion: datos.intencion,
-            confianza: Number(datos.confianza) || 0,
-            // Va aparte de la intención porque NO es excluyente: "tengo llave y voy en 2hs" dice
-            // las dos cosas, y obligar a elegir una perdía la que tiene consecuencia (mandarle o
-            // no el contacto de ingreso a alguien que acaba de decir que no lo necesita).
-            entraSolo: datos.entraSolo === true || datos.intencion === 'entra_solo',
-            motivo: String(datos.motivo || '').slice(0, 120),
-        };
+        return interpretada;
     } catch (err) {
         // Que el ruteo falle NO puede dejar sin respuesta al técnico. Se vuelve al camino viejo.
         console.error(`🧭 El ruteo por IA falló (${err.message}). Se sigue con las condiciones de texto.`);
@@ -296,4 +332,4 @@ function seActiva(intencion, porTexto, ruteo, texto = '') {
 
 // `conTimeout` se exporta para que `hilo-del-vecino.js` use LA MISMA política de espera y no haya
 // dos criterios distintos de cuánto se le aguanta al modelo antes de seguir sin él.
-module.exports = { armarPrompt, clasificarMensajeProveedor, seActiva, conTimeout, INTENCIONES, ACTIVO };
+module.exports = { normalizarRespuesta, tambienDice, armarPrompt, clasificarMensajeProveedor, seActiva, conTimeout, INTENCIONES, ACTIVO };

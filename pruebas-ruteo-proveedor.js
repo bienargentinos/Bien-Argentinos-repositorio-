@@ -201,5 +201,52 @@ console.log('\n── EL MODELO LEE LA CONVERSACIÓN, NO SOLO EL MENSAJE ──'
     verificar('index.js le pasa `conversacionReciente` al clasificador', /conversacionReciente:/.test(INDEX), true);
 }
 
+console.log('\n── UN MENSAJE PUEDE DECIR DOS COSAS (paso 2) ──');
+{
+    const { normalizarRespuesta, tambienDice, INTENCIONES: INT } = require('./ruteo-proveedor');
+
+    const r = normalizarRespuesta({ intencion: 'confirma_que_va', tambien: ['pide_contacto_de_ingreso'], confianza: 0.9, motivo: 'x' });
+    verificar('devuelve la principal y lo que también dice', r.intencion === 'confirma_que_va' && r.tambien.join() === 'pide_contacto_de_ingreso', true);
+    verificar('una intención principal desconocida sigue siendo `null` (no se cuela)', normalizarRespuesta({ intencion: 'inventada' }), null);
+    verificar('`tambien` descarta lo que no existe', normalizarRespuesta({ intencion: 'confirma_que_va', tambien: ['inventada', 'pide_contacto_de_ingreso'] }).tambien.join(), 'pide_contacto_de_ingreso');
+    verificar('`tambien` no repite la principal', normalizarRespuesta({ intencion: 'confirma_que_va', tambien: ['confirma_que_va'] }).tambien.length, 0);
+    verificar('`tambien` no repite entre sí', normalizarRespuesta({ intencion: 'confirma_que_va', tambien: ['entra_solo', 'entra_solo'] }).tambien.length, 1);
+    verificar('`otro` no es "también": no dice nada', normalizarRespuesta({ intencion: 'confirma_que_va', tambien: ['otro'] }).tambien.length, 0);
+    verificar('`tambien` tiene techo de 3', normalizarRespuesta({ intencion: 'otro', tambien: Object.keys(INT).filter(n => n !== 'otro') }).tambien.length, 3);
+    verificar('`tambien` que no es lista no rompe', normalizarRespuesta({ intencion: 'confirma_que_va', tambien: 'pide_contacto_de_ingreso' }).tambien.length, 0);
+    verificar('sin `tambien` queda vacío (el modelo viejo sigue andando)', normalizarRespuesta({ intencion: 'otro' }).tambien.length, 0);
+
+    verificar('tambienDice: la secundaria cuenta', tambienDice(r, 'pide_contacto_de_ingreso'), true);
+    verificar('tambienDice: la principal cuenta', tambienDice(r, 'confirma_que_va'), true);
+    verificar('tambienDice: lo que no dijo, no', tambienDice(r, 'informa_resuelto'), false);
+    verificar('tambienDice: sin ruteo (null) es falso, no revienta', tambienDice(null, 'pide_contacto_de_ingreso'), false);
+
+    // `seActiva` NO cambia: sigue mirando solo la principal. Si mirara también las secundarias, dos
+    // ramales se activarían a la vez y el primero que corriera se llevaría el mensaje.
+    verificar('seActiva sigue mirando solo la principal', seActiva('pide_contacto_de_ingreso', false, r, 'x'), false);
+}
+
+console.log('\n── LA RESPUESTA LIBRE TAMBIÉN LEE EL HILO (paso 3) ──');
+{
+    const fs = require('fs');
+    const path = require('path');
+    const INDEX = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+    const fn = INDEX.slice(INDEX.indexOf('async function generarRespuestaTecnicoLibre('));
+    const cuerpo = fn.slice(0, fn.indexOf('// ── Utilidad: Extrae nombre y depto'));
+
+    verificar('la respuesta libre acepta `conversacionReciente`', /conversacionReciente = \[\]/.test(cuerpo.slice(0, 400)), true);
+    verificar('el prompt incluye lo que hablaron', /Lo último que hablaron/.test(cuerpo), true);
+    verificar('sin hilo se lo dice, no se calla', /No hay nada hablado antes/.test(cuerpo), true);
+    verificar('ordena leer el hilo primero y preguntar de qué edificio si no hay ninguno',
+        /PRIMERO LEÉ LO QUE HABLARON/.test(cuerpo) && /¿de qué edificio me hablás\?/.test(cuerpo), true);
+    verificar('prohíbe el "aguarde un momento" sin acción real',
+        /NUNCA le digas "aguarde un momento"/.test(cuerpo), true);
+    verificar('ya no le ordena decir "lo estoy confirmando y te respondo en breve"',
+        /lo estás confirmando y le respondés en breve/.test(cuerpo), false);
+    verificar('quien la llama le pasa el hilo', /conversacionReciente: conversacionRecienteDe\(historial, msgBody\)/.test(INDEX), true);
+    verificar('el clasificador y la respuesta libre usan el MISMO armado del hilo',
+        (INDEX.match(/conversacionRecienteDe\(/g) || []).length >= 3, true);
+}
+
 console.log(fallos === 0 ? '\n✅ TODO BIEN\n' : `\n❌ ${fallos} verificación(es) fallaron\n`);
 process.exit(fallos === 0 ? 0 : 1);

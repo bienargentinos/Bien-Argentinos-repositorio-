@@ -2619,10 +2619,23 @@ instrucciones le piden usar `otro` con confianza baja en vez de forzar una inten
   se asume, o se perdería un renglón anterior.
 - **Sigue siendo el MISMO ruteo**: mismas intenciones, mismo respaldo por texto, mismo `RUTEO_IA=off`.
   Cambia lo que el modelo ve, no qué ramal hace qué.
-- **Lo que NO resuelve** (pasos 2 y 3 de lo hablado con Daniel, sin hacer): el ruteo devuelve **una**
-  intención por mensaje --"Ok voy... ¿quién me abre?" son dos cosas, y los dos arreglos puntuales de
-  `confirma_que_va` y `pide_contacto_de_ingreso` son parches de eso--, y la respuesta libre del modelo
-  (`generarRespuestaTecnicoLibre`) **todavía ve solo el mensaje suelto**, no el hilo.
+- **Paso 2 (03/10): un mensaje puede decir dos cosas.** El clasificador devuelve además **`tambien`**: las
+  otras intenciones que el mensaje dice ("Ok voy... ¿quién me abre?" → `confirma_que_va` +
+  `["pide_contacto_de_ingreso"]`). `normalizarRespuesta()` (pura) lo filtra: solo intenciones que
+  existen, sin repetir, sin la principal, sin `otro`, con techo de 3. `tambienDice(ruteo, intencion)` lo
+  consulta. **`seActiva` NO cambió y sigue mirando solo la principal**: si mirara también las
+  secundarias, dos ramales se activarían a la vez y el primero se llevaría el mensaje. Hoy lo usa un
+  solo lugar: la rama de "confirmó que va" contesta quién abre si el modelo lo marcó como "también"
+  (con `preguntaQuienLeAbre` por texto como respaldo). **No se generalizó a los 69 ramales**: cada uno
+  que tenga que atender una secundaria hay que cablearlo a mano y probarlo, y no se hace a ciegas.
+- **Paso 3 (03/10): la respuesta libre lee el hilo.** `generarRespuestaTecnicoLibre` recibe
+  `conversacionReciente` (el mismo armado que el clasificador: `conversacionRecienteDe()`). Si el
+  mensaje no se relaciona con ningún hilo ni caso, **pregunta de qué edificio o trabajo le habla**, en
+  vez de inventar. Y se sacó del prompt la frase que fabricaba el *"un momento, estoy con usted"*
+  (*"decile que lo estás confirmando y le respondés en breve"*): ahora tiene **prohibido** prometer
+  que contesta después si no hay una acción real pendiente.
+- **Lo que sigue sin hacerse**: el `ruteoDelMensaje` solo corre para **proveedores** (`datosEmisor.rol`),
+  no para el vecino; y las reglas de prompt no las cubre ninguna prueba automática de comportamiento.
 
 > **No se verifica con una prueba automática cuánto mejora**: la respuesta de un modelo no se puede
 > medir sin llamarlo. Se mide con los `🧭` del log. Las pruebas verifican **qué se le muestra** al
